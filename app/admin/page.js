@@ -1,195 +1,429 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useEffect, useState, useCallback } from "react";
+import {
+  Box,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Badge,
+  Button,
+  IconButton,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Textarea,
+  Heading,
+  Spinner,
+  Flex,
+  Spacer,
+  Text,
+  useToast,
+  VStack,
+  HStack,
+} from "@chakra-ui/react";
+import { AddIcon, EditIcon, DeleteIcon } from "@chakra-ui/icons";
 import { createClient } from "@supabase/supabase-js";
-import { FiCheckCircle, FiXCircle } from "react-icons/fi";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-const tabs = [
-  { key: "visits", label: "Visits" },
-  { key: "patients", label: "Patients" },
-  { key: "executives", label: "Executives" },
-];
+/** Utility to format date as YYYY-MM-DD */
+const formatDate = (dateInput) => {
+  if (!dateInput) return "";
+  const d = new Date(dateInput);
+  return d.toISOString().split("T")[0];
+};
 
-function formatDate(dateStr) {
-  if (!dateStr) return "";
-  return new Date(dateStr).toISOString().split("T")[0];
+/** Status color mapping for badges */
+const statusColorScheme = (status) => {
+  switch (status) {
+    case "booked":
+      return "blue";
+    case "pending":
+      return "orange";
+    case "accepted":
+      return "teal";
+    case "postponed":
+      return "yellow";
+    case "rejected":
+      return "red";
+    case "in_progress":
+      return "cyan";
+    case "sample_picked":
+      return "green";
+    case "sample_dropped":
+      return "purple";
+    case "completed":
+      return "green";
+    default:
+      return "gray";
+  }
+};
+
+/** Reusable Modal Form for Visit Create/Edit */
+function VisitModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  visitInitialData,
+  patients,
+  executives,
+  labs,
+  timeSlots,
+  isLoading,
+}) {
+  // Initialize form state from visitInitialData or empty defaults
+  const [formData, setFormData] = useState({
+    patient_id: "",
+    executive_id: "",
+    lab_id: "",
+    visit_date: formatDate(new Date()),
+    time_slot_id: "",
+    address: "",
+    status: "booked",
+    ...visitInitialData,
+  });
+
+  // Because visitInitialData can change (edit different visits)
+  useEffect(() => {
+    if (visitInitialData) {
+      setFormData({
+        patient_id: visitInitialData.patient_id || "",
+        executive_id: visitInitialData.executive_id || "",
+        lab_id: visitInitialData.lab_id || "",
+        visit_date: formatDate(visitInitialData.visit_date) || formatDate(new Date()),
+        // Map time_slot (string) to timeSlots id if possible by slot_name
+        time_slot_id:
+          timeSlots.find((slot) => slot.slot_name === visitInitialData.time_slot)?.id || "",
+        address: visitInitialData.address || "",
+        status: visitInitialData.status || "booked",
+      });
+    } else {
+      setFormData((f) => ({
+        patient_id: "",
+        executive_id: "",
+        lab_id: "",
+        visit_date: formatDate(new Date()),
+        time_slot_id: "",
+        address: "",
+        status: "booked",
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visitInitialData, timeSlots]);
+
+  const handleChange = (field) => (e) => {
+    setFormData((f) => ({ ...f, [field]: e.target.value }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside" isCentered>
+      <ModalOverlay />
+      <ModalContent as="form" onSubmit={handleSubmit}>
+        <ModalHeader>{visitInitialData ? "Edit Visit" : "Create Visit"}</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          <VStack spacing={4} align="stretch">
+            <FormControl isRequired>
+              <FormLabel>Patient</FormLabel>
+              <Select isRequired value={formData.patient_id} onChange={handleChange("patient_id")}>
+                <option value="">Select Patient</option>
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.phone})
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>HV Executive</FormLabel>
+              <Select value={formData.executive_id} onChange={handleChange("executive_id")}>
+                <option value="">Unassigned</option>
+                {executives.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name} ({e.status})
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>Lab</FormLabel>
+              <Select isRequired value={formData.lab_id} onChange={handleChange("lab_id")}>
+                <option value="">Select Lab</option>
+                {labs.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>Visit Date</FormLabel>
+              <Input
+                type="date"
+                isRequired
+                value={formData.visit_date}
+                onChange={handleChange("visit_date")}
+                min={formatDate(new Date())}
+              />
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>Time Slot</FormLabel>
+              <Select isRequired value={formData.time_slot_id} onChange={handleChange("time_slot_id")}>
+                <option value="">Select Time Slot</option>
+                {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
+                  <option key={id} value={id}>
+                    {slot_name} ({start_time.slice(0, 5)} - {end_time.slice(0, 5)})
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>Address</FormLabel>
+              <Textarea
+                isRequired
+                value={formData.address}
+                onChange={handleChange("address")}
+                placeholder="Address for sample collection"
+                rows={3}
+              />
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>Status</FormLabel>
+              <Select value={formData.status} onChange={handleChange("status")}>
+                {[
+                  "booked",
+                  "accepted",
+                  "pending",
+                  "postponed",
+                  "rejected",
+                  "in_progress",
+                  "sample_picked",
+                  "sample_dropped",
+                  "completed",
+                ].map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace(/_/g, " ").toUpperCase()}
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+          </VStack>
+        </ModalBody>
+        <ModalFooter>
+          <Button isLoading={isLoading} type="submit" colorScheme="brand" mr={3}>
+            {visitInitialData ? "Update" : "Create"}
+          </Button>
+          <Button onClick={onClose} variant="ghost">
+            Cancel
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
 }
 
-// Reusable Input wrapper for labels and error display
-const InputField = ({
-  label,
-  children,
-  required = false,
-  error,
-  className = "",
-  ...props
-}) => (
-  <label className={`flex flex-col text-sm mb-2 ${className}`} {...props}>
-    <span className="font-semibold">
-      {label} {required && <span className="text-red-500">*</span>}
-    </span>
-    {children}
-    {error && <span className="text-red-600 text-xs mt-1">{error}</span>}
-  </label>
-);
+/** Modal Form for Creating Patients */
+function PatientModal({ isOpen, onClose, onSubmit, isLoading }) {
+  const [formData, setFormData] = useState({ name: "", phone: "", dob: "", gender: "", email: "" });
 
-// Patient Booking Form (can be adapted for patient-facing usage)
-export function PatientBookingForm({ formData, setFormData, onSubmit, errors }) {
+  const handleChange = (field) => (e) => {
+    setFormData((f) => ({ ...f, [field]: e.target.value }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  // Reset form when modal closes
+  useEffect(() => {
+    if (!isOpen) setFormData({ name: "", phone: "", dob: "", gender: "", email: "" });
+  }, [isOpen]);
+
   return (
-    <form
-      onSubmit={onSubmit}
-      className="bg-gray-50 p-6 rounded max-w-md mx-auto shadow-md"
-      noValidate
-    >
-      <h2 className="text-xl font-semibold mb-4 text-center">Book a Visit</h2>
+    <Modal isOpen={isOpen} onClose={onClose} size="md" isCentered>
+      <ModalOverlay />
+      <ModalContent as="form" onSubmit={handleSubmit}>
+        <ModalHeader>Create New Patient</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          <VStack spacing={4}>
+            <FormControl isRequired>
+              <FormLabel>Name</FormLabel>
+              <Input value={formData.name} onChange={handleChange("name")} />
+            </FormControl>
+            <FormControl isRequired>
+              <FormLabel>Phone</FormLabel>
+              <Input value={formData.phone} onChange={handleChange("phone")} />
+            </FormControl>
+            <FormControl>
+              <FormLabel>DOB</FormLabel>
+              <Input type="date" value={formData.dob} onChange={handleChange("dob")} />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Gender</FormLabel>
+              <Select value={formData.gender} onChange={handleChange("gender")}>
+                <option value="">Select gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </Select>
+            </FormControl>
+            <FormControl>
+              <FormLabel>Email</FormLabel>
+              <Input type="email" value={formData.email} onChange={handleChange("email")} />
+            </FormControl>
+          </VStack>
+        </ModalBody>
+        <ModalFooter>
+          <Button isLoading={isLoading} colorScheme="brand" type="submit" mr={3}>
+            Create
+          </Button>
+          <Button onClick={onClose} variant="ghost">
+            Cancel
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+}
 
-      <InputField
-        label="Name"
-        required
-        error={errors.name}
-      >
-        <input
-          type="text"
-          className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={formData.name || ""}
-          onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
-          required
-          placeholder="Full name"
-        />
-      </InputField>
+/** Modal form for Executives creation */
+function ExecutiveModal({ isOpen, onClose, onSubmit, isLoading }) {
+  const [formData, setFormData] = useState({ name: "", phone: "", status: "active" });
 
-      <InputField
-        label="Phone"
-        required
-        error={errors.phone}
-      >
-        <input
-          type="tel"
-          className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={formData.phone || ""}
-          onChange={(e) => setFormData((f) => ({ ...f, phone: e.target.value }))}
-          required
-          placeholder="Phone number"
-          pattern="^\+?[0-9\s\-]+$"
-        />
-      </InputField>
+  const handleChange = (field) => (e) => {
+    setFormData((f) => ({ ...f, [field]: e.target.value }));
+  };
 
-      <InputField label="Date of Birth" error={errors.dob}>
-        <input
-          type="date"
-          className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={formData.dob || ""}
-          onChange={(e) => setFormData((f) => ({ ...f, dob: e.target.value }))}
-          max={formatDate(new Date())}
-        />
-      </InputField>
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
 
-      <InputField label="Gender" error={errors.gender}>
-        <select
-          className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={formData.gender || ""}
-          onChange={(e) => setFormData((f) => ({ ...f, gender: e.target.value }))}
-        >
-          <option value="">Select gender</option>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
-          <option value="other">Other</option>
-        </select>
-      </InputField>
+  useEffect(() => {
+    if (!isOpen) setFormData({ name: "", phone: "", status: "active" });
+  }, [isOpen]);
 
-      <InputField label="Email" error={errors.email}>
-        <input
-          type="email"
-          className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={formData.email || ""}
-          onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
-          placeholder="Email (optional)"
-        />
-      </InputField>
-
-      <button
-        type="submit"
-        className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition"
-      >
-        Submit Booking
-      </button>
-    </form>
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="md" isCentered>
+      <ModalOverlay />
+      <ModalContent as="form" onSubmit={handleSubmit}>
+        <ModalHeader>Create HV Executive</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          <VStack spacing={4}>
+            <FormControl isRequired>
+              <FormLabel>Name</FormLabel>
+              <Input value={formData.name} onChange={handleChange("name")} />
+            </FormControl>
+            <FormControl isRequired>
+              <FormLabel>Phone</FormLabel>
+              <Input value={formData.phone} onChange={handleChange("phone")} />
+            </FormControl>
+            <FormControl isRequired>
+              <FormLabel>Status</FormLabel>
+              <Select value={formData.status} onChange={handleChange("status")}>
+                <option value="active">Active</option>
+                <option value="available">Available</option>
+                <option value="inactive">Inactive</option>
+              </Select>
+            </FormControl>
+          </VStack>
+        </ModalBody>
+        <ModalFooter>
+          <Button isLoading={isLoading} colorScheme="brand" type="submit" mr={3}>
+            Create
+          </Button>
+          <Button onClick={onClose} variant="ghost">
+            Cancel
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 }
 
 export default function AdminDashboard() {
-  const [tab, setTab] = useState("visits");
+  // Tabs
+  const [tabIndex, setTabIndex] = useState(0);
 
-  // General states
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(null);
-
-  // Visits
+  // Entity lists and states
   const [visits, setVisits] = useState([]);
-  const [visitForm, setVisitForm] = useState({
-    patient_id: "",
-    executive_id: "",
-    lab_id: "",
-    visit_date: "",
-    time_slot: "",
-    address: "",
-    status: "booked",
-  });
-  const [editingVisit, setEditingVisit] = useState(null);
-  const [selectedVisitIds, setSelectedVisitIds] = useState(new Set());
-
-  // Patients
   const [patients, setPatients] = useState([]);
-  const [patientForm, setPatientForm] = useState({
-    name: "",
-    phone: "",
-    dob: "",
-    gender: "",
-    email: "",
-  });
-
-  // Executives
   const [executives, setExecutives] = useState([]);
-  const [executiveForm, setExecutiveForm] = useState({
-    name: "",
-    phone: "",
-    status: "active",
-  });
-
-  // Labs
   const [labs, setLabs] = useState([]);
+  const [timeSlots, setTimeSlots] = useState([]);
 
-  // Validation errors
-  const [visitErrors, setVisitErrors] = useState({});
-  const [patientErrors, setPatientErrors] = useState({});
+  // Loading and error states
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const toast = useToast();
 
-  // Load all data initially
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  // Modals states for create/edit
+  const {
+    isOpen: isVisitModalOpen,
+    onOpen: openVisitModal,
+    onClose: closeVisitModal,
+  } = useDisclosure();
+  const {
+    isOpen: isPatientModalOpen,
+    onOpen: openPatientModal,
+    onClose: closePatientModal,
+  } = useDisclosure();
+  const {
+    isOpen: isExecutiveModalOpen,
+    onOpen: openExecutiveModal,
+    onClose: closeExecutiveModal,
+  } = useDisclosure();
 
-  async function fetchAll() {
+  // Visit to edit
+  const [editingVisit, setEditingVisit] = useState(null);
+
+  // Loading states for modals
+  const [visitModalLoading, setVisitModalLoading] = useState(false);
+  const [patientModalLoading, setPatientModalLoading] = useState(false);
+  const [executiveModalLoading, setExecutiveModalLoading] = useState(false);
+
+  // Fetch all data
+  const fetchAll = useCallback(async () => {
     setLoading(true);
-    setErrorMsg(null);
+    setErrorMsg("");
     try {
-      const execs = await supabase
-        .from("executives")
-        .select("id, name, phone, status")
-        .order("name");
-      setExecutives(execs.data || []);
-
-      const pats = await supabase
-        .from("patients")
-        .select("id, name, phone, dob, gender, email")
-        .order("name");
-      setPatients(pats.data || []);
-
-      const vsts = await supabase
+      // Fetch Visits with joins to patient/executive/lab names
+      const { data: visitsData, error: visitsError } = await supabase
         .from("visits")
         .select(
           `
@@ -200,738 +434,388 @@ export default function AdminDashboard() {
           `
         )
         .order("visit_date", { ascending: false });
-      setVisits(vsts.data || []);
+      if (visitsError) throw visitsError;
 
-      const labret = await supabase.from("labs").select("id, name").order("name");
-      setLabs(labret.data || []);
-    } catch (e) {
-      console.error(e);
-      setErrorMsg("Error loading data. Check console.");
+      const { data: patientsData, error: patientsError } = await supabase
+        .from("patients")
+        .select("id, name, phone, dob, gender, email")
+        .order("name");
+      if (patientsError) throw patientsError;
+
+      const { data: executivesData, error: executivesError } = await supabase
+        .from("executives")
+        .select("id, name, phone, status")
+        .order("name");
+      if (executivesError) throw executivesError;
+
+      const { data: labsData, error: labsError } = await supabase
+        .from("labs")
+        .select("id, name")
+        .order("name");
+      if (labsError) throw labsError;
+
+      const { data: timeSlotsData, error: timeSlotsError } = await supabase
+        .from("visit_time_slots")
+        .select("id, slot_name, start_time, end_time")
+        .order("start_time");
+      if (timeSlotsError) throw timeSlotsError;
+
+      setVisits(visitsData || []);
+      setPatients(patientsData || []);
+      setExecutives(executivesData || []);
+      setLabs(labsData || []);
+      setTimeSlots(timeSlotsData || []);
+    } catch (error) {
+      setErrorMsg("Failed to load data. Please reload or try later.");
+      console.error(error);
     }
     setLoading(false);
-  }
+  }, []);
 
-  // --- Helper: Validation
-  function validateVisitForm(form) {
-    const errors = {};
-    if (!form.patient_id) errors.patient_id = "Patient is required";
-    if (!form.lab_id) errors.lab_id = "Lab is required";
-    if (!form.visit_date) errors.visit_date = "Date is required";
-    if (!form.time_slot) errors.time_slot = "Time slot is required";
-    if (!form.address) errors.address = "Address is required";
-    return errors;
-  }
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
 
-  function validatePatientForm(form) {
-    const errors = {};
-    if (!form.name) errors.name = "Name is required";
-    if (!form.phone) errors.phone = "Phone is required";
-    return errors;
-  }
-
-  // --- Visits CRUD and handling
-
-  async function handleVisitFormSubmit(e) {
-    e.preventDefault();
-    setErrorMsg(null);
-
-    const normalizedVisitForm = {
-      ...visitForm,
-      patient_id: visitForm.patient_id || null,
-      executive_id: visitForm.executive_id || null,
-      lab_id: visitForm.lab_id || null,
-      visit_date: visitForm.visit_date || null,
-      time_slot: visitForm.time_slot?.trim() || null,
-      address: visitForm.address?.trim() || null,
-      status: visitForm.status || "booked",
-    };
-
-    const errors = validateVisitForm(normalizedVisitForm);
-    setVisitErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-
-    setLoading(true);
+  // Visit create or update handler
+  const handleVisitSave = async (formData) => {
+    setVisitModalLoading(true);
     try {
-      if (editingVisit) {
+      const timeSlot = timeSlots.find((slot) => slot.id === formData.time_slot_id);
+      if (!timeSlot) throw new Error("Invalid time slot selected");
+
+      const visitPayload = {
+        patient_id: formData.patient_id,
+        executive_id: formData.executive_id || null,
+        lab_id: formData.lab_id,
+        visit_date: formData.visit_date,
+        time_slot: timeSlot.slot_name,
+        address: formData.address,
+        status: formData.status,
+      };
+
+      if (editingVisit && editingVisit.id) {
         const { error } = await supabase
           .from("visits")
-          .update(normalizedVisitForm)
+          .update(visitPayload)
           .eq("id", editingVisit.id);
         if (error) throw error;
-      } else {
-        const { error } = await supabase.from("visits").insert([normalizedVisitForm]);
-        if (error) throw error;
-      }
 
-      setVisitForm({
-        patient_id: "",
-        executive_id: "",
-        lab_id: "",
-        visit_date: "",
-        time_slot: "",
-        address: "",
-        status: "booked",
-      });
+        toast({
+          title: "Visit updated",
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+        });
+      } else {
+        const { error } = await supabase.from("visits").insert([visitPayload]);
+        if (error) throw error;
+
+        toast({
+          title: "Visit created",
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+        });
+      }
+      closeVisitModal();
       setEditingVisit(null);
-      setSelectedVisitIds(new Set());
       await fetchAll();
     } catch (error) {
-      setErrorMsg("Failed to save visit: " + (error.message || JSON.stringify(error)));
-      console.error("Insert/update visit error:", error);
+      toast({
+        title: "Error saving visit",
+        description: error.message || "Unknown error",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      console.error(error);
     }
-    setLoading(false);
-  }
+    setVisitModalLoading(false);
+  };
 
-  function handleVisitEdit(visit) {
-    setEditingVisit(visit);
-    setVisitForm({
-      patient_id: visit.patient_id || "",
-      executive_id: visit.executive_id || "",
-      lab_id: visit.lab_id || "",
-      visit_date: formatDate(visit.visit_date),
-      time_slot: visit.time_slot || "",
-      address: visit.address || "",
-      status: visit.status || "booked",
-    });
-  }
-
-  async function handleVisitDelete(visit) {
-    if (!window.confirm("Delete this visit?")) return;
-    setLoading(true);
+  // Patient create handler
+  const handlePatientCreate = async (formData) => {
+    setPatientModalLoading(true);
     try {
-      const { error } = await supabase.from("visits").delete().eq("id", visit.id);
+      const { error } = await supabase.from("patients").insert([formData]);
       if (error) throw error;
+      toast({
+        title: "Patient added",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+      closePatientModal();
       await fetchAll();
-    } catch (e) {
-      setErrorMsg("Failed to delete visit.");
-      console.error(e);
+    } catch (error) {
+      toast({
+        title: "Error adding patient",
+        description: error.message || "Unknown error",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      console.error(error);
     }
-    setLoading(false);
-  }
+    setPatientModalLoading(false);
+  };
 
-  async function handleVisitStatusChange(visit, status) {
-    setLoading(true);
+  // Executive create handler
+  const handleExecutiveCreate = async (formData) => {
+    setExecutiveModalLoading(true);
     try {
-      const { error } = await supabase.from("visits").update({ status }).eq("id", visit.id);
+      const { error } = await supabase.from("executives").insert([formData]);
       if (error) throw error;
+      toast({
+        title: "Executive added",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+      closeExecutiveModal();
       await fetchAll();
-    } catch (e) {
-      setErrorMsg("Failed to update visit status.");
-      console.error(e);
+    } catch (error) {
+      toast({
+        title: "Error adding executive",
+        description: error.message || "Unknown error",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      console.error(error);
     }
-    setLoading(false);
-  }
+    setExecutiveModalLoading(false);
+  };
 
-  // Bulk select toggling for visits
-  function toggleVisitSelection(id) {
-    setSelectedVisitIds((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      return newSet;
-    });
-  }
-
-  function toggleSelectAllVisits() {
-    if (selectedVisitIds.size === visits.length) setSelectedVisitIds(new Set());
-    else setSelectedVisitIds(new Set(visits.map((v) => v.id)));
-  }
-
-  // --- Patients Management
-
-  async function handlePatientFormSubmit(e) {
-    e.preventDefault();
-    setErrorMsg(null);
-
-    const errors = validatePatientForm(patientForm);
-    setPatientErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-
+  // Delete visit
+  const handleVisitDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this visit?")) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from("patients").insert([patientForm]);
+      const { error } = await supabase.from("visits").delete().eq("id", id);
       if (error) throw error;
-      setPatientForm({
-        name: "",
-        phone: "",
-        dob: "",
-        gender: "",
-        email: "",
+      toast({
+        title: "Visit deleted",
+        status: "info",
+        duration: 3000,
+        isClosable: true,
       });
       await fetchAll();
-    } catch (e) {
-      setErrorMsg("Failed to add patient.");
-      console.error(e);
-    }
-    setLoading(false);
-  }
-
-  // --- Executives Management
-
-  async function handleExecutiveFormSubmit(e) {
-    e.preventDefault();
-    setErrorMsg(null);
-    setLoading(true);
-    try {
-      const { error } = await supabase.from("executives").insert([executiveForm]);
-      if (error) throw error;
-      setExecutiveForm({
-        name: "",
-        phone: "",
-        status: "active",
+    } catch (error) {
+      toast({
+        title: "Error deleting visit",
+        description: error.message || "Unknown error",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
       });
-      await fetchAll();
-    } catch (e) {
-      setErrorMsg("Failed to add executive.");
-      console.error(e);
+      console.error(error);
     }
     setLoading(false);
-  }
+  };
 
-  async function handleExecutiveStatusChange(executive, status) {
-    setLoading(true);
-    try {
-      const { error } = await supabase.from("executives").update({ status }).eq("id", executive.id);
-      if (error) throw error;
-      await fetchAll();
-    } catch (e) {
-      setErrorMsg("Failed to update executive.");
-      console.error(e);
-    }
-    setLoading(false);
-  }
-
-  // --- UI Components ---
-
-  const tabButton = (t) => (
-    <button
-      key={t.key}
-      aria-selected={tab === t.key}
-      role="tab"
-      className={`px-4 py-2 border-b-4 font-semibold ${
-        tab === t.key
-          ? "border-blue-700 text-blue-700"
-          : "border-transparent hover:text-blue-600"
-      }`}
-      onClick={() => setTab(t.key)}
-    >
-      {t.label}
-    </button>
-  );
-
-  // Render check or cross icon based on condition
-  const yesNoIcon = (bool) =>
-    bool ? (
-      <FiCheckCircle className="text-green-500 inline-block" aria-label="Yes" />
-    ) : (
-      <FiXCircle className="text-red-500 inline-block" aria-label="No" />
-    );
+  // Tab change handler
+  const handleTabsChange = (index) => {
+    setTabIndex(index);
+  };
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <h1 className="text-4xl mb-6 font-extrabold text-center">Admin Dashboard</h1>
+    <Box minH="100vh" p={[4, 8]} bg="gray.50">
+      {/* Global Header */}
+      <Flex align="center" mb={8}>
+        <Heading color="brand.600" size="xl" fontWeight="extrabold">
+          Labbit Admin Dashboard
+        </Heading>
+        <Spacer />
+        <Button colorScheme="brand" onClick={() => openVisitModal()}>
+          <AddIcon mr={1} /> New Visit
+        </Button>
+      </Flex>
 
-      <div role="tablist" className="flex space-x-4 border-b mb-6">
-        {tabs.map(tabButton)}
-      </div>
-
+      {/* Error alert */}
       {errorMsg && (
-        <div className="mb-4 px-4 py-3 bg-red-100 text-red-700 rounded border border-red-400">
+        <Alert status="error" mb={6} borderRadius="md">
+          <AlertIcon />
           {errorMsg}
-        </div>
+        </Alert>
       )}
 
-      {loading && (
-        <div className="text-center text-gray-600 mb-6" role="status" aria-live="polite">
-          Loading...
-        </div>
-      )}
+      <Tabs index={tabIndex} onChange={handleTabsChange} isLazy variant="enclosed-colored" colorScheme="brand">
+        <TabList>
+          <Tab>Visits</Tab>
+          <Tab>Patients</Tab>
+          <Tab>Executives</Tab>
+        </TabList>
 
-      {/* Visits Tab */}
-      {tab === "visits" && (
-        <>
-          <form
-            onSubmit={handleVisitFormSubmit}
-            className="mb-6 bg-white p-6 rounded shadow space-y-4"
-            aria-label="Create or Edit Visit"
-            noValidate
-          >
-            <h2 className="text-xl font-semibold mb-4">
-              {editingVisit ? "Edit Visit" : "Create New Visit"}
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <InputField
-                label="Patient"
-                required
-                error={visitErrors.patient_id}
-              >
-                <select
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  aria-required="true"
-                  value={visitForm.patient_id}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, patient_id: e.target.value }))
-                  }
-                >
-                  <option value="">Select Patient</option>
-                  {patients.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.phone})
-                    </option>
+        <TabPanels>
+          {/* Visits Tab */}
+          <TabPanel>
+            {loading ? (
+              <Spinner size="lg" />
+            ) : visits.length === 0 ? (
+              <Text>No visits found.</Text>
+            ) : (
+              <Table variant="simple" size="sm" bg="white" rounded="xl" boxShadow="lg" overflowX="auto">
+                <Thead bg="gray.100">
+                  <Tr>
+                    <Th>Visit Code</Th>
+                    <Th>Date</Th>
+                    <Th>Time Slot</Th>
+                    <Th>Patient</Th>
+                    <Th>Executive</Th>
+                    <Th>Lab</Th>
+                    <Th>Status</Th>
+                    <Th isNumeric>Actions</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {visits.map((visit) => (
+                    <Tr key={visit.id}>
+                      <Td>{visit.visit_code || "N/A"}</Td>
+                      <Td>{formatDate(visit.visit_date)}</Td>
+                      <Td>{visit.time_slot}</Td>
+                      <Td>{visit.patient?.name || "Unknown"}</Td>
+                      <Td>{visit.executive?.name || "Unassigned"}</Td>
+                      <Td>{visit.lab?.name || "N/A"}</Td>
+                      <Td>
+                        <Badge colorScheme={statusColorScheme(visit.status)} rounded="md" px={2}>
+                          {visit.status.replace(/_/g, " ").toUpperCase()}
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>
+                        <HStack spacing={1} justifyContent="flex-end">
+                          <IconButton
+                            aria-label="Edit visit"
+                            icon={<EditIcon />}
+                            size="sm"
+                            colorScheme="brand"
+                            onClick={() => {
+                              setEditingVisit(visit);
+                              openVisitModal();
+                            }}
+                          />
+                          <IconButton
+                            aria-label="Delete visit"
+                            icon={<DeleteIcon />}
+                            size="sm"
+                            colorScheme="red"
+                            onClick={() => handleVisitDelete(visit.id)}
+                          />
+                        </HStack>
+                      </Td>
+                    </Tr>
                   ))}
-                </select>
-              </InputField>
+                </Tbody>
+              </Table>
+            )}
 
-              <InputField label="HV Executive">
-                <select
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  value={visitForm.executive_id}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, executive_id: e.target.value }))
-                  }
-                >
-                  <option value="">Unassigned</option>
-                  {executives.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name} ({e.status})
-                    </option>
+            <VisitModal
+              isOpen={isVisitModalOpen}
+              onClose={() => {
+                closeVisitModal();
+                setEditingVisit(null);
+              }}
+              onSubmit={handleVisitSave}
+              visitInitialData={editingVisit}
+              patients={patients}
+              executives={executives}
+              labs={labs}
+              timeSlots={timeSlots}
+              isLoading={visitModalLoading}
+            />
+          </TabPanel>
+
+          {/* Patients Tab */}
+          <TabPanel>
+            <Flex mb={4} justifyContent="flex-end">
+              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={openPatientModal}>
+                Add Patient
+              </Button>
+            </Flex>
+            {loading ? (
+              <Spinner size="lg" />
+            ) : patients.length === 0 ? (
+              <Text>No patients found.</Text>
+            ) : (
+              <Table variant="simple" size="sm" rounded="xl" boxShadow="lg" overflowX="auto" bg="white">
+                <Thead bg="gray.100">
+                  <Tr>
+                    <Th>Name</Th>
+                    <Th>Phone</Th>
+                    <Th>DOB</Th>
+                    <Th>Gender</Th>
+                    <Th>Email</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {patients.map((patient) => (
+                    <Tr key={patient.id}>
+                      <Td>{patient.name}</Td>
+                      <Td>{patient.phone}</Td>
+                      <Td>{patient.dob ? formatDate(patient.dob) : "N/A"}</Td>
+                      <Td>{patient.gender || "N/A"}</Td>
+                      <Td>{patient.email || "N/A"}</Td>
+                    </Tr>
                   ))}
-                </select>
-              </InputField>
+                </Tbody>
+              </Table>
+            )}
 
-              <InputField label="Lab" required error={visitErrors.lab_id}>
-                <select
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  aria-required="true"
-                  value={visitForm.lab_id}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, lab_id: e.target.value }))
-                  }
-                >
-                  <option value="">Select Lab</option>
-                  {labs.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
+            <PatientModal
+              isOpen={isPatientModalOpen}
+              onClose={closePatientModal}
+              onSubmit={handlePatientCreate}
+              isLoading={patientModalLoading}
+            />
+          </TabPanel>
+
+          {/* Executives Tab */}
+          <TabPanel>
+            <Flex mb={4} justifyContent="flex-end">
+              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={openExecutiveModal}>
+                Add Executive
+              </Button>
+            </Flex>
+            {loading ? (
+              <Spinner size="lg" />
+            ) : executives.length === 0 ? (
+              <Text>No executives found.</Text>
+            ) : (
+              <Table variant="simple" size="sm" rounded="xl" boxShadow="lg" overflowX="auto" bg="white">
+                <Thead bg="gray.100">
+                  <Tr>
+                    <Th>Name</Th>
+                    <Th>Phone</Th>
+                    <Th>Status</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {executives.map((exec) => (
+                    <Tr key={exec.id}>
+                      <Td>{exec.name}</Td>
+                      <Td>{exec.phone}</Td>
+                      <Td>{exec.status}</Td>
+                    </Tr>
                   ))}
-                </select>
-              </InputField>
+                </Tbody>
+              </Table>
+            )}
 
-              <InputField label="Visit Date" required error={visitErrors.visit_date}>
-                <input
-                  type="date"
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  aria-required="true"
-                  value={visitForm.visit_date}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, visit_date: e.target.value }))
-                  }
-                  max={formatDate(new Date())}
-                />
-              </InputField>
+            <ExecutiveModal
+              isOpen={isExecutiveModalOpen}
+              onClose={closeExecutiveModal}
+              onSubmit={handleExecutiveCreate}
+              isLoading={executiveModalLoading}
+            />
+          </TabPanel>
+        </TabPanels>
 
-              <InputField label="Time Slot" required error={visitErrors.time_slot}>
-                <input
-                  type="text"
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  aria-required="true"
-                  placeholder="e.g. 8:00–10:00 AM"
-                  value={visitForm.time_slot}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, time_slot: e.target.value }))
-                  }
-                />
-              </InputField>
+      </Tabs>
 
-              <InputField label="Address" required error={visitErrors.address} className="sm:col-span-2">
-                <input
-                  type="text"
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400 w-full"
-                  aria-required="true"
-                  value={visitForm.address}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, address: e.target.value }))
-                  }
-                />
-              </InputField>
-
-              <InputField label="Status">
-                <select
-                  className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  value={visitForm.status}
-                  onChange={(e) =>
-                    setVisitForm((f) => ({ ...f, status: e.target.value }))
-                  }
-                >
-                  {[
-                    "booked",
-                    "accepted",
-                    "postponed",
-                    "rejected",
-                    "pending",
-                    "in_progress",
-                    "sample_picked",
-                    "sample_dropped",
-                  ].map((statusOption) => (
-                    <option key={statusOption} value={statusOption}>
-                      {statusOption.replace(/_/g, " ").toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </InputField>
-            </div>
-
-            <div className="flex justify-end space-x-4">
-              {editingVisit && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingVisit(null);
-                    setVisitForm({
-                      patient_id: "",
-                      executive_id: "",
-                      lab_id: "",
-                      visit_date: "",
-                      time_slot: "",
-                      address: "",
-                      status: "booked",
-                    });
-                    setVisitErrors({});
-                  }}
-                  className="px-4 py-2 rounded border text-gray-700 hover:bg-gray-100"
-                >
-                  Cancel
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-blue-600 text-white rounded px-6 py-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {editingVisit ? "Update Visit" : "Create Visit"}
-              </button>
-            </div>
-          </form>
-
-          {/* Visits Table */}
-          <div className="overflow-x-auto bg-white rounded-lg shadow">
-            <table className="w-full table-auto border-collapse border border-gray-300">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="border border-gray-300 p-2 text-center">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all visits"
-                      checked={selectedVisitIds.size === visits.length && visits.length > 0}
-                      onChange={toggleSelectAllVisits}
-                    />
-                  </th>
-                  <th className="border border-gray-300 p-2 text-left">Visit Code</th>
-                  <th className="border border-gray-300 p-2 text-left">Date</th>
-                  <th className="border border-gray-300 p-2 text-left">Time Slot</th>
-                  <th className="border border-gray-300 p-2 text-left">Patient</th>
-                  <th className="border border-gray-300 p-2 text-left">HV Executive</th>
-                  <th className="border border-gray-300 p-2 text-left">Lab</th>
-                  <th className="border border-gray-300 p-2 text-left">Status</th>
-                  <th className="border border-gray-300 p-2 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visits.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="p-4 text-center text-gray-500">
-                      No visits found.
-                    </td>
-                  </tr>
-                )}
-                {visits.map((v) => (
-                  <tr
-                    key={v.id}
-                    className={selectedVisitIds.has(v.id) ? "bg-blue-50" : ""}
-                  >
-                    <td className="border border-gray-300 p-2 text-center">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select visit ${v.visit_code}`}
-                        checked={selectedVisitIds.has(v.id)}
-                        onChange={() => toggleVisitSelection(v.id)}
-                      />
-                    </td>
-                    <td className="border border-gray-300 p-2">{v.visit_code || "N/A"}</td>
-                    <td className="border border-gray-300 p-2">{formatDate(v.visit_date)}</td>
-                    <td className="border border-gray-300 p-2">{v.time_slot}</td>
-                    <td className="border border-gray-300 p-2">{v.patient?.name || "Unknown"}</td>
-                    <td className="border border-gray-300 p-2">
-                      {v.executive?.name || (
-                        <span className="italic text-gray-400">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="border border-gray-300 p-2">{v.lab?.name || "N/A"}</td>
-                    <td className="border border-gray-300 p-2 capitalize">{v.status}</td>
-                    <td className="border border-gray-300 p-2 text-center space-x-2">
-                      <button
-                        onClick={() => handleVisitEdit(v)}
-                        className="text-blue-600 hover:underline focus:outline-none"
-                        aria-label={`Edit visit ${v.visit_code}`}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleVisitDelete(v)}
-                        className="text-red-600 hover:underline focus:outline-none"
-                        aria-label={`Delete visit ${v.visit_code}`}
-                      >
-                        Delete
-                      </button>
-                      <select
-                        aria-label={`Change status of visit ${v.visit_code}`}
-                        className="border rounded p-1 text-sm"
-                        value={v.status}
-                        onChange={(e) => handleVisitStatusChange(v, e.target.value)}
-                      >
-                        {[
-                          "booked",
-                          "accepted",
-                          "postponed",
-                          "rejected",
-                          "pending",
-                          "in_progress",
-                          "sample_picked",
-                          "sample_dropped",
-                        ].map((statusOption) => (
-                          <option key={statusOption} value={statusOption}>
-                            {statusOption.replace(/_/g, " ")}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Patients Tab */}
-      {tab === "patients" && (
-        <>
-          <form
-            className="mb-6 bg-white p-6 rounded shadow space-y-4 max-w-lg"
-            onSubmit={handlePatientFormSubmit}
-            noValidate
-            aria-label="Add new patient"
-          >
-            <h2 className="text-xl font-semibold mb-4">Add New Patient</h2>
-
-            <InputField label="Name" required error={patientErrors.name}>
-              <input
-                type="text"
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={patientForm.name}
-                onChange={(e) =>
-                  setPatientForm((f) => ({ ...f, name: e.target.value }))
-                }
-                required
-              />
-            </InputField>
-
-            <InputField label="Phone" required error={patientErrors.phone}>
-              <input
-                type="tel"
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={patientForm.phone}
-                onChange={(e) =>
-                  setPatientForm((f) => ({ ...f, phone: e.target.value }))
-                }
-                required
-              />
-            </InputField>
-
-            <InputField label="Date of Birth">
-              <input
-                type="date"
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={patientForm.dob}
-                onChange={(e) =>
-                  setPatientForm((f) => ({ ...f, dob: e.target.value }))
-                }
-                max={formatDate(new Date())}
-              />
-            </InputField>
-
-            <InputField label="Gender">
-              <select
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={patientForm.gender}
-                onChange={(e) =>
-                  setPatientForm((f) => ({ ...f, gender: e.target.value }))
-                }
-              >
-                <option value="">Select gender</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="other">Other</option>
-              </select>
-            </InputField>
-
-            <InputField label="Email">
-              <input
-                type="email"
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={patientForm.email}
-                onChange={(e) =>
-                  setPatientForm((f) => ({ ...f, email: e.target.value }))
-                }
-                placeholder="Optional"
-              />
-            </InputField>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Add Patient
-            </button>
-          </form>
-
-          <div className="overflow-x-auto bg-white rounded shadow">
-            <table className="w-full table-auto border-collapse border border-gray-300">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="border border-gray-300 p-2 text-left">Name</th>
-                  <th className="border border-gray-300 p-2 text-left">Phone</th>
-                  <th className="border border-gray-300 p-2 text-left">DOB</th>
-                  <th className="border border-gray-300 p-2 text-left">Gender</th>
-                  <th className="border border-gray-300 p-2 text-left">Email</th>
-                </tr>
-              </thead>
-              <tbody>
-                {patients.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="p-4 text-center text-gray-500">
-                      No patients found.
-                    </td>
-                  </tr>
-                )}
-                {patients.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-100">
-                    <td className="border border-gray-300 p-2">{p.name}</td>
-                    <td className="border border-gray-300 p-2">{p.phone}</td>
-                    <td className="border border-gray-300 p-2">{formatDate(p.dob)}</td>
-                    <td className="border border-gray-300 p-2 capitalize">{p.gender}</td>
-                    <td className="border border-gray-300 p-2">{p.email || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Executives Tab */}
-      {tab === "executives" && (
-        <>
-          <form
-            className="mb-6 bg-white p-6 rounded shadow space-y-4 max-w-lg"
-            onSubmit={handleExecutiveFormSubmit}
-            noValidate
-            aria-label="Add new executive"
-          >
-            <h2 className="text-xl font-semibold mb-4">Add New HV Executive</h2>
-
-            <InputField label="Name" required>
-              <input
-                type="text"
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                required
-                value={executiveForm.name}
-                onChange={(e) =>
-                  setExecutiveForm((f) => ({ ...f, name: e.target.value }))
-                }
-              />
-            </InputField>
-
-            <InputField label="Phone" required>
-              <input
-                type="tel"
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                required
-                value={executiveForm.phone}
-                onChange={(e) =>
-                  setExecutiveForm((f) => ({ ...f, phone: e.target.value }))
-                }
-              />
-            </InputField>
-
-            <InputField label="Status">
-              <select
-                className="border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={executiveForm.status}
-                onChange={(e) =>
-                  setExecutiveForm((f) => ({ ...f, status: e.target.value }))
-                }
-              >
-                <option value="active">Active</option>
-                <option value="available">Available</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </InputField>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Add Executive
-            </button>
-          </form>
-
-          <div className="overflow-x-auto bg-white rounded shadow">
-            <table className="w-full table-auto border-collapse border border-gray-300">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="border border-gray-300 p-2 text-left">Name</th>
-                  <th className="border border-gray-300 p-2 text-left">Phone</th>
-                  <th className="border border-gray-300 p-2 text-left">Status</th>
-                  <th className="border border-gray-300 p-2 text-left">Change Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {executives.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="p-4 text-center text-gray-500">
-                      No executives found.
-                    </td>
-                  </tr>
-                )}
-                {executives.map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-100">
-                    <td className="border border-gray-300 p-2">{e.name}</td>
-                    <td className="border border-gray-300 p-2">{e.phone}</td>
-                    <td className="border border-gray-300 p-2 capitalize">{e.status}</td>
-                    <td className="border border-gray-300 p-2">
-                      <select
-                        className="border rounded p-1 text-sm w-full"
-                        value={e.status}
-                        onChange={(ev) =>
-                          handleExecutiveStatusChange(e, ev.target.value)
-                        }
-                      >
-                        <option value="active">Active</option>
-                        <option value="available">Available</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
+      {/* Optional Footer */}
+      <Box mt={12} textAlign="center" color="gray.500" fontSize="sm" userSelect="none">
+        Labbit Home Sample Collection Platform © {new Date().getFullYear()}
+      </Box>
+    </Box>
   );
 }
