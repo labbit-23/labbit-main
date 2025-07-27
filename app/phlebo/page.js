@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { FiRefreshCw } from "react-icons/fi";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -22,23 +21,23 @@ const PhleboPage = () => {
       .from("executives")
       .select("id, name")
       .eq("status", "active");
-
-    if (!error && data.length > 0) {
+    if (!error) {
       setExecutives(data);
-      setSelectedExecutive(data[0].id);
+      setSelectedExecutive(data[0]?.id || null);
     }
   };
 
   const fetchVisits = async () => {
-    if (!selectedDate) return;
-
+    if (!selectedExecutive) return;
     const { data, error } = await supabase
       .from("visits")
-      .select("*, patients(name, phone)")
-      .eq("visit_date", selectedDate);
-
+      .select("*, patient:patient_id(name, phone)")
+      .eq("visit_date", selectedDate)
+      .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
     if (!error) {
       setVisits(data);
+    } else {
+      console.error("Error fetching visits:", error);
     }
   };
 
@@ -114,13 +113,6 @@ const PhleboPage = () => {
           >
             Tomorrow
           </button>
-          <button
-            title="Refresh"
-            className="bg-gray-200 p-2 rounded hover:bg-gray-300"
-            onClick={fetchVisits}
-          >
-            <FiRefreshCw />
-          </button>
         </div>
       </div>
 
@@ -130,7 +122,7 @@ const PhleboPage = () => {
 
       <div className="space-y-4">
         {visits
-          .filter((v) => v.executive_id === selectedExecutive)
+          .filter((v) => v.executive_id !== null)
           .map((visit) => (
             <div
               key={visit.id}
@@ -139,7 +131,7 @@ const PhleboPage = () => {
               )}`}
             >
               <p className="font-semibold text-lg">
-                {visit.patients?.name || "Unknown Patient"}
+                {visit.patient?.name || "Unknown Patient"}
               </p>
               <p className="text-sm text-gray-600">{visit.time_slot}</p>
               <p className="text-sm">{visit.address}</p>
@@ -161,7 +153,7 @@ const PhleboPage = () => {
                 className="border-l-4 border-gray-500 bg-white p-4 rounded shadow-md text-left max-w-md mx-auto"
               >
                 <p className="font-semibold text-lg">
-                  {visit.patients?.name || "Unknown Patient"}
+                  {visit.patient?.name || "Unknown Patient"}
                 </p>
                 <p className="text-sm text-gray-600">{visit.time_slot}</p>
                 <p className="text-sm">{visit.address}</p>
