@@ -37,35 +37,35 @@ const PhleboPage = () => {
     }
   };
 
-  const fetchVisits = async () => {
-    if (!selectedExecutive) {
-      setVisits([]);
-      return;
-    }
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const { data, error } = await supabase
-        .from("visits")
-        .select(`
-          *,
-          patient:patient_id(name, phone),
-          executive:executive_id(name)
-        `)
-        .eq("visit_date", selectedDate)
-        .in("executive_id", [selectedExecutive, null]);
+const fetchVisits = async () => {
+  if (!selectedExecutive) {
+    setVisits([]);
+    return;
+  }
+  setLoading(true);
+  setErrorMsg(null);
+  try {
+    const { data, error } = await supabase
+      .from("visits")
+      .select(`
+        *,
+        patient:patient_id(name, phone),
+        executive:executive_id(name)
+      `)
+      .eq("visit_date", selectedDate)
+      .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
 
-      if (error) throw error;
-      console.log("Visits fetched:", data);
-      setVisits(data || []);
-    } catch (error) {
-      console.error("Error fetching visits:", error);
-      setErrorMsg("Failed to load visits.");
-      setVisits([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    if(error) throw error;
+    console.log("Visits fetched:", data);
+    setVisits(data || []);
+  } catch (error) {
+    console.error("Error fetching visits:", error);
+    setErrorMsg("Failed to load visits.");
+    setVisits([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const updateVisitStatus = async (visitId, status) => {
     try {
