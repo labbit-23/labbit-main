@@ -1,44 +1,79 @@
-# Labbit - Home Sample Collection Platform
+# Labbit Home Sample Collection Platform
 
-Labbit is a lightweight web platform for managing and tracking home sample collection visits by healthcare professionals (HV Executives). It is powered by Supabase and built using Next.js 14+ with Tailwind CSS.
+This project powers the home blood sample collection workflow for lab executives (HV Executives) and admin teams.
 
-## 🔧 Features
+---
 
-- Executive dashboard to view daily visits
-- Status color coding (pending, in progress, picked, dropped)
-- Filter visits by date: today, yesterday, tomorrow
-- Dropdown to view visits for any executive
-- Unassigned visits list for self-assignment (coming soon)
-- Secure backend powered by Supabase (Postgres, Auth, API)
+## 🚀 Getting Started (Local Dev)
 
-## 📁 Tech Stack
+To run the project locally:
 
-- **Frontend:** Next.js (App Router), Tailwind CSS
-- **Backend:** Supabase (DB + Auth + Realtime)
-- **Deployment:** Vercel
-- **Language:** JavaScript (ES6+)
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/labbit-23/labbit-main.git
+   cd labbit-main
+   ```
 
-## 🗃️ Supabase Schema Highlights
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-- `executives`: name, phone, status
-- `patients`: name, phone, dob, gender
-- `visits`: patient_id, executive_id, date, time_slot, address, status
-- `visit_details`, `results`: for test tracking
+3. Set up environment variables:
 
-## 🧪 Sample Visit Statuses
+   Create a `.env.local` file in the root directory and add:
 
-| Status           | Color        | Notes                     |
-|------------------|--------------|----------------------------|
-| `pending`        | Yellow       | Not yet started            |
-| `in_progress`    | Blue (blink) | Executive en route         |
-| `sample_picked`  | Green        | Sample collected           |
-| `sample_dropped` | Purple       | Sample handed to lab       |
-| `null`           | Gray         | Unassigned                 |
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+   ```
 
-## 🔐 Environment Variables
+4. Run the development server:
+   ```bash
+   npm run dev
+   ```
 
-Set the following in your `.env.local` (already set in Vercel):
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-```env
-NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-public-anon-key
+---
+
+## 🧱 Tech Stack
+
+- Next.js 14 (App Router)
+- Supabase (Database + Auth)
+- Tailwind CSS (UI)
+
+---
+
+## 📁 Directory Structure
+
+- `/app/phlebo` — Mobile dashboard for HV Executives
+- `/app/admin` — Admin dashboard (upcoming)
+- `/public` — Static assets
+- `/README.md` — Project documentation
+
+---
+
+## ✅ Features
+
+- Executive visit schedule filtered by date
+- Color-coded status for visit progress
+- Self-assignment for unassigned visits
+- Supabase integration for real-time data
+
+---
+
+## 🔒 Authentication
+
+Auth via Supabase — upcoming:
+- Executives: Login using email and stored password
+- Admin: Separate dashboard with access controls
+- Patients: Signup with validation
+
+---
+
+## 📌 Deployment
+
+This project is deployed via Vercel.
+
+Ensure that Supabase keys are stored as environment variables in the Vercel project settings.
