@@ -21,23 +21,21 @@ const PhleboPage = () => {
       .from("executives")
       .select("id, name")
       .eq("status", "active");
-    if (!error) {
+    if (!error && data.length > 0) {
       setExecutives(data);
-      setSelectedExecutive(data[0]?.id || null);
+      setSelectedExecutive((prev) => prev || data[0].id);
     }
   };
 
   const fetchVisits = async () => {
-    if (!selectedExecutive) return;
+    if (!selectedDate) return;
     const { data, error } = await supabase
       .from("visits")
-      .select("*, patient:patient_id(name, phone)")
+      .select("*, patients(name, phone)")
       .eq("visit_date", selectedDate)
       .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
     if (!error) {
       setVisits(data);
-    } else {
-      console.error("Error fetching visits:", error);
     }
   };
 
@@ -113,6 +111,12 @@ const PhleboPage = () => {
           >
             Tomorrow
           </button>
+          <button
+            className="bg-gray-600 text-white px-2 py-1 rounded"
+            onClick={fetchVisits}
+          >
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -131,13 +135,11 @@ const PhleboPage = () => {
               )}`}
             >
               <p className="font-semibold text-lg">
-                {visit.patient?.name || "Unknown Patient"}
+                {visit.patients?.name || "Unknown Patient"}
               </p>
               <p className="text-sm text-gray-600">{visit.time_slot}</p>
               <p className="text-sm">{visit.address}</p>
-              <p className="text-xs italic text-gray-700 mt-1">
-                Status: {visit.status}
-              </p>
+              <p className="text-xs italic text-gray-700 mt-1">Status: {visit.status}</p>
             </div>
           ))}
       </div>
@@ -153,13 +155,11 @@ const PhleboPage = () => {
                 className="border-l-4 border-gray-500 bg-white p-4 rounded shadow-md text-left max-w-md mx-auto"
               >
                 <p className="font-semibold text-lg">
-                  {visit.patient?.name || "Unknown Patient"}
+                  {visit.patients?.name || "Unknown Patient"}
                 </p>
                 <p className="text-sm text-gray-600">{visit.time_slot}</p>
                 <p className="text-sm">{visit.address}</p>
-                <p className="text-xs italic text-gray-700 mt-1">
-                  Status: Unassigned
-                </p>
+                <p className="text-xs italic text-gray-700 mt-1">Status: Unassigned</p>
               </div>
             ))}
         </div>
