@@ -46,7 +46,7 @@ export default function PatientPage() {
         .from("patients")
         .select("*")
         .eq("phone", phone)
-        .single();
+        .maybeSingle();
 
       if (error) return null;
       return data;
