@@ -17,6 +17,7 @@
     "framer-motion": "^11.0.7",
     "@chakra-ui/icons": "^2.0.17",
     "@supabase/supabase-js": "^2.42.3",
-    "html2canvas": "^1.4.1"
+    "html2canvas": "^1.4.1",
+    "react-places-autocomplete": "^7.3.0"
   }
 }
