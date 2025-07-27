@@ -1,118 +1,124 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function PhleboPage() {
-  const [executives, setExecutives] = useState([]);
-  const [selectedExecId, setSelectedExecId] = useState(null);
-  const [visits, setVisits] = useState([]);
-  const [loading, setLoading] = useState(false);
+const formatDate = (date) => date.toISOString().split("T")[0];
 
-  // Fetch executives
+const PhleboPage = () => {
+  const [executives, setExecutives] = useState([]);
+  const [selectedExecutive, setSelectedExecutive] = useState(null);
+  const [visits, setVisits] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
+
+  const fetchExecutives = async () => {
+    const { data, error } = await supabase
+      .from("executives")
+      .select("id, name")
+      .eq("status", "active");
+    if (!error) {
+      setExecutives(data);
+      setSelectedExecutive(data[0]?.id || null);
+    }
+  };
+
+  const fetchVisits = async () => {
+    if (!selectedExecutive) return;
+    const { data, error } = await supabase
+      .from("visits")
+      .select("*, patients(name, phone)")
+      .eq("executive_id", selectedExecutive)
+      .eq("visit_date", selectedDate);
+    if (!error) {
+      setVisits(data);
+    }
+  };
+
   useEffect(() => {
-    const fetchExecutives = async () => {
-      const { data, error } = await supabase
-        .from('executives')
-        .select('id, name, phone')
-        .order('name');
-      if (!error) setExecutives(data);
-    };
     fetchExecutives();
   }, []);
 
-  // Fetch visits for selected executive
   useEffect(() => {
-    const fetchVisits = async () => {
-      if (!selectedExecId) return;
-      setLoading(true);
-
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-
-      const { data, error } = await supabase
-        .from('visits')
-        .select('id, time_slot, address, patient_id')
-        .eq('executive_id', selectedExecId)
-        .eq('visit_date', today)
-        .order('time_slot');
-
-      if (error) {
-        console.error(error);
-        setVisits([]);
-      } else {
-        // For each visit, fetch patient name
-        const enriched = await Promise.all(
-          data.map(async (visit) => {
-            const { data: patientData } = await supabase
-              .from('patients')
-              .select('name')
-              .eq('id', visit.patient_id)
-              .single();
-
-            return {
-              ...visit,
-              patient_name: patientData?.name || 'Unknown',
-            };
-          })
-        );
-        setVisits(enriched);
-      }
-
-      setLoading(false);
-    };
-
     fetchVisits();
-  }, [selectedExecId]);
+  }, [selectedExecutive, selectedDate]);
+
+  const quickSelect = (daysOffset) => {
+    const date = new Date();
+    date.setDate(date.getDate() + daysOffset);
+    setSelectedDate(formatDate(date));
+  };
 
   return (
-    <div style={{ padding: '1rem', maxWidth: '600px', margin: '0 auto' }}>
-      <h2>HV Executive Dashboard</h2>
+    <div className="p-4 text-center">
+      <h1 className="text-2xl font-bold mb-4">Welcome, HV Executive</h1>
 
-      {/* Executive dropdown */}
-      <label htmlFor="exec-select">Select Executive:</label>
-      <select
-        id="exec-select"
-        value={selectedExecId || ''}
-        onChange={(e) => setSelectedExecId(e.target.value)}
-        style={{ margin: '0.5rem 0', padding: '0.5rem', width: '100%' }}
-      >
-        <option value="" disabled>
-          -- Choose Executive --
-        </option>
-        {executives.map((exec) => (
-          <option key={exec.id} value={exec.id}>
-            {exec.name} ({exec.phone})
-          </option>
-        ))}
-      </select>
+      <div className="flex flex-col sm:flex-row justify-center gap-2 mb-4">
+        <select
+          className="border p-2 rounded"
+          value={selectedExecutive || ""}
+          onChange={(e) => setSelectedExecutive(e.target.value)}
+        >
+          {executives.map((exec) => (
+            <option key={exec.id} value={exec.id}>
+              {exec.name}
+            </option>
+          ))}
+        </select>
 
-      {/* Visits */}
-      {loading ? (
-        <p>Loading visits...</p>
-      ) : visits.length === 0 ? (
-        <p>No visits today.</p>
-      ) : (
-        visits.map((visit) => (
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="border p-2 rounded"
+        />
+
+        <div className="flex gap-2">
+          <button
+            className="bg-blue-500 text-white px-2 py-1 rounded"
+            onClick={() => quickSelect(-1)}
+          >
+            Yesterday
+          </button>
+          <button
+            className="bg-blue-500 text-white px-2 py-1 rounded"
+            onClick={() => quickSelect(0)}
+          >
+            Today
+          </button>
+          <button
+            className="bg-blue-500 text-white px-2 py-1 rounded"
+            onClick={() => quickSelect(1)}
+          >
+            Tomorrow
+          </button>
+        </div>
+      </div>
+
+      <h2 className="text-xl font-semibold mb-2">
+        {visits.length > 0 ? "Today's Visits" : "No visits today"}
+      </h2>
+
+      <div className="space-y-4">
+        {visits.map((visit) => (
           <div
             key={visit.id}
-            style={{
-              border: '1px solid #ccc',
-              borderRadius: '8px',
-              padding: '1rem',
-              marginBottom: '1rem',
-            }}
+            className="border p-4 rounded shadow-md text-left max-w-md mx-auto"
           >
-            <strong>{visit.patient_name}</strong>
-            <p>{visit.time_slot}</p>
-            <p>{visit.address}</p>
+            <p className="font-semibold text-lg">
+              {visit.patients?.name || "Unknown Patient"}
+            </p>
+            <p className="text-sm text-gray-600">{visit.time_slot}</p>
+            <p className="text-sm">{visit.address}</p>
           </div>
-        ))
-      )}
+        ))}
+      </div>
     </div>
   );
-}
+};
+
+export default PhleboPage;
