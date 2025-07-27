@@ -32,8 +32,8 @@ const PhleboPage = () => {
     const { data, error } = await supabase
       .from("visits")
       .select("*, patients(name, phone)")
-      .eq("executive_id", selectedExecutive)
-      .eq("visit_date", selectedDate);
+      .eq("visit_date", selectedDate)
+      .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
     if (!error) {
       setVisits(data);
     }
@@ -51,6 +51,21 @@ const PhleboPage = () => {
     const date = new Date();
     date.setDate(date.getDate() + daysOffset);
     setSelectedDate(formatDate(date));
+  };
+
+  const getStatusStyle = (status) => {
+    switch (status) {
+      case "pending":
+        return "bg-yellow-100 border-yellow-500";
+      case "in_progress":
+        return "bg-blue-100 border-blue-500 animate-pulse";
+      case "sample_picked":
+        return "bg-green-100 border-green-500";
+      case "sample_dropped":
+        return "bg-purple-100 border-purple-500";
+      default:
+        return "bg-gray-100 border-gray-300";
+    }
   };
 
   return (
@@ -100,22 +115,46 @@ const PhleboPage = () => {
       </div>
 
       <h2 className="text-xl font-semibold mb-2">
-        {visits.length > 0 ? "Today's Visits" : "No visits today"}
+        {visits.length > 0 ? "Visits for Selected Date" : "No visits"}
       </h2>
 
       <div className="space-y-4">
         {visits.map((visit) => (
           <div
             key={visit.id}
-            className="border p-4 rounded shadow-md text-left max-w-md mx-auto"
+            className={`border-l-4 p-4 rounded shadow-md text-left max-w-md mx-auto ${getStatusStyle(
+              visit.status
+            )}`}
           >
             <p className="font-semibold text-lg">
               {visit.patients?.name || "Unknown Patient"}
             </p>
             <p className="text-sm text-gray-600">{visit.time_slot}</p>
             <p className="text-sm">{visit.address}</p>
+            <p className="text-xs italic text-gray-700 mt-1">Status: {visit.status}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">Unassigned Visits</h2>
+        <div className="space-y-4">
+          {visits
+            .filter((v) => v.executive_id === null)
+            .map((visit) => (
+              <div
+                key={visit.id}
+                className="border-l-4 border-gray-500 bg-white p-4 rounded shadow-md text-left max-w-md mx-auto"
+              >
+                <p className="font-semibold text-lg">
+                  {visit.patients?.name || "Unknown Patient"}
+                </p>
+                <p className="text-sm text-gray-600">{visit.time_slot}</p>
+                <p className="text-sm">{visit.address}</p>
+                <p className="text-xs italic text-gray-700 mt-1">Status: Unassigned</p>
+              </div>
+            ))}
+        </div>
       </div>
     </div>
   );
