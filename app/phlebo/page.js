@@ -197,9 +197,17 @@ const PhleboPage = () => {
         Welcome, HV Executive
       </Heading>
 
-      <Flex direction={{ base: "column", sm: "row" }} justify="center" gap={4} mb={6} align="center">
+      <Flex
+          direction={{ base: "column", sm: "row" }}
+          justify="center"
+          gap={4}
+          mb={6}
+          align="center"
+          flexWrap="wrap"         // <-- Allow wrapping on small screens
+          px={2}                  // Optional padding to avoid edge clipping on small devices
         <Select
-          maxW="280px"
+          maxW={["100%", "280px"]}     // 100% width on mobile, max 280px on desktop
+          minW="150px"                // Ensure some min width so text is visible
           value={selectedExecutive ?? ""}
           onChange={(e) => setSelectedExecutive(e.target.value)}
           isDisabled={loadingExecutives}
@@ -218,7 +226,8 @@ const PhleboPage = () => {
           max={formatDate(new Date())}
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
-          maxW="160px"
+          maxW={["100%", "160px"]}
+          minW="140px"
           aria-label="Select Visit Date"
         />
 
