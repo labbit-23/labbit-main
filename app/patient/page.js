@@ -12,6 +12,8 @@ import {
   Alert,
   AlertIcon,
   useToast,
+  HStack,
+  Spinner,
 } from "@chakra-ui/react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -31,13 +33,13 @@ export default function PatientPage() {
     state: "",
     district: "",
     pincode: "",
-    // add other patient fields as needed
+    // Add other fields if necessary
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Lookup patient in Supabase by phone
+  // Lookup in Supabase
   async function lookupPatientInSupabase(phone) {
     try {
       const { data, error } = await supabase
@@ -53,7 +55,7 @@ export default function PatientPage() {
     }
   }
 
-  // Lookup patient in external API using API URL & key from env vars
+  // Lookup in external API
   async function lookupPatientInExternalAPI(phone) {
     const apiUrl = process.env.NEXT_PUBLIC_PATIENT_LOOKUP_URL;
     const apiKey = process.env.NEXT_PUBLIC_PATIENT_LOOKUP_KEY;
@@ -62,7 +64,7 @@ export default function PatientPage() {
       return null;
     }
 
-    const dataParam = encodeURIComponent(JSON.stringify([{ phone }]));
+    const dataParam = encodeURIComponent(JSON.stringify([{ phone: String(phone) }]));
     const url = `${apiUrl}&data=${dataParam}`;
 
     try {
@@ -97,12 +99,12 @@ export default function PatientPage() {
     }
   }
 
-  // Handler to lookup patient by phone input value
+  // Perform lookup on button click or onBlur if you want
   const handleLookup = async () => {
     const phone = formData.phone.trim();
     if (!phone) {
       toast({
-        title: "Please enter phone number",
+        title: "Please enter a phone number",
         status: "warning",
         duration: 3000,
         isClosable: true,
@@ -113,10 +115,10 @@ export default function PatientPage() {
     setLoading(true);
     setError(null);
 
-    // 1. Try Supabase lookup
+    // 1. Try Supabase lookup first
     let patient = await lookupPatientInSupabase(phone);
 
-    // 2. If not in Supabase, lookup with external API
+    // 2. If not found in Supabase, try external API
     if (!patient) {
       patient = await lookupPatientInExternalAPI(phone);
     }
@@ -134,7 +136,7 @@ export default function PatientPage() {
       }));
       toast({
         title: "Patient data loaded",
-        description: "Existing data has been auto-filled.",
+        description: "Form auto-filled with existing patient data.",
         status: "success",
         duration: 3000,
         isClosable: true,
@@ -147,14 +149,13 @@ export default function PatientPage() {
         duration: 3000,
         isClosable: true,
       });
-      // Optionally reset other fields except phone:
-      // setFormData({ ...formData, name: "", dob: "", ... });
+      // Optionally clear other input fields except phone here
     }
 
     setLoading(false);
   };
 
-  // Simple form handler for controlled inputs
+  // Handle field changes
   const handleChange = (field) => (e) => {
     setFormData((prev) => ({
       ...prev,
@@ -162,32 +163,42 @@ export default function PatientPage() {
     }));
   };
 
-  // Form submit handler (you may replace with your own creation code)
+  // Handle form submission (replace with your own logic)
   const handleSubmit = (e) => {
     e.preventDefault();
+    // Insert or update patient logic here
     console.log("Submitting patient data:", formData);
-    // Add your create/update logic here
   };
 
   return (
-    <Box maxW="md" mx="auto" p={6} bg="white" rounded="md" shadow="md">
+    <Box maxW="md" mx="auto" mt={12} p={6} bg="white" rounded="md" shadow="md">
       <Heading mb={6} textAlign="center">
-        Patient Lookup & Creation
+        Patient Lookup & Registration
       </Heading>
 
       <form onSubmit={handleSubmit}>
         <VStack spacing={4} align="stretch">
           <FormControl isRequired>
             <FormLabel>Phone Number</FormLabel>
-            <Input
-              type="tel"
-              placeholder="Enter phone number"
-              value={formData.phone}
-              onChange={handleChange("phone")}
-              onBlur={handleLookup} // Lookup on blur, or you can add a button instead
-              isDisabled={loading}
-              autoComplete="tel"
-            />
+            <HStack>
+              <Input
+                type="tel"
+                placeholder="Enter phone number"
+                value={formData.phone}
+                onChange={handleChange("phone")}
+                isDisabled={loading}
+                autoComplete="tel"
+                aria-label="Patient phone number"
+              />
+              <Button
+                onClick={handleLookup}
+                isLoading={loading}
+                colorScheme="blue"
+                aria-label="Lookup patient"
+              >
+                Lookup
+              </Button>
+            </HStack>
           </FormControl>
 
           <FormControl isRequired>
@@ -199,6 +210,7 @@ export default function PatientPage() {
               onChange={handleChange("name")}
               isDisabled={loading}
               autoComplete="name"
+              aria-label="Patient name"
             />
           </FormControl>
 
@@ -206,10 +218,10 @@ export default function PatientPage() {
             <FormLabel>Date of Birth</FormLabel>
             <Input
               type="date"
-              placeholder="Date of Birth"
               value={formData.dob}
               onChange={handleChange("dob")}
               isDisabled={loading}
+              aria-label="Patient date of birth"
             />
           </FormControl>
 
@@ -222,6 +234,7 @@ export default function PatientPage() {
               onChange={handleChange("email")}
               isDisabled={loading}
               autoComplete="email"
+              aria-label="Patient email"
             />
           </FormControl>
 
@@ -233,6 +246,7 @@ export default function PatientPage() {
               value={formData.state}
               onChange={handleChange("state")}
               isDisabled={loading}
+              aria-label="Patient state"
             />
           </FormControl>
 
@@ -244,6 +258,7 @@ export default function PatientPage() {
               value={formData.district}
               onChange={handleChange("district")}
               isDisabled={loading}
+              aria-label="Patient district"
             />
           </FormControl>
 
@@ -255,19 +270,20 @@ export default function PatientPage() {
               value={formData.pincode}
               onChange={handleChange("pincode")}
               isDisabled={loading}
+              aria-label="Patient pincode"
             />
           </FormControl>
 
-          {/* Other patient form fields here */}
+          {/* Additional fields can go here */}
 
-          <Button colorScheme="teal" type="submit" isLoading={loading}>
+          <Button type="submit" colorScheme="teal" isLoading={loading}>
             Save Patient
           </Button>
         </VStack>
       </form>
 
       {error && (
-        <Alert status="error" mt={4} borderRadius="md">
+        <Alert mt={4} status="error" borderRadius="md">
           <AlertIcon />
           {error}
         </Alert>
