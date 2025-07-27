@@ -18,24 +18,12 @@ import {
   Stack,
   Flex,
   HStack,
-  VStack,
+  Alert,
+  AlertIcon,
   Link,
-  Divider,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  ModalCloseButton,
-  useDisclosure,
   useToast,
 } from "@chakra-ui/react";
 import { FiRefreshCw } from "react-icons/fi";
-import { MdOutlineLocationOn } from "react-icons/md";
-import PlacesAutocomplete from "react-places-autocomplete";
-
-import TestPackageSelector from "../../components/TestPackageSelector"; // Adjust path if needed
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -43,67 +31,32 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-const visitStatusOrder = [
-  "booked",
-  "assigned",
-  "pending",
-  "in_progress",
-  "sample_picked",
-  "sample_dropped",
-  "completed",
-];
+const formatDate = (date) => date.toISOString().split("T")[0];
 
-const visitStatusLabels = {
-  booked: "Booked",
-  assigned: "Assigned",
-  pending: "Pending",
-  in_progress: "In Progress",
-  sample_picked: "Sample Picked",
-  sample_dropped: "Sample Dropped",
-  completed: "Completed",
+const STATUS_STYLES = {
+  pending: { bg: "yellow.100", borderColor: "yellow.400", pulse: false },
+  in_progress: { bg: "blue.100", borderColor: "blue.400", pulse: true },
+  sample_picked: { bg: "green.100", borderColor: "green.400", pulse: false },
+  sample_dropped: { bg: "purple.100", borderColor: "purple.400", pulse: false },
+  assigned: { bg: "cyan.100", borderColor: "cyan.400", pulse: false },
+  booked: { bg: "gray.100", borderColor: "gray.300", pulse: false },
+  default: { bg: "gray.100", borderColor: "gray.200", pulse: false },
 };
 
-const STATUS_COLORS = {
-  booked: "gray",
-  assigned: "cyan",
-  pending: "yellow",
-  in_progress: "blue",
-  sample_picked: "green",
-  sample_dropped: "purple",
-  completed: "teal",
-};
-
-const formatDate = (date) => {
-  if (!date) return "";
-  return new Date(date).toISOString().split("T")[0];
-};
-
-export default function PhleboPage() {
-  const toast = useToast();
-
-  // State variables
+const PhleboPage = () => {
   const [executives, setExecutives] = useState([]);
   const [selectedExecutive, setSelectedExecutive] = useState(null);
   const [visits, setVisits] = useState([]);
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
-
-  const [loadingExecutives, setLoadingExecutives] = useState(false);
   const [loadingVisits, setLoadingVisits] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [loadingExecutives, setLoadingExecutives] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
 
-  const [activeVisit, setActiveVisit] = useState(null);
+  const toast = useToast();
 
-  // Modal control hooks
-  const addressModal = useDisclosure();
-  const testsModal = useDisclosure();
-
-  // Modal data and input states
-  const [newAddress, setNewAddress] = useState("");
-  const [selectedTests, setSelectedTests] = useState(new Set());
-
-  // Fetch executives with required statuses
+  // Fetch executives with status active or available
   const fetchExecutives = async () => {
-    setErrorMsg("");
+    setErrorMsg(null);
     setLoadingExecutives(true);
     try {
       const { data, error } = await supabase
@@ -113,12 +66,12 @@ export default function PhleboPage() {
 
       if (error) throw error;
 
-      // Debug log - remove or comment before prod
-      // console.log("Executives fetched:", data);
+      console.log("Executives fetched:", data); // Debug log to confirm fetch
 
-      setExecutives(data || []);
+      setExecutives(data);
       setSelectedExecutive(data?.[0]?.id ?? null);
     } catch (error) {
+      console.error("Error fetching executives:", error);
       setErrorMsg("Failed to load executives.");
       toast({
         title: "Error loading executives",
@@ -138,31 +91,26 @@ export default function PhleboPage() {
       setVisits([]);
       return;
     }
-    setErrorMsg("");
+    setErrorMsg(null);
     setLoadingVisits(true);
     try {
       const { data, error } = await supabase
         .from("visits")
-        .select(
-          `
-          id,
-          time_slot,
-          status,
-          address,
+        .select(`
+          *,
           patient:patient_id(name, phone),
-          executive:executive_id(name),
-          executive_id
-          `
-        )
+          executive:executive_id(name)
+        `)
         .eq("visit_date", selectedDate)
         .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
 
       if (error) throw error;
 
-      // console.log("Visits fetched:", data);
+      console.log("Visits fetched:", data); // Debug log to confirm fetch
 
       setVisits(data || []);
     } catch (error) {
+      console.error("Error fetching visits:", error);
       setErrorMsg("Failed to load visits.");
       toast({
         title: "Error loading visits",
@@ -177,34 +125,10 @@ export default function PhleboPage() {
     }
   };
 
-  // Open visit detail modal, load address and selected tests
-  const openVisit = async (visit) => {
-    setActiveVisit(visit);
-    setNewAddress(visit.address || "");
-    try {
-      const { data, error } = await supabase
-        .from("visit_details")
-        .select("test_id")
-        .eq("visit_id", visit.id);
-
-      if (error) throw error;
-
-      setSelectedTests(new Set(data.map((d) => d.test_id)));
-    } catch (error) {
-      setSelectedTests(new Set());
-    }
-  };
-
-  const closeVisit = () => {
-    setActiveVisit(null);
-    setSelectedTests(new Set());
-    setNewAddress("");
-  };
-
-  // Assign visit to selected executive (with "assigned" status)
+  // Assign visit to selected executive and set status to 'assigned'
   const assignVisit = async (visitId) => {
     if (!selectedExecutive) {
-      setErrorMsg("Please select an executive.");
+      setErrorMsg("Please select an executive to assign.");
       return;
     }
     try {
@@ -212,20 +136,21 @@ export default function PhleboPage() {
         .from("visits")
         .update({ executive_id: selectedExecutive, status: "assigned" })
         .eq("id", visitId);
-
       if (error) throw error;
 
       toast({
-        title: "Visit assigned successfully",
+        title: "Visit assigned to you",
         status: "success",
         duration: 3000,
         isClosable: true,
       });
       await fetchVisits();
     } catch (error) {
+      console.error("Error assigning visit:", error);
+      setErrorMsg("Failed to assign visit.");
       toast({
-        title: "Failed to assign visit",
-        description: error.message || "Please try again",
+        title: "Error assigning visit",
+        description: error.message || "Please try again.",
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -233,160 +158,46 @@ export default function PhleboPage() {
     }
   };
 
-  // Update visit status for active visit
-  const updateStatus = async (newStatus) => {
-    if (!activeVisit) return;
-    try {
-      const { error } = await supabase
-        .from("visits")
-        .update({ status: newStatus })
-        .eq("id", activeVisit.id);
+  useEffect(() => {
+    fetchExecutives();
+  }, []);
 
-      if (error) throw error;
+  useEffect(() => {
+    fetchVisits();
+  }, [selectedExecutive, selectedDate]);
 
-      toast({
-        title: `Visit status updated to "${visitStatusLabels[newStatus]}"`,
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
+  // Helper function for date quick select
+  function quickSelect(daysOffset) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysOffset);
+    setSelectedDate(formatDate(date));
+  }
 
-      // refresh visits
-      await fetchVisits();
-
-      // update activeVisit with fresh data
-      const { data, error: reFetchError } = await supabase
-        .from("visits")
-        .select(
-          `
-          id,
-          time_slot,
-          status,
-          address,
-          patient:patient_id(name, phone),
-          executive:executive_id(name),
-          executive_id
-          `
-        )
-        .eq("id", activeVisit.id)
-        .single();
-
-      if (!reFetchError) setActiveVisit(data);
-    } catch (error) {
-      toast({
-        title: "Failed to update status",
-        description: error.message || "Please try again",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
-  // Save updated address for active visit
-  const saveAddress = async () => {
-    if (!activeVisit) return;
-    try {
-      const { error } = await supabase
-        .from("visits")
-        .update({ address: newAddress })
-        .eq("id", activeVisit.id);
-      if (error) throw error;
-
-      toast({
-        title: "Address updated",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-
-      await fetchVisits();
-
-      setActiveVisit((prev) => ({ ...prev, address: newAddress }));
-    } catch (error) {
-      toast({
-        title: "Failed to update address",
-        description: error.message || "Please try again",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
-  // Save selected tests for active visit
-  const saveTests = async () => {
-    if (!activeVisit) return;
-    try {
-      // Delete existing test selections first
-      const { error: deleteErr } = await supabase
-        .from("visit_details")
-        .delete()
-        .eq("visit_id", activeVisit.id);
-      if (deleteErr) throw deleteErr;
-
-      // Insert current selections
-      const inserts = Array.from(selectedTests).map((test_id) => ({
-        visit_id: activeVisit.id,
-        test_id,
-      }));
-
-      if (inserts.length > 0) {
-        const { error: insertErr } = await supabase
-          .from("visit_details")
-          .insert(inserts);
-        if (insertErr) throw insertErr;
-      }
-
-      toast({
-        title: "Tests updated",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error) {
-      toast({
-        title: "Failed to update tests",
-        description: error.message || "Please try again",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
-  // Quick date selectors
-  const quickSelect = (days) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    setSelectedDate(formatDate(d));
-  };
-
-  // Styling rows via status color
+  // Helper to style visits by status
   const getStatusStyle = (status) => {
-    const color = STATUS_COLORS[status] || "gray";
+    const style = STATUS_STYLES[status] || STATUS_STYLES.default;
     return {
-      bg: `${color}.100`,
+      bg: style.bg,
       borderLeft: "4px solid",
-      borderColor: `${color}.400`,
+      borderColor: style.borderColor,
     };
   };
 
-  // Filtering visits
+  // Filter visits for assigned/unassigned
   const assignedVisits = visits.filter(
-    (v) => v.executive_id === selectedExecutive
+    (v) => v.executive_id && v.executive_id === selectedExecutive
   );
   const unassignedVisits = visits.filter(
-    (v) => !v.executive_id || v.executive_id === ""
+    (v) => v.executive_id === null || v.executive_id === ""
   );
 
   return (
-    <Box p={6} maxW="6xl" mx="auto">
-      <Heading as="h1" size="xl" mb={6} textAlign="center">
+    <Box minWidth="320px" p={6} maxW="6xl" mx="auto">
+      <Heading color="teal.600" size="xl" mb={6} textAlign="center" fontWeight="extrabold">
         Welcome, HV Executive
       </Heading>
 
-      <Flex direction={{ base: "column", sm: "row" }} gap={4} mb={6} justify="center" align="center">
+      <Flex direction={{ base: "column", sm: "row" }} justify="center" gap={4} mb={6} align="center">
         <Select
           maxW="280px"
           value={selectedExecutive ?? ""}
@@ -428,7 +239,7 @@ export default function PhleboPage() {
       </Flex>
 
       {errorMsg && (
-        <Alert status="error" mb={6} borderRadius="md">
+        <Alert status="error" mb={6} borderRadius="md" fontWeight="bold">
           <AlertIcon />
           {errorMsg}
         </Alert>
@@ -438,14 +249,14 @@ export default function PhleboPage() {
         <Spinner size="xl" display="block" mx="auto" />
       ) : (
         <>
-          {/* Assigned Visits */}
+          {/* Assigned Visits Section */}
           <Box mb={10}>
-            <Heading as="h2" size="lg" mb={3}>
+            <Heading size="lg" mb={3} color="gray.700">
               Assigned Visits ({assignedVisits.length})
             </Heading>
 
             {assignedVisits.length === 0 ? (
-              <Text textAlign="center" color="gray.600">
+              <Text textAlign="center" color="gray.600" fontStyle="italic">
                 No assigned visits.
               </Text>
             ) : (
@@ -453,47 +264,66 @@ export default function PhleboPage() {
                 <Thead bg="gray.100">
                   <Tr>
                     <Th>Patient</Th>
-                    <Th>Phone</Th>
                     <Th>Time Slot</Th>
                     <Th>Address</Th>
                     <Th>Status</Th>
-                    <Th>Actions</Th>
+                    <Th isNumeric>Actions</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {assignedVisits.map((visit) => (
-                    <Tr
-                      key={visit.id}
-                      {...getStatusStyle(visit.status)}
-                      cursor="pointer"
-                      onClick={() => openVisit(visit)}
-                    >
-                      <Td>{visit.patient?.name || "Unknown"}</Td>
-                      <Td>
-                        {visit.patient?.phone ? (
-                          <Link
-                            href={`tel:${visit.patient.phone}`}
-                            color="blue.600"
-                            onClick={(e) => e.stopPropagation()}
-                            textDecoration="underline"
-                            aria-label={`Call ${visit.patient.name}`}
-                            isExternal
-                          >
-                            {visit.patient.phone}
-                          </Link>
-                        ) : (
-                          "Unknown"
-                        )}
-                      </Td>
+                    <Tr key={visit.id} {...getStatusStyle(visit.status)} title={`Visit Status: ${visit.status}`}>
+                      <Td>{visit.patient?.name || "Unknown Patient"}</Td>
                       <Td>{visit.time_slot}</Td>
-                      <Td isTruncated maxWidth="300px">{visit.address}</Td>
-                      <Td textTransform="capitalize">{visitStatusLabels[visit.status] || visit.status}</Td>
-                      <Td>
-                        <Stack direction="row" spacing={1} flexWrap="wrap" userSelect="none">
-                          {/* The row click handles opening modal; no buttons here */}
-                          <Text fontSize="sm" color="gray.600" userSelect="none">
-                            Tap to manage
-                          </Text>
+                      <Td maxW="xs" isTruncated>
+                        {visit.address}
+                      </Td>
+                      <Td textTransform="capitalize">{visit.status.replace(/_/g, " ")}</Td>
+                      <Td isNumeric>
+                        <Stack direction="row" spacing={1} justify="flex-end">
+                          {visit.status === "pending" && (
+                            <Button
+                              size="sm"
+                              colorScheme="blue"
+                              onClick={() => updateVisitStatus(visit.id, "in_progress")}
+                              aria-label={`Start visit for ${visit.patient?.name}`}
+                            >
+                              Start Visit
+                            </Button>
+                          )}
+                          {visit.status === "in_progress" && (
+                            <>
+                              <Button
+                                size="sm"
+                                colorScheme="green"
+                                onClick={() => updateVisitStatus(visit.id, "sample_picked")}
+                                aria-label={`Mark sample picked for ${visit.patient?.name}`}
+                              >
+                                Mark Picked
+                              </Button>
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                                  visit.address || ""
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-gray-300 hover:bg-gray-400 text-black px-2 py-1 rounded text-sm"
+                                aria-label={`Navigate to ${visit.address || "address"}`}
+                              >
+                                Navigate
+                              </a>
+                            </>
+                          )}
+                          {visit.status === "sample_picked" && (
+                            <Button
+                              size="sm"
+                              colorScheme="purple"
+                              onClick={() => updateVisitStatus(visit.id, "sample_dropped")}
+                              aria-label={`Mark sample dropped for ${visit.patient?.name}`}
+                            >
+                              Mark Dropped
+                            </Button>
+                          )}
                         </Stack>
                       </Td>
                     </Tr>
@@ -503,14 +333,14 @@ export default function PhleboPage() {
             )}
           </Box>
 
-          {/* Unassigned Visits */}
+          {/* Unassigned Visits Section */}
           <Box>
-            <Heading as="h2" size="lg" mb={3}>
+            <Heading size="lg" mb={3} color="gray.700">
               Unassigned Visits ({unassignedVisits.length})
             </Heading>
 
             {unassignedVisits.length === 0 ? (
-              <Text textAlign="center" color="gray.600">
+              <Text textAlign="center" color="gray.600" fontStyle="italic">
                 No unassigned visits.
               </Text>
             ) : (
@@ -518,14 +348,14 @@ export default function PhleboPage() {
                 {unassignedVisits.map((visit) => (
                   <Box
                     key={visit.id}
-                    bg="white"
-                    rounded="md"
-                    p={4}
-                    shadow="md"
-                    borderLeft="4px solid"
+                    borderLeftWidth={4}
                     borderColor="gray.500"
+                    bg="white"
+                    p={4}
+                    rounded="md"
+                    shadow="sm"
+                    maxW="6xl"
                     textAlign="left"
-                    maxWidth="6xl"
                   >
                     <Text fontWeight="bold" fontSize="lg" noOfLines={1}>
                       {visit.patient?.name || "Unknown Patient"}
@@ -555,133 +385,8 @@ export default function PhleboPage() {
         </>
       )}
 
-      {/* Visit Detail Modal */}
-      {activeVisit && (
-        <Modal size="lg" isOpen={true} onClose={closeVisit} scrollBehavior="inside" isCentered>
-          <ModalOverlay />
-          <ModalContent>
-            <ModalHeader>
-              Visit Details - {activeVisit.patient?.name || "Unknown"}
-            </ModalHeader>
-            <ModalCloseButton />
-            <ModalBody>
-              <VStack align="stretch" spacing={4}>
-                {/* Patient phone click */}
-                <Box>
-                  <Text fontWeight="bold" mb={1}>Phone</Text>
-                  {activeVisit.patient?.phone ? (
-                    <Link href={`tel:${activeVisit.patient.phone}`} color="blue.600" isExternal>
-                      {activeVisit.patient.phone}
-                    </Link>
-                  ) : <Text>Unknown</Text>}
-                </Box>
-
-                {/* Navigate Button */}
-                <Button
-                  as="a"
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeVisit.address || "")}`}
-                  leftIcon={<MdOutlineLocationOn />}
-                  colorScheme="teal"
-                  variant="outline"
-                  w="full"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Navigate to Address
-                </Button>
-
-                {/* Address update with PlacesAutocomplete */}
-                <Box>
-                  <Text fontWeight="bold" mb={1}>Update Address</Text>
-                  <PlacesAutocomplete
-                    value={newAddress}
-                    onChange={setNewAddress}
-                    onSelect={setNewAddress}
-                    searchOptions={{}} // add restrictions as needed
-                  >
-                    {({ getInputProps, suggestions, getSuggestionItemProps, loading }) => (
-                      <Box position="relative">
-                        <Input {...getInputProps({ placeholder: "Search address" })} />
-                        {(loading || suggestions.length > 0) && (
-                          <Box
-                            pos="absolute"
-                            zIndex={999}
-                            bg="white"
-                            width="100%"
-                            maxHeight="200px"
-                            overflowY="auto"
-                            border="1px solid"
-                            borderColor="gray.200"
-                            shadow="md"
-                          >
-                            {loading && <Text p={2}>Loading...</Text>}
-                            {suggestions.map((s) => {
-                              const style = {
-                                backgroundColor: s.active ? "#ebf8ff" : "white",
-                                padding: "8px 12px",
-                                cursor: "pointer",
-                              };
-                              return (
-                                <Box key={s.placeId} {...getSuggestionItemProps(s, { style })}>
-                                  {s.description}
-                                </Box>
-                              );
-                            })}
-                          </Box>
-                        )}
-                      </Box>
-                    )}
-                  </PlacesAutocomplete>
-                  <Button mt={2} colorScheme="brand" size="sm" onClick={saveAddress}>
-                    Save Address
-                  </Button>
-                </Box>
-
-                {/* Status step control */}
-                <Box>
-                  <Text fontWeight="bold" mb={2}>Update Status</Text>
-                  <Stack direction="row" spacing={2} wrap="wrap">
-                    {visitStatusOrder.map((status) => {
-                      const isActive = activeVisit.status === status;
-                      const isFuture =
-                        visitStatusOrder.indexOf(status) > visitStatusOrder.indexOf(activeVisit.status);
-                      return (
-                        <Button
-                          key={status}
-                          colorScheme={isActive ? "blue" : isFuture ? "gray" : "green"}
-                          variant={isActive ? "solid" : "outline"}
-                          isDisabled={isFuture}
-                          onClick={() => {
-                            if (!isActive) updateStatus(status);
-                          }}
-                        >
-                          {visitStatusLabels[status] || status}
-                        </Button>
-                      );
-                    })}
-                  </Stack>
-                </Box>
-
-                {/* Tests selector */}
-                <Box>
-                  <Text fontWeight="bold" mb={2}>Manage Tests</Text>
-                  <TestPackageSelector
-                    initialSelectedTests={selectedTests}
-                    onChange={setSelectedTests}
-                    onSelectionChange={setSelectedTests}
-                  />
-                  <Button mt={2} colorScheme="brand" onClick={saveTests}>
-                    Save Tests
-                  </Button>
-                </Box>
-              </VStack>
-            </ModalBody>
-            <ModalFooter>
-              <Button onClick={closeVisit}>Close</Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-      )}
     </Box>
   );
-}
+};
+
+export default PhleboPage;
