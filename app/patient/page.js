@@ -35,7 +35,6 @@ const supabase = createClient(
 const formatDate = (date) => (date ? new Date(date).toISOString().split("T")[0] : "");
 
 export default function PatientVisitRequestPage() {
-  // Form states
   const [mobile, setMobile] = useState("");
   const [patient, setPatient] = useState(null);
   const [labs, setLabs] = useState([]);
@@ -46,34 +45,33 @@ export default function PatientVisitRequestPage() {
     time_slot_id: "",
     address: "",
   });
-
-  // UI & feedback
   const [loading, setLoading] = useState(false);
   const [patientLoading, setPatientLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [patientVisits, setPatientVisits] = useState([]);
   const toast = useToast();
 
-  // Fetch labs and time slots on mount
   useEffect(() => {
     fetchLabs();
     fetchTimeSlots();
   }, []);
 
-  // Fetch patient's pending visits when patient changes
   useEffect(() => {
-    if (patient) fetchPatientVisits(patient.id);
-    else setPatientVisits([]);
+    if (patient) {
+      fetchPatientVisits(patient.id);
+    } else {
+      setPatientVisits([]);
+    }
   }, [patient]);
 
-  // Fetch Labs
   async function fetchLabs() {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("labs")
         .select("id, name")
         .eq("is_active", true)
         .order("name");
+      if (error) throw error;
       setLabs(data || []);
     } catch (error) {
       setErrorMsg("Failed to load labs.");
@@ -81,13 +79,13 @@ export default function PatientVisitRequestPage() {
     }
   }
 
-  // Fetch Time Slots
   async function fetchTimeSlots() {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("visit_time_slots")
         .select("id, slot_name, start_time, end_time")
         .order("start_time");
+      if (error) throw error;
       setTimeSlots(data || []);
     } catch (error) {
       setErrorMsg("Failed to load time slots.");
@@ -95,7 +93,6 @@ export default function PatientVisitRequestPage() {
     }
   }
 
-  // Search patient by mobile
   async function searchPatientByMobile(e) {
     e && e.preventDefault();
     setErrorMsg("");
@@ -127,26 +124,29 @@ export default function PatientVisitRequestPage() {
       });
     } catch (error) {
       setErrorMsg("Failed to search patient: " + (error.message || error));
+      console.error(error);
     }
     setPatientLoading(false);
   }
 
-  // Fetch patient's pending/booked visits
   async function fetchPatientVisits(patientId) {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("visits")
         .select("id, visit_code, visit_date, time_slot, status")
         .eq("patient_id", patientId)
-        .in("status", ["booked", "pending"])
-        .order("visit_date", { ascending: true });
+        .order("visit_date", { ascending: false }); // Show most recent first
+
+      if (error) throw error;
+
+      console.log("Fetched patient visits:", data);
+
       setPatientVisits(data || []);
     } catch (error) {
       console.error("Failed to fetch patient visits:", error);
     }
   }
 
-  // Submit visit request
   async function handleSubmitVisitRequest(e) {
     e.preventDefault();
     setErrorMsg("");
@@ -203,7 +203,7 @@ export default function PatientVisitRequestPage() {
         address: "",
       });
 
-      // Refresh the patient's pending visits list
+      // Refresh the patient's visits list
       fetchPatientVisits(patient.id);
     } catch (error) {
       setErrorMsg("Failed to submit visit: " + (error.message || JSON.stringify(error)));
@@ -271,6 +271,7 @@ export default function PatientVisitRequestPage() {
               isDisabled={patientLoading || loading}
               bg="gray.50"
               aria-label="Mobile phone number input"
+              autoComplete="tel"
             />
             <Button
               type="submit"
@@ -312,7 +313,7 @@ export default function PatientVisitRequestPage() {
           </Box>
         )}
 
-        {/* Pending/booked visits list */}
+        {/* All visits (no filter on status) */}
         {patient && patientVisits.length > 0 && (
           <Box
             maxW="lg"
@@ -325,7 +326,7 @@ export default function PatientVisitRequestPage() {
             borderColor="teal.200"
           >
             <Heading size="md" color="teal.700" mb={3} textAlign="center">
-              Pending Visit Requests
+              Your Visit Requests
             </Heading>
             <Table variant="simple" size="sm">
               <Thead>
@@ -356,13 +357,13 @@ export default function PatientVisitRequestPage() {
               </Tbody>
             </Table>
             <Text mt={3} textAlign="center" color="teal.800" fontStyle="italic" fontSize="sm">
-              Please wait for your current visit(s) to be processed before booking a new one.
+              You can make a new booking if none of your existing visits are active.
             </Text>
           </Box>
         )}
 
-        {/* Show booking form only if no pending/booked visits */}
-        {patient && patientVisits.length === 0 && (
+        {/* Show booking form always so patient can re-book if needed */}
+        {patient && (
           <form onSubmit={handleSubmitVisitRequest}>
             <VStack spacing={4} align="stretch">
               <FormControl isRequired>
