@@ -736,7 +736,13 @@ export default function AdminDashboard() {
                   overflowX="auto"
                   mt={8}
                   mb={6}
-                  style={{ userSelect: "none", display: "none" }}
+                  style={{
+                    position: "absolute",
+                    left: "-9999px",
+                    top: "0",
+                    userSelect: "none",
+                    pointerEvents: "none"
+                  }}
                 >
                   <Heading size="md" mb={4} textAlign="center" color="brand.600">
                     Home Visit Schedule - {downloadDate}
