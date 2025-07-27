@@ -19,7 +19,6 @@ const PhleboPage = () => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Fetch executives - status can be 'active' or 'available'
   const fetchExecutives = async () => {
     setErrorMsg(null);
     try {
@@ -38,7 +37,6 @@ const PhleboPage = () => {
     }
   };
 
-  // Fetch visits for selected date, assigned to the executive or unassigned (executive_id null)
   const fetchVisits = async () => {
     if (!selectedExecutive) {
       setVisits([]);
@@ -47,23 +45,26 @@ const PhleboPage = () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      // Using .in() to filter executive_id = selectedExecutive OR null
       const { data, error } = await supabase
         .from("visits")
-        .select("*, patients(name, phone)")
+        .select(`
+          *,
+          patient:patient_id(name, phone),
+          executive:executive_id(name)
+        `)
         .eq("visit_date", selectedDate)
         .in("executive_id", [selectedExecutive, null]);
 
       if (error) throw error;
-
-      console.log(`Visits fetched for executive ${selectedExecutive} on ${selectedDate}:`, data);
+      console.log("Visits fetched:", data);
       setVisits(data || []);
     } catch (error) {
       console.error("Error fetching visits:", error);
       setErrorMsg("Failed to load visits.");
       setVisits([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const updateVisitStatus = async (visitId, status) => {
@@ -120,7 +121,6 @@ const PhleboPage = () => {
     }
   };
 
-  // Fix Assigned Visits filter to trim and compare strings safely
   const assignedVisits = visits.filter(
     (v) =>
       v.executive_id &&
@@ -132,7 +132,6 @@ const PhleboPage = () => {
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 text-center">Welcome, HV Executive</h1>
 
-      {/* Executive Selector & Date */}
       <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6 items-center">
         <select
           className="border border-gray-300 p-2 rounded w-60"
@@ -152,7 +151,7 @@ const PhleboPage = () => {
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
           className="border border-gray-300 p-2 rounded"
-          max={formatDate(new Date())} // Optional: disable future dates if needed
+          max={formatDate(new Date())}
         />
 
         <div className="flex gap-2">
@@ -196,7 +195,6 @@ const PhleboPage = () => {
         <div className="text-center text-gray-500">Loading visits...</div>
       ) : (
         <>
-          {/* Assigned Visits */}
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">
               Assigned Visits ({assignedVisits.length})
@@ -222,7 +220,7 @@ const PhleboPage = () => {
                       title={`Visit Status: ${visit.status}`}
                     >
                       <td className="border border-gray-300 p-2">
-                        {visit.patients?.name || "Unknown Patient"}
+                        {visit.patient?.name || "Unknown Patient"}
                       </td>
                       <td className="border border-gray-300 p-2">{visit.time_slot}</td>
                       <td className="border border-gray-300 p-2 max-w-xs truncate">{visit.address}</td>
@@ -232,7 +230,7 @@ const PhleboPage = () => {
                           <button
                             className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm"
                             onClick={() => updateVisitStatus(visit.id, "in_progress")}
-                            aria-label={`Start visit for ${visit.patients?.name}`}
+                            aria-label={`Start visit for ${visit.patient?.name}`}
                           >
                             Start Visit
                           </button>
@@ -242,7 +240,7 @@ const PhleboPage = () => {
                             <button
                               className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-sm"
                               onClick={() => updateVisitStatus(visit.id, "sample_picked")}
-                              aria-label={`Mark sample picked for ${visit.patients?.name}`}
+                              aria-label={`Mark sample picked for ${visit.patient?.name}`}
                             >
                               Mark Picked
                             </button>
@@ -262,7 +260,7 @@ const PhleboPage = () => {
                           <button
                             className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded text-sm"
                             onClick={() => updateVisitStatus(visit.id, "sample_dropped")}
-                            aria-label={`Mark sample dropped for ${visit.patients?.name}`}
+                            aria-label={`Mark sample dropped for ${visit.patient?.name}`}
                           >
                             Mark Dropped
                           </button>
@@ -275,7 +273,6 @@ const PhleboPage = () => {
             )}
           </section>
 
-          {/* Unassigned Visits */}
           <section>
             <h2 className="text-2xl font-semibold mb-4">Unassigned Visits ({unassignedVisits.length})</h2>
             {unassignedVisits.length === 0 ? (
@@ -288,7 +285,7 @@ const PhleboPage = () => {
                     className="border-l-4 border-gray-500 bg-white p-4 rounded shadow-md text-left max-w-4xl mx-auto"
                   >
                     <p className="font-semibold text-lg">
-                      {visit.patients?.name || "Unknown Patient"}
+                      {visit.patient?.name || "Unknown Patient"}
                     </p>
                     <p className="text-sm text-gray-600">{visit.time_slot}</p>
                     <p className="text-sm truncate max-w-xl">{visit.address}</p>
@@ -296,7 +293,7 @@ const PhleboPage = () => {
                     <button
                       onClick={() => assignVisit(visit.id)}
                       className="mt-3 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-                      aria-label={`Assign visit for ${visit.patients?.name} to me`}
+                      aria-label={`Assign visit for ${visit.patient?.name} to me`}
                     >
                       Assign to Me
                     </button>
