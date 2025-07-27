@@ -120,8 +120,12 @@ const PhleboPage = () => {
     }
   };
 
-  // Separate visits
-  const assignedVisits = visits.filter((v) => v.executive_id === selectedExecutive);
+  // Fix Assigned Visits filter to trim and compare strings safely
+  const assignedVisits = visits.filter(
+    (v) =>
+      v.executive_id &&
+      v.executive_id.toString().trim() === selectedExecutive?.toString().trim()
+  );
   const unassignedVisits = visits.filter((v) => v.executive_id === null);
 
   return (
