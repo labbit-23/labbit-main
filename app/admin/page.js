@@ -598,7 +598,7 @@ export default function AdminDashboard() {
   };
 
   // Download Visit Schedule PNG
-  const [downloadDate, setDownloadDate] = useState(formatDate(new Date()));
+  //const [downloadDate, setDownloadDate] = useState(formatDate(new Date()));
 
   const handleDownloadSchedule = async () => {
     if (!exportTableRef.current) return;
@@ -613,7 +613,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const exportTableRef = useRef();
+  //const exportTableRef = useRef();
 
   // Render component
   return (
