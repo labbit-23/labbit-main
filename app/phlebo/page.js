@@ -15,9 +15,8 @@ import {
   Tr,
   Th,
   Td,
-  Badge,
-  Flex,
   Stack,
+  Flex,
   HStack,
   Alert,
   AlertIcon,
@@ -30,12 +29,18 @@ import {
   ModalBody,
   ModalFooter,
   ModalCloseButton,
-  Textarea,
-  Checkbox,
   useDisclosure,
+  IconButton,
+  Divider,
+  VStack,
 } from "@chakra-ui/react";
 import { FiRefreshCw } from "react-icons/fi";
+import { PhoneIcon } from "@chakra-ui/icons";
+import { MdLocationOn } from "react-icons/md";
+import PlacesAutocomplete from "react-places-autocomplete";
+
 import { createClient } from "@supabase/supabase-js";
+import TestPackageSelector from "../components/TestPackageSelector";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -45,49 +50,53 @@ const supabase = createClient(
 const formatDate = (date) => date.toISOString().split("T")[0];
 
 const STATUS_STYLES = {
-  pending: { bg: "yellow.100", borderColor: "yellow.400", pulse: false },
-  in_progress: { bg: "blue.100", borderColor: "blue.400", pulse: true },
-  sample_picked: { bg: "green.100", borderColor: "green.400", pulse: false },
-  sample_dropped: { bg: "purple.100", borderColor: "purple.400", pulse: false },
-  assigned: { bg: "cyan.100", borderColor: "cyan.400", pulse: false },
-  booked: { bg: "gray.100", borderColor: "gray.300", pulse: false },
-  default: { bg: "gray.100", borderColor: "gray.200", pulse: false },
+  booked: { bg: "gray.100", borderColor: "gray.300" },
+  assigned: { bg: "cyan.100", borderColor: "cyan.400" },
+  pending: { bg: "yellow.100", borderColor: "yellow.400" },
+  in_progress: { bg: "blue.100", borderColor: "blue.400" },
+  sample_picked: { bg: "green.100", borderColor: "green.400" },
+  sample_dropped: { bg: "purple.100", borderColor: "purple.400" },
+  completed: { bg: "green.200", borderColor: "green.500" },
+  default: { bg: "gray.100", borderColor: "gray.200" },
 };
 
-const PhleboPage = () => {
+const visitStatusOrder = [
+  "booked",
+  "assigned",
+  "pending",
+  "in_progress",
+  "sample_picked",
+  "sample_dropped",
+  "completed",
+];
+
+// Helpers for status step progression
+const statusToStepIndex = (status) => visitStatusOrder.indexOf(status);
+const stepIndexToStatus = (index) => visitStatusOrder[index] || "booked";
+
+export default function PhleboPage() {
   const toast = useToast();
 
-  // State for executives and visits
+  // States
   const [executives, setExecutives] = useState([]);
   const [selectedExecutive, setSelectedExecutive] = useState(null);
   const [visits, setVisits] = useState([]);
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
 
-  // Loading and error state
   const [loadingExecutives, setLoadingExecutives] = useState(false);
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Address edit modal state
-  const [addressEditVisitId, setAddressEditVisitId] = useState(null);
+  // Active visit details
+  const [activeVisit, setActiveVisit] = useState(null);
   const [newAddress, setNewAddress] = useState("");
-  const {
-    isOpen: isAddressModalOpen,
-    onOpen: onAddressModalOpen,
-    onClose: onAddressModalClose,
-  } = useDisclosure();
+  const addressModal = useDisclosure();
 
-  // Tests modal state
-  const [testsCatalog, setTestsCatalog] = useState([]);
-  const [testsModalVisitId, setTestsModalVisitId] = useState(null);
+  // Tests modal
   const [selectedTests, setSelectedTests] = useState(new Set());
-  const {
-    isOpen: isTestsModalOpen,
-    onOpen: onTestsModalOpen,
-    onClose: onTestsModalClose,
-  } = useDisclosure();
+  const testsModal = useDisclosure();
 
-  // Fetch executives filtered by status active or available
+  // Fetch executives
   const fetchExecutives = async () => {
     setErrorMsg(null);
     setLoadingExecutives(true);
@@ -102,7 +111,7 @@ const PhleboPage = () => {
       setExecutives(data);
       setSelectedExecutive(data?.[0]?.id ?? null);
     } catch (error) {
-      console.error("Error fetching executives:", error);
+      console.error(error);
       setErrorMsg("Failed to load executives.");
       toast({
         title: "Error loading executives",
@@ -116,7 +125,7 @@ const PhleboPage = () => {
     }
   };
 
-  // Fetch visits filtered by selected date and executive
+  // Fetch visits
   const fetchVisits = async () => {
     if (!selectedExecutive) {
       setVisits([]);
@@ -145,7 +154,7 @@ const PhleboPage = () => {
 
       setVisits(data || []);
     } catch (error) {
-      console.error("Error fetching visits:", error);
+      console.error(error);
       setErrorMsg("Failed to load visits.");
       setVisits([]);
       toast({
@@ -160,57 +169,35 @@ const PhleboPage = () => {
     }
   };
 
-  // Fetch tests catalog for visit_details modal
-  const fetchTestsCatalog = async () => {
+  // Open visit details modal/view
+  const openVisit = async (visit) => {
+    setActiveVisit(visit);
+    setNewAddress(visit.address ?? "");
+
     try {
-      const { data, error } = await supabase.from("tests").select("id, name");
+      const { data, error } = await supabase
+        .from("visit_details")
+        .select("test_id")
+        .eq("visit_id", visit.id);
       if (error) throw error;
-      setTestsCatalog(data || []);
+
+      setSelectedTests(new Set(data.map((d) => d.test_id)));
     } catch (e) {
-      console.error("Error loading tests catalog:", e);
+      console.error("Error fetching selected tests:", e);
+      setSelectedTests(new Set());
     }
   };
 
-  React.useEffect(() => {
-    fetchExecutives();
-    fetchTestsCatalog();
-  }, []);
-
-  React.useEffect(() => {
-    fetchVisits();
-  }, [selectedExecutive, selectedDate]);
-
-  // Update visit status
-  const updateVisitStatus = async (visitId, status) => {
-    try {
-      const { error } = await supabase.from("visits").update({ status }).eq("id", visitId);
-      if (error) throw error;
-
-      toast({
-        title: `Visit status updated to ${status.replace(/_/g, " ")}`,
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-
-      await fetchVisits();
-    } catch (error) {
-      console.error("Error updating visit status:", error);
-      setErrorMsg("Failed to update visit status.");
-      toast({
-        title: "Error updating visit status",
-        description: error.message || "Please try again.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
+  const closeVisit = () => {
+    setActiveVisit(null);
+    setSelectedTests(new Set());
+    setNewAddress("");
   };
 
-  // Assign visit to selected executive with status 'assigned'
+  // Assign visit to selected executive, set status assigned
   const assignVisit = async (visitId) => {
     if (!selectedExecutive) {
-      setErrorMsg("Please select an executive to assign.");
+      setErrorMsg("Please select an executive.");
       return;
     }
     try {
@@ -229,11 +216,11 @@ const PhleboPage = () => {
 
       await fetchVisits();
     } catch (error) {
-      console.error("Error assigning visit:", error);
+      console.error(error);
       setErrorMsg("Failed to assign visit.");
       toast({
         title: "Error assigning visit",
-        description: error.message || "Please try again.",
+        description: error.message || "Please try again later.",
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -241,20 +228,57 @@ const PhleboPage = () => {
     }
   };
 
-  // Address update modal handlers
-  const openAddressModal = (visit) => {
-    setAddressEditVisitId(visit.id);
-    setNewAddress(visit.address ?? "");
-    onAddressModalOpen();
+  // Update visit status for active visit
+  const updateVisitStatus = async (newStatus) => {
+    if (!activeVisit) return;
+    try {
+      const { error } = await supabase.from("visits").update({ status: newStatus }).eq("id", activeVisit.id);
+      if (error) throw error;
+
+      toast({
+        title: `Visit status updated to ${newStatus.replace(/_/g, " ")}`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      await fetchVisits();
+
+      // Refresh activeVisit with latest data
+      const { data, error: singleErr } = await supabase
+        .from("visits")
+        .select(
+          `
+          id,
+          address,
+          time_slot,
+          status,
+          patient:patient_id(name, phone),
+          executive:executive_id(name),
+          executive_id
+          `
+        )
+        .eq("id", activeVisit.id)
+        .single();
+
+      if (!singleErr) setActiveVisit(data);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Failed to update visit status",
+        description: error.message || "Please try again",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    }
   };
 
-  const handleUpdateAddress = async () => {
-    if (!addressEditVisitId) return;
+  // Save updated address for active visit
+  const saveAddress = async () => {
+    if (!activeVisit) return;
     try {
-      const { error } = await supabase
-        .from("visits")
-        .update({ address: newAddress })
-        .eq("id", addressEditVisitId);
+      const { error } = await supabase.from("visits").update({ address: newAddress }).eq("id", activeVisit.id);
       if (error) throw error;
 
       toast({
@@ -264,15 +288,13 @@ const PhleboPage = () => {
         isClosable: true,
       });
 
-      onAddressModalClose();
-      setAddressEditVisitId(null);
-      setNewAddress("");
       await fetchVisits();
+      setActiveVisit({ ...activeVisit, address: newAddress });
     } catch (error) {
-      console.error("Error updating address:", error);
+      console.error(error);
       toast({
         title: "Failed to update address",
-        description: error.message || "Try again later",
+        description: error.message || "Please try again",
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -280,54 +302,21 @@ const PhleboPage = () => {
     }
   };
 
-  // Visit tests modal handlers
-  const openTestsModal = async (visit) => {
-    setTestsModalVisitId(visit.id);
+  // Save selected tests for active visit
+  const saveTests = async () => {
+    if (!activeVisit) return;
     try {
-      const { data, error } = await supabase
-        .from("visit_details")
-        .select("test_id")
-        .eq("visit_id", visit.id);
-      if (error) throw error;
-
-      const selectedSet = new Set(data.map((d) => d.test_id));
-      setSelectedTests(selectedSet);
-    } catch (error) {
-      console.error("Error fetching visit details:", error);
-      setSelectedTests(new Set());
-    }
-    onTestsModalOpen();
-  };
-
-  const toggleTestSelection = (testId) => {
-    setSelectedTests((current) => {
-      const newSet = new Set(current);
-      if (newSet.has(testId)) {
-        newSet.delete(testId);
-      } else {
-        newSet.add(testId);
-      }
-      return newSet;
-    });
-  };
-
-  const saveVisitTests = async () => {
-    if (!testsModalVisitId) return;
-    try {
-      // Delete existing visit_details for this visit
-      const { error: deleteError } = await supabase
-        .from("visit_details")
-        .delete()
-        .eq("visit_id", testsModalVisitId);
+      // Delete any existing tests for this visit
+      const { error: deleteError } = await supabase.from("visit_details").delete().eq("visit_id", activeVisit.id);
       if (deleteError) throw deleteError;
 
-      // Insert selected tests
+      // Insert new ones
       const inserts = Array.from(selectedTests).map((test_id) => ({
-        visit_id: testsModalVisitId,
+        visit_id: activeVisit.id,
         test_id,
       }));
 
-      if (inserts.length > 0) {
+      if (inserts.length) {
         const { error: insertError } = await supabase.from("visit_details").insert(inserts);
         if (insertError) throw insertError;
       }
@@ -338,13 +327,11 @@ const PhleboPage = () => {
         duration: 3000,
         isClosable: true,
       });
-
-      onTestsModalClose();
     } catch (error) {
-      console.error("Error saving visit tests:", error);
+      console.error(error);
       toast({
-        title: "Failed to update tests",
-        description: error.message || "Try again later",
+        title: "Failed to save tests",
+        description: error.message || "Please try again",
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -352,38 +339,39 @@ const PhleboPage = () => {
     }
   };
 
-  // Utility: styles based on status
-  const getStatusStyle = (status) => {
-    const style = STATUS_STYLES[status] || STATUS_STYLES.default;
-    return {
-      bg: style.bg,
-      borderLeft: "4px solid",
-      borderColor: style.borderColor,
-      animation: style.pulse ? "pulse 2s infinite" : undefined,
-    };
-  };
-
-  // Filter visits for display
-  const assignedVisits = visits.filter(
-    (v) => v.executive_id && v.executive_id === selectedExecutive
-  );
-  const unassignedVisits = visits.filter(
-    (v) => v.executive_id == null || v.executive_id === ""
-  );
-
-  // Quick date selection helper
+  // Quick date helpers
   const quickSelect = (daysOffset) => {
     const date = new Date();
     date.setDate(date.getDate() + daysOffset);
     setSelectedDate(formatDate(date));
   };
 
+  // Styles for visit rows based on status
+  const getStatusStyle = (status) => {
+    const style = STATUS_STYLES[status] || STATUS_STYLES.default;
+    return {
+      bg: style.bg,
+      borderLeft: "4px solid",
+      borderColor: style.borderColor,
+    };
+  };
+
+  // Filter visits according to selected executive
+  const assignedVisits = visits.filter(
+    (v) => v.executive_id && v.executive_id === selectedExecutive
+  );
+  const unassignedVisits = visits.filter(
+    (v) => !v.executive_id || v.executive_id === ""
+  );
+
   return (
     <Box p={6} maxW="4xl" mx="auto">
+      {/* Page header */}
       <Heading as="h1" size="xl" mb={6} textAlign="center">
         Welcome, HV Executive
       </Heading>
 
+      {/* Executive selector and date picker */}
       <Flex direction={{ base: "column", sm: "row" }} justify="center" gap={4} mb={6} align="center">
         <Select
           maxW="240px"
@@ -431,6 +419,7 @@ const PhleboPage = () => {
         </HStack>
       </Flex>
 
+      {/* Error message */}
       {errorMsg && (
         <Alert status="error" mb={6} borderRadius="md">
           <AlertIcon />
@@ -438,6 +427,7 @@ const PhleboPage = () => {
         </Alert>
       )}
 
+      {/* Visits Table */}
       {loadingVisits ? (
         <Text textAlign="center" color="gray.500" mb={8}>
           Loading visits...
@@ -454,13 +444,7 @@ const PhleboPage = () => {
                 No assigned visits.
               </Text>
             ) : (
-              <Table
-                variant="simple"
-                size="sm"
-                borderWidth="1px"
-                borderColor="gray.300"
-                borderRadius="md"
-              >
+              <Table variant="simple" size="sm" borderWidth="1px" borderColor="gray.300" borderRadius="md">
                 <Thead bg="gray.100">
                   <Tr>
                     <Th>Patient</Th>
@@ -475,13 +459,20 @@ const PhleboPage = () => {
                   {assignedVisits.map((visit) => {
                     const styleProps = getStatusStyle(visit.status);
                     return (
-                      <Tr key={visit.id} {...styleProps} title={`Visit Status: ${visit.status}`}>
+                      <Tr
+                        key={visit.id}
+                        {...styleProps}
+                        title={`Visit Status: ${visit.status}`}
+                        cursor="pointer"
+                        onClick={() => openVisit(visit)}
+                      >
                         <Td>{visit.patient?.name || "Unknown Patient"}</Td>
                         <Td>
                           {visit.patient?.phone ? (
                             <Link
                               href={`tel:${visit.patient.phone}`}
                               color="blue.600"
+                              onClick={(e) => e.stopPropagation()}
                               textDecoration="underline"
                               aria-label={`Call ${visit.patient.name}`}
                             >
@@ -498,74 +489,10 @@ const PhleboPage = () => {
                         <Td textTransform="capitalize">{visit.status.replace(/_/g, " ")}</Td>
                         <Td>
                           <Stack direction="row" spacing={1} flexWrap="wrap">
-                            {(visit.status === "pending" || visit.status === "assigned") && (
-                              <Button
-                                size="sm"
-                                colorScheme="blue"
-                                onClick={() => updateVisitStatus(visit.id, "in_progress")}
-                                aria-label={`Start visit for ${visit.patient?.name}`}
-                              >
-                                Start Visit
-                              </Button>
-                            )}
-                            {visit.status === "in_progress" && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  colorScheme="green"
-                                  onClick={() => updateVisitStatus(visit.id, "sample_picked")}
-                                  aria-label={`Mark sample picked for ${visit.patient?.name}`}
-                                >
-                                  Mark Picked
-                                </Button>
-                                <Link
-                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                                    visit.address ?? ""
-                                  )}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  fontSize="sm"
-                                  px={2}
-                                  py={1}
-                                  bg="gray.200"
-                                  rounded="md"
-                                  _hover={{ bg: "gray.300" }}
-                                  aria-label={`Navigate to ${visit.address || "address"}`}
-                                >
-                                  Navigate
-                                </Link>
-                              </>
-                            )}
-                            {visit.status === "sample_picked" && (
-                              <Button
-                                size="sm"
-                                colorScheme="purple"
-                                onClick={() => updateVisitStatus(visit.id, "sample_dropped")}
-                                aria-label={`Mark sample dropped for ${visit.patient?.name}`}
-                              >
-                                Mark Dropped
-                              </Button>
-                            )}
-
-                            {/* Edit Address */}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openAddressModal(visit)}
-                              aria-label={`Edit address for ${visit.patient?.name}`}
-                            >
-                              Edit Address
-                            </Button>
-
-                            {/* Edit Tests */}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openTestsModal(visit)}
-                              aria-label={`Edit tests for ${visit.patient?.name}`}
-                            >
-                              Edit Tests
-                            </Button>
+                            {/* The whole row is clickable to open detail, so no other buttons here */}
+                            <Text fontSize="sm" color="gray.500" userSelect="none">
+                              Tap row for actions
+                            </Text>
                           </Stack>
                         </Td>
                       </Tr>
@@ -629,63 +556,130 @@ const PhleboPage = () => {
         </>
       )}
 
-      {/* Address Edit Modal */}
-      <Modal isOpen={isAddressModalOpen} onClose={onAddressModalClose} isCentered>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Edit Visit Address</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <Textarea
-              value={newAddress}
-              onChange={(e) => setNewAddress(e.target.value)}
-              placeholder="Enter new address"
-              rows={4}
-            />
-          </ModalBody>
-          <ModalFooter>
-            <Button colorScheme="brand" mr={3} onClick={handleUpdateAddress}>
-              Save
-            </Button>
-            <Button variant="ghost" onClick={onAddressModalClose}>
-              Cancel
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+      {/* Visit Detail Modal */}
+      {activeVisit && (
+        <Modal isOpen={true} onClose={closeVisit} size="lg" scrollBehavior="inside" isCentered>
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>Visit Details for {activeVisit.patient?.name}</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+              <VStack spacing={4} align="stretch">
+                <Box>
+                  <Text fontWeight="bold">Patient Phone:</Text>
+                  {activeVisit.patient?.phone ? (
+                    <Link href={`tel:${activeVisit.patient.phone}`} color="blue.600" isExternal>
+                      {activeVisit.patient.phone}
+                    </Link>
+                  ) : (
+                    "Unknown"
+                  )}
+                </Box>
 
-      {/* Visit Tests Modal */}
-      <Modal isOpen={isTestsModalOpen} onClose={onTestsModalClose} size="md" isCentered scrollBehavior="inside">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Edit Tests Ordered</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody maxH="60vh" overflowY="auto">
-            <Stack spacing={3}>
-              {testsCatalog.length === 0 && <Text>No tests available</Text>}
-              {testsCatalog.map(({ id, name }) => (
-                <Checkbox
-                  key={id}
-                  isChecked={selectedTests.has(id)}
-                  onChange={() => toggleTestSelection(id)}
+                {/* Navigate button */}
+                <Button
+                  as="a"
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeVisit.address ?? "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  leftIcon={<MdLocationOn />}
+                  colorScheme="teal"
+                  variant="outline"
                 >
-                  {name}
-                </Checkbox>
-              ))}
-            </Stack>
-          </ModalBody>
-          <ModalFooter>
-            <Button colorScheme="brand" mr={3} onClick={saveVisitTests}>
-              Save
-            </Button>
-            <Button variant="ghost" onClick={onTestsModalClose}>
-              Cancel
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+                  Navigate to Address
+                </Button>
+
+                {/* Address update with Google Places Autocomplete */}
+                <Box>
+                  <Text fontWeight="bold" mb={1}>
+                    Update Address:
+                  </Text>
+                  <PlacesAutocomplete
+                    value={newAddress}
+                    onChange={setNewAddress}
+                    onSelect={setNewAddress}
+                  >
+                    {({ getInputProps, suggestions, getSuggestionItemProps, loading }) => (
+                      <Box position="relative">
+                        <Input {...getInputProps({ placeholder: "Search address..." })} />
+                        {loading && (
+                          <Box position="absolute" bg="white" w="full" p={2} shadow="md" zIndex={1000}>
+                            <Text>Loading...</Text>
+                          </Box>
+                        )}
+                        <Box position="absolute" bg="white" w="full" maxH="200px" overflowY="auto" shadow="md" zIndex={1000}>
+                          {suggestions.map((suggestion) => {
+                            const style = {
+                              backgroundColor: suggestion.active ? "#edf2f7" : "#fff",
+                              cursor: "pointer",
+                              padding: "8px 12px",
+                            };
+                            return (
+                              <Box
+                                key={suggestion.placeId}
+                                {...getSuggestionItemProps(suggestion, { style })}
+                              >
+                                {suggestion.description}
+                              </Box>
+                            );
+                          })}
+                        </Box>
+                      </Box>
+                    )}
+                  </PlacesAutocomplete>
+                  <Button mt={2} colorScheme="brand" onClick={saveAddress} size="sm">
+                    Save Address
+                  </Button>
+                </Box>
+
+                {/* Status Update Buttons (Stepper style) */}
+                <Box>
+                  <Text fontWeight="bold" mb={2}>
+                    Visit Status:
+                  </Text>
+                  <HStack spacing={2}>
+                    {visitStatusOrder.map((status, idx) => {
+                      const isCurrent = status === activeVisit.status;
+                      const isCompleted = visitStatusOrder.indexOf(activeVisit.status) > idx;
+                      return (
+                        <Button
+                          key={status}
+                          size="sm"
+                          isDisabled={!isCurrent && !isCompleted}
+                          colorScheme={isCurrent ? "blue" : isCompleted ? "green" : "gray"}
+                          variant={isCurrent ? "solid" : "outline"}
+                          onClick={() => !isCurrent && updateVisitStatus(status)}
+                        >
+                          {status.replace(/_/g, " ").toUpperCase()}
+                        </Button>
+                      );
+                    })}
+                  </HStack>
+                </Box>
+
+                {/* Add Tests Selector */}
+                <Box>
+                  <Text fontWeight="bold" mb={2}>
+                    Add Tests/Packages:
+                  </Text>
+                  <TestPackageSelector
+                    initialSelectedTests={selectedTests}
+                    onSelectionChange={setSelectedTests}
+                  />
+                  <Button mt={2} colorScheme="brand" onClick={saveTests}>
+                    Save Tests
+                  </Button>
+                </Box>
+              </VStack>
+            </ModalBody>
+            <ModalFooter>
+              <Button onClick={closeVisit} variant="ghost">
+                Close
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      )}
     </Box>
   );
-};
-
-export default PhleboPage;
+}
