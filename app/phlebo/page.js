@@ -39,6 +39,8 @@ const STATUS_STYLES = {
   in_progress: { bg: "blue.100", borderColor: "blue.400", pulse: true },
   sample_picked: { bg: "green.100", borderColor: "green.400", pulse: false },
   sample_dropped: { bg: "purple.100", borderColor: "purple.400", pulse: false },
+  assigned: { bg: "cyan.100", borderColor: "cyan.400", pulse: false },
+  booked: { bg: "gray.100", borderColor: "gray.300", pulse: false },
   default: { bg: "gray.100", borderColor: "gray.200", pulse: false },
 };
 
@@ -62,7 +64,9 @@ const PhleboPage = () => {
         .from("executives")
         .select("id, name, status")
         .in("status", ["active", "available"]);
+
       if (error) throw error;
+
       setExecutives(data);
       setSelectedExecutive(data?.[0]?.id ?? null);
     } catch (error) {
@@ -98,14 +102,18 @@ const PhleboPage = () => {
           time_slot,
           status,
           patient:patient_id(name, phone),
-          executive:executive_id(name)
+          executive:executive_id(name),
+          executive_id
         `
         )
         .eq("visit_date", selectedDate)
         .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
 
       if (error) throw error;
+
       setVisits(data || []);
+      // Debug log on visits fetch
+      // console.log("Fetched visits:", data);
     } catch (error) {
       console.error("Error fetching visits:", error);
       setErrorMsg("Failed to load visits.");
@@ -128,12 +136,12 @@ const PhleboPage = () => {
       const { error } = await supabase.from("visits").update({ status }).eq("id", visitId);
       if (error) throw error;
       toast({
-        title: `Status updated to ${status.replace(/_/g, " ")}`,
+        title: `Visit status updated to ${status.replace(/_/g, " ")}`,
         status: "success",
         duration: 3000,
         isClosable: true,
       });
-      fetchVisits();
+      await fetchVisits();
     } catch (error) {
       console.error("Error updating visit status:", error);
       setErrorMsg("Failed to update visit status.");
@@ -147,21 +155,27 @@ const PhleboPage = () => {
     }
   };
 
-  // Assign visit to selected executive
+  // Assign visit to selected executive and set status to 'assigned'
   const assignVisit = async (visitId) => {
+    if (!selectedExecutive) {
+      setErrorMsg("Please select an executive to assign.");
+      return;
+    }
     try {
       const { error } = await supabase
         .from("visits")
-        .update({ executive_id: selectedExecutive })
+        .update({ executive_id: selectedExecutive, status: "assigned" })
         .eq("id", visitId);
+
       if (error) throw error;
+
       toast({
-        title: "Visit assigned",
+        title: "Visit assigned to you",
         status: "success",
         duration: 3000,
         isClosable: true,
       });
-      fetchVisits();
+      await fetchVisits();
     } catch (error) {
       console.error("Error assigning visit:", error);
       setErrorMsg("Failed to assign visit.");
@@ -175,12 +189,10 @@ const PhleboPage = () => {
     }
   };
 
-  // Lifecycle: Fetch executives on mount
   useEffect(() => {
     fetchExecutives();
   }, []);
 
-  // Fetch visits when executive or date changes
   useEffect(() => {
     fetchVisits();
   }, [selectedExecutive, selectedDate]);
@@ -203,10 +215,13 @@ const PhleboPage = () => {
     };
   };
 
+  // Filter assigned/unassigned based on stable type comparison
   const assignedVisits = visits.filter(
-    (v) => v.executive_id && v.executive_id.toString() === selectedExecutive?.toString()
+    (v) => v.executive_id && v.executive_id === selectedExecutive
   );
-  const unassignedVisits = visits.filter((v) => !v.executive_id);
+  const unassignedVisits = visits.filter(
+    (v) => v.executive_id == null || v.executive_id === ""
+  );
 
   return (
     <Box p={6} maxW="4xl" mx="auto">
@@ -214,7 +229,13 @@ const PhleboPage = () => {
         Welcome, HV Executive
       </Heading>
 
-      <Flex direction={{ base: "column", sm: "row" }} justify="center" gap={4} mb={6} align="center">
+      <Flex
+        direction={{ base: "column", sm: "row" }}
+        justify="center"
+        gap={4}
+        mb={6}
+        align="center"
+      >
         <Select
           maxW="240px"
           value={selectedExecutive ?? ""}
@@ -283,7 +304,13 @@ const PhleboPage = () => {
                 No assigned visits.
               </Text>
             ) : (
-              <Table variant="simple" size="sm" borderWidth="1px" borderColor="gray.300" borderRadius="md">
+              <Table
+                variant="simple"
+                size="sm"
+                borderWidth="1px"
+                borderColor="gray.300"
+                borderRadius="md"
+              >
                 <Thead bg="gray.100">
                   <Tr>
                     <Th>Patient</Th>
@@ -303,7 +330,9 @@ const PhleboPage = () => {
                         <Td maxW="xs" isTruncated>
                           {visit.address}
                         </Td>
-                        <Td textTransform="capitalize">{visit.status.replace(/_/g, " ")}</Td>
+                        <Td textTransform="capitalize">
+                          {visit.status.replace(/_/g, " ")}
+                        </Td>
                         <Td>
                           <Stack direction="row" spacing={1}>
                             {visit.status === "pending" && (
