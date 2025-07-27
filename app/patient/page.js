@@ -1,8 +1,27 @@
 "use client";
+
 import {
-  Box, Heading, Button, VStack, FormControl, FormLabel, Input,
-  Select, Textarea, Alert, AlertIcon, Text, useToast, Badge,
-  Table, Thead, Tbody, Tr, Th, Td, Spinner, HStack
+  Box,
+  Heading,
+  Button,
+  VStack,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Textarea,
+  Alert,
+  AlertIcon,
+  Text,
+  useToast,
+  Badge,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  HStack,
 } from "@chakra-ui/react";
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -12,119 +31,213 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
-const formatDate = (date) => date ? new Date(date).toISOString().split("T")[0] : "";
+
+const formatDate = (date) => (date ? new Date(date).toISOString().split("T")[0] : "");
 
 export default function PatientVisitRequestPage() {
+  // Form states
   const [mobile, setMobile] = useState("");
   const [patient, setPatient] = useState(null);
   const [labs, setLabs] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [patientLoading, setPatientLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
   const [visitForm, setVisitForm] = useState({
     lab_id: "",
     visit_date: formatDate(new Date()),
     time_slot_id: "",
     address: "",
   });
+
+  // UI & feedback
+  const [loading, setLoading] = useState(false);
+  const [patientLoading, setPatientLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [patientVisits, setPatientVisits] = useState([]);
   const toast = useToast();
 
+  // Fetch labs and time slots on mount
   useEffect(() => {
     fetchLabs();
     fetchTimeSlots();
   }, []);
 
+  // Fetch patient's pending visits when patient changes
   useEffect(() => {
     if (patient) fetchPatientVisits(patient.id);
     else setPatientVisits([]);
   }, [patient]);
 
+  // Fetch Labs
   async function fetchLabs() {
     try {
-      const { data } = await supabase.from("labs").select("id, name").eq("is_active", true).order("name");
+      const { data } = await supabase
+        .from("labs")
+        .select("id, name")
+        .eq("is_active", true)
+        .order("name");
       setLabs(data || []);
-    } catch {}
+    } catch (error) {
+      setErrorMsg("Failed to load labs.");
+      console.error(error);
+    }
   }
+
+  // Fetch Time Slots
   async function fetchTimeSlots() {
     try {
-      const { data } = await supabase.from("visit_time_slots").select("id, slot_name, start_time, end_time").order("start_time");
+      const { data } = await supabase
+        .from("visit_time_slots")
+        .select("id, slot_name, start_time, end_time")
+        .order("start_time");
       setTimeSlots(data || []);
-    } catch {}
+    } catch (error) {
+      setErrorMsg("Failed to load time slots.");
+      console.error(error);
+    }
   }
+
+  // Search patient by mobile
   async function searchPatientByMobile(e) {
     e && e.preventDefault();
-    setErrorMsg(""); setPatient(null);
+    setErrorMsg("");
+    setPatient(null);
+
     const trimmedMobile = mobile.trim();
-    if (!trimmedMobile) { setErrorMsg("Enter your mobile number."); return; }
+    if (!trimmedMobile) {
+      setErrorMsg("Please enter your mobile number.");
+      return;
+    }
+
     setPatientLoading(true);
     try {
-      const { data, error } = await supabase.from("patients")
-        .select("*").eq("phone", trimmedMobile).limit(1).single();
+      const { data, error } = await supabase
+        .from("patients")
+        .select("*")
+        .eq("phone", trimmedMobile)
+        .limit(1)
+        .single();
+
       if (error && error.code !== "PGRST116") throw error;
+
       setPatient(data || null);
-    } catch (error) { setErrorMsg("Failed to search: " + (error.message || error)); }
+      setVisitForm({
+        lab_id: "",
+        visit_date: formatDate(new Date()),
+        time_slot_id: "",
+        address: "",
+      });
+    } catch (error) {
+      setErrorMsg("Failed to search patient: " + (error.message || error));
+    }
     setPatientLoading(false);
   }
+
+  // Fetch patient's pending/booked visits
   async function fetchPatientVisits(patientId) {
     try {
       const { data } = await supabase
         .from("visits")
         .select("id, visit_code, visit_date, time_slot, status")
         .eq("patient_id", patientId)
-        .order("visit_date", { ascending: false });
+        .in("status", ["booked", "pending"])
+        .order("visit_date", { ascending: true });
       setPatientVisits(data || []);
-    } catch {}
+    } catch (error) {
+      console.error("Failed to fetch patient visits:", error);
+    }
   }
+
+  // Submit visit request
   async function handleSubmitVisitRequest(e) {
-    e.preventDefault(); setErrorMsg("");
-    if (!patient) { setErrorMsg("Lookup or confirm patient first."); return; }
-    const { lab_id, visit_date, time_slot_id, address } = visitForm;
-    if (!lab_id || !visit_date || !time_slot_id || !address.trim()) {
-      setErrorMsg("Please fill out all fields.");
+    e.preventDefault();
+    setErrorMsg("");
+
+    if (!patient) {
+      setErrorMsg("Please confirm your patient information first.");
       return;
     }
+
+    const { lab_id, visit_date, time_slot_id, address } = visitForm;
+
+    if (!lab_id || !visit_date || !time_slot_id || !address.trim()) {
+      setErrorMsg("Please fill in all required fields.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const timeSlotObj = timeSlots.find(ts => ts.id === time_slot_id);
-      await supabase.from("visits").insert([{
-        patient_id: patient.id, lab_id, visit_date,
-        time_slot: timeSlotObj?.slot_name || "",
-        address: address.trim(), status: "booked"
-      }]);
+      const timeSlotObj = timeSlots.find((ts) => ts.id === time_slot_id);
+
+      if (!timeSlotObj) {
+        setErrorMsg("Invalid time slot selected.");
+        setLoading(false);
+        return;
+      }
+
+      const { error } = await supabase.from("visits").insert([
+        {
+          patient_id: patient.id,
+          lab_id,
+          visit_date,
+          time_slot: timeSlotObj.slot_name,
+          address: address.trim(),
+          status: "booked",
+        },
+      ]);
+
+      if (error) throw error;
+
       toast({
-        title: "Home visit requested!",
-        description: "We'll confirm by SMS/call. Your status appears below.",
-        status: "success", duration: 5000, isClosable: true,
-        icon: <CheckCircleIcon color="brand.500" />
+        title: "Visit request submitted!",
+        description: "We will notify you once your visit is confirmed.",
+        status: "success",
+        duration: 5000,
+        isClosable: true,
+        icon: <CheckCircleIcon color="brand.500" />,
       });
-      setVisitForm({ lab_id: "", visit_date: formatDate(new Date()), time_slot_id: "", address: "" });
+
+      // Reset visit form but keep mobile & patient info
+      setVisitForm({
+        lab_id: "",
+        visit_date: formatDate(new Date()),
+        time_slot_id: "",
+        address: "",
+      });
+
+      // Refresh the patient's pending visits list
       fetchPatientVisits(patient.id);
     } catch (error) {
-      setErrorMsg("Failed: " + (error.message || JSON.stringify(error)));
+      setErrorMsg("Failed to submit visit: " + (error.message || JSON.stringify(error)));
+      console.error(error);
     }
     setLoading(false);
   }
 
-  // Status badge color mapping
-  const statusColorScheme = status => {
+  // Badge color based on status
+  const statusColorScheme = (status) => {
     switch (status) {
-      case "booked": return "blue";
-      case "accepted": return "teal";
-      case "postponed": return "yellow";
-      case "rejected": return "red";
-      case "completed": return "green";
-      default: return "gray";
+      case "booked":
+        return "blue";
+      case "pending":
+        return "orange";
+      case "accepted":
+        return "teal";
+      case "postponed":
+        return "yellow";
+      case "rejected":
+        return "red";
+      case "completed":
+        return "green";
+      default:
+        return "gray";
     }
   };
 
   return (
-    <Box minH="100vh" bg="gray.50" py={[6, 12]} px={2}>
+    <Box minH="100vh" bg="gray.50" py={[8, 12]} px={4}>
       <Box
         maxW="md"
         mx="auto"
-        p={[4, 8]}
+        p={[6, 8]}
         bg="white"
         borderRadius="2xl"
         boxShadow="2xl"
@@ -133,74 +246,140 @@ export default function PatientVisitRequestPage() {
       >
         <Heading
           as="h1"
-          textAlign="center"
-          mb={3}
-          fontWeight="extrabold"
           size={["lg", "2xl"]}
+          fontWeight="extrabold"
           color="brand.600"
           letterSpacing="tight"
+          mb={4}
+          textAlign="center"
         >
           Book a Home Sample Collection
         </Heading>
-        <Text mb={5} color="brand.900" fontSize="md" textAlign="center">
-          Enter your mobile number to see/save your visit.
+        <Text color="brand.900" fontSize="md" mb={6} textAlign="center">
+          Enter your mobile phone to find your profile and manage your visits.
         </Text>
-        {/* Mobile Input Row */}
+
+        {/* Mobile number lookup form */}
         <form onSubmit={searchPatientByMobile}>
-          <HStack mb={3} align="stretch" spacing={3}>
+          <HStack mb={6} align="stretch" spacing={3}>
             <Input
               placeholder="+919876543210"
               value={mobile}
-              onChange={e => setMobile(e.target.value)}
+              onChange={(e) => setMobile(e.target.value)}
               size="md"
               focusBorderColor="brand.400"
               isDisabled={patientLoading || loading}
               bg="gray.50"
+              aria-label="Mobile phone number input"
             />
             <Button
-              colorScheme="brand"
               type="submit"
+              colorScheme="brand"
               isLoading={patientLoading}
               px={6}
+              aria-label="Lookup mobile phone"
             >
               {patient ? "Re-Lookup" : "Lookup"}
             </Button>
           </HStack>
         </form>
+
+        {/* Error display */}
         {errorMsg && (
-          <Alert status="error" mb={4} borderRadius="md">
-            <AlertIcon boxSize={5} /> <Text fontSize="sm">{errorMsg}</Text>
+          <Alert status="error" mb={6} borderRadius="md">
+            <AlertIcon />
+            <Text fontSize="sm">{errorMsg}</Text>
           </Alert>
         )}
-        {/* Patient Found Box */}
+
+        {/* Patient found box */}
         {patient && (
           <Box
-            p={3} mb={3}
+            p={3}
+            mb={6}
             borderWidth={1}
             borderRadius="lg"
             bgGradient="linear(to-bl, brand.100, white)"
             borderColor="brand.200"
+            textAlign="center"
           >
-            <Text fontWeight="semibold" color="brand.700">
+            <Text fontWeight="semibold" color="brand.700" fontSize="lg">
               Welcome, {patient.name || "Patient"}!
             </Text>
-            <Text fontSize="sm" color="brand.900">Phone: {patient.phone}</Text>
+            <Text color="brand.900" fontSize="md">
+              Phone: {patient.phone}
+            </Text>
           </Box>
         )}
-        {/* Visit Request Form */}
-        {patient && (
+
+        {/* Pending/booked visits list */}
+        {patient && patientVisits.length > 0 && (
+          <Box
+            maxW="lg"
+            mx="auto"
+            mb={6}
+            p={4}
+            borderWidth={1}
+            borderRadius="xl"
+            bg="teal.50"
+            borderColor="teal.200"
+          >
+            <Heading size="md" color="teal.700" mb={3} textAlign="center">
+              Pending Visit Requests
+            </Heading>
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr>
+                  <Th>Visit Code</Th>
+                  <Th>Date</Th>
+                  <Th>Time Slot</Th>
+                  <Th>Status</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {patientVisits.map((visit) => (
+                  <Tr key={visit.id}>
+                    <Td>{visit.visit_code || "N/A"}</Td>
+                    <Td>{new Date(visit.visit_date).toLocaleDateString()}</Td>
+                    <Td>{visit.time_slot}</Td>
+                    <Td>
+                      <Badge
+                        colorScheme={statusColorScheme(visit.status)}
+                        rounded="md"
+                        px={2}
+                      >
+                        {visit.status.toUpperCase()}
+                      </Badge>
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+            <Text mt={3} textAlign="center" color="teal.800" fontStyle="italic" fontSize="sm">
+              Please wait for your current visit(s) to be processed before booking a new one.
+            </Text>
+          </Box>
+        )}
+
+        {/* Show booking form only if no pending/booked visits */}
+        {patient && patientVisits.length === 0 && (
           <form onSubmit={handleSubmitVisitRequest}>
-            <VStack gap={3}>
+            <VStack spacing={4} align="stretch">
               <FormControl isRequired>
                 <FormLabel color="brand.800">Lab</FormLabel>
                 <Select
                   placeholder="Select Lab"
                   value={visitForm.lab_id}
-                  onChange={e => setVisitForm(f => ({ ...f, lab_id: e.target.value }))}
+                  onChange={(e) => setVisitForm((f) => ({ ...f, lab_id: e.target.value }))}
                   bg="gray.50"
                   focusBorderColor="brand.400"
+                  aria-label="Select lab"
                 >
-                  {labs.map(lab => <option key={lab.id} value={lab.id}>{lab.name}</option>)}
+                  {labs.map((lab) => (
+                    <option key={lab.id} value={lab.id}>
+                      {lab.name}
+                    </option>
+                  ))}
                 </Select>
               </FormControl>
               <FormControl isRequired>
@@ -210,8 +389,9 @@ export default function PatientVisitRequestPage() {
                   bg="gray.50"
                   value={visitForm.visit_date}
                   min={formatDate(new Date())}
-                  onChange={e => setVisitForm(f => ({ ...f, visit_date: e.target.value }))}
+                  onChange={(e) => setVisitForm((f) => ({ ...f, visit_date: e.target.value }))}
                   focusBorderColor="brand.400"
+                  aria-label="Select visit date"
                 />
               </FormControl>
               <FormControl isRequired>
@@ -219,13 +399,14 @@ export default function PatientVisitRequestPage() {
                 <Select
                   placeholder="Select Time Slot"
                   value={visitForm.time_slot_id}
-                  onChange={e => setVisitForm(f => ({ ...f, time_slot_id: e.target.value }))}
+                  onChange={(e) => setVisitForm((f) => ({ ...f, time_slot_id: e.target.value }))}
                   bg="gray.50"
                   focusBorderColor="brand.400"
+                  aria-label="Select time slot"
                 >
                   {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
                     <option key={id} value={id}>
-                      {slot_name} ({start_time.slice(0,5)}-{end_time.slice(0,5)})
+                      {slot_name} ({start_time.slice(0, 5)} - {end_time.slice(0, 5)})
                     </option>
                   ))}
                 </Select>
@@ -234,11 +415,12 @@ export default function PatientVisitRequestPage() {
                 <FormLabel color="brand.800">Address for Collection</FormLabel>
                 <Textarea
                   value={visitForm.address}
-                  onChange={e => setVisitForm(f => ({ ...f, address: e.target.value }))}
-                  placeholder="Complete address / landmarks"
+                  onChange={(e) => setVisitForm((f) => ({ ...f, address: e.target.value }))}
+                  placeholder="Complete address with landmark"
                   rows={3}
                   bg="gray.50"
                   focusBorderColor="brand.400"
+                  aria-label="Address for sample collection"
                 />
               </FormControl>
               <Button
@@ -250,60 +432,20 @@ export default function PatientVisitRequestPage() {
                 rounded="full"
                 boxShadow="md"
                 mt={2}
+                aria-label="Submit visit request"
               >
                 Submit Visit Request
               </Button>
             </VStack>
           </form>
         )}
+
         {(!patient && !patientLoading) && (
           <Text textAlign="center" fontSize="sm" color="gray.400" mt={3}>
-            Not found? Registration and OTP based booking coming soon.
+            Not found? Registration and OTP-based booking coming soon.
           </Text>
         )}
       </Box>
-      {/* Patient Visit Requests: Status/History */}
-      {patientVisits.length > 0 && (
-        <Box
-          mt={[8, 12]}
-          maxW="lg"
-          mx="auto"
-          bg="white"
-          borderRadius="2xl"
-          boxShadow="xl"
-          p={[3, 6]}
-          border="1px solid"
-          borderColor="brand.50"
-        >
-          <Heading size="md" color="brand.700" mb={4} textAlign="center" letterSpacing="tight">
-            Your Home Visit Requests
-          </Heading>
-          <Table variant="simple" size="sm">
-            <Thead>
-              <Tr>
-                <Th>Code</Th>
-                <Th>Date</Th>
-                <Th>Slot</Th>
-                <Th>Status</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {patientVisits.map((visit) => (
-                <Tr key={visit.id}>
-                  <Td>{visit.visit_code || "—"}</Td>
-                  <Td>{new Date(visit.visit_date).toLocaleDateString()}</Td>
-                  <Td>{visit.time_slot}</Td>
-                  <Td>
-                    <Badge colorScheme={statusColorScheme(visit.status)} variant="solid" rounded="md" px={2}>
-                      {visit.status.replace(/_/g, ' ').toUpperCase()}
-                    </Badge>
-                  </Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
-        </Box>
-      )}
     </Box>
   );
 }
