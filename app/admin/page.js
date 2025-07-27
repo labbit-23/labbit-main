@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Box,
   Tabs,
@@ -38,8 +38,10 @@ import {
   useToast,
   VStack,
   HStack,
+  InputGroup,
 } from "@chakra-ui/react";
-import { AddIcon, EditIcon, DeleteIcon } from "@chakra-ui/icons";
+import { AddIcon, EditIcon, DeleteIcon, DownloadIcon } from "@chakra-ui/icons";
+import html2canvas from "html2canvas";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -47,14 +49,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-/** Utility to format date as YYYY-MM-DD */
+// Utility for formatting dates to YYYY-MM-DD
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
   const d = new Date(dateInput);
   return d.toISOString().split("T")[0];
 };
 
-/** Status color mapping for badges */
+// Color mapping for status badges
 const statusColorScheme = (status) => {
   switch (status) {
     case "booked":
@@ -80,7 +82,7 @@ const statusColorScheme = (status) => {
   }
 };
 
-/** Reusable Modal Form for Visit Create/Edit */
+/** Visit Modal: Create/Edit Visit */
 function VisitModal({
   isOpen,
   onClose,
@@ -92,7 +94,6 @@ function VisitModal({
   timeSlots,
   isLoading,
 }) {
-  // Initialize form state from visitInitialData or empty defaults
   const [formData, setFormData] = useState({
     patient_id: "",
     executive_id: "",
@@ -104,7 +105,7 @@ function VisitModal({
     ...visitInitialData,
   });
 
-  // Because visitInitialData can change (edit different visits)
+  // Sync with incoming data
   useEffect(() => {
     if (visitInitialData) {
       setFormData({
@@ -112,14 +113,13 @@ function VisitModal({
         executive_id: visitInitialData.executive_id || "",
         lab_id: visitInitialData.lab_id || "",
         visit_date: formatDate(visitInitialData.visit_date) || formatDate(new Date()),
-        // Map time_slot (string) to timeSlots id if possible by slot_name
         time_slot_id:
           timeSlots.find((slot) => slot.slot_name === visitInitialData.time_slot)?.id || "",
         address: visitInitialData.address || "",
         status: visitInitialData.status || "booked",
       });
     } else {
-      setFormData((f) => ({
+      setFormData({
         patient_id: "",
         executive_id: "",
         lab_id: "",
@@ -127,9 +127,8 @@ function VisitModal({
         time_slot_id: "",
         address: "",
         status: "booked",
-      }));
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visitInitialData, timeSlots]);
 
   const handleChange = (field) => (e) => {
@@ -254,7 +253,7 @@ function VisitModal({
   );
 }
 
-/** Modal Form for Creating Patients */
+/** Modal: Patient Create */
 function PatientModal({ isOpen, onClose, onSubmit, isLoading }) {
   const [formData, setFormData] = useState({ name: "", phone: "", dob: "", gender: "", email: "" });
 
@@ -267,7 +266,6 @@ function PatientModal({ isOpen, onClose, onSubmit, isLoading }) {
     onSubmit(formData);
   };
 
-  // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) setFormData({ name: "", phone: "", dob: "", gender: "", email: "" });
   }, [isOpen]);
@@ -320,7 +318,7 @@ function PatientModal({ isOpen, onClose, onSubmit, isLoading }) {
   );
 }
 
-/** Modal form for Executives creation */
+/** Modal: Executive Create */
 function ExecutiveModal({ isOpen, onClose, onSubmit, isLoading }) {
   const [formData, setFormData] = useState({ name: "", phone: "", status: "active" });
 
@@ -377,52 +375,39 @@ function ExecutiveModal({ isOpen, onClose, onSubmit, isLoading }) {
 }
 
 export default function AdminDashboard() {
-  // Tabs
+  // Tab index: 0=Visits,1=Patients,2=Executives
   const [tabIndex, setTabIndex] = useState(0);
 
-  // Entity lists and states
+  // Entities and data states
   const [visits, setVisits] = useState([]);
   const [patients, setPatients] = useState([]);
   const [executives, setExecutives] = useState([]);
   const [labs, setLabs] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
 
-  // Loading and error states
+  // UI state
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const toast = useToast();
 
-  // Modals states for create/edit
-  const {
-    isOpen: isVisitModalOpen,
-    onOpen: openVisitModal,
-    onClose: closeVisitModal,
-  } = useDisclosure();
-  const {
-    isOpen: isPatientModalOpen,
-    onOpen: openPatientModal,
-    onClose: closePatientModal,
-  } = useDisclosure();
-  const {
-    isOpen: isExecutiveModalOpen,
-    onOpen: openExecutiveModal,
-    onClose: closeExecutiveModal,
-  } = useDisclosure();
+  // Modal states
+  const visitModal = useDisclosure();
+  const patientModal = useDisclosure();
+  const executiveModal = useDisclosure();
 
-  // Visit to edit
   const [editingVisit, setEditingVisit] = useState(null);
-
-  // Loading states for modals
   const [visitModalLoading, setVisitModalLoading] = useState(false);
   const [patientModalLoading, setPatientModalLoading] = useState(false);
   const [executiveModalLoading, setExecutiveModalLoading] = useState(false);
 
-  // Fetch all data
+  // Download visit schedule state + ref for PNG export
+  const [downloadDate, setDownloadDate] = useState(formatDate(new Date()));
+  const exportTableRef = useRef(null);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setErrorMsg("");
     try {
-      // Fetch Visits with joins to patient/executive/lab names
       const { data: visitsData, error: visitsError } = await supabase
         .from("visits")
         .select(
@@ -466,7 +451,7 @@ export default function AdminDashboard() {
       setLabs(labsData || []);
       setTimeSlots(timeSlotsData || []);
     } catch (error) {
-      setErrorMsg("Failed to load data. Please reload or try later.");
+      setErrorMsg("Failed to load data. Please try again.");
       console.error(error);
     }
     setLoading(false);
@@ -476,12 +461,13 @@ export default function AdminDashboard() {
     fetchAll();
   }, [fetchAll]);
 
-  // Visit create or update handler
+  // Handlers for create/update/delete
+
   const handleVisitSave = async (formData) => {
     setVisitModalLoading(true);
     try {
       const timeSlot = timeSlots.find((slot) => slot.id === formData.time_slot_id);
-      if (!timeSlot) throw new Error("Invalid time slot selected");
+      if (!timeSlot) throw new Error("Invalid time slot.");
 
       const visitPayload = {
         patient_id: formData.patient_id,
@@ -517,7 +503,7 @@ export default function AdminDashboard() {
           isClosable: true,
         });
       }
-      closeVisitModal();
+      visitModal.onClose();
       setEditingVisit(null);
       await fetchAll();
     } catch (error) {
@@ -533,7 +519,6 @@ export default function AdminDashboard() {
     setVisitModalLoading(false);
   };
 
-  // Patient create handler
   const handlePatientCreate = async (formData) => {
     setPatientModalLoading(true);
     try {
@@ -545,7 +530,7 @@ export default function AdminDashboard() {
         duration: 3000,
         isClosable: true,
       });
-      closePatientModal();
+      patientModal.onClose();
       await fetchAll();
     } catch (error) {
       toast({
@@ -560,7 +545,6 @@ export default function AdminDashboard() {
     setPatientModalLoading(false);
   };
 
-  // Executive create handler
   const handleExecutiveCreate = async (formData) => {
     setExecutiveModalLoading(true);
     try {
@@ -572,7 +556,7 @@ export default function AdminDashboard() {
         duration: 3000,
         isClosable: true,
       });
-      closeExecutiveModal();
+      executiveModal.onClose();
       await fetchAll();
     } catch (error) {
       toast({
@@ -587,9 +571,8 @@ export default function AdminDashboard() {
     setExecutiveModalLoading(false);
   };
 
-  // Delete visit
   const handleVisitDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this visit?")) return;
+    if (!window.confirm("Delete this visit?")) return;
     setLoading(true);
     try {
       const { error } = await supabase.from("visits").delete().eq("id", id);
@@ -614,25 +597,39 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  // Tab change handler
-  const handleTabsChange = (index) => {
-    setTabIndex(index);
+  // Download Visit Schedule PNG
+  const [downloadDate, setDownloadDate] = useState(formatDate(new Date()));
+
+  const handleDownloadSchedule = async () => {
+    if (!exportTableRef.current) return;
+    try {
+      const canvas = await html2canvas(exportTableRef.current, { backgroundColor: "#fff", scale: 2 });
+      const link = document.createElement("a");
+      link.download = `HV_Visit_Schedule_${downloadDate}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (error) {
+      alert("Failed to generate image: " + error.message);
+    }
   };
 
+  const exportTableRef = useRef();
+
+  // Render component
   return (
     <Box minH="100vh" p={[4, 8]} bg="gray.50">
-      {/* Global Header */}
+      {/* Header */}
       <Flex align="center" mb={8}>
         <Heading color="brand.600" size="xl" fontWeight="extrabold">
           Labbit Admin Dashboard
         </Heading>
         <Spacer />
-        <Button colorScheme="brand" onClick={() => openVisitModal()}>
-          <AddIcon mr={1} /> New Visit
+        <Button colorScheme="brand" onClick={() => { setEditingVisit(null); visitModal.onOpen(); }} leftIcon={<AddIcon />}>
+          New Visit
         </Button>
       </Flex>
 
-      {/* Error alert */}
+      {/* Error */}
       {errorMsg && (
         <Alert status="error" mb={6} borderRadius="md">
           <AlertIcon />
@@ -640,7 +637,7 @@ export default function AdminDashboard() {
         </Alert>
       )}
 
-      <Tabs index={tabIndex} onChange={handleTabsChange} isLazy variant="enclosed-colored" colorScheme="brand">
+      <Tabs index={tabIndex} onChange={setTabIndex} isLazy variant="enclosed-colored" colorScheme="brand">
         <TabList>
           <Tab>Visits</Tab>
           <Tab>Patients</Tab>
@@ -650,69 +647,144 @@ export default function AdminDashboard() {
         <TabPanels>
           {/* Visits Tab */}
           <TabPanel>
+            <Box mb={4} display="flex" alignItems="center" gap={3} flexWrap="wrap">
+              <InputGroup maxW="180px">
+                <Input
+                  type="date"
+                  value={downloadDate}
+                  onChange={(e) => setDownloadDate(e.target.value)}
+                  aria-label="Select date for export"
+                />
+              </InputGroup>
+              <Button
+                leftIcon={<DownloadIcon />}
+                colorScheme="brand"
+                onClick={handleDownloadSchedule}
+                aria-label="Download HV visit schedule as PNG"
+              >
+                Download Visit Schedule
+              </Button>
+            </Box>
+
             {loading ? (
               <Spinner size="lg" />
             ) : visits.length === 0 ? (
               <Text>No visits found.</Text>
             ) : (
-              <Table variant="simple" size="sm" bg="white" rounded="xl" boxShadow="lg" overflowX="auto">
-                <Thead bg="gray.100">
-                  <Tr>
-                    <Th>Visit Code</Th>
-                    <Th>Date</Th>
-                    <Th>Time Slot</Th>
-                    <Th>Patient</Th>
-                    <Th>Executive</Th>
-                    <Th>Lab</Th>
-                    <Th>Status</Th>
-                    <Th isNumeric>Actions</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {visits.map((visit) => (
-                    <Tr key={visit.id}>
-                      <Td>{visit.visit_code || "N/A"}</Td>
-                      <Td>{formatDate(visit.visit_date)}</Td>
-                      <Td>{visit.time_slot}</Td>
-                      <Td>{visit.patient?.name || "Unknown"}</Td>
-                      <Td>{visit.executive?.name || "Unassigned"}</Td>
-                      <Td>{visit.lab?.name || "N/A"}</Td>
-                      <Td>
-                        <Badge colorScheme={statusColorScheme(visit.status)} rounded="md" px={2}>
-                          {visit.status.replace(/_/g, " ").toUpperCase()}
-                        </Badge>
-                      </Td>
-                      <Td isNumeric>
-                        <HStack spacing={1} justifyContent="flex-end">
-                          <IconButton
-                            aria-label="Edit visit"
-                            icon={<EditIcon />}
-                            size="sm"
-                            colorScheme="brand"
-                            onClick={() => {
-                              setEditingVisit(visit);
-                              openVisitModal();
-                            }}
-                          />
-                          <IconButton
-                            aria-label="Delete visit"
-                            icon={<DeleteIcon />}
-                            size="sm"
-                            colorScheme="red"
-                            onClick={() => handleVisitDelete(visit.id)}
-                          />
-                        </HStack>
-                      </Td>
+              <>
+                <Table variant="simple" size="sm" borderRadius="xl" boxShadow="lg" overflowX="auto" bg="white">
+                  <Thead bg="gray.100">
+                    <Tr>
+                      <Th>Visit Code</Th>
+                      <Th>Date</Th>
+                      <Th>Time Slot</Th>
+                      <Th>Patient</Th>
+                      <Th>Executive</Th>
+                      <Th>Lab</Th>
+                      <Th>Status</Th>
+                      <Th isNumeric>Actions</Th>
                     </Tr>
-                  ))}
-                </Tbody>
-              </Table>
+                  </Thead>
+                  <Tbody>
+                    {visits.map((visit) => (
+                      <Tr key={visit.id}>
+                        <Td>{visit.visit_code || "N/A"}</Td>
+                        <Td>{formatDate(visit.visit_date)}</Td>
+                        <Td>{visit.time_slot}</Td>
+                        <Td>{visit.patient?.name || "Unknown"}</Td>
+                        <Td>{visit.executive?.name || "Unassigned"}</Td>
+                        <Td>{visit.lab?.name || "N/A"}</Td>
+                        <Td>
+                          <Badge colorScheme={statusColorScheme(visit.status)} rounded="md" px={2}>
+                            {visit.status.replace(/_/g, " ").toUpperCase()}
+                          </Badge>
+                        </Td>
+                        <Td isNumeric>
+                          <HStack spacing={1} justifyContent="flex-end">
+                            <IconButton
+                              aria-label="Edit visit"
+                              icon={<EditIcon />}
+                              size="sm"
+                              colorScheme="brand"
+                              onClick={() => {
+                                setEditingVisit(visit);
+                                visitModal.onOpen();
+                              }}
+                            />
+                            <IconButton
+                              aria-label="Delete visit"
+                              icon={<DeleteIcon />}
+                              size="sm"
+                              colorScheme="red"
+                              onClick={() => handleVisitDelete(visit.id)}
+                            />
+                          </HStack>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+
+                {/* Export table for PNG */}
+                <Box
+                  ref={exportTableRef}
+                  bg="white"
+                  p={4}
+                  borderRadius="xl"
+                  boxShadow="lg"
+                  maxW="900px"
+                  overflowX="auto"
+                  mt={8}
+                  mb={6}
+                  style={{ userSelect: "none", display: "none" }}
+                >
+                  <Heading size="md" mb={4} textAlign="center" color="brand.600">
+                    Home Visit Schedule - {downloadDate}
+                  </Heading>
+                  <Table size="sm" variant="simple" w="100%">
+                    <Thead bg="gray.100">
+                      <Tr>
+                        <Th>Executive</Th>
+                        <Th>Time Slot</Th>
+                        <Th>Patient</Th>
+                        <Th>Address</Th>
+                        <Th>Status</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {executives
+                        .concat([{ id: null, name: "Unassigned" }])
+                        .map((exec) => {
+                          const execVisits = visits.filter(
+                            (v) =>
+                              formatDate(v.visit_date) === downloadDate &&
+                              (v.executive_id === exec.id || (exec.id === null && !v.executive_id))
+                          );
+                          if (execVisits.length === 0) return null;
+                          return execVisits.map((v, idx) => (
+                            <Tr key={v.id}>
+                              {idx === 0 && (
+                                <Td rowSpan={execVisits.length} fontWeight="bold" bg="brand.50">
+                                  {exec.name}
+                                </Td>
+                              )}
+                              <Td>{v.time_slot}</Td>
+                              <Td>{v.patient?.name || "Unknown"}</Td>
+                              <Td>{v.address}</Td>
+                              <Td>{v.status.replace(/_/g, " ").toUpperCase()}</Td>
+                            </Tr>
+                          ));
+                        })}
+                    </Tbody>
+                  </Table>
+                </Box>
+              </>
             )}
 
             <VisitModal
-              isOpen={isVisitModalOpen}
+              isOpen={visitModal.isOpen}
               onClose={() => {
-                closeVisitModal();
+                visitModal.onClose();
                 setEditingVisit(null);
               }}
               onSubmit={handleVisitSave}
@@ -728,7 +800,7 @@ export default function AdminDashboard() {
           {/* Patients Tab */}
           <TabPanel>
             <Flex mb={4} justifyContent="flex-end">
-              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={openPatientModal}>
+              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={patientModal.onOpen}>
                 Add Patient
               </Button>
             </Flex>
@@ -748,13 +820,13 @@ export default function AdminDashboard() {
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {patients.map((patient) => (
-                    <Tr key={patient.id}>
-                      <Td>{patient.name}</Td>
-                      <Td>{patient.phone}</Td>
-                      <Td>{patient.dob ? formatDate(patient.dob) : "N/A"}</Td>
-                      <Td>{patient.gender || "N/A"}</Td>
-                      <Td>{patient.email || "N/A"}</Td>
+                  {patients.map((p) => (
+                    <Tr key={p.id}>
+                      <Td>{p.name}</Td>
+                      <Td>{p.phone}</Td>
+                      <Td>{p.dob ? formatDate(p.dob) : "N/A"}</Td>
+                      <Td>{p.gender || "N/A"}</Td>
+                      <Td>{p.email || "N/A"}</Td>
                     </Tr>
                   ))}
                 </Tbody>
@@ -762,8 +834,8 @@ export default function AdminDashboard() {
             )}
 
             <PatientModal
-              isOpen={isPatientModalOpen}
-              onClose={closePatientModal}
+              isOpen={patientModal.isOpen}
+              onClose={patientModal.onClose}
               onSubmit={handlePatientCreate}
               isLoading={patientModalLoading}
             />
@@ -772,7 +844,7 @@ export default function AdminDashboard() {
           {/* Executives Tab */}
           <TabPanel>
             <Flex mb={4} justifyContent="flex-end">
-              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={openExecutiveModal}>
+              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={executiveModal.onOpen}>
                 Add Executive
               </Button>
             </Flex>
@@ -790,11 +862,11 @@ export default function AdminDashboard() {
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {executives.map((exec) => (
-                    <Tr key={exec.id}>
-                      <Td>{exec.name}</Td>
-                      <Td>{exec.phone}</Td>
-                      <Td>{exec.status}</Td>
+                  {executives.map((e) => (
+                    <Tr key={e.id}>
+                      <Td>{e.name}</Td>
+                      <Td>{e.phone}</Td>
+                      <Td>{e.status}</Td>
                     </Tr>
                   ))}
                 </Tbody>
@@ -802,17 +874,16 @@ export default function AdminDashboard() {
             )}
 
             <ExecutiveModal
-              isOpen={isExecutiveModalOpen}
-              onClose={closeExecutiveModal}
+              isOpen={executiveModal.isOpen}
+              onClose={executiveModal.onClose}
               onSubmit={handleExecutiveCreate}
               isLoading={executiveModalLoading}
             />
           </TabPanel>
         </TabPanels>
-
       </Tabs>
 
-      {/* Optional Footer */}
+      {/* Footer */}
       <Box mt={12} textAlign="center" color="gray.500" fontSize="sm" userSelect="none">
         Labbit Home Sample Collection Platform © {new Date().getFullYear()}
       </Box>
