@@ -40,7 +40,7 @@ import { MdLocationOn } from "react-icons/md";
 import PlacesAutocomplete from "react-places-autocomplete";
 
 import { createClient } from "@supabase/supabase-js";
-import TestPackageSelector from "../components/TestPackageSelector";
+import TestPackageSelector from "../../components/TestPackageSelector";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
