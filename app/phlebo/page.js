@@ -21,22 +21,33 @@ const PhleboPage = () => {
       .from("executives")
       .select("id, name")
       .eq("status", "active");
-    if (!error) {
-      setExecutives(data);
-      setSelectedExecutive(data[0]?.id || null);
+
+    if (error) {
+      console.error("Error fetching executives:", error);
+      return;
+    }
+
+    setExecutives(data);
+    if (data.length > 0 && !selectedExecutive) {
+      setSelectedExecutive(data[0].id);
     }
   };
 
   const fetchVisits = async () => {
     if (!selectedExecutive) return;
+
     const { data, error } = await supabase
       .from("visits")
       .select("*, patients(name, phone)")
       .eq("visit_date", selectedDate)
       .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
-    if (!error) {
-      setVisits(data);
+
+    if (error) {
+      console.error("Error fetching visits:", error);
+      return;
     }
+
+    setVisits(data);
   };
 
   useEffect(() => {
@@ -72,9 +83,9 @@ const PhleboPage = () => {
     <div className="p-4 text-center">
       <h1 className="text-2xl font-bold mb-4">Welcome, HV Executive</h1>
 
-      <div className="flex flex-col sm:flex-row justify-center gap-2 mb-4">
+      <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-2 mb-4 items-center">
         <select
-          className="border p-2 rounded"
+          className="border p-2 rounded min-w-[180px]"
           value={selectedExecutive || ""}
           onChange={(e) => setSelectedExecutive(e.target.value)}
         >
@@ -94,19 +105,19 @@ const PhleboPage = () => {
 
         <div className="flex gap-2">
           <button
-            className="bg-blue-500 text-white px-2 py-1 rounded"
+            className="bg-blue-500 text-white px-3 py-1 rounded"
             onClick={() => quickSelect(-1)}
           >
             Yesterday
           </button>
           <button
-            className="bg-blue-500 text-white px-2 py-1 rounded"
+            className="bg-blue-600 text-white px-3 py-1 rounded"
             onClick={() => quickSelect(0)}
           >
             Today
           </button>
           <button
-            className="bg-blue-500 text-white px-2 py-1 rounded"
+            className="bg-blue-500 text-white px-3 py-1 rounded"
             onClick={() => quickSelect(1)}
           >
             Tomorrow
@@ -115,25 +126,31 @@ const PhleboPage = () => {
       </div>
 
       <h2 className="text-xl font-semibold mb-2">
-        {visits.length > 0 ? "Visits for Selected Date" : "No visits"}
+        {visits.filter((v) => v.executive_id === selectedExecutive).length > 0
+          ? "Assigned Visits"
+          : "No Visits Assigned"}
       </h2>
 
-      <div className="space-y-4">
-        {visits.map((visit) => (
-          <div
-            key={visit.id}
-            className={`border-l-4 p-4 rounded shadow-md text-left max-w-md mx-auto ${getStatusStyle(
-              visit.status
-            )}`}
-          >
-            <p className="font-semibold text-lg">
-              {visit.patients?.name || "Unknown Patient"}
-            </p>
-            <p className="text-sm text-gray-600">{visit.time_slot}</p>
-            <p className="text-sm">{visit.address}</p>
-            <p className="text-xs italic text-gray-700 mt-1">Status: {visit.status}</p>
-          </div>
-        ))}
+      <div className="space-y-4 mb-6">
+        {visits
+          .filter((v) => v.executive_id === selectedExecutive)
+          .map((visit) => (
+            <div
+              key={visit.id}
+              className={`border-l-4 p-4 rounded shadow-md text-left max-w-md mx-auto ${getStatusStyle(
+                visit.status
+              )}`}
+            >
+              <p className="font-semibold text-lg">
+                {visit.patients?.name || "Unknown Patient"}
+              </p>
+              <p className="text-sm text-gray-600">{visit.time_slot}</p>
+              <p className="text-sm">{visit.address}</p>
+              <p className="text-xs italic text-gray-700 mt-1">
+                Status: {visit.status}
+              </p>
+            </div>
+          ))}
       </div>
 
       <div className="mt-6">
