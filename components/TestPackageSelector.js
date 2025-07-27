@@ -9,6 +9,7 @@ import {
   VStack,
   HStack,
   Spinner,
+  Divider,
 } from "@chakra-ui/react";
 import { ChevronDownIcon, ChevronRightIcon } from "@chakra-ui/icons";
 import { createClient } from "@supabase/supabase-js";
@@ -24,18 +25,24 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
   const [expandedPackageIds, setExpandedPackageIds] = useState(new Set());
   const [selectedTests, setSelectedTests] = useState(new Set(initialSelectedTests));
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Fetch tests and packages from DB
+  // Sync selectedTests with any changes from props
+  useEffect(() => {
+    setSelectedTests(new Set(initialSelectedTests));
+  }, [initialSelectedTests]);
+
+  // Fetch tests and packages from Supabase
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setError(null);
       try {
         // Fetch all tests
         const { data: testsData, error: testErr } = await supabase.from("tests").select("id, name");
         if (testErr) throw testErr;
 
-        // Fetch packages with their tests
-        // You need to adjust your query based on your schema: assuming 'package_tests' linking table
+        // Fetch packages with their tests (adjust 'package_tests' and schema as needed)
         const { data: packagesData, error: pkgErr } = await supabase
           .from("packages")
           .select(`
@@ -49,7 +56,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
 
         if (pkgErr) throw pkgErr;
 
-        // Flatten package tests to arrays of tests
+        // Process packages with nested tests flattened properly
         const packagesProcessed = (packagesData || []).map((pkg) => ({
           id: pkg.id,
           name: pkg.name,
@@ -58,8 +65,9 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
 
         setTests(testsData || []);
         setPackages(packagesProcessed);
-      } catch (error) {
-        console.error("Failed loading tests/packages:", error);
+      } catch (err) {
+        console.error("Failed loading tests/packages:", err);
+        setError("Failed to load tests/packages.");
       } finally {
         setLoading(false);
       }
@@ -67,7 +75,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
     fetchData();
   }, []);
 
-  // Handle toggling individual test
+  // Toggle individual test selection
   const toggleTest = (testId) => {
     const newSet = new Set(selectedTests);
     if (newSet.has(testId)) newSet.delete(testId);
@@ -76,7 +84,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
     onSelectionChange(newSet);
   };
 
-  // Handle toggling full package
+  // Toggle full package test selections
   const togglePackage = (packageId, packageTestIds) => {
     const newSet = new Set(selectedTests);
     const allSelected = packageTestIds.every((id) => newSet.has(id));
@@ -92,7 +100,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
     onSelectionChange(newSet);
   };
 
-  // Handle expand/collapse packages
+  // Toggle expand/collapse of package tests list
   const togglePackageExpand = (packageId) => {
     const newSet = new Set(expandedPackageIds);
     if (newSet.has(packageId)) newSet.delete(packageId);
@@ -100,15 +108,28 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
     setExpandedPackageIds(newSet);
   };
 
-  if (loading) return <Spinner size="sm" />;
-
-  // Helper to check if all tests in package selected
+  // Check if all tests in package are selected
   const isPackageSelected = (packageTestIds) =>
     packageTestIds.length > 0 && packageTestIds.every((id) => selectedTests.has(id));
 
+  // Check if some (but not all) tests in package are selected (indeterminate)
+  const isPackageIndeterminate = (packageTestIds) => {
+    const checkedCount = packageTestIds.filter((id) => selectedTests.has(id)).length;
+    return checkedCount > 0 && checkedCount < packageTestIds.length;
+  };
+
+  if (loading) return <Spinner size="sm" />;
+
+  if (error)
+    return (
+      <Box p={4} color="red.500" fontWeight="bold">
+        {error}
+      </Box>
+    );
+
   return (
     <VStack align="stretch" spacing={4} maxH="60vh" overflowY="auto" p={1}>
-      {/* Packages */}
+      {/* Packages Section */}
       {packages.length > 0 && (
         <>
           <Text fontWeight="semibold" mb={2}>
@@ -117,6 +138,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
           {packages.map(({ id, name, tests: pkgTests }) => {
             const pkgTestIds = pkgTests.map((t) => t.id);
             const packageSelected = isPackageSelected(pkgTestIds);
+            const packageIndeterminate = isPackageIndeterminate(pkgTestIds);
             const expanded = expandedPackageIds.has(id);
 
             return (
@@ -124,8 +146,10 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
                 <HStack justify="space-between" align="center">
                   <Checkbox
                     isChecked={packageSelected}
+                    isIndeterminate={packageIndeterminate}
                     onChange={() => togglePackage(id, pkgTestIds)}
                     aria-label={`Select package ${name}`}
+                    isDisabled={loading}
                   >
                     {name}
                   </Checkbox>
@@ -135,6 +159,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
                     variant="ghost"
                     aria-label={expanded ? "Collapse package" : "Expand package"}
                     onClick={() => togglePackageExpand(id)}
+                    isDisabled={loading}
                   />
                 </HStack>
                 <Collapse in={expanded} unmountOnExit>
@@ -145,6 +170,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
                         isChecked={selectedTests.has(testId)}
                         onChange={() => toggleTest(testId)}
                         aria-label={`Select test ${testName}`}
+                        isDisabled={loading}
                       >
                         {testName}
                       </Checkbox>
@@ -157,8 +183,8 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
         </>
       )}
 
-      {/* Individual tests not in packages */}
       <Divider />
+      {/* Individual Tests Section */}
       <Text fontWeight="semibold" mb={2} mt={3}>
         Individual Tests
       </Text>
@@ -166,7 +192,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
         {tests
           .filter(
             (t) =>
-              !packages.some((pkg) => pkg.tests.some((pt) => pt.id === t.id)) // exclude tests already in packages
+              !packages.some((pkg) => pkg.tests.some((pt) => pt.id === t.id)) // exclude tests included in packages
           )
           .map(({ id, name }) => (
             <Checkbox
@@ -174,6 +200,7 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
               isChecked={selectedTests.has(id)}
               onChange={() => toggleTest(id)}
               aria-label={`Select test ${name}`}
+              isDisabled={loading}
             >
               {name}
             </Checkbox>
