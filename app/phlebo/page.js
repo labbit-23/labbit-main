@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { FiRefreshCw } from "react-icons/fi";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -22,32 +23,23 @@ const PhleboPage = () => {
       .select("id, name")
       .eq("status", "active");
 
-    if (error) {
-      console.error("Error fetching executives:", error);
-      return;
-    }
-
-    setExecutives(data);
-    if (data.length > 0 && !selectedExecutive) {
+    if (!error && data.length > 0) {
+      setExecutives(data);
       setSelectedExecutive(data[0].id);
     }
   };
 
   const fetchVisits = async () => {
-    if (!selectedExecutive) return;
+    if (!selectedDate) return;
 
     const { data, error } = await supabase
       .from("visits")
       .select("*, patients(name, phone)")
-      .eq("visit_date", selectedDate)
-      .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
+      .eq("visit_date", selectedDate);
 
-    if (error) {
-      console.error("Error fetching visits:", error);
-      return;
+    if (!error) {
+      setVisits(data);
     }
-
-    setVisits(data);
   };
 
   useEffect(() => {
@@ -83,9 +75,9 @@ const PhleboPage = () => {
     <div className="p-4 text-center">
       <h1 className="text-2xl font-bold mb-4">Welcome, HV Executive</h1>
 
-      <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-2 mb-4 items-center">
+      <div className="flex flex-col sm:flex-row justify-center gap-2 mb-4">
         <select
-          className="border p-2 rounded min-w-[180px]"
+          className="border p-2 rounded"
           value={selectedExecutive || ""}
           onChange={(e) => setSelectedExecutive(e.target.value)}
         >
@@ -105,33 +97,38 @@ const PhleboPage = () => {
 
         <div className="flex gap-2">
           <button
-            className="bg-blue-500 text-white px-3 py-1 rounded"
+            className="bg-blue-500 text-white px-2 py-1 rounded"
             onClick={() => quickSelect(-1)}
           >
             Yesterday
           </button>
           <button
-            className="bg-blue-600 text-white px-3 py-1 rounded"
+            className="bg-blue-500 text-white px-2 py-1 rounded"
             onClick={() => quickSelect(0)}
           >
             Today
           </button>
           <button
-            className="bg-blue-500 text-white px-3 py-1 rounded"
+            className="bg-blue-500 text-white px-2 py-1 rounded"
             onClick={() => quickSelect(1)}
           >
             Tomorrow
+          </button>
+          <button
+            title="Refresh"
+            className="bg-gray-200 p-2 rounded hover:bg-gray-300"
+            onClick={fetchVisits}
+          >
+            <FiRefreshCw />
           </button>
         </div>
       </div>
 
       <h2 className="text-xl font-semibold mb-2">
-        {visits.filter((v) => v.executive_id === selectedExecutive).length > 0
-          ? "Assigned Visits"
-          : "No Visits Assigned"}
+        {visits.length > 0 ? "Visits for Selected Date" : "No visits"}
       </h2>
 
-      <div className="space-y-4 mb-6">
+      <div className="space-y-4">
         {visits
           .filter((v) => v.executive_id === selectedExecutive)
           .map((visit) => (
@@ -168,7 +165,9 @@ const PhleboPage = () => {
                 </p>
                 <p className="text-sm text-gray-600">{visit.time_slot}</p>
                 <p className="text-sm">{visit.address}</p>
-                <p className="text-xs italic text-gray-700 mt-1">Status: Unassigned</p>
+                <p className="text-xs italic text-gray-700 mt-1">
+                  Status: Unassigned
+                </p>
               </div>
             ))}
         </div>
