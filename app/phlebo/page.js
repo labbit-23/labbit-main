@@ -1,8 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import React, { useEffect, useState } from "react";
+import {
+  Box,
+  Heading,
+  Select,
+  Input,
+  Button,
+  Text,
+  Spinner,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Badge,
+  Flex,
+  Stack,
+  HStack,
+  Alert,
+  AlertIcon,
+  Link,
+  useToast,
+} from "@chakra-ui/react";
 import { FiRefreshCw } from "react-icons/fi";
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -11,73 +34,120 @@ const supabase = createClient(
 
 const formatDate = (date) => date.toISOString().split("T")[0];
 
+const STATUS_STYLES = {
+  pending: { bg: "yellow.100", borderColor: "yellow.400", pulse: false },
+  in_progress: { bg: "blue.100", borderColor: "blue.400", pulse: true },
+  sample_picked: { bg: "green.100", borderColor: "green.400", pulse: false },
+  sample_dropped: { bg: "purple.100", borderColor: "purple.400", pulse: false },
+  default: { bg: "gray.100", borderColor: "gray.200", pulse: false },
+};
+
 const PhleboPage = () => {
   const [executives, setExecutives] = useState([]);
   const [selectedExecutive, setSelectedExecutive] = useState(null);
   const [visits, setVisits] = useState([]);
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
-  const [loading, setLoading] = useState(false);
+  const [loadingVisits, setLoadingVisits] = useState(false);
+  const [loadingExecutives, setLoadingExecutives] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  const toast = useToast();
+
+  // Fetch executives with status active or available
   const fetchExecutives = async () => {
     setErrorMsg(null);
+    setLoadingExecutives(true);
     try {
       const { data, error } = await supabase
         .from("executives")
         .select("id, name, status")
         .in("status", ["active", "available"]);
-
       if (error) throw error;
-      console.log("Executives fetched:", data);
       setExecutives(data);
-      setSelectedExecutive(data[0]?.id ?? null);
+      setSelectedExecutive(data?.[0]?.id ?? null);
     } catch (error) {
       console.error("Error fetching executives:", error);
       setErrorMsg("Failed to load executives.");
+      toast({
+        title: "Error loading executives",
+        description: error.message || "Please try again later.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingExecutives(false);
     }
   };
 
-const fetchVisits = async () => {
-  if (!selectedExecutive) {
-    setVisits([]);
-    return;
-  }
-  setLoading(true);
-  setErrorMsg(null);
-  try {
-    const { data, error } = await supabase
-      .from("visits")
-      .select(`
-        *,
-        patient:patient_id(name, phone),
-        executive:executive_id(name)
-      `)
-      .eq("visit_date", selectedDate)
-      .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
+  // Fetch visits filtered by selected date and executive
+  const fetchVisits = async () => {
+    if (!selectedExecutive) {
+      setVisits([]);
+      return;
+    }
+    setErrorMsg(null);
+    setLoadingVisits(true);
+    try {
+      const { data, error } = await supabase
+        .from("visits")
+        .select(
+          `
+          id,
+          address,
+          time_slot,
+          status,
+          patient:patient_id(name, phone),
+          executive:executive_id(name)
+        `
+        )
+        .eq("visit_date", selectedDate)
+        .or(`executive_id.eq.${selectedExecutive},executive_id.is.null`);
 
-    if(error) throw error;
-    console.log("Visits fetched:", data);
-    setVisits(data || []);
-  } catch (error) {
-    console.error("Error fetching visits:", error);
-    setErrorMsg("Failed to load visits.");
-    setVisits([]);
-  } finally {
-    setLoading(false);
-  }
-};
+      if (error) throw error;
+      setVisits(data || []);
+    } catch (error) {
+      console.error("Error fetching visits:", error);
+      setErrorMsg("Failed to load visits.");
+      setVisits([]);
+      toast({
+        title: "Error loading visits",
+        description: error.message || "Please try again later.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingVisits(false);
+    }
+  };
 
+  // Update visit status
   const updateVisitStatus = async (visitId, status) => {
     try {
       const { error } = await supabase.from("visits").update({ status }).eq("id", visitId);
       if (error) throw error;
+      toast({
+        title: `Status updated to ${status.replace(/_/g, " ")}`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
       fetchVisits();
     } catch (error) {
       console.error("Error updating visit status:", error);
       setErrorMsg("Failed to update visit status.");
+      toast({
+        title: "Error updating status",
+        description: error.message || "Please try again.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
 
+  // Assign visit to selected executive
   const assignVisit = async (visitId) => {
     try {
       const { error } = await supabase
@@ -85,226 +155,267 @@ const fetchVisits = async () => {
         .update({ executive_id: selectedExecutive })
         .eq("id", visitId);
       if (error) throw error;
+      toast({
+        title: "Visit assigned",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
       fetchVisits();
     } catch (error) {
       console.error("Error assigning visit:", error);
       setErrorMsg("Failed to assign visit.");
+      toast({
+        title: "Error assigning visit",
+        description: error.message || "Please try again.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
 
+  // Lifecycle: Fetch executives on mount
   useEffect(() => {
     fetchExecutives();
   }, []);
 
+  // Fetch visits when executive or date changes
   useEffect(() => {
     fetchVisits();
   }, [selectedExecutive, selectedDate]);
 
+  // Quick date selection helpers
   const quickSelect = (daysOffset) => {
     const date = new Date();
     date.setDate(date.getDate() + daysOffset);
     setSelectedDate(formatDate(date));
   };
 
+  // Determine style props based on visit status
   const getStatusStyle = (status) => {
-    switch (status) {
-      case "pending":
-        return "bg-yellow-100 border-yellow-500";
-      case "in_progress":
-        return "bg-blue-100 border-blue-500 animate-pulse";
-      case "sample_picked":
-        return "bg-green-100 border-green-500";
-      case "sample_dropped":
-        return "bg-purple-100 border-purple-500";
-      default:
-        return "bg-gray-100 border-gray-300";
-    }
+    const style = STATUS_STYLES[status] || STATUS_STYLES.default;
+    return {
+      bg: style.bg,
+      borderLeft: "4px solid",
+      borderColor: style.borderColor,
+      animation: style.pulse ? "pulse 2s infinite" : undefined,
+    };
   };
 
   const assignedVisits = visits.filter(
-    (v) =>
-      v.executive_id &&
-      v.executive_id.toString().trim() === selectedExecutive?.toString().trim()
+    (v) => v.executive_id && v.executive_id.toString() === selectedExecutive?.toString()
   );
-  const unassignedVisits = visits.filter((v) => v.executive_id === null);
+  const unassignedVisits = visits.filter((v) => !v.executive_id);
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 text-center">Welcome, HV Executive</h1>
+    <Box p={6} maxW="4xl" mx="auto">
+      <Heading as="h1" size="xl" mb={6} textAlign="center">
+        Welcome, HV Executive
+      </Heading>
 
-      <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6 items-center">
-        <select
-          className="border border-gray-300 p-2 rounded w-60"
-          value={selectedExecutive || ""}
+      <Flex direction={{ base: "column", sm: "row" }} justify="center" gap={4} mb={6} align="center">
+        <Select
+          maxW="240px"
+          value={selectedExecutive ?? ""}
           onChange={(e) => setSelectedExecutive(e.target.value)}
+          isDisabled={loadingExecutives}
+          aria-label="Select Home Visit Executive"
+          placeholder={loadingExecutives ? "Loading executives..." : "Select Executive"}
         >
-          {executives.length === 0 && <option>Loading executives...</option>}
           {executives.map(({ id, name, status }) => (
             <option key={id} value={id}>
               {name} ({status})
             </option>
           ))}
-        </select>
+        </Select>
 
-        <input
+        <Input
           type="date"
+          max={formatDate(new Date())}
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
-          className="border border-gray-300 p-2 rounded"
-          max={formatDate(new Date())}
+          maxW="160px"
+          aria-label="Select visit date"
         />
 
-        <div className="flex gap-2">
-          <button
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-            onClick={() => quickSelect(-1)}
-            aria-label="Yesterday"
-          >
+        <HStack spacing={2}>
+          <Button size="sm" colorScheme="blue" onClick={() => quickSelect(-1)} aria-label="Yesterday">
             Yesterday
-          </button>
-          <button
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-            onClick={() => quickSelect(0)}
-            aria-label="Today"
-          >
+          </Button>
+          <Button size="sm" colorScheme="blue" onClick={() => quickSelect(0)} aria-label="Today">
             Today
-          </button>
-          <button
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-            onClick={() => quickSelect(1)}
-            aria-label="Tomorrow"
-          >
+          </Button>
+          <Button size="sm" colorScheme="blue" onClick={() => quickSelect(1)} aria-label="Tomorrow">
             Tomorrow
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
             onClick={fetchVisits}
-            className="bg-gray-300 hover:bg-gray-400 px-3 py-1 rounded flex items-center"
-            title="Refresh visits"
             aria-label="Refresh visits"
+            title="Refresh visits"
+            leftIcon={<FiRefreshCw />}
           >
-            <FiRefreshCw />
-          </button>
-        </div>
-      </div>
+            Refresh
+          </Button>
+        </HStack>
+      </Flex>
 
       {errorMsg && (
-        <div className="mb-4 text-red-600 font-semibold text-center">{errorMsg}</div>
+        <Alert status="error" mb={6} borderRadius="md">
+          <AlertIcon />
+          {errorMsg}
+        </Alert>
       )}
 
-      {loading ? (
-        <div className="text-center text-gray-500">Loading visits...</div>
+      {loadingVisits ? (
+        <Text textAlign="center" color="gray.500" mb={8}>
+          Loading visits...
+        </Text>
       ) : (
         <>
-          <section className="mb-8">
-            <h2 className="text-2xl font-semibold mb-4">
+          <Box mb={8}>
+            <Heading as="h2" size="lg" mb={4}>
               Assigned Visits ({assignedVisits.length})
-            </h2>
+            </Heading>
             {assignedVisits.length === 0 ? (
-              <p className="text-center text-gray-600">No assigned visits.</p>
+              <Text textAlign="center" color="gray.600">
+                No assigned visits.
+              </Text>
             ) : (
-              <table className="w-full border-collapse border border-gray-300">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border border-gray-300 p-2 text-left">Patient</th>
-                    <th className="border border-gray-300 p-2 text-left">Time Slot</th>
-                    <th className="border border-gray-300 p-2 text-left">Address</th>
-                    <th className="border border-gray-300 p-2 text-left">Status</th>
-                    <th className="border border-gray-300 p-2 text-left">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assignedVisits.map((visit) => (
-                    <tr
-                      key={visit.id}
-                      className={getStatusStyle(visit.status)}
-                      title={`Visit Status: ${visit.status}`}
-                    >
-                      <td className="border border-gray-300 p-2">
-                        {visit.patient?.name || "Unknown Patient"}
-                      </td>
-                      <td className="border border-gray-300 p-2">{visit.time_slot}</td>
-                      <td className="border border-gray-300 p-2 max-w-xs truncate">{visit.address}</td>
-                      <td className="border border-gray-300 p-2 capitalize">{visit.status.replace(/_/g, " ")}</td>
-                      <td className="border border-gray-300 p-2 space-x-1">
-                        {visit.status === "pending" && (
-                          <button
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm"
-                            onClick={() => updateVisitStatus(visit.id, "in_progress")}
-                            aria-label={`Start visit for ${visit.patient?.name}`}
-                          >
-                            Start Visit
-                          </button>
-                        )}
-                        {visit.status === "in_progress" && (
-                          <>
-                            <button
-                              className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-sm"
-                              onClick={() => updateVisitStatus(visit.id, "sample_picked")}
-                              aria-label={`Mark sample picked for ${visit.patient?.name}`}
-                            >
-                              Mark Picked
-                            </button>
-                            <a
-                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                                visit.address || ""
-                              )}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="bg-gray-300 hover:bg-gray-400 text-black px-2 py-1 rounded text-sm"
-                            >
-                              Navigate
-                            </a>
-                          </>
-                        )}
-                        {visit.status === "sample_picked" && (
-                          <button
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded text-sm"
-                            onClick={() => updateVisitStatus(visit.id, "sample_dropped")}
-                            aria-label={`Mark sample dropped for ${visit.patient?.name}`}
-                          >
-                            Mark Dropped
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Table variant="simple" size="sm" borderWidth="1px" borderColor="gray.300" borderRadius="md">
+                <Thead bg="gray.100">
+                  <Tr>
+                    <Th>Patient</Th>
+                    <Th>Time Slot</Th>
+                    <Th>Address</Th>
+                    <Th>Status</Th>
+                    <Th>Actions</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {assignedVisits.map((visit) => {
+                    const styleProps = getStatusStyle(visit.status);
+                    return (
+                      <Tr key={visit.id} {...styleProps} title={`Visit Status: ${visit.status}`}>
+                        <Td>{visit.patient?.name || "Unknown Patient"}</Td>
+                        <Td>{visit.time_slot}</Td>
+                        <Td maxW="xs" isTruncated>
+                          {visit.address}
+                        </Td>
+                        <Td textTransform="capitalize">{visit.status.replace(/_/g, " ")}</Td>
+                        <Td>
+                          <Stack direction="row" spacing={1}>
+                            {visit.status === "pending" && (
+                              <Button
+                                size="sm"
+                                colorScheme="blue"
+                                onClick={() => updateVisitStatus(visit.id, "in_progress")}
+                                aria-label={`Start visit for ${visit.patient?.name}`}
+                              >
+                                Start Visit
+                              </Button>
+                            )}
+                            {visit.status === "in_progress" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  colorScheme="green"
+                                  onClick={() => updateVisitStatus(visit.id, "sample_picked")}
+                                  aria-label={`Mark sample picked for ${visit.patient?.name}`}
+                                >
+                                  Mark Picked
+                                </Button>
+                                <Link
+                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                                    visit.address ?? ""
+                                  )}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  fontSize="sm"
+                                  px={2}
+                                  py={1}
+                                  bg="gray.200"
+                                  rounded="md"
+                                  _hover={{ bg: "gray.300" }}
+                                  aria-label={`Navigate to ${visit.address || "address"}`}
+                                >
+                                  Navigate
+                                </Link>
+                              </>
+                            )}
+                            {visit.status === "sample_picked" && (
+                              <Button
+                                size="sm"
+                                colorScheme="purple"
+                                onClick={() => updateVisitStatus(visit.id, "sample_dropped")}
+                                aria-label={`Mark sample dropped for ${visit.patient?.name}`}
+                              >
+                                Mark Dropped
+                              </Button>
+                            )}
+                          </Stack>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
             )}
-          </section>
+          </Box>
 
-          <section>
-            <h2 className="text-2xl font-semibold mb-4">Unassigned Visits ({unassignedVisits.length})</h2>
+          <Box>
+            <Heading as="h2" size="lg" mb={4}>
+              Unassigned Visits ({unassignedVisits.length})
+            </Heading>
             {unassignedVisits.length === 0 ? (
-              <p className="text-center text-gray-600">No unassigned visits.</p>
+              <Text textAlign="center" color="gray.600">
+                No unassigned visits.
+              </Text>
             ) : (
-              <div className="space-y-4">
+              <Stack spacing={4}>
                 {unassignedVisits.map((visit) => (
-                  <div
+                  <Box
                     key={visit.id}
-                    className="border-l-4 border-gray-500 bg-white p-4 rounded shadow-md text-left max-w-4xl mx-auto"
+                    borderWidth={1}
+                    borderColor="gray.300"
+                    borderLeftWidth={4}
+                    borderLeftColor="gray.500"
+                    bg="white"
+                    p={4}
+                    rounded="md"
+                    shadow="sm"
+                    maxW="4xl"
                   >
-                    <p className="font-semibold text-lg">
+                    <Text fontWeight="semibold" fontSize="lg">
                       {visit.patient?.name || "Unknown Patient"}
-                    </p>
-                    <p className="text-sm text-gray-600">{visit.time_slot}</p>
-                    <p className="text-sm truncate max-w-xl">{visit.address}</p>
-                    <p className="text-xs italic text-gray-700 mt-1">Status: Unassigned</p>
-                    <button
+                    </Text>
+                    <Text fontSize="sm" color="gray.600" mb={1}>
+                      {visit.time_slot}
+                    </Text>
+                    <Text fontSize="sm" noOfLines={2} mb={1} title={visit.address}>
+                      {visit.address}
+                    </Text>
+                    <Text fontSize="xs" fontStyle="italic" color="gray.700" mt={1}>
+                      Status: Unassigned
+                    </Text>
+                    <Button
+                      mt={3}
+                      colorScheme="blue"
+                      size="sm"
                       onClick={() => assignVisit(visit.id)}
-                      className="mt-3 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
                       aria-label={`Assign visit for ${visit.patient?.name} to me`}
                     >
                       Assign to Me
-                    </button>
-                  </div>
+                    </Button>
+                  </Box>
                 ))}
-              </div>
+              </Stack>
             )}
-          </section>
+          </Box>
         </>
       )}
-    </div>
+    </Box>
   );
 };
 
