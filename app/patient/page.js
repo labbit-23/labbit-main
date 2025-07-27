@@ -1,22 +1,7 @@
 "use client";
-
 import {
-  Box,
-  Button,
-  FormControl,
-  FormLabel,
-  Input,
-  Select,
-  Textarea,
-  Heading,
-  Spinner,
-  Alert,
-  AlertIcon,
-  AlertDescription,
-  VStack,
-  HStack,
-  Text,
-  useToast,
+  Box, Heading, Button, VStack, FormControl, FormLabel, Input,
+  Select, Textarea, Alert, AlertIcon, Text, useToast, Spinner
 } from "@chakra-ui/react";
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -25,9 +10,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
-
-const formatDate = (date) =>
-  date ? new Date(date).toISOString().split("T")[0] : "";
+const formatDate = (date) => date ? new Date(date).toISOString().split("T")[0] : "";
 
 export default function PatientVisitRequestPage() {
   const [mobile, setMobile] = useState("");
@@ -36,10 +19,8 @@ export default function PatientVisitRequestPage() {
   const [timeSlots, setTimeSlots] = useState([]);
   const [loading, setLoading] = useState(false);
   const [patientLoading, setPatientLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(null);
-
+  const [errorMsg, setErrorMsg] = useState("");
   const toast = useToast();
-
   const [visitForm, setVisitForm] = useState({
     lab_id: "",
     visit_date: formatDate(new Date()),
@@ -54,181 +35,93 @@ export default function PatientVisitRequestPage() {
 
   async function fetchLabs() {
     try {
-      const { data, error } = await supabase
-        .from("labs")
-        .select("id, name")
-        .eq("is_active", true)
-        .order("name");
-      if (error) throw error;
+      const { data } = await supabase.from("labs").select("id, name").eq("is_active", true).order("name");
       setLabs(data || []);
-    } catch (error) {
-      setErrorMsg("Failed to load labs");
-      console.error(error);
-    }
+    } catch {}
   }
-
   async function fetchTimeSlots() {
     try {
-      const { data, error } = await supabase
-        .from("visit_time_slots")
-        .select("id, slot_name, start_time, end_time")
-        .order("start_time");
-      if (error) throw error;
+      const { data } = await supabase.from("visit_time_slots").select("id, slot_name, start_time, end_time").order("start_time");
       setTimeSlots(data || []);
-    } catch (error) {
-      setErrorMsg("Failed to load time slots");
-      console.error(error);
-    }
+    } catch {}
   }
-
   async function searchPatientByMobile() {
-    setErrorMsg(null);
-    setPatient(null);
-
+    setErrorMsg(""); setPatient(null);
     const trimmedMobile = mobile.trim();
-    if (!trimmedMobile) {
-      setErrorMsg("Please enter a valid mobile number.");
-      return;
-    }
-
+    if (!trimmedMobile) { setErrorMsg("Enter valid mobile."); return; }
     setPatientLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("patients")
-        .select("*")
-        .eq("phone", trimmedMobile)
-        .limit(1)
-        .single();
-
+      const { data, error } = await supabase.from("patients")
+        .select("*").eq("phone", trimmedMobile).limit(1).single();
       if (error && error.code !== "PGRST116") throw error;
-
-      if (data) {
-        setPatient(data);
-        setVisitForm({
-          lab_id: "",
-          visit_date: formatDate(new Date()),
-          time_slot_id: "",
-          address: "",
-        });
-      } else {
-        setPatient(null);
-      }
+      setPatient(data || null);
     } catch (error) {
-      setErrorMsg("Failed to search patient: " + (error.message || error));
-    } finally {
-      setPatientLoading(false);
+      setErrorMsg("Failed to search: " + (error.message || error));
     }
+    setPatientLoading(false);
   }
-
-  const handleVisitFormChange = (field) => (e) => {
-    setVisitForm((f) => ({ ...f, [field]: e.target.value }));
-  };
-
   async function handleSubmitVisitRequest(e) {
-    e.preventDefault();
-    setErrorMsg(null);
-
-    if (!patient) {
-      setErrorMsg("Please search for your mobile number and confirm patient first.");
-      return;
-    }
-
+    e.preventDefault(); setErrorMsg("");
+    if (!patient) { setErrorMsg("Search mobile and confirm patient."); return; }
     const { lab_id, visit_date, time_slot_id, address } = visitForm;
-
-    if (!lab_id || !visit_date || !time_slot_id || !address.trim()) {
-      setErrorMsg("Please fill in all required fields.");
-      return;
-    }
-
+    if (!lab_id || !visit_date || !time_slot_id || !address.trim())
+      { setErrorMsg("Fill in all fields."); return; }
     setLoading(true);
     try {
-      const timeSlotObj = timeSlots.find((ts) => ts.id === time_slot_id);
-      const visitToInsert = {
-        patient_id: patient.id,
-        lab_id,
-        visit_date,
+      const timeSlotObj = timeSlots.find(ts => ts.id === time_slot_id);
+      await supabase.from("visits").insert([{
+        patient_id: patient.id, lab_id, visit_date,
         time_slot: timeSlotObj?.slot_name || "",
-        address: address.trim(),
-        status: "booked",
-      };
-
-      const { error } = await supabase.from("visits").insert([visitToInsert]);
-
-      if (error) throw error;
-
+        address: address.trim(), status: "booked"
+      }]);
       toast({
-        title: "Visit request submitted.",
-        description: "Thank you! Your visit request is booked.",
-        status: "success",
-        duration: 5000,
-        isClosable: true,
+        title: "Request submitted.",
+        description: "Your home collection request is booked.",
+        status: "success", duration: 5000, isClosable: true,
       });
-
-      // Reset visit form but keep mobile & patient info so user can book again if needed
-      setVisitForm({
-        lab_id: "",
-        visit_date: formatDate(new Date()),
-        time_slot_id: "",
-        address: "",
-      });
+      setVisitForm({ lab_id: "", visit_date: formatDate(new Date()), time_slot_id: "", address: "" });
     } catch (error) {
-      setErrorMsg("Failed to submit visit: " + (error.message || JSON.stringify(error)));
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+      setErrorMsg("Failed: " + (error.message || JSON.stringify(error)));
+    } setLoading(false);
   }
 
   return (
-    <Box maxW="md" mx="auto" mt={10} p={6} borderWidth={1} borderRadius="md" boxShadow="md" bg="white">
-      <Heading textAlign="center" mb={6} size="lg">
-        Request a Visit
+    <Box maxW="md" mx="auto" mt={10} p={6} borderWidth={1} borderRadius="xl" boxShadow="2xl" bg="white">
+      <Heading textAlign="center" mb={4} size="lg" color="blue.700">
+        Book a Home Sample Collection
       </Heading>
+      <Text textAlign="center" fontSize="md" mb={4} color="gray.500">
+        Search your mobile and book a visit in just a few clicks.
+      </Text>
 
-      <FormControl mb={4}>
-        <FormLabel>Mobile Number</FormLabel>
-        <HStack>
+      <form onSubmit={(e) => { e.preventDefault(); searchPatientByMobile(); }}>
+        <FormControl mb={2} isRequired>
+          <FormLabel>Mobile Number</FormLabel>
           <Input
-            placeholder="+919876543210"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-            isDisabled={patientLoading || loading}
+            placeholder="+919876543210" value={mobile}
+            onChange={e => setMobile(e.target.value)} isDisabled={patientLoading || loading}
+            size="md"
           />
-          <Button onClick={searchPatientByMobile} isLoading={patientLoading} colorScheme="blue">
-            Lookup
-          </Button>
-        </HStack>
-      </FormControl>
+        </FormControl>
+        <Button
+          colorScheme="blue" w="100%" mb={4} type="submit" isLoading={patientLoading}
+        >{patient ? "Re-lookup" : "Lookup"}</Button>
+      </form>
 
       {errorMsg && (
-        <Alert status="error" mb={6}>
-          <AlertIcon />
-          <AlertDescription>{errorMsg}</AlertDescription>
-        </Alert>
-      )}
-
-      {patient === null && !patientLoading && (
-        <Alert status="warning" mb={6}>
-          <AlertIcon />
-          <Box>
-            <Text fontWeight="medium">
-              No patient record found for this number.
-            </Text>
-            <Text fontSize="sm">
-              Patient creation and OTP authentication coming soon.
-            </Text>
-          </Box>
+        <Alert status="error" mb={4} borderRadius="md">
+          <AlertIcon boxSize={5} />
+          <Text fontSize="sm">{errorMsg}</Text>
         </Alert>
       )}
 
       {patient && (
-        <Alert status="success" mb={6}>
-          <AlertIcon />
-          <Box>
-            <Text fontWeight="medium">Found Patient: {patient.name}</Text>
-            <Text fontSize="sm">Phone: {patient.phone}</Text>
-          </Box>
-        </Alert>
+        <Box p={3} mb={3} borderWidth={1} borderRadius="md" bg="green.50" borderColor="green.200">
+          <Text fontWeight="semibold" color="green.700">
+            Hello, {patient.name || "New User"}!
+          </Text>
+          <Text fontSize="sm" color="green.900">Phone: {patient.phone}</Text>
+        </Box>
       )}
 
       {patient && (
@@ -238,60 +131,60 @@ export default function PatientVisitRequestPage() {
               <FormLabel>Lab</FormLabel>
               <Select
                 placeholder="Select Lab"
-                value={visitForm.lab_id}
-                onChange={handleVisitFormChange("lab_id")}
+                value={visitForm.lab_id} onChange={e => setVisitForm(f => ({ ...f, lab_id: e.target.value }))}
                 isDisabled={loading}
               >
                 {labs.map((lab) => (
-                  <option key={lab.id} value={lab.id}>
-                    {lab.name}
-                  </option>
+                  <option key={lab.id} value={lab.id}>{lab.name}</option>
                 ))}
               </Select>
             </FormControl>
-
             <FormControl isRequired>
               <FormLabel>Visit Date</FormLabel>
               <Input
                 type="date"
                 value={visitForm.visit_date}
                 min={formatDate(new Date())}
-                onChange={handleVisitFormChange("visit_date")}
+                onChange={e => setVisitForm(f => ({ ...f, visit_date: e.target.value }))}
                 isDisabled={loading}
               />
             </FormControl>
-
             <FormControl isRequired>
               <FormLabel>Time Slot</FormLabel>
               <Select
                 placeholder="Select Time Slot"
                 value={visitForm.time_slot_id}
-                onChange={handleVisitFormChange("time_slot_id")}
+                onChange={e => setVisitForm(f => ({ ...f, time_slot_id: e.target.value }))}
                 isDisabled={loading}
               >
                 {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
-                  <option key={id} value={id}>
-                    {slot_name} ({start_time.slice(0, 5)} - {end_time.slice(0, 5)})
-                  </option>
+                  <option key={id} value={id}>{slot_name} ({start_time.slice(0,5)}-{end_time.slice(0,5)})</option>
                 ))}
               </Select>
             </FormControl>
-
             <FormControl isRequired>
-              <FormLabel>Address for Sample Collection</FormLabel>
+              <FormLabel>Address for Collection</FormLabel>
               <Textarea
-                placeholder="Full address with landmarks"
                 value={visitForm.address}
-                onChange={handleVisitFormChange("address")}
+                onChange={e => setVisitForm(f => ({ ...f, address: e.target.value }))}
+                placeholder="Full address with landmark"
                 isDisabled={loading}
+                rows={3}
               />
             </FormControl>
-
-            <Button type="submit" colorScheme="green" isLoading={loading}>
-              Submit Visit Request
+            <Button type="submit" colorScheme="green" isLoading={loading} w="100%">
+              Submit
             </Button>
           </VStack>
         </form>
+      )}
+
+      {!patient && !patientLoading && (
+        <Text textAlign="center" fontSize="sm" color="gray.400" mt={3}>
+          {mobile && !errorMsg
+            ? "Didn't find your number? Registration and OTP coming soon."
+            : ""}
+        </Text>
       )}
     </Box>
   );
