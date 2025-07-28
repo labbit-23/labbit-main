@@ -25,6 +25,7 @@ export default function AddressSelector({
           value={selectedAddressId}
           onChange={(e) => setSelectedAddressId(e.target.value)}
           isDisabled={loading || addresses.length === 0}
+          aria-label="Select address"
         >
           {addresses.map(({ id, label, pincode }) => (
             <option key={id} value={id}>
@@ -33,8 +34,8 @@ export default function AddressSelector({
           ))}
         </Select>
         {addresses.length === 0 && (
-          <Text fontSize="sm" color="gray.500" userSelect="none">
-            No addresses found. Please add addresses first.
+          <Text fontSize="sm" color="gray.500" mt={1} userSelect="none">
+            No saved addresses found. Please add addresses in your profile.
           </Text>
         )}
       </FormControl>
