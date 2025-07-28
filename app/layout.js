@@ -1,5 +1,5 @@
 "use client";
-
+import 'leaflet/dist/leaflet.css';
 import { ChakraProvider } from "@chakra-ui/react";
 import customTheme from "./theme"; // adjust the path if your theme.js is elsewhere
 
