@@ -29,7 +29,7 @@ export default function PatientLookup({
     }
     setLoading(true);
     try {
-      // Supabase lookup
+      // Lookup patient by phone in Supabase
       const { data, error } = await supabase
         .from("patients")
         .select("*")
@@ -37,23 +37,25 @@ export default function PatientLookup({
         .maybeSingle();
 
       if (error) throw error;
+
       if (data) {
         setPatientData(data);
 
-        // Fetch addresses
+        // Fetch patient addresses
         const { data: addrData, error: addrErr } = await supabase
           .from("patient_addresses")
           .select("*")
           .eq("patient_id", data.id)
           .order("is_default", { ascending: false });
 
-        if (!addrErr && addrData.length > 0) {
+        if (!addrErr && Array.isArray(addrData) && addrData.length > 0) {
           setAddresses(addrData);
           setSelectedAddressId(addrData[0].id);
-          setAddressLabel(addrData[0].label);
-          setAddressLine(addrData[0].address_line || "");
-          setLatLng({ lat: addrData[0].lat, lng: addrData[0].lng });
+          setAddressLabel(addrData[0].label ?? "");
+          setAddressLine(addrData[0].address_line ?? "");
+          setLatLng({ lat: addrData[0].lat ?? null, lng: addrData[0].lng ?? null });
         } else {
+          // No addresses or error while fetching them
           setAddresses([]);
           setSelectedAddressId("");
           setAddressLabel("");
@@ -61,9 +63,9 @@ export default function PatientLookup({
           setLatLng({ lat: null, lng: null });
         }
       } else {
-        // TODO: fallback to external API as per your implementation
+        // No patient found: clear states and inform user
         toast({ title: "Patient not found", status: "info" });
-        // Reset
+
         setPatientData({ id: null, name: "", dob: "", email: "", gender: "" });
         setAddresses([]);
         setSelectedAddressId("");
@@ -72,7 +74,7 @@ export default function PatientLookup({
         setLatLng({ lat: null, lng: null });
       }
     } catch (e) {
-      toast({ title: "Lookup failed", description: e.message, status: "error" });
+      toast({ title: "Lookup failed", description: e.message || "Unknown error", status: "error" });
     } finally {
       setLoading(false);
     }
