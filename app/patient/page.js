@@ -8,7 +8,7 @@ import PatientDetails from "./PatientDetails";
 import AddressSelector from "./AddressSelector";
 import VisitScheduler from "./VisitScheduler";
 
-import { default as TestSelector } from "../../components/TestPackageSelector";
+import TestSelector from "../../components/TestPackageSelector"; // Adjust path if needed
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -19,7 +19,7 @@ const supabase = createClient(
 export default function PatientPage() {
   const toast = useToast();
 
-  // Initialize all data with safe defaults to prevent undefined errors
+  // Initialize state with safe defaults
   const [phone, setPhone] = useState("");
   const [patient, setPatient] = useState({
     id: null,
@@ -45,7 +45,6 @@ export default function PatientPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (
       !phone.trim() ||
       !patient.name.trim() ||
@@ -62,7 +61,6 @@ export default function PatientPage() {
     }
 
     setLoading(true);
-
     try {
       let patientId = patient.id;
 
@@ -122,7 +120,6 @@ export default function PatientPage() {
         addressUpdates.lat = latLng.lat;
         addressUpdates.lng = latLng.lng;
       }
-
       if (Object.keys(addressUpdates).length > 0) {
         const { error } = await supabase
           .from("patient_addresses")
@@ -132,10 +129,11 @@ export default function PatientPage() {
         if (error) {
           toast({ title: "Failed to update address", status: "warning" });
         } else {
-          const updatedAddresses = addresses.map((addr) =>
-            addr.id === selectedAddressId ? { ...addr, ...addressUpdates } : addr
+          setAddresses((prev) =>
+            prev.map((addr) =>
+              addr.id === selectedAddressId ? { ...addr, ...addressUpdates } : addr
+            )
           );
-          setAddresses(updatedAddresses);
         }
       }
 
@@ -175,7 +173,7 @@ export default function PatientPage() {
         duration: 3000,
       });
 
-      // Reset all states after successful submit
+      // Reset all states
       setPhone("");
       setPatient({ id: null, name: "", dob: "", email: "", gender: "" });
       setAddresses([]);
@@ -187,7 +185,6 @@ export default function PatientPage() {
       setTimeSlots([]);
       setSelectedSlotId("");
       setSelectedTests(new Set());
-
     } catch (err) {
       toast({
         title: "Failed to submit visit request",
@@ -201,13 +198,12 @@ export default function PatientPage() {
   };
 
   return (
-    <Box maxW={{ base: "95%", md: "md" }} mx="auto" mt={6} p={6} bg="white" rounded="md" shadow="md">
-      <Heading mb={6} fontSize={{ base: "xl", md: "2xl" }} textAlign="center">
+    <Box maxW={{ base: "95%", md: "md" }} mx="auto" mt={8} p={6} bg="white" rounded="md" shadow="md">
+      <Heading mb={6} textAlign="center" fontSize={{ base: "xl", md: "2xl" }}>
         Patient Visit Request
       </Heading>
       <form onSubmit={handleSubmit}>
         <VStack spacing={6} align="stretch">
-
           <PatientLookup
             phone={phone}
             setPhone={setPhone}
@@ -218,13 +214,7 @@ export default function PatientPage() {
             setAddressLine={setAddressLine}
             setLatLng={setLatLng}
           />
-
-          <PatientDetails
-            patient={patient}
-            setPatient={setPatient}
-            loading={loading}
-          />
-
+          <PatientDetails patient={patient} setPatient={setPatient} loading={loading} />
           <AddressSelector
             addresses={addresses}
             selectedAddressId={selectedAddressId}
@@ -237,7 +227,6 @@ export default function PatientPage() {
             setLatLng={setLatLng}
             loading={loading}
           />
-
           <VisitScheduler
             visitDate={visitDate}
             setVisitDate={setVisitDate}
@@ -247,14 +236,12 @@ export default function PatientPage() {
             setSelectedSlotId={setSelectedSlotId}
             loading={loading}
           />
-
           <TestSelector
             selectedTests={selectedTests}
             setSelectedTests={setSelectedTests}
             loading={loading}
           />
-
-          <Button type="submit" colorScheme="teal" size="lg" isLoading={loading}>
+          <Button isLoading={loading} type="submit" colorScheme="teal" size="lg">
             Request Visit
           </Button>
         </VStack>
