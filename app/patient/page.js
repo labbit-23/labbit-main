@@ -16,20 +16,20 @@ import {
   HStack,
 } from "@chakra-ui/react";
 import { createClient } from "@supabase/supabase-js";
-import TestPackageSelector from "../../components/TestPackageSelector"; // Adjust path if needed
+import TestPackageSelector from "../../components/TestPackageSelector"; // Adjust if needed
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// Helper to format date YYYY-MM-DD
+// Format date as YYYY-MM-DD string
 const formatDate = (d) => d.toISOString().split("T")[0];
 
 export default function PatientVisitRequest() {
   const toast = useToast();
 
-  // Form States
+  // Form states
   const [phone, setPhone] = useState("");
   const [patient, setPatient] = useState(null);
   const [addresses, setAddresses] = useState([]);
@@ -41,7 +41,7 @@ export default function PatientVisitRequest() {
   const [loading, setLoading] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
 
-  // Patient detail inputs (if new patient or editing)
+  // Patient detail fields
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
@@ -56,14 +56,15 @@ export default function PatientVisitRequest() {
     fetchTimeSlots();
   }, []);
 
-  // Lookup patient by phone number
+  // Patient lookup: Supabase first, then external API fallback
   const lookupPatient = async () => {
-    if (!phone) {
+    if (!phone.trim()) {
       toast({ title: "Please enter a phone number", status: "warning" });
       return;
     }
     setLookingUp(true);
     try {
+      // 1. Lookup in Supabase
       const { data, error } = await supabase
         .from("patients")
         .select("*")
@@ -73,12 +74,14 @@ export default function PatientVisitRequest() {
       if (error) throw error;
 
       if (data) {
+        // Patient found in Supabase
         setPatient(data);
         setName(data.name || "");
         setDob(data.dob ? data.dob.substr(0, 10) : "");
         setEmail(data.email || "");
         setGender(data.gender || "");
-        // Fetch addresses for this patient:
+
+        // Load addresses sorted by default first
         const { data: addrData, error: addrError } = await supabase
           .from("patient_addresses")
           .select("*")
@@ -87,18 +90,39 @@ export default function PatientVisitRequest() {
         if (!addrError) {
           setAddresses(addrData || []);
           setSelectedAddressId(addrData?.length > 0 ? addrData[0].id : "");
+        } else {
+          setAddresses([]);
+          setSelectedAddressId("");
+          toast({ title: "Failed to load patient addresses", status: "warning" });
         }
+
         toast({ title: "Patient found. Details loaded." });
       } else {
-        // No patient found: clear
-        setPatient(null);
-        setName("");
-        setDob("");
-        setEmail("");
-        setGender("");
-        setAddresses([]);
-        setSelectedAddressId("");
-        toast({ title: "No patient found. Please enter details." });
+        // 2. Not found in Supabase, fallback to external API via proxy
+        const resp = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
+        if (!resp.ok) throw new Error(`External API lookup failed: ${resp.statusText}`);
+        const json = await resp.json();
+        if (Array.isArray(json) && json.length > 0) {
+          const patientData = json[0];
+          setPatient(null);
+          setName(patientData.FNAME?.trim() ?? "");
+          setDob(patientData.DOB ? patientData.DOB.split(" ")[0] : "");
+          setEmail(patientData.EMAIL ?? "");
+          setGender(""); // External API doesn’t provide gender
+          setAddresses([]);
+          setSelectedAddressId("");
+          toast({ title: "Patient data loaded from external source." });
+        } else {
+          // Not found anywhere
+          setPatient(null);
+          setName("");
+          setDob("");
+          setEmail("");
+          setGender("");
+          setAddresses([]);
+          setSelectedAddressId("");
+          toast({ title: "No patient found. Please enter details." });
+        }
       }
     } catch (e) {
       toast({ title: "Error looking up patient", status: "error", description: e.message });
@@ -106,11 +130,18 @@ export default function PatientVisitRequest() {
     setLookingUp(false);
   };
 
-  // Handle form submission - create patient if new, create visit for patient
+  // Form submit: Save patient, create visit, add test visit_details
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!phone || !name || !visitDate || !selectedSlotId || !selectedAddressId || selectedTests.size === 0) {
+    if (
+      !phone.trim() ||
+      !name.trim() ||
+      !visitDate ||
+      !selectedSlotId ||
+      !selectedAddressId ||
+      selectedTests.size === 0
+    ) {
       toast({ title: "Please fill all required fields and select tests/packages", status: "warning" });
       return;
     }
@@ -119,8 +150,8 @@ export default function PatientVisitRequest() {
     try {
       let patientId = patient?.id;
 
-      // If no existing patient found, insert one
       if (!patientId) {
+        // Insert new patient
         const { data: newPatient, error: newPatientError } = await supabase
           .from("patients")
           .insert([{ phone: phone.trim(), name, dob, email, gender }])
@@ -129,32 +160,35 @@ export default function PatientVisitRequest() {
 
         if (newPatientError) throw newPatientError;
         patientId = newPatient.id;
+      } else {
+        // Update existing patient info (optionally)
+        const { error: updateError } = await supabase
+          .from("patients")
+          .update({ name, dob, email, gender })
+          .eq("id", patientId);
+
+        if (updateError) throw updateError;
       }
 
-      // Verify address exists in saved addresses; if not, create it
-      let addressId = selectedAddressId;
-      if (!addressId) {
-        toast({ title: "Please select or create a patient address", status: "warning" });
+      // Confirm selected address exists
+      const selectedAddress = addresses.find((addr) => addr.id === selectedAddressId);
+      if (!selectedAddress) {
+        toast({ title: "Selected address not found", status: "error" });
         setLoading(false);
         return;
       }
 
-      // You can extend here to insert new address if allowing address creation inline
-
-      // Fetch address for inserting into visits to store textual address (can be improved)
-      const selectedAddress = addresses.find((a) => a.id === addressId);
-      const visitAddressText = selectedAddress ? selectedAddress.label : "";
-
-      // Create the visit record
-      const { data: visit, error: visitError } = await supabase
+      // Insert visit
+      const { data: visitData, error: visitError } = await supabase
         .from("visits")
         .insert([
           {
             patient_id: patientId,
             visit_date: visitDate,
             time_slot: selectedSlotId,
-            address: visitAddressText,
+            address: selectedAddress.label,
             status: "booked",
+            executive_id: null,
           },
         ])
         .select()
@@ -162,20 +196,20 @@ export default function PatientVisitRequest() {
 
       if (visitError) throw visitError;
 
-      // Insert visit_details rows for tests selected
-      const inserts = Array.from(selectedTests).map((testId) => ({
-        visit_id: visit.id,
+      // Insert visit_details for tests
+      const visitDetailsData = Array.from(selectedTests).map((testId) => ({
+        visit_id: visitData.id,
         test_id: testId,
       }));
 
-      if (inserts.length > 0) {
-        const { error: visitDetailsError } = await supabase.from("visit_details").insert(inserts);
-        if (visitDetailsError) throw visitDetailsError;
+      if (visitDetailsData.length > 0) {
+        const { error: detailsError } = await supabase.from("visit_details").insert(visitDetailsData);
+        if (detailsError) throw detailsError;
       }
 
-      toast({ title: "Visit request submitted.", status: "success", duration: 3000 });
+      toast({ title: "Visit request submitted successfully", status: "success" });
 
-      // Clear form or navigate as needed
+      // Reset form
       setPhone("");
       setPatient(null);
       setName("");
@@ -187,17 +221,16 @@ export default function PatientVisitRequest() {
       setVisitDate(formatDate(new Date()));
       setSelectedSlotId("");
       setSelectedTests(new Set());
-    } catch (e) {
-      toast({ title: "Failed to submit visit request", status: "error", description: e.message });
+    } catch (error) {
+      toast({ title: "Failed to submit visit request", status: "error", description: error.message });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <Box maxW="md" mx="auto" mt={12} p={6} bg="white" rounded="md" shadow="md">
-      <Heading mb={6} textAlign="center">
-        Patient Visit Request
-      </Heading>
+      <Heading mb={6} textAlign="center">Patient Visit Request</Heading>
       <form onSubmit={handleSubmit}>
         <VStack spacing={4} align="stretch">
           <FormControl isRequired>
@@ -205,13 +238,13 @@ export default function PatientVisitRequest() {
             <HStack>
               <Input
                 type="tel"
+                placeholder="Enter phone number"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="Enter patient phone"
                 isDisabled={loading || lookingUp}
                 aria-label="Patient phone number"
               />
-              <Button onClick={lookupPatient} isLoading={lookingUp}>
+              <Button onClick={lookupPatient} isLoading={lookingUp} aria-label="Lookup patient">
                 Lookup
               </Button>
             </HStack>
@@ -220,9 +253,9 @@ export default function PatientVisitRequest() {
             <FormLabel>Patient Name</FormLabel>
             <Input
               type="text"
+              placeholder="Enter patient name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Enter patient name"
               isDisabled={loading}
               aria-label="Patient name"
             />
@@ -241,9 +274,9 @@ export default function PatientVisitRequest() {
             <FormLabel>Email</FormLabel>
             <Input
               type="email"
+              placeholder="Enter email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter email"
               isDisabled={loading}
               aria-label="Patient email"
             />
@@ -277,7 +310,11 @@ export default function PatientVisitRequest() {
                 </option>
               ))}
             </Select>
-            {addresses.length === 0 && <Text fontSize="sm" mt={1} color="gray.500">No addresses found. Please add address in patient profile first.</Text>}
+            {addresses.length === 0 && (
+              <Text fontSize="sm" mt={1} color="gray.500">
+                No addresses found. Please add addresses in patient profile before booking.
+              </Text>
+            )}
           </FormControl>
           <FormControl isRequired>
             <FormLabel>Visit Date</FormLabel>
