@@ -17,7 +17,7 @@ import {
   HStack,
 } from "@chakra-ui/react";
 import { createClient } from "@supabase/supabase-js";
-import TestPackageSelector from "../../components/TestPackageSelector"; // adjust path as needed
+import TestPackageSelector from "../../components/TestPackageSelector";
 
 const LeafletMap = dynamic(() => import("../../components/LeafletMap"), { ssr: false });
 
@@ -33,35 +33,34 @@ const MAP_ZOOM = 13;
 export default function PatientVisitRequest() {
   const toast = useToast();
 
-  // Form and states
+  // Form and state variables
   const [phone, setPhone] = useState("");
   const [patient, setPatient] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState("");
+  const [addressLabel, setAddressLabel] = useState("");
+  const [addressLine, setAddressLine] = useState("");
+  const [latLng, setLatLng] = useState({ lat: null, lng: null });
+
   const [visitDate, setVisitDate] = useState(formatDate(new Date()));
   const [timeSlots, setTimeSlots] = useState([]);
   const [selectedSlotId, setSelectedSlotId] = useState("");
   const [selectedTests, setSelectedTests] = useState(new Set());
+
   const [loading, setLoading] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
 
-  // Patient details
+  // Patient detail inputs
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   const [gender, setGender] = useState("");
 
-  // Address label edit
-  const [addressLabel, setAddressLabel] = useState("");
-
-  // Map lat/lng state
-  const [latLng, setLatLng] = useState({ lat: null, lng: null });
-
-  // Refs to Leaflet map and marker instances for use in "Use My Location"
+  // Refs to Leaflet map and marker for "Use My Location"
   const mapRef = useRef(null);
   const markerRef = useRef(null);
 
-  // Fetch visit time slots once on mount
+  // Fetch visit time slots on mount
   useEffect(() => {
     async function fetchTimeSlots() {
       const { data, error } = await supabase
@@ -73,16 +72,18 @@ export default function PatientVisitRequest() {
     fetchTimeSlots();
   }, []);
 
-  // Update map and latLng when selected address changes
+  // Sync lat/lng and address inputs when selectedAddressId changes
   useEffect(() => {
     if (!selectedAddressId) {
       setAddressLabel("");
+      setAddressLine("");
       setLatLng({ lat: null, lng: null });
       return;
     }
     const addr = addresses.find((a) => a.id === selectedAddressId);
     if (addr) {
       setAddressLabel(addr.label || "");
+      setAddressLine(addr.address_line || "");
       if (addr.lat != null && addr.lng != null) {
         setLatLng({ lat: addr.lat, lng: addr.lng });
       } else {
@@ -90,17 +91,18 @@ export default function PatientVisitRequest() {
       }
     } else {
       setAddressLabel("");
+      setAddressLine("");
       setLatLng({ lat: null, lng: null });
     }
   }, [selectedAddressId, addresses]);
 
-  // Callback to get map and marker instances from LeafletMap component
+  // Receive map and marker instances from LeafletMap component
   const handleMapReady = ({ map, marker }) => {
     mapRef.current = map;
     markerRef.current = marker;
   };
 
-  // Lookup patient from Supabase then external API fallback
+  // Patient lookup Supabase + fallback external API
   const lookupPatient = async () => {
     if (!phone.trim()) {
       toast({ title: "Please enter a phone number", status: "warning" });
@@ -142,7 +144,7 @@ export default function PatientVisitRequest() {
 
         toast({ title: "Patient found. Details loaded." });
       } else {
-        // Fallback to external API proxy
+        // External API fallback
         const resp = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
         if (!resp.ok) throw new Error(`External API lookup failed: ${resp.statusText}`);
 
@@ -154,10 +156,11 @@ export default function PatientVisitRequest() {
           setName(exPatient.FNAME?.trim() ?? "");
           setDob(exPatient.DOB ? exPatient.DOB.split(" ")[0] : "");
           setEmail(exPatient.EMAIL ?? "");
-          setGender(""); // Not available externally
+          setGender("");
           setAddresses([]);
           setSelectedAddressId("");
           setAddressLabel("");
+          setAddressLine("");
           setLatLng({ lat: null, lng: null });
           toast({ title: "Patient data loaded from external source." });
         } else {
@@ -169,6 +172,7 @@ export default function PatientVisitRequest() {
           setAddresses([]);
           setSelectedAddressId("");
           setAddressLabel("");
+          setAddressLine("");
           setLatLng({ lat: null, lng: null });
           toast({ title: "No patient found. Please enter details." });
         }
@@ -176,11 +180,10 @@ export default function PatientVisitRequest() {
     } catch (error) {
       toast({ title: "Error looking up patient", status: "error", description: error.message });
     }
-
     setLookingUp(false);
   };
 
-  // Submit visit request handler
+  // Submit handler: Create/update patient, update address, create visit, add tests
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -201,8 +204,8 @@ export default function PatientVisitRequest() {
       let patientId = patient?.id;
       let currentAddresses = [...addresses];
 
-      // Insert patient if new
       if (!patientId) {
+        // Insert new patient
         const { data: newPatient, error: insertError } = await supabase
           .from("patients")
           .insert([{ phone: phone.trim(), name, dob, email, gender }])
@@ -213,15 +216,15 @@ export default function PatientVisitRequest() {
 
         patientId = newPatient.id;
       } else {
+        // Update patient info
         const { error: updateError } = await supabase
           .from("patients")
           .update({ name, dob, email, gender })
           .eq("id", patientId);
-
         if (updateError) throw updateError;
       }
 
-      // Update or add address label and lat/lng
+      // Find selected address and update
       let selectedAddress = currentAddresses.find((a) => a.id === selectedAddressId);
 
       if (!selectedAddress) {
@@ -230,27 +233,30 @@ export default function PatientVisitRequest() {
         return;
       }
 
-      // Update address label if changed
-      if (addressLabel !== selectedAddress.label) {
-        const { error: labelError } = await supabase
+      // Update label and full address line if changed
+      if (addressLabel !== selectedAddress.label || addressLine !== selectedAddress.address_line) {
+        const { error: addrLabelError } = await supabase
           .from("patient_addresses")
-          .update({ label: addressLabel })
+          .update({ label: addressLabel, address_line: addressLine })
           .eq("id", selectedAddressId);
-        if (labelError) {
-          toast({ title: "Failed to update address label", status: "warning" });
+
+        if (addrLabelError) {
+          toast({ title: "Failed to update address label or full address", status: "warning" });
         } else {
           selectedAddress.label = addressLabel;
+          selectedAddress.address_line = addressLine;
           setAddresses(currentAddresses);
         }
       }
 
       // Update lat/lng if changed
       if (latLng.lat !== selectedAddress.lat || latLng.lng !== selectedAddress.lng) {
-        const { error: locError } = await supabase
+        const { error: addrLocError } = await supabase
           .from("patient_addresses")
           .update({ lat: latLng.lat, lng: latLng.lng })
           .eq("id", selectedAddressId);
-        if (locError) {
+
+        if (addrLocError) {
           toast({ title: "Failed to update address coordinates", status: "warning" });
         } else {
           selectedAddress.lat = latLng.lat;
@@ -259,7 +265,7 @@ export default function PatientVisitRequest() {
         }
       }
 
-      // Insert new visit
+      // Create visit record
       const { data: visitData, error: visitError } = await supabase
         .from("visits")
         .insert([
@@ -277,7 +283,7 @@ export default function PatientVisitRequest() {
 
       if (visitError) throw visitError;
 
-      // Insert visit_details if tests selected (optional)
+      // Insert tests if any selected (optional)
       if (selectedTests.size > 0) {
         const visitDetailsInserts = Array.from(selectedTests).map((testId) => ({
           visit_id: visitData.id,
@@ -293,7 +299,7 @@ export default function PatientVisitRequest() {
 
       toast({ title: "Visit request submitted successfully", status: "success" });
 
-      // Reset form
+      // Reset form fields
       setPhone("");
       setPatient(null);
       setName("");
@@ -303,6 +309,7 @@ export default function PatientVisitRequest() {
       setAddresses([]);
       setSelectedAddressId("");
       setAddressLabel("");
+      setAddressLine("");
       setVisitDate(formatDate(new Date()));
       setSelectedSlotId("");
       setSelectedTests(new Set());
@@ -314,7 +321,7 @@ export default function PatientVisitRequest() {
     }
   };
 
-  // "Use My Location" button handler to get user location and update map + marker
+  // "Use My Location" button handler
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       toast({ title: "Geolocation not supported", status: "error" });
@@ -338,29 +345,28 @@ export default function PatientVisitRequest() {
     );
   };
 
-  // Map click handler
+  // Map click and marker drag handlers
   const handleMapClick = (e) => {
     setLatLng({ lat: e.latlng.lat, lng: e.latlng.lng });
   };
 
-  // Marker drag end handler
   const handleMarkerDragEnd = (e) => {
     setLatLng({ lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
   };
 
-  // Pass refs from LeafletMap to here to support "Use My Location" button
+  // Receives map and marker instances from LeafletMap
   const onMapReady = ({ map, marker }) => {
     mapRef.current = map;
     markerRef.current = marker;
   };
 
   return (
-    <Box maxW="md" mx="auto" mt={12} p={6} bg="white" rounded="md" shadow="md">
+    <Box maxW="md" mx="auto" mt={12} p={6} bg="white" rounded="md" shadow="md" fontSize="sm">
       <Heading mb={6} textAlign="center">Patient Visit Request</Heading>
       <form onSubmit={handleSubmit}>
         <VStack spacing={4} align="stretch">
 
-          {/* Phone Number + Lookup */}
+          {/* Phone + Lookup */}
           <FormControl isRequired>
             <FormLabel>Phone Number</FormLabel>
             <HStack>
@@ -371,6 +377,7 @@ export default function PatientVisitRequest() {
                 onChange={(e) => setPhone(e.target.value)}
                 isDisabled={loading || lookingUp}
                 aria-label="Patient phone number"
+                autoComplete="tel"
               />
               <Button onClick={lookupPatient} isLoading={lookingUp} aria-label="Lookup patient">
                 Lookup
@@ -378,7 +385,7 @@ export default function PatientVisitRequest() {
             </HStack>
           </FormControl>
 
-          {/* Patient Details */}
+          {/* Patient details */}
           <FormControl isRequired>
             <FormLabel>Patient Name</FormLabel>
             <Input
@@ -388,6 +395,7 @@ export default function PatientVisitRequest() {
               onChange={(e) => setName(e.target.value)}
               isDisabled={loading}
               aria-label="Patient name"
+              autoComplete="name"
             />
           </FormControl>
 
@@ -398,7 +406,8 @@ export default function PatientVisitRequest() {
               value={dob}
               onChange={(e) => setDob(e.target.value)}
               isDisabled={loading}
-              aria-label="Patient date of birth"
+              aria-label="Date of Birth"
+              autoComplete="bday"
             />
           </FormControl>
 
@@ -410,7 +419,8 @@ export default function PatientVisitRequest() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               isDisabled={loading}
-              aria-label="Patient email"
+              aria-label="Email"
+              autoComplete="email"
             />
           </FormControl>
 
@@ -421,7 +431,8 @@ export default function PatientVisitRequest() {
               onChange={(e) => setGender(e.target.value)}
               placeholder="Select gender"
               isDisabled={loading}
-              aria-label="Patient gender"
+              aria-label="Gender"
+              autoComplete="sex"
             >
               <option value="male">Male</option>
               <option value="female">Female</option>
@@ -429,13 +440,13 @@ export default function PatientVisitRequest() {
             </Select>
           </FormControl>
 
-          {/* Address Selection */}
+          {/* Address selection */}
           <FormControl isRequired>
             <FormLabel>Select Address</FormLabel>
             <Select
               placeholder="Select saved address"
-              onChange={(e) => setSelectedAddressId(e.target.value)}
               value={selectedAddressId}
+              onChange={(e) => setSelectedAddressId(e.target.value)}
               isDisabled={loading || addresses.length === 0}
               aria-label="Patient address"
             >
@@ -446,13 +457,13 @@ export default function PatientVisitRequest() {
               ))}
             </Select>
             {addresses.length === 0 && (
-              <Text fontSize="sm" color="gray.500" mt={1}>
+              <Text fontSize="sm" mt={1} color="gray.500" userSelect="none">
                 No addresses found. Please add addresses in patient profile before booking.
               </Text>
             )}
           </FormControl>
 
-          {/* Address Label Input */}
+          {/* Address label input */}
           <FormControl isRequired>
             <FormLabel>Address Label / Description</FormLabel>
             <Input
@@ -464,8 +475,20 @@ export default function PatientVisitRequest() {
             />
           </FormControl>
 
-          {/* Leaflet Map Picker */}
-          <Box height="300px" border="1px solid #CBD5E0" rounded="md" overflow="hidden">
+          {/* Full Address Line Input */}
+          <FormControl>
+            <FormLabel>Full Address / Address Line</FormLabel>
+            <Input
+              placeholder="Enter full address line"
+              value={addressLine}
+              onChange={(e) => setAddressLine(e.target.value)}
+              isDisabled={loading || !selectedAddressId}
+              aria-label="Full address line"
+            />
+          </FormControl>
+
+          {/* Leaflet map */}
+          <Box height="300px" border="1px solid #CBD5E0" rounded="md" overflow="hidden" mb={2}>
             <LeafletMap
               center={
                 latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : DEFAULT_CENTER
@@ -474,16 +497,15 @@ export default function PatientVisitRequest() {
               onMapClick={handleMapClick}
               onMarkerDragEnd={handleMarkerDragEnd}
               markerPosition={latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : null}
-              onMapReady={onMapReady}
+              onMapReady={handleMapReady}
             />
           </Box>
 
-          {/* Use My Location Button */}
-          <Button mt={2} size="sm" onClick={handleUseMyLocation}>
+          <Button size="sm" mb={4} onClick={handleUseMyLocation} isDisabled={loading}>
             Use My Location
           </Button>
 
-          {/* Visit Date */}
+          {/* Visit date */}
           <FormControl isRequired>
             <FormLabel>Visit Date</FormLabel>
             <Input
@@ -496,7 +518,7 @@ export default function PatientVisitRequest() {
             />
           </FormControl>
 
-          {/* Time Slot */}
+          {/* Time slot */}
           <FormControl isRequired>
             <FormLabel>Time Slot</FormLabel>
             {timeSlots.length === 0 ? (
@@ -518,7 +540,7 @@ export default function PatientVisitRequest() {
             )}
           </FormControl>
 
-          {/* Tests / Packages - optional */}
+          {/* Test selection (Optional) */}
           <FormControl>
             <FormLabel>Select Tests / Packages (Optional)</FormLabel>
             <Box
@@ -535,6 +557,7 @@ export default function PatientVisitRequest() {
             </Box>
           </FormControl>
 
+          {/* Submit button */}
           <Button
             type="submit"
             colorScheme="teal"
