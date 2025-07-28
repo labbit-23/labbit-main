@@ -65,7 +65,7 @@ export default function PatientPage() {
     }
 
     const dataParam = encodeURIComponent(JSON.stringify([{ phone: String(phone) }]));
-    const url = `${apiUrl}&data=${dataParam}`;
+    const url = `/api/patient-lookup?phone=${encodeURIComponent(phone)}`;
 
     try {
       const res = await fetch(url, {
