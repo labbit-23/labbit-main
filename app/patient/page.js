@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Heading,
@@ -9,173 +9,195 @@ import {
   VStack,
   FormControl,
   FormLabel,
-  Alert,
-  AlertIcon,
-  useToast,
-  HStack,
+  Select,
   Spinner,
+  useToast,
+  Text,
+  HStack,
 } from "@chakra-ui/react";
 import { createClient } from "@supabase/supabase-js";
+import TestPackageSelector from "../../components/TestPackageSelector"; // Adjust path if needed
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function PatientPage() {
+// Helper to format date YYYY-MM-DD
+const formatDate = (d) => d.toISOString().split("T")[0];
+
+export default function PatientVisitRequest() {
   const toast = useToast();
 
-  const [formData, setFormData] = useState({
-    name: "",
-    phone: "",
-    dob: "",
-    email: "",
-    state: "",
-    district: "",
-    pincode: "",
-    // Add other fields if necessary
-  });
-
+  // Form States
+  const [phone, setPhone] = useState("");
+  const [patient, setPatient] = useState(null);
+  const [addresses, setAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState("");
+  const [visitDate, setVisitDate] = useState(formatDate(new Date()));
+  const [timeSlots, setTimeSlots] = useState([]);
+  const [selectedSlotId, setSelectedSlotId] = useState("");
+  const [selectedTests, setSelectedTests] = useState(new Set());
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [lookingUp, setLookingUp] = useState(false);
 
-  // Lookup in Supabase
-  async function lookupPatientInSupabase(phone) {
+  // Patient detail inputs (if new patient or editing)
+  const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
+  const [email, setEmail] = useState("");
+  const [gender, setGender] = useState("");
+
+  // Fetch visit time slots on mount
+  useEffect(() => {
+    async function fetchTimeSlots() {
+      const { data, error } = await supabase.from("visit_time_slots").select("*").order("start_time");
+      if (!error) setTimeSlots(data || []);
+    }
+    fetchTimeSlots();
+  }, []);
+
+  // Lookup patient by phone number
+  const lookupPatient = async () => {
+    if (!phone) {
+      toast({ title: "Please enter a phone number", status: "warning" });
+      return;
+    }
+    setLookingUp(true);
     try {
       const { data, error } = await supabase
         .from("patients")
         .select("*")
-        .eq("phone", phone)
+        .eq("phone", phone.trim())
         .maybeSingle();
 
-      if (error) return null;
-      return data;
-    } catch {
-      return null;
-    }
-  }
+      if (error) throw error;
 
-  // Lookup in external API
-  async function lookupPatientInExternalAPI(phone) {
-    const apiUrl = process.env.NEXT_PUBLIC_PATIENT_LOOKUP_URL;
-    const apiKey = process.env.NEXT_PUBLIC_PATIENT_LOOKUP_KEY;
-    if (!apiUrl || !apiKey) {
-      console.warn("External API URL or key not configured");
-      return null;
-    }
-
-    const dataParam = encodeURIComponent(JSON.stringify([{ phone: String(phone) }]));
-    const url = `/api/patient-lookup?phone=${encodeURIComponent(phone)}`;
-
-    try {
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/json",
-        },
-      });
-      if (!res.ok) {
-        console.error(`External API responded with status ${res.status}`);
-        return null;
+      if (data) {
+        setPatient(data);
+        setName(data.name || "");
+        setDob(data.dob ? data.dob.substr(0, 10) : "");
+        setEmail(data.email || "");
+        setGender(data.gender || "");
+        // Fetch addresses for this patient:
+        const { data: addrData, error: addrError } = await supabase
+          .from("patient_addresses")
+          .select("*")
+          .eq("patient_id", data.id)
+          .order("is_default", { ascending: false });
+        if (!addrError) {
+          setAddresses(addrData || []);
+          setSelectedAddressId(addrData?.length > 0 ? addrData[0].id : "");
+        }
+        toast({ title: "Patient found. Details loaded." });
+      } else {
+        // No patient found: clear
+        setPatient(null);
+        setName("");
+        setDob("");
+        setEmail("");
+        setGender("");
+        setAddresses([]);
+        setSelectedAddressId("");
+        toast({ title: "No patient found. Please enter details." });
       }
-
-      const json = await res.json();
-      if (!Array.isArray(json) || json.length === 0) return null;
-
-      const patientData = json[0];
-
-      return {
-        name: patientData.FNAME?.trim() ?? "",
-        dob: patientData.DOB ? patientData.DOB.split(" ")[0] : "",
-        email: patientData.EMAIL ?? "",
-        pincode: patientData.PINCODE ?? "",
-        state: patientData.STATENEW ?? "",
-        district: patientData.DISTRICTNEW ?? "",
-      };
     } catch (e) {
-      console.error("External patient lookup failed:", e);
-      return null;
+      toast({ title: "Error looking up patient", status: "error", description: e.message });
     }
-  }
+    setLookingUp(false);
+  };
 
-  // Perform lookup on button click or onBlur if you want
-  const handleLookup = async () => {
-    const phone = formData.phone.trim();
-    if (!phone) {
-      toast({
-        title: "Please enter a phone number",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
+  // Handle form submission - create patient if new, create visit for patient
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!phone || !name || !visitDate || !selectedSlotId || !selectedAddressId || selectedTests.size === 0) {
+      toast({ title: "Please fill all required fields and select tests/packages", status: "warning" });
       return;
     }
 
     setLoading(true);
-    setError(null);
+    try {
+      let patientId = patient?.id;
 
-    // 1. Try Supabase lookup first
-    let patient = await lookupPatientInSupabase(phone);
+      // If no existing patient found, insert one
+      if (!patientId) {
+        const { data: newPatient, error: newPatientError } = await supabase
+          .from("patients")
+          .insert([{ phone: phone.trim(), name, dob, email, gender }])
+          .select()
+          .single();
 
-    // 2. If not found in Supabase, try external API
-    if (!patient) {
-      patient = await lookupPatientInExternalAPI(phone);
-    }
+        if (newPatientError) throw newPatientError;
+        patientId = newPatient.id;
+      }
 
-    if (patient) {
-      setFormData((prev) => ({
-        ...prev,
-        name: patient.name || "",
-        dob: patient.dob || "",
-        email: patient.email || "",
-        state: patient.state || "",
-        district: patient.district || "",
-        pincode: patient.pincode || "",
-        phone,
+      // Verify address exists in saved addresses; if not, create it
+      let addressId = selectedAddressId;
+      if (!addressId) {
+        toast({ title: "Please select or create a patient address", status: "warning" });
+        setLoading(false);
+        return;
+      }
+
+      // You can extend here to insert new address if allowing address creation inline
+
+      // Fetch address for inserting into visits to store textual address (can be improved)
+      const selectedAddress = addresses.find((a) => a.id === addressId);
+      const visitAddressText = selectedAddress ? selectedAddress.label : "";
+
+      // Create the visit record
+      const { data: visit, error: visitError } = await supabase
+        .from("visits")
+        .insert([
+          {
+            patient_id: patientId,
+            visit_date: visitDate,
+            time_slot: selectedSlotId,
+            address: visitAddressText,
+            status: "booked",
+          },
+        ])
+        .select()
+        .single();
+
+      if (visitError) throw visitError;
+
+      // Insert visit_details rows for tests selected
+      const inserts = Array.from(selectedTests).map((testId) => ({
+        visit_id: visit.id,
+        test_id: testId,
       }));
-      toast({
-        title: "Patient data loaded",
-        description: "Form auto-filled with existing patient data.",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } else {
-      toast({
-        title: "Patient not found",
-        description: "Please enter the patient details manually.",
-        status: "info",
-        duration: 3000,
-        isClosable: true,
-      });
-      // Optionally clear other input fields except phone here
+
+      if (inserts.length > 0) {
+        const { error: visitDetailsError } = await supabase.from("visit_details").insert(inserts);
+        if (visitDetailsError) throw visitDetailsError;
+      }
+
+      toast({ title: "Visit request submitted.", status: "success", duration: 3000 });
+
+      // Clear form or navigate as needed
+      setPhone("");
+      setPatient(null);
+      setName("");
+      setDob("");
+      setEmail("");
+      setGender("");
+      setAddresses([]);
+      setSelectedAddressId("");
+      setVisitDate(formatDate(new Date()));
+      setSelectedSlotId("");
+      setSelectedTests(new Set());
+    } catch (e) {
+      toast({ title: "Failed to submit visit request", status: "error", description: e.message });
     }
-
     setLoading(false);
-  };
-
-  // Handle field changes
-  const handleChange = (field) => (e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: e.target.value,
-    }));
-  };
-
-  // Handle form submission (replace with your own logic)
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Insert or update patient logic here
-    console.log("Submitting patient data:", formData);
   };
 
   return (
     <Box maxW="md" mx="auto" mt={12} p={6} bg="white" rounded="md" shadow="md">
       <Heading mb={6} textAlign="center">
-        Patient Lookup & Registration
+        Patient Visit Request
       </Heading>
-
       <form onSubmit={handleSubmit}>
         <VStack spacing={4} align="stretch">
           <FormControl isRequired>
@@ -183,111 +205,125 @@ export default function PatientPage() {
             <HStack>
               <Input
                 type="tel"
-                placeholder="Enter phone number"
-                value={formData.phone}
-                onChange={handleChange("phone")}
-                isDisabled={loading}
-                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Enter patient phone"
+                isDisabled={loading || lookingUp}
                 aria-label="Patient phone number"
               />
-              <Button
-                onClick={handleLookup}
-                isLoading={loading}
-                colorScheme="blue"
-                aria-label="Lookup patient"
-              >
+              <Button onClick={lookupPatient} isLoading={lookingUp}>
                 Lookup
               </Button>
             </HStack>
           </FormControl>
-
           <FormControl isRequired>
-            <FormLabel>Name</FormLabel>
+            <FormLabel>Patient Name</FormLabel>
             <Input
               type="text"
-              placeholder="Patient name"
-              value={formData.name}
-              onChange={handleChange("name")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter patient name"
               isDisabled={loading}
-              autoComplete="name"
               aria-label="Patient name"
             />
           </FormControl>
-
           <FormControl>
             <FormLabel>Date of Birth</FormLabel>
             <Input
               type="date"
-              value={formData.dob}
-              onChange={handleChange("dob")}
+              value={dob}
+              onChange={(e) => setDob(e.target.value)}
               isDisabled={loading}
               aria-label="Patient date of birth"
             />
           </FormControl>
-
           <FormControl>
             <FormLabel>Email</FormLabel>
             <Input
               type="email"
-              placeholder="Email"
-              value={formData.email}
-              onChange={handleChange("email")}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter email"
               isDisabled={loading}
-              autoComplete="email"
               aria-label="Patient email"
             />
           </FormControl>
-
           <FormControl>
-            <FormLabel>State</FormLabel>
-            <Input
-              type="text"
-              placeholder="State"
-              value={formData.state}
-              onChange={handleChange("state")}
+            <FormLabel>Gender</FormLabel>
+            <Select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              placeholder="Select gender"
               isDisabled={loading}
-              aria-label="Patient state"
+              aria-label="Patient gender"
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </Select>
+          </FormControl>
+          <FormControl isRequired>
+            <FormLabel>Address</FormLabel>
+            <Select
+              placeholder="Select saved address"
+              onChange={(e) => setSelectedAddressId(e.target.value)}
+              value={selectedAddressId}
+              isDisabled={loading || addresses.length === 0}
+              aria-label="Patient address"
+            >
+              {addresses.map(({ id, label, pincode }) => (
+                <option key={id} value={id}>
+                  {label} {pincode ? `(${pincode})` : ""}
+                </option>
+              ))}
+            </Select>
+            {addresses.length === 0 && <Text fontSize="sm" mt={1} color="gray.500">No addresses found. Please add address in patient profile first.</Text>}
+          </FormControl>
+          <FormControl isRequired>
+            <FormLabel>Visit Date</FormLabel>
+            <Input
+              type="date"
+              value={visitDate}
+              onChange={(e) => setVisitDate(e.target.value)}
+              min={formatDate(new Date())}
+              isDisabled={loading}
+              aria-label="Visit date"
             />
           </FormControl>
-
-          <FormControl>
-            <FormLabel>District</FormLabel>
-            <Input
-              type="text"
-              placeholder="District"
-              value={formData.district}
-              onChange={handleChange("district")}
-              isDisabled={loading}
-              aria-label="Patient district"
-            />
+          <FormControl isRequired>
+            <FormLabel>Time Slot</FormLabel>
+            {timeSlots.length === 0 ? (
+              <Spinner size="sm" />
+            ) : (
+              <Select
+                placeholder="Select time slot"
+                onChange={(e) => setSelectedSlotId(e.target.value)}
+                value={selectedSlotId}
+                isDisabled={loading}
+                aria-label="Visit time slot"
+              >
+                {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
+                  <option key={id} value={slot_name}>
+                    {slot_name} ({start_time} - {end_time})
+                  </option>
+                ))}
+              </Select>
+            )}
           </FormControl>
-
-          <FormControl>
-            <FormLabel>Pincode</FormLabel>
-            <Input
-              type="text"
-              placeholder="Pincode"
-              value={formData.pincode}
-              onChange={handleChange("pincode")}
-              isDisabled={loading}
-              aria-label="Patient pincode"
-            />
+          <FormControl isRequired>
+            <FormLabel>Select Tests / Packages</FormLabel>
+            <Box border="1px solid #CBD5E0" p={2} borderRadius="md" maxH="60vh" overflowY="auto">
+              <TestPackageSelector
+                initialSelectedTests={selectedTests}
+                onSelectionChange={setSelectedTests}
+              />
+            </Box>
           </FormControl>
-
-          {/* Additional fields can go here */}
-
-          <Button type="submit" colorScheme="teal" isLoading={loading}>
-            Save Patient
+          <Button type="submit" colorScheme="teal" isLoading={loading} isDisabled={loading}>
+            Request Visit
           </Button>
         </VStack>
       </form>
-
-      {error && (
-        <Alert mt={4} status="error" borderRadius="md">
-          <AlertIcon />
-          {error}
-        </Alert>
-      )}
     </Box>
   );
 }
