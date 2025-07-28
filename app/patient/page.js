@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Box,
   Heading,
@@ -16,19 +16,35 @@ import {
   HStack,
 } from "@chakra-ui/react";
 import { createClient } from "@supabase/supabase-js";
-import TestPackageSelector from "../../components/TestPackageSelector"; // adjust path if needed
-import { GoogleMap, Marker, useJsApiLoader } from "@react-google-maps/api";
+import TestPackageSelector from "../../components/TestPackageSelector";
+
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+
+// Fix leaflet icon paths (required)
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+});
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Helper to format Date as 'YYYY-MM-DD'
 const formatDate = (d) => d.toISOString().split("T")[0];
 
-// Default map center (e.g., Hyderabad)
-const DEFAULT_CENTER = { lat: 17.385, lng: 78.4867 };
-const MAP_CONTAINER_STYLE = { width: "100%", height: "300px" };
+// Default map center - Hyderabad sample
+const DEFAULT_CENTER = [17.385, 78.4867];
+const MAP_ZOOM = 13;
 
 export default function PatientVisitRequest() {
   const toast = useToast();
@@ -45,52 +61,124 @@ export default function PatientVisitRequest() {
   const [loading, setLoading] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
 
-  // Patient detail inputs
+  // Patient details inputs
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   const [gender, setGender] = useState("");
 
-  // Address lat/lng for location picker (for new or editing selected address)
-  const [addressLatLng, setAddressLatLng] = useState({ lat: null, lng: null });
+  // Leaflet map refs and state
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const searchControlRef = useRef(null);
 
-  // Google Maps API loading
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
-  });
+  // Latitude and Longitude for picked location
+  const [latLng, setLatLng] = useState({ lat: null, lng: null });
 
-  // Fetch visit time slots on mount
+  // Initialize Leaflet map and geosearch control
+  useEffect(() => {
+    if (mapRef.current) return; // already initialized
+
+    const map = L.map("map", {
+      center: DEFAULT_CENTER,
+      zoom: MAP_ZOOM,
+    });
+    mapRef.current = map;
+
+    // Add OpenStreetMap tiles
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution:
+        '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+
+    // Add marker
+    const marker = L.marker(DEFAULT_CENTER, { draggable: true }).addTo(map);
+    markerRef.current = marker;
+
+    marker.on("dragend", () => {
+      const pos = marker.getLatLng();
+      setLatLng(pos);
+    });
+
+    // Setup OpenStreetMap provider search control
+    const provider = new OpenStreetMapProvider();
+
+    const searchControl = new GeoSearchControl({
+      provider,
+      style: "bar",
+      autoComplete: true,
+      autoCompleteDelay: 250,
+      retainZoomLevel: false,
+      showMarker: false,
+      keepResult: true,
+      searchLabel: "Enter address",
+    });
+
+    searchControlRef.current = searchControl;
+    map.addControl(searchControl);
+
+    map.on("geosearch/showlocation", (result) => {
+      const { location, marker: sMarker } = result;
+
+      // Move marker to search result location
+      marker.setLatLng([location.y, location.x]);
+
+      // Center map there
+      map.setView(new L.LatLng(location.y, location.x), 16);
+
+      // Update latLng state
+      setLatLng({ lat: location.y, lng: location.x });
+    });
+
+    // Cleanup on unmount
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // When selected address changes, update marker location
+  useEffect(() => {
+    if (!selectedAddressId) {
+      setLatLng({ lat: null, lng: null });
+      if (markerRef.current) markerRef.current.setLatLng(DEFAULT_CENTER);
+      if (mapRef.current) mapRef.current.setView(DEFAULT_CENTER, MAP_ZOOM);
+      return;
+    }
+
+    const addr = addresses.find((a) => a.id === selectedAddressId);
+    if (addr && addr.lat != null && addr.lng != null) {
+      setLatLng({ lat: addr.lat, lng: addr.lng });
+      if (markerRef.current) markerRef.current.setLatLng([addr.lat, addr.lng]);
+      if (mapRef.current) mapRef.current.setView([addr.lat, addr.lng], 16);
+    } else {
+      setLatLng({ lat: null, lng: null });
+      if (markerRef.current) markerRef.current.setLatLng(DEFAULT_CENTER);
+      if (mapRef.current) mapRef.current.setView(DEFAULT_CENTER, MAP_ZOOM);
+    }
+  }, [selectedAddressId, addresses]);
+
+  // Fetch visit timeslots once
   useEffect(() => {
     async function fetchTimeSlots() {
       const { data, error } = await supabase
         .from("visit_time_slots")
         .select("*")
         .order("start_time");
-      if (!error) setTimeSlots(data || []);
+      if (!error) {
+        setTimeSlots(data || []);
+      }
     }
     fetchTimeSlots();
   }, []);
 
-  // When selectedAddressId changes, update addressLatLng based on address
-  useEffect(() => {
-    if (!selectedAddressId) {
-      setAddressLatLng({ lat: null, lng: null });
-      return;
-    }
-    const addr = addresses.find((a) => a.id === selectedAddressId);
-    if (addr && addr.lat && addr.lng) {
-      setAddressLatLng({ lat: addr.lat, lng: addr.lng });
-    } else {
-      setAddressLatLng({ lat: null, lng: null });
-    }
-  }, [selectedAddressId, addresses]);
-
-  // Patient lookup: Supabase primary, then external API fallback
+  // Patient lookup function (Supabase primary + external API fallback)
   const lookupPatient = async () => {
     if (!phone.trim()) {
       toast({ title: "Please enter a phone number", status: "warning" });
       return;
     }
+
     setLookingUp(true);
 
     try {
@@ -104,14 +192,12 @@ export default function PatientVisitRequest() {
       if (error) throw error;
 
       if (data) {
-        // Found in Supabase
         setPatient(data);
         setName(data.name || "");
         setDob(data.dob ? data.dob.substr(0, 10) : "");
         setEmail(data.email || "");
         setGender(data.gender || "");
 
-        // Fetch addresses
         const { data: addrData, error: addrError } = await supabase
           .from("patient_addresses")
           .select("*")
@@ -129,11 +215,12 @@ export default function PatientVisitRequest() {
 
         toast({ title: "Patient found. Details loaded." });
       } else {
-        // Not in Supabase => fallback to external API proxy
-        const resp = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
+        // External API fallback
+        const response = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
+        if (!response.ok)
+          throw new Error(`External API lookup failed: ${response.statusText}`);
 
-        if (!resp.ok) throw new Error(`External API lookup failed: ${resp.statusText}`);
-        const json = await resp.json();
+        const json = await response.json();
 
         if (Array.isArray(json) && json.length > 0) {
           const exPatient = json[0];
@@ -141,12 +228,11 @@ export default function PatientVisitRequest() {
           setName(exPatient.FNAME?.trim() ?? "");
           setDob(exPatient.DOB ? exPatient.DOB.split(" ")[0] : "");
           setEmail(exPatient.EMAIL ?? "");
-          setGender(""); // no gender info in external source
+          setGender("");
           setAddresses([]);
           setSelectedAddressId("");
           toast({ title: "Patient data loaded from external source." });
         } else {
-          // Not found anywhere
           setPatient(null);
           setName("");
           setDob("");
@@ -164,9 +250,7 @@ export default function PatientVisitRequest() {
     setLookingUp(false);
   };
 
-  // Handle submit: save patient if new or update existing,
-  // save address lat/lng if changed,
-  // create visit, and add visit details
+  // Submit handler to save patient, addresses' lat/lng, create visit, insert tests
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -175,13 +259,9 @@ export default function PatientVisitRequest() {
       !name.trim() ||
       !visitDate ||
       !selectedSlotId ||
-      !selectedAddressId ||
-      selectedTests.size === 0
+      !selectedAddressId
     ) {
-      toast({
-        title: "Please fill all required fields and select tests/packages",
-        status: "warning",
-      });
+      toast({ title: "Please fill all required fields", status: "warning" });
       return;
     }
 
@@ -191,14 +271,15 @@ export default function PatientVisitRequest() {
       let patientId = patient?.id;
 
       if (!patientId) {
-        // Insert new patient
-        const { data: newPatient, error: newPatientError } = await supabase
+        // Insert patient to Supabase
+        const { data: newPatient, error: insertError } = await supabase
           .from("patients")
           .insert([{ phone: phone.trim(), name, dob, email, gender }])
           .select()
           .single();
 
-        if (newPatientError) throw newPatientError;
+        if (insertError) throw insertError;
+
         patientId = newPatient.id;
       } else {
         // Update patient info
@@ -210,7 +291,6 @@ export default function PatientVisitRequest() {
         if (updateError) throw updateError;
       }
 
-      // Save address lat/lng for selected address if changed
       const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
       if (!selectedAddress) {
         toast({ title: "Selected address not found", status: "error" });
@@ -218,35 +298,30 @@ export default function PatientVisitRequest() {
         return;
       }
 
+      // Update patient address lat/lng if changed
       if (
-        (addressLatLng.lat !== selectedAddress.lat) ||
-        (addressLatLng.lng !== selectedAddress.lng)
+        latLng.lat !== selectedAddress.lat ||
+        latLng.lng !== selectedAddress.lng
       ) {
-        // Update lat/lng in patient_addresses
-        const { error: addrUpdateError } = await supabase
+        const { error: addrErr } = await supabase
           .from("patient_addresses")
-          .update({ lat: addressLatLng.lat, lng: addressLatLng.lng })
+          .update({ lat: latLng.lat, lng: latLng.lng })
           .eq("id", selectedAddressId);
 
-        if (addrUpdateError) {
-          toast({
-            title: "Failed to update address location",
-            status: "warning",
-          });
-          // continue anyway
+        if (addrErr) {
+          toast({ title: "Failed to update address location", status: "warning" });
         } else {
-          // Update local addresses state
           setAddresses((prev) =>
             prev.map((addr) =>
               addr.id === selectedAddressId
-                ? { ...addr, lat: addressLatLng.lat, lng: addressLatLng.lng }
+                ? { ...addr, lat: latLng.lat, lng: latLng.lng }
                 : addr
             )
           );
         }
       }
 
-      // Insert visit record
+      // Insert new visit
       const { data: visitData, error: visitError } = await supabase
         .from("visits")
         .insert([
@@ -264,20 +339,23 @@ export default function PatientVisitRequest() {
 
       if (visitError) throw visitError;
 
-      // Insert visit_details for selected tests
-      const visitDetailsData = Array.from(selectedTests).map((testId) => ({
-        visit_id: visitData.id,
-        test_id: testId,
-      }));
+      // Insert tests only if selected (tests are optional)
+      if (selectedTests.size > 0) {
+        const visitDetailInserts = Array.from(selectedTests).map((testId) => ({
+          visit_id: visitData.id,
+          test_id: testId,
+        }));
 
-      if (visitDetailsData.length > 0) {
-        const { error: detailsError } = await supabase.from("visit_details").insert(visitDetailsData);
-        if (detailsError) throw detailsError;
+        const { error: visitDetailError } = await supabase
+          .from("visit_details")
+          .insert(visitDetailInserts);
+
+        if (visitDetailError) throw visitDetailError;
       }
 
       toast({ title: "Visit request submitted successfully", status: "success" });
 
-      // Reset form to initial state
+      // Reset form fields
       setPhone("");
       setPatient(null);
       setName("");
@@ -289,7 +367,7 @@ export default function PatientVisitRequest() {
       setVisitDate(formatDate(new Date()));
       setSelectedSlotId("");
       setSelectedTests(new Set());
-      setAddressLatLng({ lat: null, lng: null });
+      setLatLng({ lat: null, lng: null });
     } catch (error) {
       toast({ title: "Failed to submit visit request", status: "error", description: error.message });
     } finally {
@@ -297,14 +375,13 @@ export default function PatientVisitRequest() {
     }
   };
 
-  // Google Maps marker drag or map click handler to update lat/lng
-  const handleMapClick = (e) => {
-    setAddressLatLng({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+  // Handle Leaflet map clicks and marker drags to update lat/lng
+  const onMapClick = (e) => {
+    setLatLng({ lat: e.latlng.lat, lng: e.latlng.lng });
   };
 
-  // Google Maps marker drag end handler
-  const handleMarkerDragEnd = (e) => {
-    setAddressLatLng({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+  const onMarkerDragEnd = (e) => {
+    setLatLng({ lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
   };
 
   return (
@@ -312,13 +389,13 @@ export default function PatientVisitRequest() {
       <Heading mb={6} textAlign="center">Patient Visit Request</Heading>
       <form onSubmit={handleSubmit}>
         <VStack spacing={4} align="stretch">
-          {/* Phone and Lookup */}
+
           <FormControl isRequired>
             <FormLabel>Phone Number</FormLabel>
             <HStack>
               <Input
                 type="tel"
-                placeholder="Enter phone number"
+                placeholder="Enter patient phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 isDisabled={loading || lookingUp}
@@ -330,7 +407,6 @@ export default function PatientVisitRequest() {
             </HStack>
           </FormControl>
 
-          {/* Patient Details */}
           <FormControl isRequired>
             <FormLabel>Patient Name</FormLabel>
             <Input
@@ -342,6 +418,7 @@ export default function PatientVisitRequest() {
               aria-label="Patient name"
             />
           </FormControl>
+
           <FormControl>
             <FormLabel>Date of Birth</FormLabel>
             <Input
@@ -352,6 +429,7 @@ export default function PatientVisitRequest() {
               aria-label="Patient date of birth"
             />
           </FormControl>
+
           <FormControl>
             <FormLabel>Email</FormLabel>
             <Input
@@ -363,6 +441,7 @@ export default function PatientVisitRequest() {
               aria-label="Patient email"
             />
           </FormControl>
+
           <FormControl>
             <FormLabel>Gender</FormLabel>
             <Select
@@ -378,7 +457,6 @@ export default function PatientVisitRequest() {
             </Select>
           </FormControl>
 
-          {/* Addresses */}
           <FormControl isRequired>
             <FormLabel>Select Address</FormLabel>
             <Select
@@ -395,41 +473,25 @@ export default function PatientVisitRequest() {
               ))}
             </Select>
             {addresses.length === 0 && (
-              <Text fontSize="sm" mt={1} color="gray.500">
+              <Text fontSize="sm" color="gray.500" mt={1}>
                 No addresses found. Please add addresses in patient profile before booking.
               </Text>
             )}
           </FormControl>
 
-          {/* Google Maps picker for Selected Address location */}
-          <FormControl>
-            <FormLabel>Selected Address Location (Drag marker to adjust)</FormLabel>
-            {isLoaded ? (
-              <GoogleMap
-                mapContainerStyle={MAP_CONTAINER_STYLE}
-                center={
-                  addressLatLng.lat && addressLatLng.lng
-                    ? addressLatLng
-                    : DEFAULT_CENTER
-                }
-                zoom={addressLatLng.lat && addressLatLng.lng ? 15 : 12}
-                onClick={handleMapClick}
-                options={{ streetViewControl: false, mapTypeControl: false }}
-              >
-                {addressLatLng.lat && addressLatLng.lng && (
-                  <Marker
-                    position={addressLatLng}
-                    draggable
-                    onDragEnd={handleMarkerDragEnd}
-                  />
-                )}
-              </GoogleMap>
-            ) : (
-              <Spinner />
-            )}
-          </FormControl>
+          {/* Leaflet Map Container */}
+          <Box height="300px" border="1px solid #CBD5E0" rounded="md" overflow="hidden">
+            <LeafletMap
+              center={
+                latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : DEFAULT_CENTER
+              }
+              zoom={latLng.lat && latLng.lng ? 16 : 12}
+              onMapClick={onMapClick}
+              onMarkerDragEnd={onMarkerDragEnd}
+              markerPosition={latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : null}
+            />
+          </Box>
 
-          {/* Visit Date */}
           <FormControl isRequired>
             <FormLabel>Visit Date</FormLabel>
             <Input
@@ -442,7 +504,6 @@ export default function PatientVisitRequest() {
             />
           </FormControl>
 
-          {/* Time Slot */}
           <FormControl isRequired>
             <FormLabel>Time Slot</FormLabel>
             {timeSlots.length === 0 ? (
@@ -464,9 +525,9 @@ export default function PatientVisitRequest() {
             )}
           </FormControl>
 
-          {/* Tests / Packages */}
-          <FormControl isRequired>
-            <FormLabel>Select Tests / Packages</FormLabel>
+          {/* Tests - optional */}
+          <FormControl>
+            <FormLabel>Select Tests / Packages (Optional)</FormLabel>
             <Box
               border="1px solid #CBD5E0"
               p={2}
@@ -493,4 +554,54 @@ export default function PatientVisitRequest() {
       </form>
     </Box>
   );
+}
+
+// LeafletMap component for internal use
+function LeafletMap({ center, zoom, onMapClick, onMarkerDragEnd, markerPosition }) {
+  const mapContainerRef = React.useRef(null);
+  const mapInstanceRef = React.useRef(null);
+  const markerRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (mapInstanceRef.current) return; // already initialized
+
+    const map = L.map(mapContainerRef.current).setView(center, zoom);
+    mapInstanceRef.current = map;
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution:
+        '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+
+    const marker = L.marker(center, { draggable: true }).addTo(map);
+    markerRef.current = marker;
+
+    map.on("click", function (e) {
+      marker.setLatLng(e.latlng);
+      onMapClick && onMapClick(e);
+    });
+
+    marker.on("dragend", function (e) {
+      onMarkerDragEnd && onMarkerDragEnd(e);
+    });
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+      markerRef.current = null;
+    };
+  }, []);
+
+  // Update center and marker position if changed
+  useEffect(() => {
+    if (mapInstanceRef.current && center) {
+      mapInstanceRef.current.setView(center, zoom);
+    }
+    if (markerRef.current && markerPosition) {
+      markerRef.current.setLatLng(markerPosition);
+    }
+  }, [center, zoom, markerPosition]);
+
+  return <Box ref={mapContainerRef} id="map" style={{ height: "100%", width: "100%" }} />;
 }
