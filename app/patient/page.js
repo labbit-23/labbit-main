@@ -7,7 +7,7 @@ import PatientLookup from "./PatientLookup";
 import PatientDetails from "./PatientDetails";
 import AddressSelector from "./AddressSelector";
 import VisitScheduler from "./VisitScheduler";
-import TestSelector from "./TestSelector";
+import TestPackageSelector from "../../components/TestPackageSelector";
 
 import { createClient } from "@supabase/supabase-js";
 
