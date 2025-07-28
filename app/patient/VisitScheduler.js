@@ -1,0 +1,68 @@
+"use client";
+
+import React, { useEffect } from "react";
+import { VStack, FormControl, FormLabel, Select, Input, Spinner } from "@chakra-ui/react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
+export default function VisitScheduler({
+  visitDate,
+  setVisitDate,
+  timeSlots,
+  setTimeSlots,
+  selectedSlotId,
+  setSelectedSlotId,
+  loading,
+}) {
+  useEffect(() => {
+    async function fetchVisitSlots() {
+      const { data, error } = await supabase
+        .from("visit_time_slots")
+        .select("*")
+        .order("start_time");
+      if (!error) {
+        setTimeSlots(data);
+      }
+    }
+    fetchVisitSlots();
+  }, [setTimeSlots]);
+
+  return (
+    <VStack spacing={4} align="stretch">
+      <FormControl isRequired>
+        <FormLabel>Visit Date</FormLabel>
+        <Input
+          type="date"
+          value={visitDate}
+          onChange={(e) => setVisitDate(e.target.value)}
+          min={new Date().toISOString().split("T")[0]}
+          isDisabled={loading}
+        />
+      </FormControl>
+
+      <FormControl isRequired>
+        <FormLabel>Time Slot</FormLabel>
+        {timeSlots.length === 0 ? (
+          <Spinner size="sm" />
+        ) : (
+          <Select
+            placeholder="Select a time slot"
+            value={selectedSlotId}
+            onChange={(e) => setSelectedSlotId(e.target.value)}
+            isDisabled={loading}
+          >
+            {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
+              <option key={id} value={slot_name}>
+                {slot_name} ({start_time} - {end_time})
+              </option>
+            ))}
+          </Select>
+        )}
+      </FormControl>
+    </VStack>
+  );
+}
