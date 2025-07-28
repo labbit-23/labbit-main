@@ -7,8 +7,8 @@ import PatientLookup from "./PatientLookup";
 import PatientDetails from "./PatientDetails";
 import AddressSelector from "./AddressSelector";
 import VisitScheduler from "./VisitScheduler";
-import TestPackageSelector from "../../components/TestPackageSelector";
 
+import { default as TestSelector } from "../../components/TestPackageSelector";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -19,9 +19,8 @@ const supabase = createClient(
 export default function PatientPage() {
   const toast = useToast();
 
-  // Centralized state for the entire flow
+  // Initialize all data with safe defaults to prevent undefined errors
   const [phone, setPhone] = useState("");
-
   const [patient, setPatient] = useState({
     id: null,
     name: "",
@@ -44,10 +43,9 @@ export default function PatientPage() {
 
   const [loading, setLoading] = useState(false);
 
-  // Submit handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Basic validation
+
     if (
       !phone.trim() ||
       !patient.name.trim() ||
@@ -68,7 +66,6 @@ export default function PatientPage() {
     try {
       let patientId = patient.id;
 
-      // Insert new patient if not exists
       if (!patientId) {
         const { data: newPatient, error } = await supabase
           .from("patients")
@@ -87,7 +84,6 @@ export default function PatientPage() {
         if (error) throw error;
         patientId = newPatient.id;
       } else {
-        // Update existing patient info
         const { error } = await supabase
           .from("patients")
           .update({
@@ -101,7 +97,6 @@ export default function PatientPage() {
         if (error) throw error;
       }
 
-      // Find current address object
       const currentAddress = addresses.find((a) => a.id === selectedAddressId);
       if (!currentAddress) {
         toast({
@@ -113,44 +108,37 @@ export default function PatientPage() {
         return;
       }
 
-      // Update address info if changed
-      let addrUpdates = {};
+      let addressUpdates = {};
       if (currentAddress.label !== addressLabel) {
-        addrUpdates.label = addressLabel;
+        addressUpdates.label = addressLabel;
       }
       if (currentAddress.address_line !== addressLine) {
-        addrUpdates.address_line = addressLine;
+        addressUpdates.address_line = addressLine;
       }
       if (
         currentAddress.lat !== latLng.lat ||
         currentAddress.lng !== latLng.lng
       ) {
-        addrUpdates.lat = latLng.lat;
-        addrUpdates.lng = latLng.lng;
+        addressUpdates.lat = latLng.lat;
+        addressUpdates.lng = latLng.lng;
       }
 
-      if (Object.keys(addrUpdates).length > 0) {
+      if (Object.keys(addressUpdates).length > 0) {
         const { error } = await supabase
           .from("patient_addresses")
-          .update(addrUpdates)
+          .update(addressUpdates)
           .eq("id", selectedAddressId);
 
         if (error) {
-          toast({
-            title: "Failed to update address",
-            status: "warning",
-          });
+          toast({ title: "Failed to update address", status: "warning" });
         } else {
-          // Update local state for addresses with latest data
-          setAddresses((prev) =>
-            prev.map((addr) =>
-              addr.id === selectedAddressId ? { ...addr, ...addrUpdates } : addr
-            )
+          const updatedAddresses = addresses.map((addr) =>
+            addr.id === selectedAddressId ? { ...addr, ...addressUpdates } : addr
           );
+          setAddresses(updatedAddresses);
         }
       }
 
-      // Insert visit record
       const { data: visit, error: visitError } = await supabase
         .from("visits")
         .insert([
@@ -168,12 +156,12 @@ export default function PatientPage() {
 
       if (visitError) throw visitError;
 
-      // Insert visit details if any tests selected
       if (selectedTests.size > 0) {
         const inserts = Array.from(selectedTests).map((testId) => ({
           visit_id: visit.id,
           test_id: testId,
         }));
+
         const { error } = await supabase
           .from("visit_details")
           .insert(inserts);
@@ -187,7 +175,7 @@ export default function PatientPage() {
         duration: 3000,
       });
 
-      // Clear form
+      // Reset all states after successful submit
       setPhone("");
       setPatient({ id: null, name: "", dob: "", email: "", gender: "" });
       setAddresses([]);
@@ -196,31 +184,30 @@ export default function PatientPage() {
       setAddressLine("");
       setLatLng({ lat: null, lng: null });
       setVisitDate("");
+      setTimeSlots([]);
       setSelectedSlotId("");
       setSelectedTests(new Set());
-    } catch (error) {
+
+    } catch (err) {
       toast({
-        title: "Failed to submit visit",
-        description: error.message,
+        title: "Failed to submit visit request",
         status: "error",
-        duration: 5000,
+        description: err.message,
+        duration: 6000,
       });
     } finally {
       setLoading(false);
     }
   };
 
-  // Address update logic if you want a separate Update Address button (optional to add)
-
   return (
-    <Box maxW={{ base: "100%", md: "md" }} mx="auto" mt={6} p={6} bg="white" rounded="md" shadow="md">
-      <Heading mb={6} fontSize={{ base: "xl", md: "2xl" }}>
+    <Box maxW={{ base: "95%", md: "md" }} mx="auto" mt={6} p={6} bg="white" rounded="md" shadow="md">
+      <Heading mb={6} fontSize={{ base: "xl", md: "2xl" }} textAlign="center">
         Patient Visit Request
       </Heading>
       <form onSubmit={handleSubmit}>
         <VStack spacing={6} align="stretch">
 
-          {/* Patient phone lookup */}
           <PatientLookup
             phone={phone}
             setPhone={setPhone}
@@ -232,10 +219,12 @@ export default function PatientPage() {
             setLatLng={setLatLng}
           />
 
-          {/* Patient Details */}
-          <PatientDetails patient={patient} setPatient={setPatient} loading={loading} />
+          <PatientDetails
+            patient={patient}
+            setPatient={setPatient}
+            loading={loading}
+          />
 
-          {/* Address Selector & Editor */}
           <AddressSelector
             addresses={addresses}
             selectedAddressId={selectedAddressId}
@@ -249,7 +238,6 @@ export default function PatientPage() {
             loading={loading}
           />
 
-          {/* Visit Scheduling */}
           <VisitScheduler
             visitDate={visitDate}
             setVisitDate={setVisitDate}
@@ -260,15 +248,13 @@ export default function PatientPage() {
             loading={loading}
           />
 
-          {/* Test Selector */}
-          <TestPackageSelector
-            initialSelectedTests={selectedTests}
-            onSelectionChange={setSelectedTests}
+          <TestSelector
+            selectedTests={selectedTests}
+            setSelectedTests={setSelectedTests}
             loading={loading}
           />
 
-          {/* Submit Button */}
-          <Button isLoading={loading} type="submit" colorScheme="teal" size="lg">
+          <Button type="submit" colorScheme="teal" size="lg" isLoading={loading}>
             Request Visit
           </Button>
         </VStack>
