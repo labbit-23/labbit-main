@@ -3,7 +3,7 @@
 import React from "react";
 import { FormControl, FormLabel, Input, Select } from "@chakra-ui/react";
 
-export default function PatientDetails({ patientData, setPatientData, loading }) {
+export default function PatientDetails({ patient, setPatient, loading }) {
   return (
     <>
       <FormControl isRequired>
@@ -11,8 +11,8 @@ export default function PatientDetails({ patientData, setPatientData, loading })
         <Input
           type="text"
           placeholder="Patient name"
-          value={patientData.name}
-          onChange={(e) => setPatientData({ ...patientData, name: e.target.value })}
+          value={patient?.name ?? ""}
+          onChange={(e) => setPatient({ ...patient, name: e.target.value })}
           isDisabled={loading}
           autoComplete="name"
           aria-label="Patient name"
@@ -23,8 +23,8 @@ export default function PatientDetails({ patientData, setPatientData, loading })
         <FormLabel>Date of Birth</FormLabel>
         <Input
           type="date"
-          value={patientData.dob || ""}
-          onChange={(e) => setPatientData({ ...patientData, dob: e.target.value })}
+          value={patient?.dob ?? ""}
+          onChange={(e) => setPatient({ ...patient, dob: e.target.value })}
           isDisabled={loading}
           aria-label="Patient date of birth"
         />
@@ -35,8 +35,8 @@ export default function PatientDetails({ patientData, setPatientData, loading })
         <Input
           type="email"
           placeholder="Email"
-          value={patientData.email || ""}
-          onChange={(e) => setPatientData({ ...patientData, email: e.target.value })}
+          value={patient?.email ?? ""}
+          onChange={(e) => setPatient({ ...patient, email: e.target.value })}
           isDisabled={loading}
           autoComplete="email"
           aria-label="Patient email"
@@ -46,12 +46,11 @@ export default function PatientDetails({ patientData, setPatientData, loading })
       <FormControl>
         <FormLabel>Gender</FormLabel>
         <Select
-          value={patientData.gender || ""}
-          onChange={(e) => setPatientData({ ...patientData, gender: e.target.value })}
+          value={patient?.gender ?? ""}
+          onChange={(e) => setPatient({ ...patient, gender: e.target.value })}
           placeholder="Select gender"
           isDisabled={loading}
           aria-label="Patient gender"
-          autoComplete="sex"
         >
           <option value="male">Male</option>
           <option value="female">Female</option>
