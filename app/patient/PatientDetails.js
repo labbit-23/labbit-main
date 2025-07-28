@@ -14,8 +14,8 @@ export default function PatientDetails({ patient, setPatient, loading }) {
           value={patient?.name ?? ""}
           onChange={(e) => setPatient({ ...patient, name: e.target.value })}
           isDisabled={loading}
-          autoComplete="name"
           aria-label="Patient name"
+          autoComplete="name"
         />
       </FormControl>
 
@@ -38,8 +38,8 @@ export default function PatientDetails({ patient, setPatient, loading }) {
           value={patient?.email ?? ""}
           onChange={(e) => setPatient({ ...patient, email: e.target.value })}
           isDisabled={loading}
-          autoComplete="email"
           aria-label="Patient email"
+          autoComplete="email"
         />
       </FormControl>
 
@@ -48,9 +48,9 @@ export default function PatientDetails({ patient, setPatient, loading }) {
         <Select
           value={patient?.gender ?? ""}
           onChange={(e) => setPatient({ ...patient, gender: e.target.value })}
-          placeholder="Select gender"
-          isDisabled={loading}
           aria-label="Patient gender"
+          isDisabled={loading}
+          placeholder="Select gender"
         >
           <option value="male">Male</option>
           <option value="female">Female</option>
