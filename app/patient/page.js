@@ -261,9 +261,9 @@ export default function PatientPage() {
           />
 
           {/* Test Selector */}
-          <TestSelector
-            selectedTests={selectedTests}
-            setSelectedTests={setSelectedTests}
+          <TestPackageSelector
+            initialSelectedTests={selectedTests}
+            onSelectionChange={setSelectedTests}
             loading={loading}
           />
 
