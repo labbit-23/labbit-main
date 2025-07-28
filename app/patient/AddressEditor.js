@@ -13,7 +13,7 @@ import {
 import dynamic from "next/dynamic";
 
 // Dynamically import Leaflet-based map for client-side only rendering
-const LeafletMap = dynamic(() => import("./LeafletMap"), { ssr: false });
+const LeafletMap = dynamic(() => import("../../components/LeafletMap"), { ssr: false });
 
 const DEFAULT_CENTER = [17.385, 78.4867];
 const MAP_ZOOM = 13;
