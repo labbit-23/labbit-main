@@ -1,18 +1,9 @@
 "use client";
 
 import React, { useRef } from "react";
-import {
-  VStack,
-  FormControl,
-  FormLabel,
-  Input,
-  Button,
-  Box,
-  Spinner,
-} from "@chakra-ui/react";
+import { VStack, FormControl, FormLabel, Input, Button, Box } from "@chakra-ui/react";
 import dynamic from "next/dynamic";
 
-// Dynamically import Leaflet-based map for client-side only rendering
 const LeafletMap = dynamic(() => import("../../components/LeafletMap"), { ssr: false });
 
 const DEFAULT_CENTER = [17.385, 78.4867];
@@ -30,42 +21,32 @@ export default function AddressEditor({
   const mapRef = useRef(null);
   const markerRef = useRef(null);
 
-  // Update map and marker refs from child
   const handleMapReady = ({ map, marker }) => {
     mapRef.current = map;
     markerRef.current = marker;
   };
 
-  // Handle user clicking map to update marker and latLng state
   const handleMapClick = (e) => {
     setLatLng({ lat: e.latlng.lat, lng: e.latlng.lng });
   };
 
-  // Handle marker drag end event
-  const handleMarkerDragEnd = (e) => {
+  const handleMarkerDrag = (e) => {
     setLatLng({ lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
   };
 
-  // Use browser geolocation to get current position
-  const handleUseMyLocation = () => {
+  const handleUseLocation = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
+      alert("Geolocation not supported by your browser.");
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setLatLng(userPos);
-        if (mapRef.current) {
-          mapRef.current.setView([userPos.lat, userPos.lng], 16);
-        }
-        if (markerRef.current) {
-          markerRef.current.setLatLng([userPos.lat, userPos.lng]);
-        }
+        const userLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLatLng(userLatLng);
+        if (mapRef.current) mapRef.current.setView([userLatLng.lat, userLatLng.lng], 16);
+        if (markerRef.current) markerRef.current.setLatLng([userLatLng.lat, userLatLng.lng]);
       },
-      () => {
-        alert("Unable to retrieve your location.");
-      }
+      () => alert("Unable to retrieve your location.")
     );
   };
 
@@ -75,36 +56,36 @@ export default function AddressEditor({
         <FormLabel>Address Label</FormLabel>
         <Input
           placeholder="Enter address label"
-          value={addressLabel}
+          value={addressLabel || ""}
           onChange={(e) => setAddressLabel(e.target.value)}
           isDisabled={loading}
+          aria-label="Address label"
         />
       </FormControl>
 
       <FormControl>
         <FormLabel>Full Address</FormLabel>
         <Input
-          placeholder="Enter detailed address"
-          value={addressLine}
+          placeholder="Enter address line"
+          value={addressLine || ""}
           onChange={(e) => setAddressLine(e.target.value)}
           isDisabled={loading}
+          aria-label="Address line"
         />
       </FormControl>
 
-      <Box height="300px" border="1px solid" borderColor="gray.200" rounded="md" overflow="hidden">
+      <Box height="300px" border="1px" borderColor="gray.200" rounded="md" overflow="hidden">
         <LeafletMap
-          center={
-            latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : DEFAULT_CENTER
-          }
+          center={latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : DEFAULT_CENTER}
           zoom={latLng.lat && latLng.lng ? 16 : MAP_ZOOM}
           onMapReady={handleMapReady}
           onMapClick={handleMapClick}
-          onMarkerDragEnd={handleMarkerDragEnd}
+          onMarkerDragEnd={handleMarkerDrag}
           markerPosition={latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : null}
         />
       </Box>
 
-      <Button size="sm" onClick={handleUseMyLocation} isDisabled={loading}>
+      <Button size="sm" onClick={handleUseLocation} isDisabled={loading}>
         Use My Location
       </Button>
     </VStack>
