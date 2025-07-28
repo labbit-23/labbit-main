@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Box,
   Heading,
@@ -18,31 +19,17 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import TestPackageSelector from "../../components/TestPackageSelector";
 
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-
-import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
-
-// Fix leaflet icon paths (required)
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-});
+const LeafletMap = dynamic(() => import("../../components/LeafletMap"), { ssr: false });
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// Helper to format Date as 'YYYY-MM-DD'
+// Helper to format Date object to YYYY-MM-DD
 const formatDate = (d) => d.toISOString().split("T")[0];
 
-// Default map center - Hyderabad sample
+// Default map center (Hyderabad example)
 const DEFAULT_CENTER = [17.385, 78.4867];
 const MAP_ZOOM = 13;
 
@@ -61,128 +48,49 @@ export default function PatientVisitRequest() {
   const [loading, setLoading] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
 
-  // Patient details inputs
+  // Patient detail inputs
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   const [gender, setGender] = useState("");
 
-  // Leaflet map refs and state
-  const mapRef = useRef(null);
-  const markerRef = useRef(null);
-  const searchControlRef = useRef(null);
-
-  // Latitude and Longitude for picked location
+  // Map lat/lng for selected address
   const [latLng, setLatLng] = useState({ lat: null, lng: null });
 
-  // Initialize Leaflet map and geosearch control
-  useEffect(() => {
-    if (mapRef.current) return; // already initialized
-
-    const map = L.map("map", {
-      center: DEFAULT_CENTER,
-      zoom: MAP_ZOOM,
-    });
-    mapRef.current = map;
-
-    // Add OpenStreetMap tiles
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution:
-        '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map);
-
-    // Add marker
-    const marker = L.marker(DEFAULT_CENTER, { draggable: true }).addTo(map);
-    markerRef.current = marker;
-
-    marker.on("dragend", () => {
-      const pos = marker.getLatLng();
-      setLatLng(pos);
-    });
-
-    // Setup OpenStreetMap provider search control
-    const provider = new OpenStreetMapProvider();
-
-    const searchControl = new GeoSearchControl({
-      provider,
-      style: "bar",
-      autoComplete: true,
-      autoCompleteDelay: 250,
-      retainZoomLevel: false,
-      showMarker: false,
-      keepResult: true,
-      searchLabel: "Enter address",
-    });
-
-    searchControlRef.current = searchControl;
-    map.addControl(searchControl);
-
-    map.on("geosearch/showlocation", (result) => {
-      const { location, marker: sMarker } = result;
-
-      // Move marker to search result location
-      marker.setLatLng([location.y, location.x]);
-
-      // Center map there
-      map.setView(new L.LatLng(location.y, location.x), 16);
-
-      // Update latLng state
-      setLatLng({ lat: location.y, lng: location.x });
-    });
-
-    // Cleanup on unmount
-    return () => {
-      map.remove();
-      mapRef.current = null;
-    };
-  }, []);
-
-  // When selected address changes, update marker location
-  useEffect(() => {
-    if (!selectedAddressId) {
-      setLatLng({ lat: null, lng: null });
-      if (markerRef.current) markerRef.current.setLatLng(DEFAULT_CENTER);
-      if (mapRef.current) mapRef.current.setView(DEFAULT_CENTER, MAP_ZOOM);
-      return;
-    }
-
-    const addr = addresses.find((a) => a.id === selectedAddressId);
-    if (addr && addr.lat != null && addr.lng != null) {
-      setLatLng({ lat: addr.lat, lng: addr.lng });
-      if (markerRef.current) markerRef.current.setLatLng([addr.lat, addr.lng]);
-      if (mapRef.current) mapRef.current.setView([addr.lat, addr.lng], 16);
-    } else {
-      setLatLng({ lat: null, lng: null });
-      if (markerRef.current) markerRef.current.setLatLng(DEFAULT_CENTER);
-      if (mapRef.current) mapRef.current.setView(DEFAULT_CENTER, MAP_ZOOM);
-    }
-  }, [selectedAddressId, addresses]);
-
-  // Fetch visit timeslots once
+  // Fetch visit slots on mount
   useEffect(() => {
     async function fetchTimeSlots() {
       const { data, error } = await supabase
         .from("visit_time_slots")
         .select("*")
         .order("start_time");
-      if (!error) {
-        setTimeSlots(data || []);
-      }
+      if (!error) setTimeSlots(data || []);
     }
     fetchTimeSlots();
   }, []);
 
-  // Patient lookup function (Supabase primary + external API fallback)
+  // Sync map lat/lng to selected address on address change
+  useEffect(() => {
+    if (!selectedAddressId) {
+      setLatLng({ lat: null, lng: null });
+      return;
+    }
+    const addr = addresses.find((a) => a.id === selectedAddressId);
+    if (addr && addr.lat != null && addr.lng != null) {
+      setLatLng({ lat: addr.lat, lng: addr.lng });
+    } else {
+      setLatLng({ lat: null, lng: null });
+    }
+  }, [selectedAddressId, addresses]);
+
+  // Lookup patient: Supabase first, fallback external API via proxy
   const lookupPatient = async () => {
     if (!phone.trim()) {
       toast({ title: "Please enter a phone number", status: "warning" });
       return;
     }
-
     setLookingUp(true);
-
     try {
-      // Supabase lookup
       const { data, error } = await supabase
         .from("patients")
         .select("*")
@@ -192,6 +100,7 @@ export default function PatientVisitRequest() {
       if (error) throw error;
 
       if (data) {
+        // Found in Supabase
         setPatient(data);
         setName(data.name || "");
         setDob(data.dob ? data.dob.substr(0, 10) : "");
@@ -215,12 +124,11 @@ export default function PatientVisitRequest() {
 
         toast({ title: "Patient found. Details loaded." });
       } else {
-        // External API fallback
-        const response = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
-        if (!response.ok)
-          throw new Error(`External API lookup failed: ${response.statusText}`);
+        // Not found in Supabase; call external API proxy
+        const resp = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
+        if (!resp.ok) throw new Error(`External API lookup failed: ${resp.statusText}`);
 
-        const json = await response.json();
+        const json = await resp.json();
 
         if (Array.isArray(json) && json.length > 0) {
           const exPatient = json[0];
@@ -246,11 +154,10 @@ export default function PatientVisitRequest() {
     } catch (error) {
       toast({ title: "Error looking up patient", status: "error", description: error.message });
     }
-
     setLookingUp(false);
   };
 
-  // Submit handler to save patient, addresses' lat/lng, create visit, insert tests
+  // Submit form handler
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -271,7 +178,6 @@ export default function PatientVisitRequest() {
       let patientId = patient?.id;
 
       if (!patientId) {
-        // Insert patient to Supabase
         const { data: newPatient, error: insertError } = await supabase
           .from("patients")
           .insert([{ phone: phone.trim(), name, dob, email, gender }])
@@ -282,7 +188,6 @@ export default function PatientVisitRequest() {
 
         patientId = newPatient.id;
       } else {
-        // Update patient info
         const { error: updateError } = await supabase
           .from("patients")
           .update({ name, dob, email, gender })
@@ -298,30 +203,28 @@ export default function PatientVisitRequest() {
         return;
       }
 
-      // Update patient address lat/lng if changed
+      // Update lat/lng for address if changed
       if (
         latLng.lat !== selectedAddress.lat ||
         latLng.lng !== selectedAddress.lng
       ) {
-        const { error: addrErr } = await supabase
+        const { error: updateAddrErr } = await supabase
           .from("patient_addresses")
           .update({ lat: latLng.lat, lng: latLng.lng })
           .eq("id", selectedAddressId);
 
-        if (addrErr) {
+        if (updateAddrErr) {
           toast({ title: "Failed to update address location", status: "warning" });
         } else {
           setAddresses((prev) =>
             prev.map((addr) =>
-              addr.id === selectedAddressId
-                ? { ...addr, lat: latLng.lat, lng: latLng.lng }
-                : addr
+              addr.id === selectedAddressId ? { ...addr, lat: latLng.lat, lng: latLng.lng } : addr
             )
           );
         }
       }
 
-      // Insert new visit
+      // Create visit record
       const { data: visitData, error: visitError } = await supabase
         .from("visits")
         .insert([
@@ -339,23 +242,23 @@ export default function PatientVisitRequest() {
 
       if (visitError) throw visitError;
 
-      // Insert tests only if selected (tests are optional)
+      // Insert visit_details only if tests selected (optional)
       if (selectedTests.size > 0) {
-        const visitDetailInserts = Array.from(selectedTests).map((testId) => ({
+        const visitDetailsInserts = Array.from(selectedTests).map((testId) => ({
           visit_id: visitData.id,
           test_id: testId,
         }));
 
-        const { error: visitDetailError } = await supabase
+        const { error: detailsError } = await supabase
           .from("visit_details")
-          .insert(visitDetailInserts);
+          .insert(visitDetailsInserts);
 
-        if (visitDetailError) throw visitDetailError;
+        if (detailsError) throw detailsError;
       }
 
       toast({ title: "Visit request submitted successfully", status: "success" });
 
-      // Reset form fields
+      // Reset form
       setPhone("");
       setPatient(null);
       setName("");
@@ -375,15 +278,6 @@ export default function PatientVisitRequest() {
     }
   };
 
-  // Handle Leaflet map clicks and marker drags to update lat/lng
-  const onMapClick = (e) => {
-    setLatLng({ lat: e.latlng.lat, lng: e.latlng.lng });
-  };
-
-  const onMarkerDragEnd = (e) => {
-    setLatLng({ lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
-  };
-
   return (
     <Box maxW="md" mx="auto" mt={12} p={6} bg="white" rounded="md" shadow="md">
       <Heading mb={6} textAlign="center">Patient Visit Request</Heading>
@@ -395,7 +289,7 @@ export default function PatientVisitRequest() {
             <HStack>
               <Input
                 type="tel"
-                placeholder="Enter patient phone"
+                placeholder="Enter phone number"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 isDisabled={loading || lookingUp}
@@ -479,15 +373,14 @@ export default function PatientVisitRequest() {
             )}
           </FormControl>
 
-          {/* Leaflet Map Container */}
           <Box height="300px" border="1px solid #CBD5E0" rounded="md" overflow="hidden">
             <LeafletMap
               center={
                 latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : DEFAULT_CENTER
               }
               zoom={latLng.lat && latLng.lng ? 16 : 12}
-              onMapClick={onMapClick}
-              onMarkerDragEnd={onMarkerDragEnd}
+              onMapClick={(e) => setLatLng({ lat: e.latlng.lat, lng: e.latlng.lng })}
+              onMarkerDragEnd={(e) => setLatLng({ lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng })}
               markerPosition={latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : null}
             />
           </Box>
@@ -525,7 +418,6 @@ export default function PatientVisitRequest() {
             )}
           </FormControl>
 
-          {/* Tests - optional */}
           <FormControl>
             <FormLabel>Select Tests / Packages (Optional)</FormLabel>
             <Box
@@ -554,54 +446,4 @@ export default function PatientVisitRequest() {
       </form>
     </Box>
   );
-}
-
-// LeafletMap component for internal use
-function LeafletMap({ center, zoom, onMapClick, onMarkerDragEnd, markerPosition }) {
-  const mapContainerRef = React.useRef(null);
-  const mapInstanceRef = React.useRef(null);
-  const markerRef = React.useRef(null);
-
-  useEffect(() => {
-    if (!mapContainerRef.current) return;
-    if (mapInstanceRef.current) return; // already initialized
-
-    const map = L.map(mapContainerRef.current).setView(center, zoom);
-    mapInstanceRef.current = map;
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution:
-        '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map);
-
-    const marker = L.marker(center, { draggable: true }).addTo(map);
-    markerRef.current = marker;
-
-    map.on("click", function (e) {
-      marker.setLatLng(e.latlng);
-      onMapClick && onMapClick(e);
-    });
-
-    marker.on("dragend", function (e) {
-      onMarkerDragEnd && onMarkerDragEnd(e);
-    });
-
-    return () => {
-      map.remove();
-      mapInstanceRef.current = null;
-      markerRef.current = null;
-    };
-  }, []);
-
-  // Update center and marker position if changed
-  useEffect(() => {
-    if (mapInstanceRef.current && center) {
-      mapInstanceRef.current.setView(center, zoom);
-    }
-    if (markerRef.current && markerPosition) {
-      markerRef.current.setLatLng(markerPosition);
-    }
-  }, [center, zoom, markerPosition]);
-
-  return <Box ref={mapContainerRef} id="map" style={{ height: "100%", width: "100%" }} />;
 }
