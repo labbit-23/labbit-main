@@ -19,28 +19,27 @@ export default function VisitScheduler({
   loading,
 }) {
   useEffect(() => {
-    async function fetchVisitSlots() {
+    async function fetchSlots() {
       const { data, error } = await supabase
         .from("visit_time_slots")
         .select("*")
         .order("start_time");
-      if (!error) {
-        setTimeSlots(data);
-      }
+      if (!error) setTimeSlots(data || []);
     }
-    fetchVisitSlots();
+    fetchSlots();
   }, [setTimeSlots]);
 
   return (
-    <VStack spacing={4} align="stretch">
+    <VStack align="stretch" spacing={4}>
       <FormControl isRequired>
         <FormLabel>Visit Date</FormLabel>
         <Input
           type="date"
           value={visitDate}
-          onChange={(e) => setVisitDate(e.target.value)}
+          onChange={e => setVisitDate(e.target.value)}
           min={new Date().toISOString().split("T")[0]}
           isDisabled={loading}
+          aria-label="Visit date"
         />
       </FormControl>
 
@@ -52,8 +51,9 @@ export default function VisitScheduler({
           <Select
             placeholder="Select a time slot"
             value={selectedSlotId}
-            onChange={(e) => setSelectedSlotId(e.target.value)}
+            onChange={e => setSelectedSlotId(e.target.value)}
             isDisabled={loading}
+            aria-label="Visit time slot"
           >
             {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
               <option key={id} value={slot_name}>
