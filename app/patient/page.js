@@ -33,7 +33,6 @@ const MAP_ZOOM = 13;
 export default function PatientVisitRequest() {
   const toast = useToast();
 
-  // Form and state variables
   const [phone, setPhone] = useState("");
   const [patient, setPatient] = useState(null);
   const [addresses, setAddresses] = useState([]);
@@ -50,17 +49,15 @@ export default function PatientVisitRequest() {
   const [loading, setLoading] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
 
-  // Patient detail inputs
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   const [gender, setGender] = useState("");
 
-  // Refs to Leaflet map and marker for "Use My Location"
+  // Refs to map and marker from LeafletMap component
   const mapRef = useRef(null);
   const markerRef = useRef(null);
 
-  // Fetch visit time slots on mount
   useEffect(() => {
     async function fetchTimeSlots() {
       const { data, error } = await supabase
@@ -72,7 +69,6 @@ export default function PatientVisitRequest() {
     fetchTimeSlots();
   }, []);
 
-  // Sync lat/lng and address inputs when selectedAddressId changes
   useEffect(() => {
     if (!selectedAddressId) {
       setAddressLabel("");
@@ -96,22 +92,18 @@ export default function PatientVisitRequest() {
     }
   }, [selectedAddressId, addresses]);
 
-  // Receive map and marker instances from LeafletMap component
   const handleMapReady = ({ map, marker }) => {
     mapRef.current = map;
     markerRef.current = marker;
   };
 
-  // Patient lookup Supabase + fallback external API
   const lookupPatient = async () => {
     if (!phone.trim()) {
       toast({ title: "Please enter a phone number", status: "warning" });
       return;
     }
     setLookingUp(true);
-
     try {
-      // Supabase lookup
       const { data, error } = await supabase
         .from("patients")
         .select("*")
@@ -144,7 +136,6 @@ export default function PatientVisitRequest() {
 
         toast({ title: "Patient found. Details loaded." });
       } else {
-        // External API fallback
         const resp = await fetch(`/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`);
         if (!resp.ok) throw new Error(`External API lookup failed: ${resp.statusText}`);
 
@@ -183,7 +174,6 @@ export default function PatientVisitRequest() {
     setLookingUp(false);
   };
 
-  // Submit handler: Create/update patient, update address, create visit, add tests
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -199,13 +189,11 @@ export default function PatientVisitRequest() {
     }
 
     setLoading(true);
-
     try {
       let patientId = patient?.id;
       let currentAddresses = [...addresses];
 
       if (!patientId) {
-        // Insert new patient
         const { data: newPatient, error: insertError } = await supabase
           .from("patients")
           .insert([{ phone: phone.trim(), name, dob, email, gender }])
@@ -213,10 +201,8 @@ export default function PatientVisitRequest() {
           .single();
 
         if (insertError) throw insertError;
-
         patientId = newPatient.id;
       } else {
-        // Update patient info
         const { error: updateError } = await supabase
           .from("patients")
           .update({ name, dob, email, gender })
@@ -224,16 +210,13 @@ export default function PatientVisitRequest() {
         if (updateError) throw updateError;
       }
 
-      // Find selected address and update
       let selectedAddress = currentAddresses.find((a) => a.id === selectedAddressId);
-
       if (!selectedAddress) {
         toast({ title: "Selected address not found", status: "error" });
         setLoading(false);
         return;
       }
 
-      // Update label and full address line if changed
       if (addressLabel !== selectedAddress.label || addressLine !== selectedAddress.address_line) {
         const { error: addrLabelError } = await supabase
           .from("patient_addresses")
@@ -249,7 +232,6 @@ export default function PatientVisitRequest() {
         }
       }
 
-      // Update lat/lng if changed
       if (latLng.lat !== selectedAddress.lat || latLng.lng !== selectedAddress.lng) {
         const { error: addrLocError } = await supabase
           .from("patient_addresses")
@@ -265,7 +247,6 @@ export default function PatientVisitRequest() {
         }
       }
 
-      // Create visit record
       const { data: visitData, error: visitError } = await supabase
         .from("visits")
         .insert([
@@ -283,7 +264,6 @@ export default function PatientVisitRequest() {
 
       if (visitError) throw visitError;
 
-      // Insert tests if any selected (optional)
       if (selectedTests.size > 0) {
         const visitDetailsInserts = Array.from(selectedTests).map((testId) => ({
           visit_id: visitData.id,
@@ -299,7 +279,7 @@ export default function PatientVisitRequest() {
 
       toast({ title: "Visit request submitted successfully", status: "success" });
 
-      // Reset form fields
+      // Reset form
       setPhone("");
       setPatient(null);
       setName("");
@@ -321,23 +301,19 @@ export default function PatientVisitRequest() {
     }
   };
 
-  // "Use My Location" button handler
+  // "Use My Location" button behavior
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       toast({ title: "Geolocation not supported", status: "error" });
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const userLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setLatLng(userLatLng);
-
-        if (mapRef.current) {
-          mapRef.current.setView([userLatLng.lat, userLatLng.lng], 16);
-        }
-        if (markerRef.current) {
-          markerRef.current.setLatLng([userLatLng.lat, userLatLng.lng]);
-        }
+        if (mapRef.current) mapRef.current.setView([userLatLng.lat, userLatLng.lng], 16);
+        if (markerRef.current) markerRef.current.setLatLng([userLatLng.lat, userLatLng.lng]);
       },
       () => {
         toast({ title: "Failed to get your location", status: "error" });
@@ -345,7 +321,7 @@ export default function PatientVisitRequest() {
     );
   };
 
-  // Map click and marker drag handlers
+  // Map event handlers
   const handleMapClick = (e) => {
     setLatLng({ lat: e.latlng.lat, lng: e.latlng.lng });
   };
@@ -354,7 +330,6 @@ export default function PatientVisitRequest() {
     setLatLng({ lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
   };
 
-  // Receives map and marker instances from LeafletMap
   const onMapReady = ({ map, marker }) => {
     mapRef.current = map;
     markerRef.current = marker;
@@ -366,7 +341,6 @@ export default function PatientVisitRequest() {
       <form onSubmit={handleSubmit}>
         <VStack spacing={4} align="stretch">
 
-          {/* Phone + Lookup */}
           <FormControl isRequired>
             <FormLabel>Phone Number</FormLabel>
             <HStack>
@@ -385,7 +359,6 @@ export default function PatientVisitRequest() {
             </HStack>
           </FormControl>
 
-          {/* Patient details */}
           <FormControl isRequired>
             <FormLabel>Patient Name</FormLabel>
             <Input
@@ -440,7 +413,6 @@ export default function PatientVisitRequest() {
             </Select>
           </FormControl>
 
-          {/* Address selection */}
           <FormControl isRequired>
             <FormLabel>Select Address</FormLabel>
             <Select
@@ -463,7 +435,6 @@ export default function PatientVisitRequest() {
             )}
           </FormControl>
 
-          {/* Address label input */}
           <FormControl isRequired>
             <FormLabel>Address Label / Description</FormLabel>
             <Input
@@ -472,22 +443,22 @@ export default function PatientVisitRequest() {
               onChange={(e) => setAddressLabel(e.target.value)}
               isDisabled={loading || !selectedAddressId}
               aria-label="Address label or description"
+              autoComplete="street-address"
             />
           </FormControl>
 
-          {/* Full Address Line Input */}
           <FormControl>
             <FormLabel>Full Address / Address Line</FormLabel>
             <Input
-              placeholder="Enter full address line"
+              placeholder="Enter full detailed address"
               value={addressLine}
               onChange={(e) => setAddressLine(e.target.value)}
               isDisabled={loading || !selectedAddressId}
               aria-label="Full address line"
+              autoComplete="address-line1"
             />
           </FormControl>
 
-          {/* Leaflet map */}
           <Box height="300px" border="1px solid #CBD5E0" rounded="md" overflow="hidden" mb={2}>
             <LeafletMap
               center={
@@ -497,7 +468,7 @@ export default function PatientVisitRequest() {
               onMapClick={handleMapClick}
               onMarkerDragEnd={handleMarkerDragEnd}
               markerPosition={latLng.lat && latLng.lng ? [latLng.lat, latLng.lng] : null}
-              onMapReady={handleMapReady}
+              onMapReady={onMapReady}
             />
           </Box>
 
@@ -505,7 +476,6 @@ export default function PatientVisitRequest() {
             Use My Location
           </Button>
 
-          {/* Visit date */}
           <FormControl isRequired>
             <FormLabel>Visit Date</FormLabel>
             <Input
@@ -518,7 +488,6 @@ export default function PatientVisitRequest() {
             />
           </FormControl>
 
-          {/* Time slot */}
           <FormControl isRequired>
             <FormLabel>Time Slot</FormLabel>
             {timeSlots.length === 0 ? (
@@ -540,7 +509,6 @@ export default function PatientVisitRequest() {
             )}
           </FormControl>
 
-          {/* Test selection (Optional) */}
           <FormControl>
             <FormLabel>Select Tests / Packages (Optional)</FormLabel>
             <Box
@@ -557,7 +525,6 @@ export default function PatientVisitRequest() {
             </Box>
           </FormControl>
 
-          {/* Submit button */}
           <Button
             type="submit"
             colorScheme="teal"
