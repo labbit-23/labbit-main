@@ -12,7 +12,7 @@ const supabase = createClient(
 export default function PatientLookup({
   phone,
   setPhone,
-  setPatientData,
+  setPatient,
   setAddresses,
   setSelectedAddressId,
   setAddressLabel,
@@ -29,7 +29,6 @@ export default function PatientLookup({
     }
     setLoading(true);
     try {
-      // Lookup patient by phone in Supabase
       const { data, error } = await supabase
         .from("patients")
         .select("*")
@@ -39,9 +38,8 @@ export default function PatientLookup({
       if (error) throw error;
 
       if (data) {
-        setPatientData(data);
+        setPatient(data);
 
-        // Fetch patient addresses
         const { data: addrData, error: addrErr } = await supabase
           .from("patient_addresses")
           .select("*")
@@ -55,7 +53,6 @@ export default function PatientLookup({
           setAddressLine(addrData[0].address_line ?? "");
           setLatLng({ lat: addrData[0].lat ?? null, lng: addrData[0].lng ?? null });
         } else {
-          // No addresses or error while fetching them
           setAddresses([]);
           setSelectedAddressId("");
           setAddressLabel("");
@@ -63,10 +60,8 @@ export default function PatientLookup({
           setLatLng({ lat: null, lng: null });
         }
       } else {
-        // No patient found: clear states and inform user
         toast({ title: "Patient not found", status: "info" });
-
-        setPatientData({ id: null, name: "", dob: "", email: "", gender: "" });
+        setPatient({ id: null, name: "", dob: "", email: "", gender: "" });
         setAddresses([]);
         setSelectedAddressId("");
         setAddressLabel("");
