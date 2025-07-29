@@ -4,7 +4,7 @@ import React, { useRef } from "react";
 import { VStack, FormControl, FormLabel, Input, Button, Box } from "@chakra-ui/react";
 import dynamic from "next/dynamic";
 
-const LeafletMap = dynamic(() => import("../../components/LeafletMap"), { ssr: false });
+const LeafletMap = dynamic(() => import("../components/LeafletMap"), { ssr: false });
 
 const DEFAULT_CENTER = [17.385, 78.4867];
 const MAP_ZOOM = 13;

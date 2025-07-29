@@ -1,15 +1,14 @@
-"use client";
-import 'leaflet/dist/leaflet.css';
-import { ChakraProvider } from "@chakra-ui/react";
-import customTheme from "./theme"; // adjust the path if your theme.js is elsewhere
+// app/layout.js
+import './globals.css';
+import ChakraProviderClient from './ChakraProviderClient';
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <ChakraProvider theme={customTheme}>
+        <ChakraProviderClient>
           {children}
-        </ChakraProvider>
+        </ChakraProviderClient>
       </body>
     </html>
   );

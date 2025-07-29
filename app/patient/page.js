@@ -23,7 +23,7 @@ import AddressEditor from "./AddressEditor"; // Assumes AddressEditor handles ma
 import VisitScheduler from "./VisitScheduler";
 import TestPackageSelector from "../../components/TestPackageSelector";
 
-import { savePatientExternalKey } from "../../lib/savePatientExternalKey"; // Import your external key save helper
+import savePatientExternalKey from "../../lib/savePatientExternalKey"; // Import your external key save helper
 
 const DEFAULT_LAB_ID = "b539c161-1e2b-480b-9526-d4b37bd37b1e";
 

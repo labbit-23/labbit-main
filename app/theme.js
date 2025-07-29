@@ -1,57 +1,41 @@
 // app/theme.js
-import { extendTheme, theme as base } from "@chakra-ui/react";
-
-const customTheme = extendTheme({
+// Just a plain object — safe for server
+export const themeObject = {
   colors: {
-    brand: {
-      50: "#e6fffa",
-      100: "#b2f5ea",
-      200: "#81e6d9",
-      300: "#4fd1c5",
-      400: "#38b2ac",
-      500: "#319795",      // primary teal
-      600: "#2c7a7b",
-      700: "#285e61",
-      800: "#234e52",
-      900: "#1d4044",
+    primary: {
+      50: '#e6f7e6',
+      100: '#bfe6bf',
+      200: '#99d699',
+      300: '#73c573',
+      400: '#4db54b',
+      500: '#0FEE0F',
+      600: '#0cb30c',
+      700: '#097a09',
+      800: '#064d06',
+      900: '#032603',
     },
-    // alias for Purity UI-like accent colors
-    success: base.colors.green,
-    info: base.colors.teal,
+    secondary: {
+      500: '#EE0F0F',
+    },
   },
   fonts: {
-    heading: `"Poppins", ${base.fonts.heading}`,
-    body: `"Open Sans", ${base.fonts.body}`,
+    heading: `'system-ui', sans-serif`,
+    body: `'system-ui', sans-serif`,
   },
   components: {
     Button: {
-      baseStyle: {
-        fontWeight: "semibold",
-      },
       variants: {
-        solid: (props) => ({
-          bg: props.colorScheme === "brand" ? "brand.500" : undefined,
-          color: "white",
-          _hover: {
-            bg: props.colorScheme === "brand" ? "brand.600" : undefined,
-            opacity: 0.95,
-          },
-        }),
-      },
-      defaultProps: {
-        colorScheme: "brand",
-      },
-    },
-    // You can extend Input, Badge, etc. here for further branding!
-  },
-  styles: {
-    global: {
-      body: {
-        bg: "#f8f9fa",      // light gray background, typical for dashboards
-        color: "#2c7a7b",   // deep teal for text
+        primary: {
+          bg: 'primary.500',
+          color: 'white',
+          _hover: { bg: 'primary.600' },
+        },
+        secondary: {
+          bg: 'secondary.500',
+          color: 'white',
+          _hover: { bg: 'secondary.600' },
+        },
       },
     },
   },
-});
-
-export default customTheme;
+};

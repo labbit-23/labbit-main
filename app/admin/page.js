@@ -1,6 +1,7 @@
-"use client";
+// app/admin/page.js
+'use client';
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box,
   Tabs,
@@ -15,33 +16,25 @@ import {
   Text,
   Heading,
   useToast,
-} from "@chakra-ui/react";
+} from '@chakra-ui/react';
+import { AddIcon } from '@chakra-ui/icons';
+import { createClient } from '@supabase/supabase-js';
+import dayjs from 'dayjs';
 
-import { AddIcon } from "@chakra-ui/icons";
-import { createClient } from "@supabase/supabase-js";
-import dayjs from "dayjs";
+import VisitsTable from './components/VisitsTable';
+import PatientList from './components/PatientList';
+import ExecutiveList from './components/ExecutiveList';
+import VisitModal from './components/VisitModal';
+import PatientModal from './components/PatientModal';
+import ExecutiveModal from './components/ExecutiveModal';
 
-import VisitsTable from "./components/VisitsTable";
-import PatientList from "./components/PatientList";
-import ExecutiveList from "./components/ExecutiveList";
+// ✅ Use your existing Supabase client
+import { supabase } from '../../lib/supabaseClient';
 
-import VisitModal from "./components/VisitModal";
-import PatientModal from "./components/PatientModal";
-import ExecutiveModal from "./components/ExecutiveModal";
-
-import { savePatientExternalKey } from "../../lib/savePatientExternalKey";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
-
-// Your provided Default Lab UUID
 const DEFAULT_LAB_ID = "b539c161-1e2b-480b-9526-d4b37bd37b1e";
 
 /**
- * Generates unique visit code in the format VISIT-YYYYMMDD-XXXX,
- * where XXXX is a zero-padded incrementing sequence number for the current day.
+ * Generates unique visit code in the format VISIT-YYYYMMDD-XXXX
  */
 async function generateNewVisitCode() {
   const today = dayjs().format("YYYYMMDD");
@@ -58,44 +51,30 @@ async function generateNewVisitCode() {
 
   const seqNum = (count || 0) + 1;
   const seqNumPadded = seqNum.toString().padStart(4, "0");
-
   return `VISIT-${today}-${seqNumPadded}`;
 }
 
 export default function AdminDashboard() {
   const [tabIndex, setTabIndex] = useState(0);
-
-  // Data states
   const [visits, setVisits] = useState([]);
   const [patients, setPatients] = useState([]);
   const [executives, setExecutives] = useState([]);
   const [labs, setLabs] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
-
-  // Loading / error states
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-
   const toast = useToast();
 
-  // Modal controls
   const visitModal = useDisclosure();
   const patientModal = useDisclosure();
   const executiveModal = useDisclosure();
 
-  // Currently editing visit or null
   const [editingVisit, setEditingVisit] = useState(null);
   const [loadingVisitModal, setLoadingVisitModal] = useState(false);
   const [loadingPatientModal, setLoadingPatientModal] = useState(false);
   const [loadingExecutiveModal, setLoadingExecutiveModal] = useState(false);
 
-  // Debug imports
-  useEffect(() => {
-    console.log("ExecutiveList import:", typeof ExecutiveList);
-    console.log("ExecutiveModal import:", typeof ExecutiveModal);
-  }, []);
-
-  // Fetch all data concurrently from Supabase
+  // Fetch all data
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setErrorMsg("");
@@ -149,12 +128,11 @@ export default function AdminDashboard() {
     }
   }, [toast]);
 
-  // Initial data fetch on mount
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  // Handle visit save (create or update)
+  // Handle Visit Save
   const handleVisitSave = async (formData) => {
     setLoadingVisitModal(true);
     try {
@@ -172,33 +150,18 @@ export default function AdminDashboard() {
       };
 
       if (editingVisit && editingVisit.id) {
-        // Update existing visit
         const { error } = await supabase
           .from("visits")
           .update(visitPayload)
           .eq("id", editingVisit.id);
         if (error) throw error;
-
-        toast({
-          title: "Visit updated",
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
+        toast({ title: "Visit updated", status: "success", duration: 3000, isClosable: true });
       } else {
-        // Create new visit - generate unique visit_code
         const visitCode = await generateNewVisitCode();
         visitPayload.visit_code = visitCode;
-
         const { error } = await supabase.from("visits").insert([visitPayload]);
         if (error) throw error;
-
-        toast({
-          title: "Visit created",
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
+        toast({ title: "Visit created", status: "success", duration: 3000, isClosable: true });
       }
 
       visitModal.onClose();
@@ -217,27 +180,37 @@ export default function AdminDashboard() {
     setLoadingVisitModal(false);
   };
 
-  // Handle patient create with saving external key mapping
+  // ✅ Updated: Handle Patient Create (no direct savePatientExternalKey)
   const handlePatientCreate = async (formData) => {
     setLoadingPatientModal(true);
     try {
-      const { data: newPatient, error } = await supabase
+      const {  newPatient, error } = await supabase
         .from("patients")
         .insert([formData])
         .select()
         .single();
       if (error) throw error;
 
+      // ✅ Save CREGNO via secure API route
       if (formData.cregno) {
-        await savePatientExternalKey(newPatient.id, DEFAULT_LAB_ID, formData.cregno);
+        const res = await fetch('/api/save-external-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            patient_id: newPatient.id,
+            external_key: formData.cregno,
+            lab_id: DEFAULT_LAB_ID
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          console.error('Failed to save CREGNO:', errData);
+          // Don't throw — patient is saved, CREGNO is optional
+        }
       }
 
-      toast({
-        title: "Patient added",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: "Patient added", status: "success", duration: 3000, isClosable: true });
       patientModal.onClose();
       await fetchAll();
     } catch (error) {
@@ -253,19 +226,13 @@ export default function AdminDashboard() {
     setLoadingPatientModal(false);
   };
 
-  // Handle executive create
+  // Handle Executive Create
   const handleExecutiveCreate = async (formData) => {
     setLoadingExecutiveModal(true);
     try {
       const { error } = await supabase.from("executives").insert([formData]);
       if (error) throw error;
-
-      toast({
-        title: "Executive added",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: "Executive added", status: "success", duration: 3000, isClosable: true });
       executiveModal.onClose();
       await fetchAll();
     } catch (error) {
@@ -281,20 +248,14 @@ export default function AdminDashboard() {
     setLoadingExecutiveModal(false);
   };
 
-  // Delete visit
+  // Delete Visit
   const handleVisitDelete = async (id) => {
     if (!window.confirm("Delete this visit?")) return;
     setLoading(true);
     try {
       const { error } = await supabase.from("visits").delete().eq("id", id);
       if (error) throw error;
-
-      toast({
-        title: "Visit deleted",
-        status: "info",
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: "Visit deleted", status: "info", duration: 3000, isClosable: true });
       await fetchAll();
     } catch (error) {
       toast({
@@ -312,12 +273,12 @@ export default function AdminDashboard() {
   return (
     <Box minH="100vh" p={[4, 8]} bg="gray.50">
       <Flex align="center" mb={8}>
-        <Heading color="brand.600" size="xl" fontWeight="extrabold">
+        <Heading color="green.600" size="xl" fontWeight="extrabold">
           Labbit Admin Dashboard
         </Heading>
         <Spacer />
         <Button
-          colorScheme="brand"
+          colorScheme="green"
           onClick={() => {
             setEditingVisit(null);
             visitModal.onOpen();
@@ -334,13 +295,7 @@ export default function AdminDashboard() {
         </Text>
       )}
 
-      <Tabs
-        index={tabIndex}
-        onChange={setTabIndex}
-        variant="enclosed-colored"
-        colorScheme="brand"
-        isLazy
-      >
+      <Tabs index={tabIndex} onChange={setTabIndex} variant="enclosed" colorScheme="green" isLazy>
         <TabList>
           <Tab>Visits</Tab>
           <Tab>Patients</Tab>
@@ -348,6 +303,7 @@ export default function AdminDashboard() {
         </TabList>
 
         <TabPanels>
+          {/* Visits Tab */}
           <TabPanel>
             <VisitsTable
               visits={visits}
@@ -375,13 +331,27 @@ export default function AdminDashboard() {
             />
           </TabPanel>
 
+          {/* Patients Tab */}
           <TabPanel>
             <Flex mb={4} justifyContent="flex-end">
-              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={patientModal.onOpen}>
+              <Button
+                leftIcon={<AddIcon />}
+                colorScheme="green"
+                onClick={patientModal.onOpen}
+                data-testid="add-patient-button"
+              >
                 Add Patient
               </Button>
             </Flex>
-            <PatientList patients={patients} loading={loading} />
+            {loading ? (
+              <Text>Loading patients...</Text>
+            ) : patients.length === 0 ? (
+              <Text color="gray.500" textAlign="center" py={6}>
+                No patients found. Click "Add Patient" to get started.
+              </Text>
+            ) : (
+              <PatientList patients={patients} />
+            )}
             <PatientModal
               isOpen={patientModal.isOpen}
               onClose={patientModal.onClose}
@@ -390,13 +360,22 @@ export default function AdminDashboard() {
             />
           </TabPanel>
 
+          {/* Executives Tab */}
           <TabPanel>
             <Flex mb={4} justifyContent="flex-end">
-              <Button leftIcon={<AddIcon />} colorScheme="brand" onClick={executiveModal.onOpen}>
+              <Button leftIcon={<AddIcon />} colorScheme="green" onClick={executiveModal.onOpen}>
                 Add Executive
               </Button>
             </Flex>
-            <ExecutiveList executives={executives} loading={loading} />
+            {loading ? (
+              <Text>Loading executives...</Text>
+            ) : executives.length === 0 ? (
+              <Text color="gray.500" textAlign="center" py={6}>
+                No executives found.
+              </Text>
+            ) : (
+              <ExecutiveList executives={executives} />
+            )}
             <ExecutiveModal
               isOpen={executiveModal.isOpen}
               onClose={executiveModal.onClose}
