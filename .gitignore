@@ -1,0 +1,10 @@
+# .gitignore
+node_modules/
+.env.local
+.env
+.vercel
+out/
+build/
+*.log
+.DS_Store
+Thumbs.db

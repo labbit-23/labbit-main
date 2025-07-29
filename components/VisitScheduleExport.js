@@ -1,4 +1,3 @@
-// components/VisitScheduleExport.js
 "use client";
 
 import React, { useState, useRef } from "react";
@@ -55,6 +54,16 @@ const VisitScheduleExport = ({ visits, executives }) => {
     }
   };
 
+  // Helper component to display Time Slot nicely
+  const TimeSlotDisplay = ({ slot }) => {
+    if (!slot) return "Unknown";
+    return (
+      <>
+        {slot.slot_name} ({slot.start_time} - {slot.end_time})
+      </>
+    );
+  };
+
   return (
     <>
       <HStack mb={4} spacing={3} wrap="wrap">
@@ -65,7 +74,12 @@ const VisitScheduleExport = ({ visits, executives }) => {
           onChange={(e) => setDate(e.target.value)}
           aria-label="Select date for export"
         />
-        <Button leftIcon={<DownloadIcon />} colorScheme="brand" onClick={downloadImage} aria-label="Download Visit Schedule">
+        <Button
+          leftIcon={<DownloadIcon />}
+          colorScheme="brand"
+          onClick={downloadImage}
+          aria-label="Download Visit Schedule"
+        >
           Download Schedule
         </Button>
       </HStack>
@@ -110,7 +124,9 @@ const VisitScheduleExport = ({ visits, executives }) => {
                         {exec.name}
                       </Td>
                     )}
-                    <Td>{visit.time_slot}</Td>
+                    <Td>
+                      <TimeSlotDisplay slot={visit.time_slot} />
+                    </Td>
                     <Td>{visit.patient?.name || "Unknown"}</Td>
                     <Td>{visit.address}</Td>
                     <Td>

@@ -3,19 +3,14 @@
 import React, { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-
 import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
 
-// Fix for default leaflet marker icon issues in some bundlers/environments
+// Fix for default icon (needed for many React builds)
 delete L.Icon.Default.prototype._getIconUrl;
-
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
 export default function LeafletMap({
@@ -23,41 +18,40 @@ export default function LeafletMap({
   zoom,
   onMapClick,
   onMarkerDragEnd,
-  markerPosition,
+  markerPosition,   // Pass only when you actually want marker to move!
   onMapReady,
 }) {
-  const mapRef = useRef(null);
-  const leafletMap = useRef(null);
+  const mapDivRef = useRef(null);
+  const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
+  const searchControlRef = useRef(null);
 
+  // --- Initialize map and controls ONCE ---
   useEffect(() => {
-    if (mapRef.current && !leafletMap.current) {
-      // Initialize the map
-      const map = L.map(mapRef.current).setView(center, zoom);
-      leafletMap.current = map;
+    if (mapDivRef.current && !mapInstanceRef.current) {
+      // Initialize map
+      const map = L.map(mapDivRef.current, { zoomControl: true }).setView(center, zoom);
+      mapInstanceRef.current = map;
 
-      // Add OSM tile layer
+      // Add tile layer
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution:
-          '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
+        attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(map);
 
-      // Add draggable marker
+      // Add marker
       const marker = L.marker(center, { draggable: true }).addTo(map);
       markerRef.current = marker;
 
-      // Map click moves marker and calls callback
+      // Click/move events
       map.on("click", (e) => {
         marker.setLatLng(e.latlng);
         if (onMapClick) onMapClick(e);
       });
-
-      // Marker drag calls callback
       marker.on("dragend", (e) => {
         if (onMarkerDragEnd) onMarkerDragEnd(e);
       });
 
-      // Add search control
+      // Add search control (GeoSearch)
       const provider = new OpenStreetMapProvider();
 
       const searchControl = new GeoSearchControl({
@@ -71,42 +65,48 @@ export default function LeafletMap({
         searchLabel: "Enter address",
       });
 
-      map.addControl(searchControl);
+      // Delay adding control to DOM to avoid race condition
+      setTimeout(() => {
+        map.addControl(searchControl);
+        searchControlRef.current = searchControl;
+      }, 0);
 
-      // Listen for selection of search result, move marker + update position
+      // Listen to location selection, move marker, update parent
       map.on("geosearch/showlocation", (result) => {
-        if (!result || !result.location) return;
-        const { y, x } = result.location; // latitude (y), longitude (x)
-        marker.setLatLng([y, x]);
-        map.setView([y, x], 16); // zoom in to selection
-        if (onMarkerDragEnd) onMarkerDragEnd({ target: marker });
-        if (onMapClick)
-          onMapClick({
-            latlng: L.latLng(y, x),
-          });
+        if (result && result.location) {
+          const { y, x } = result.location;
+          marker.setLatLng([y, x]);
+          map.setView([y, x], 16);
+          if (onMarkerDragEnd) onMarkerDragEnd({ target: marker });
+          if (onMapClick)
+            onMapClick({ latlng: L.latLng(y, x) });
+        }
       });
 
-      // Expose map and marker instances to parent component if requested
       if (onMapReady) onMapReady({ map, marker });
 
       // Cleanup on unmount
       return () => {
         map.remove();
-        leafletMap.current = null;
+        mapInstanceRef.current = null;
         markerRef.current = null;
+        searchControlRef.current = null;
       };
     }
-  }, [center, zoom, onMapClick, onMarkerDragEnd, onMapReady]);
+    // No dependency array here: only runs once
+    // eslint-disable-next-line
+  }, []);
 
-  // Update map center and marker position when props change
+  // --- Sync marker location *without* re-creating map or control ---
   useEffect(() => {
-    if (leafletMap.current && center) {
-      leafletMap.current.setView(center, zoom);
-    }
-    if (markerRef.current && markerPosition) {
+    if (mapInstanceRef.current && markerPosition) {
       markerRef.current.setLatLng(markerPosition);
+      // Optionally pan/zoom as needed:
+      // mapInstanceRef.current.setView(markerPosition, zoom);
     }
-  }, [center, zoom, markerPosition]);
+    // Only run this if markerPosition changes
+    // eslint-disable-next-line
+  }, [markerPosition]);
 
-  return <div ref={mapRef} style={{ height: "100%", width: "100%" }} />;
+  return <div ref={mapDivRef} style={{ height: "100%", width: "100%" }} />;
 }

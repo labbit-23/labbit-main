@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useState } from "react";
 import {
   Box,
@@ -19,107 +21,92 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function TestPackageSelector({ initialSelectedTests = new Set(), onSelectionChange }) {
+export default function TestPackageSelector({
+  initialSelectedTests = new Set(),
+  onSelectionChange,
+  loading,
+}) {
   const [tests, setTests] = useState([]);
   const [packages, setPackages] = useState([]);
   const [expandedPackageIds, setExpandedPackageIds] = useState(new Set());
   const [selectedTests, setSelectedTests] = useState(new Set(initialSelectedTests));
-  const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(true);
   const [error, setError] = useState(null);
 
-  // Sync selectedTests with any changes from props
+  // Keep internal state in sync with parent
   useEffect(() => {
     setSelectedTests(new Set(initialSelectedTests));
   }, [initialSelectedTests]);
 
-  // Fetch tests and packages from Supabase
+  // Master data load
   useEffect(() => {
     async function fetchData() {
-      setLoading(true);
+      setFetching(true);
       setError(null);
       try {
-        // Fetch all tests
-        const { data: testsData, error: testErr } = await supabase.from("tests").select("id, name");
-        if (testErr) throw testErr;
+        // Fetch all active lab tests
+        const { data: allTests, error: tErr } = await supabase
+          .from("lab_tests")
+          .select("id, lab_test_name")
+          .eq("is_active", true);
+        if (tErr) throw tErr;
 
-        // Fetch packages with their tests (adjust 'package_tests' and schema as needed)
-        const { data: packagesData, error: pkgErr } = await supabase
+        // Fetch all active packages with their items (test IDs)
+        const { data: pkgData, error: pkgErr } = await supabase
           .from("packages")
           .select(`
             id,
             name,
-            package_tests!inner (
-              test_id,
-              test:tests(id, name)
-            )
+            package_items!inner (item_id)
           `);
-
         if (pkgErr) throw pkgErr;
 
-        // Process packages with nested tests flattened properly
-        const packagesProcessed = (packagesData || []).map((pkg) => ({
+        const pkgProcessed = (pkgData || []).map(pkg => ({
           id: pkg.id,
           name: pkg.name,
-          tests: (pkg.package_tests || []).map((pt) => pt.test),
+          testIds: pkg.package_items.map(pi => pi.item_id),
         }));
 
-        setTests(testsData || []);
-        setPackages(packagesProcessed);
+        setTests(allTests || []);
+        setPackages(pkgProcessed);
       } catch (err) {
-        console.error("Failed loading tests/packages:", err);
         setError("Failed to load tests/packages.");
       } finally {
-        setLoading(false);
+        setFetching(false);
       }
     }
     fetchData();
   }, []);
 
-  // Toggle individual test selection
-  const toggleTest = (testId) => {
-    const newSet = new Set(selectedTests);
-    if (newSet.has(testId)) newSet.delete(testId);
-    else newSet.add(testId);
-    setSelectedTests(newSet);
-    onSelectionChange(newSet);
+  // Toggle logic
+  const toggleTest = testId => {
+    const next = new Set(selectedTests);
+    next.has(testId) ? next.delete(testId) : next.add(testId);
+    setSelectedTests(next);
+    onSelectionChange(next);
   };
 
-  // Toggle full package test selections
-  const togglePackage = (packageId, packageTestIds) => {
-    const newSet = new Set(selectedTests);
-    const allSelected = packageTestIds.every((id) => newSet.has(id));
-
-    if (allSelected) {
-      // Deselect all tests in package
-      packageTestIds.forEach((id) => newSet.delete(id));
-    } else {
-      // Select all tests in package
-      packageTestIds.forEach((id) => newSet.add(id));
-    }
-    setSelectedTests(newSet);
-    onSelectionChange(newSet);
+  const togglePackage = (pkgId, pkgTestIds) => {
+    const next = new Set(selectedTests);
+    const allSelected = pkgTestIds.every(id => next.has(id));
+    pkgTestIds.forEach(id => (allSelected ? next.delete(id) : next.add(id)));
+    setSelectedTests(next);
+    onSelectionChange(next);
   };
 
-  // Toggle expand/collapse of package tests list
-  const togglePackageExpand = (packageId) => {
-    const newSet = new Set(expandedPackageIds);
-    if (newSet.has(packageId)) newSet.delete(packageId);
-    else newSet.add(packageId);
-    setExpandedPackageIds(newSet);
+  const toggleExpand = pkgId => {
+    const next = new Set(expandedPackageIds);
+    next.has(pkgId) ? next.delete(pkgId) : next.add(pkgId);
+    setExpandedPackageIds(next);
   };
 
-  // Check if all tests in package are selected
-  const isPackageSelected = (packageTestIds) =>
-    packageTestIds.length > 0 && packageTestIds.every((id) => selectedTests.has(id));
-
-  // Check if some (but not all) tests in package are selected (indeterminate)
-  const isPackageIndeterminate = (packageTestIds) => {
-    const checkedCount = packageTestIds.filter((id) => selectedTests.has(id)).length;
-    return checkedCount > 0 && checkedCount < packageTestIds.length;
+  const pkgSelected = ids => ids.every(i => selectedTests.has(i));
+  const pkgIndet = ids => {
+    const cnt = ids.filter(i => selectedTests.has(i)).length;
+    return cnt > 0 && cnt < ids.length;
   };
 
-  if (loading) return <Spinner size="sm" />;
-
+  if (fetching || loading) return <Spinner size="sm" />;
   if (error)
     return (
       <Box p={4} color="red.500" fontWeight="bold">
@@ -129,80 +116,66 @@ export default function TestPackageSelector({ initialSelectedTests = new Set(), 
 
   return (
     <VStack align="stretch" spacing={4} maxH="60vh" overflowY="auto" p={1}>
-      {/* Packages Section */}
+      {/* Packages */}
       {packages.length > 0 && (
         <>
-          <Text fontWeight="semibold" mb={2}>
-            Test Packages
-          </Text>
-          {packages.map(({ id, name, tests: pkgTests }) => {
-            const pkgTestIds = pkgTests.map((t) => t.id);
-            const packageSelected = isPackageSelected(pkgTestIds);
-            const packageIndeterminate = isPackageIndeterminate(pkgTestIds);
+          <Text fontWeight="semibold">Test Packages</Text>
+          {packages.map(({ id, name, testIds }) => {
             const expanded = expandedPackageIds.has(id);
-
             return (
               <Box key={id} borderWidth="1px" rounded="md" p={2}>
-                <HStack justify="space-between" align="center">
+                <HStack justify="space-between">
                   <Checkbox
-                    isChecked={packageSelected}
-                    isIndeterminate={packageIndeterminate}
-                    onChange={() => togglePackage(id, pkgTestIds)}
-                    aria-label={`Select package ${name}`}
-                    isDisabled={loading}
+                    isChecked={pkgSelected(testIds)}
+                    isIndeterminate={pkgIndet(testIds)}
+                    onChange={() => togglePackage(id, testIds)}
                   >
                     {name}
                   </Checkbox>
                   <IconButton
-                    icon={expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
                     size="sm"
                     variant="ghost"
-                    aria-label={expanded ? "Collapse package" : "Expand package"}
-                    onClick={() => togglePackageExpand(id)}
-                    isDisabled={loading}
+                    icon={expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+                    aria-label={expanded ? "Collapse" : "Expand"}
+                    onClick={() => toggleExpand(id)}
                   />
                 </HStack>
                 <Collapse in={expanded} unmountOnExit>
-                  <Stack pl={6} mt={2} spacing={1}>
-                    {pkgTests.map(({ id: testId, name: testName }) => (
-                      <Checkbox
-                        key={testId}
-                        isChecked={selectedTests.has(testId)}
-                        onChange={() => toggleTest(testId)}
-                        aria-label={`Select test ${testName}`}
-                        isDisabled={loading}
-                      >
-                        {testName}
-                      </Checkbox>
-                    ))}
-                  </Stack>
+                  <VStack align="start" pl={6} mt={2} spacing={1}>
+                    {testIds.map(tid => {
+                      const t = tests.find(x => x.id === tid);
+                      return !t ? null : (
+                        <Checkbox
+                          key={tid}
+                          isChecked={selectedTests.has(tid)}
+                          onChange={() => toggleTest(tid)}
+                        >
+                          {t.lab_test_name}
+                        </Checkbox>
+                      );
+                    })}
+                  </VStack>
                 </Collapse>
               </Box>
             );
           })}
         </>
       )}
-
       <Divider />
-      {/* Individual Tests Section */}
-      <Text fontWeight="semibold" mb={2} mt={3}>
+      {/* Individual lab tests (not in a package) */}
+      <Text fontWeight="semibold" mt={3}>
         Individual Tests
       </Text>
       <Stack spacing={1}>
         {tests
-          .filter(
-            (t) =>
-              !packages.some((pkg) => pkg.tests.some((pt) => pt.id === t.id)) // exclude tests included in packages
-          )
-          .map(({ id, name }) => (
+          .filter(t => !packages.some(p => p.testIds.includes(t.id)))
+          .map(t => (
             <Checkbox
-              key={id}
-              isChecked={selectedTests.has(id)}
-              onChange={() => toggleTest(id)}
-              aria-label={`Select test ${name}`}
-              isDisabled={loading}
+              key={t.id}
+              isChecked={selectedTests.has(t.id)}
+              onChange={() => toggleTest(t.id)}
             >
-              {name}
+              {t.lab_test_name}
             </Checkbox>
           ))}
       </Stack>

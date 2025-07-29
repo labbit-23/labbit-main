@@ -24,7 +24,9 @@ export default function VisitScheduler({
         .from("visit_time_slots")
         .select("*")
         .order("start_time");
-      if (!error) setTimeSlots(data || []);
+      if (!error) {
+        setTimeSlots(data || []);
+      }
     }
     fetchSlots();
   }, [setTimeSlots]);
@@ -36,8 +38,8 @@ export default function VisitScheduler({
         <Input
           type="date"
           value={visitDate}
-          onChange={e => setVisitDate(e.target.value)}
-          min={new Date().toISOString().split("T")[0]}
+          onChange={(e) => setVisitDate(e.target.value)}
+          min={new Date().toISOString().slice(0, 10)}
           isDisabled={loading}
           aria-label="Visit date"
         />
@@ -51,12 +53,12 @@ export default function VisitScheduler({
           <Select
             placeholder="Select a time slot"
             value={selectedSlotId}
-            onChange={e => setSelectedSlotId(e.target.value)}
+            onChange={(e) => setSelectedSlotId(e.target.value)}
             isDisabled={loading}
             aria-label="Visit time slot"
           >
             {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
-              <option key={id} value={slot_name}>
+              <option key={id} value={id}>
                 {slot_name} ({start_time} - {end_time})
               </option>
             ))}

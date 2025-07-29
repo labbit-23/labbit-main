@@ -1,7 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { FormControl, FormLabel, Input, Button, HStack, useToast } from "@chakra-ui/react";
+import {
+  FormControl,
+  FormLabel,
+  Input,
+  Button,
+  HStack,
+  useToast,
+} from "@chakra-ui/react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -27,23 +34,33 @@ export default function PatientLookup({
       toast({ title: "Please enter phone number", status: "warning" });
       return;
     }
+
     setLoading(true);
+
     try {
-      const { data, error } = await supabase
+      // 1. Look up patient in Supabase first (local DB)
+      const { data: supaData, error: supaError } = await supabase
         .from("patients")
         .select("*")
         .eq("phone", phone.trim())
         .maybeSingle();
 
-      if (error) throw error;
+      if (supaError) {
+        console.error("Supabase patient query error:", supaError);
+        throw supaError;
+      }
 
-      if (data) {
-        setPatient(data);
+      if (supaData) {
+        // Patient found locally, set patient state and load addresses
+        setPatient({
+          ...supaData,
+          cregno: supaData.cregno || null,
+        });
 
         const { data: addrData, error: addrErr } = await supabase
           .from("patient_addresses")
           .select("*")
-          .eq("patient_id", data.id)
+          .eq("patient_id", supaData.id)
           .order("is_default", { ascending: false });
 
         if (!addrErr && Array.isArray(addrData) && addrData.length > 0) {
@@ -59,17 +76,80 @@ export default function PatientLookup({
           setAddressLine("");
           setLatLng({ lat: null, lng: null });
         }
-      } else {
-        toast({ title: "Patient not found", status: "info" });
-        setPatient({ id: null, name: "", dob: "", email: "", gender: "" });
-        setAddresses([]);
-        setSelectedAddressId("");
-        setAddressLabel("");
-        setAddressLine("");
-        setLatLng({ lat: null, lng: null });
+        setLoading(false);
+        return;
       }
-    } catch (e) {
-      toast({ title: "Lookup failed", description: e.message || "Unknown error", status: "error" });
+
+      // 2. Not found locally, fallback to external API via your API route proxy
+      const url = `/api/patient-lookup?phone=${encodeURIComponent(phone.trim())}`;
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`External lookup failed: ${text || response.statusText}`);
+      }
+
+      const apiData = await response.json();
+
+      if (Array.isArray(apiData)) {
+        if (apiData.length === 1) {
+          const extPatient = apiData[0];
+          setPatient({
+            id: null, // no internal id - external record
+            name: extPatient.FNAME?.trim() || "",
+            phone: phone.trim(),
+            dob: extPatient.DOB?.split(" ")[0] || "",
+            email: extPatient.EMAIL || "",
+            gender: "", // external API does not provide gender
+            cregno: extPatient.CREGNO || null,
+          });
+
+          // Reset addresses as external API does not provide them
+          setAddresses([]);
+          setSelectedAddressId("");
+          setAddressLabel("");
+          setAddressLine("");
+          setLatLng({ lat: null, lng: null });
+
+          toast({
+            title: `Patient found externally: ${extPatient.FNAME}`,
+            status: "info",
+            duration: 3000,
+            isClosable: true,
+          });
+        } else if (apiData.length > 1) {
+          // Multiple external patients found for this phone, prompt user to refine
+          throw new Error(
+            "Multiple patients found in external database for this phone number. Please refine your search."
+          );
+        } else {
+          // No external patient found
+          setPatient({ id: null, name: "", dob: "", email: "", gender: "", cregno: null });
+          setAddresses([]);
+          setSelectedAddressId("");
+          setAddressLabel("");
+          setAddressLine("");
+          setLatLng({ lat: null, lng: null });
+          toast({ title: "Patient not found", status: "info", duration: 3000, isClosable: true });
+        }
+      } else {
+        throw new Error("Invalid response format from external patient lookup API.");
+      }
+    } catch (err) {
+      toast({
+        title: "Lookup failed",
+        description: err.message || "Unknown error",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      console.error("Patient lookup error:", err);
     } finally {
       setLoading(false);
     }
