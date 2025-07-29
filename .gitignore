@@ -1,5 +1,22 @@
 # .gitignore
+# Dependencies
 node_modules/
+.yarn/
+
+# Environment variables
+.env.local
+.env
+*.env.*
+
+# Next.js
+.next/
+out/
+build/
+
+# OS & editors
+.DS_Store
+Thumbs.db
+*.lognode_modules/
 .env.local
 .env
 .vercel
