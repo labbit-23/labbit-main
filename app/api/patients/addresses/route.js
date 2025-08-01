@@ -1,7 +1,8 @@
 // app/api/patients/addresses/route.js
+// Modified to support modular address management with validation & defaults
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseServer'; // Adjust the path to your supabase client
+import { supabase } from '@/lib/supabaseServer'; // Ensure path is correct
 
 export async function GET(request) {
   const url = new URL(request.url);
@@ -32,6 +33,7 @@ export async function GET(request) {
   }
 }
 
+// POST handler with validation & ensuring single default address logic
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -47,10 +49,10 @@ export async function POST(request) {
       );
     }
 
-    // Validate required fields on each address
+    // Validate required fields for each address (label, lat/lng)
     for (const [i, addr] of addresses.entries()) {
-      if (!addr.label) {
-        console.warn(`[POST addresses] Address at index ${i} missing label`);
+      if (!addr.label || typeof addr.label !== 'string' || addr.label.trim() === '') {
+        console.warn(`[POST addresses] Address at index ${i} missing or invalid label`);
         return NextResponse.json(
           { error: `Address at index ${i} missing required field 'label'` },
           { status: 400 }
@@ -65,21 +67,19 @@ export async function POST(request) {
       }
     }
 
-    // Set only the last address in the list as default; unset is_default on others
+    // Ensure only the last address in list is default; clear is_default for others
     const mappedAddresses = addresses.map((addr, idx, arr) => {
-      // Remove pin_code if present to avoid schema conflict
+      // Remove pin_code if present (DB schema uses 'pincode')
       const { pin_code, ...cleanAddr } = addr;
-
       return {
         ...cleanAddr,
         patient_id,
-        is_default: idx === arr.length - 1,
+        is_default: idx === arr.length - 1, // last one is default
       };
     });
 
     console.log('[POST addresses] Upserting addresses with last set as default:', mappedAddresses);
 
-    // Use upsert with onConflict on 'id' (primary key) for inserts/updates
     const { data, error } = await supabase
       .from('patient_addresses')
       .upsert(mappedAddresses, { onConflict: ['id'] })

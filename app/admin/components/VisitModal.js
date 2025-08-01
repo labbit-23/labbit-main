@@ -1,3 +1,4 @@
+// app/admin/components/VisitModal.js
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -16,6 +17,8 @@ import {
   Select,
   Input,
   Textarea,
+  HStack,
+  Spinner,
 } from "@chakra-ui/react";
 
 const formatDate = (dateInput) => {
@@ -29,10 +32,10 @@ export default function VisitModal({
   onClose,
   onSubmit,
   visitInitialData,
-  patients,
-  executives,
-  labs,
-  timeSlots,
+  patients = [],     // default empty array to avoid undefined
+  executives = [],   // default empty array to avoid undefined
+  labs = [],         // default empty array to avoid undefined
+  timeSlots = [],    // default empty array to avoid undefined
   isLoading,
 }) {
   const [formData, setFormData] = useState({
@@ -79,6 +82,23 @@ export default function VisitModal({
     onSubmit(formData);
   };
 
+  // Helper to render time slot display fallback
+  const getTimeSlotDisplay = (visit) => {
+    // Prefer nested time_slot object if available
+    if (visit.time_slot && visit.time_slot.slot_name) {
+      return `${visit.time_slot.slot_name} (${visit.time_slot.start_time.slice(0, 5)} - ${visit.time_slot.end_time.slice(0, 5)})`;
+    }
+    // Fallback: find from timeSlots prop by id or time_slot_id
+    if (timeSlots.length) {
+      const tsId = visit.time_slot_id || visit.time_slot; // either form
+      const matchedSlot = timeSlots.find((s) => s.id === tsId);
+      if (matchedSlot) {
+        return `${matchedSlot.slot_name} (${matchedSlot.start_time.slice(0, 5)} - ${matchedSlot.end_time.slice(0, 5)})`;
+      }
+    }
+    return "Unknown";
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside" isCentered>
       <ModalOverlay />
@@ -91,7 +111,7 @@ export default function VisitModal({
               <FormLabel>Patient</FormLabel>
               <Select value={formData.patient_id} onChange={handleChange("patient_id")} required>
                 <option value="">Select Patient</option>
-                {patients.map((p) => (
+                {(patients || []).map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.phone})
                   </option>
@@ -103,7 +123,7 @@ export default function VisitModal({
               <FormLabel>HV Executive</FormLabel>
               <Select value={formData.executive_id} onChange={handleChange("executive_id")}>
                 <option value="">Unassigned</option>
-                {executives.map((e) => (
+                {(executives || []).map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.name} ({e.status})
                   </option>
@@ -115,7 +135,7 @@ export default function VisitModal({
               <FormLabel>Lab</FormLabel>
               <Select value={formData.lab_id} onChange={handleChange("lab_id")} required>
                 <option value="">Select Lab</option>
-                {labs.map((l) => (
+                {(labs || []).map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
                   </option>
@@ -138,7 +158,7 @@ export default function VisitModal({
               <FormLabel>Time Slot</FormLabel>
               <Select value={formData.time_slot_id} onChange={handleChange("time_slot_id")} required>
                 <option value="">Select Time Slot</option>
-                {timeSlots.map(({ id, slot_name, start_time, end_time }) => (
+                {(timeSlots || []).map(({ id, slot_name, start_time, end_time }) => (
                   <option key={id} value={id}>
                     {slot_name} ({start_time.slice(0, 5)} - {end_time.slice(0, 5)})
                   </option>
