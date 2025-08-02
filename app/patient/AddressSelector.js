@@ -1,3 +1,5 @@
+// File: /app/patient/AddressSelector.js
+
 "use client";
 
 import React from "react";
@@ -5,7 +7,7 @@ import { VStack, FormControl, FormLabel, Select, Text } from "@chakra-ui/react";
 import AddressEditor from "./AddressEditor";
 
 export default function AddressSelector({
-  addresses,
+  addresses = [],              // Default to empty array
   selectedAddressId,
   setSelectedAddressId,
   addressLabel,
@@ -14,26 +16,29 @@ export default function AddressSelector({
   setAddressLine,
   latLng,
   setLatLng,
-  loading,
+  loading = false,
 }) {
+  const hasAddresses = Array.isArray(addresses) && addresses.length > 0;
+
   return (
     <VStack align="stretch" spacing={4}>
       <FormControl isRequired>
         <FormLabel>Select Address</FormLabel>
         <Select
           placeholder="Select your address"
-          value={selectedAddressId}
+          value={selectedAddressId || ""}
           onChange={(e) => setSelectedAddressId(e.target.value)}
-          isDisabled={loading || addresses.length === 0}
+          isDisabled={loading || !hasAddresses}
           aria-label="Select address"
         >
-          {addresses.map(({ id, label, pincode }) => (
-            <option key={id} value={id}>
-              {label} {pincode ? `(${pincode})` : ""}
-            </option>
-          ))}
+          {hasAddresses &&
+            addresses.map(({ id, label, pincode }) => (
+              <option key={id} value={id}>
+                {label} {pincode ? `(${pincode})` : ""}
+              </option>
+            ))}
         </Select>
-        {addresses.length === 0 && (
+        {!hasAddresses && (
           <Text fontSize="sm" color="gray.500" mt={1} userSelect="none">
             No saved addresses found. Please add addresses in your profile.
           </Text>

@@ -1,4 +1,4 @@
-//app/components/AddressPicker.js
+// File: /app/components/AddressPicker.js
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -9,20 +9,29 @@ import {
   Button,
   Input,
   Box,
-  Select,
   Text,
   useToast,
+  IconButton,
+  FormControl,
+  FormLabel,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
 } from '@chakra-ui/react';
-import { SmallAddIcon, DeleteIcon } from '@chakra-ui/icons';
+import { DeleteIcon, AddIcon, ChevronDownIcon } from '@chakra-ui/icons';
 
-// Lazy load LeafletMap - no SSR to avoid server rendering issues
+// Lazy load LeafletMap to avoid SSR issues
 const LeafletMap = dynamic(() => import('./LeafletMap'), { ssr: false });
 
+// Helper: Default Hyderabad coordinates — map centers here if no location provided
+const HYDERABAD_COORDS = { lat: 17.385, lng: 78.486 };
+
 /**
- * Address search autocomplete component.
+ * AddressSearch component for autocomplete
  * Props:
- *  - onSelect: function(selectedItem)
- *  - at: string of lat,lng to bias results.
+ *  - onSelect(item): callback with selected item
+ *  - at: string "lat,lng" for geosearch bias
  */
 function AddressSearch({ onSelect, at }) {
   const [query, setQuery] = useState('');
@@ -72,11 +81,11 @@ function AddressSearch({ onSelect, at }) {
   };
 
   return (
-    <Box position="relative" width="100%">
+    <Box position="relative" width="100%" mt={3}>
       <Input
         placeholder="Search for address or landmark"
         value={query}
-        onChange={e => setQuery(e.target.value)}
+        onChange={(e) => setQuery(e.target.value)}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setTimeout(() => setIsFocused(false), 200)}
         autoComplete="off"
@@ -96,7 +105,7 @@ function AddressSearch({ onSelect, at }) {
           padding="0"
           style={{ listStyle: 'none' }}
         >
-          {results.map(item => (
+          {results.map((item) => (
             <Box
               as="li"
               key={item.id}
@@ -107,7 +116,9 @@ function AddressSearch({ onSelect, at }) {
             >
               <Text fontWeight="medium">{item.title}</Text>
               {item.address?.label && (
-                <Text fontSize="sm" color="gray.600">{item.address.label}</Text>
+                <Text fontSize="sm" color="gray.600">
+                  {item.address.label}
+                </Text>
               )}
             </Box>
           ))}
@@ -118,220 +129,319 @@ function AddressSearch({ onSelect, at }) {
 }
 
 /**
- * AddressPicker component for editing addresses.
+ * AddressPicker component for editing multiple addresses with map integration
  * Props:
- *  - addresses: array of address objects
- *  - setAddresses: setter function for addresses array
- *  - labels: array of possible labels
+ *  - addresses: Array of address objects [{ id, label, address_line, etc. }]
+ *  - setAddresses: Setter function for addresses
+ *  - labels: Array of valid labels for selection/autocomplete
  */
-export default function AddressPicker({ addresses = [], setAddresses = () => {}, labels = [] }) {
+export default function AddressPicker({
+  addresses = [],
+  setAddresses = () => {},
+  labels = [],
+}) {
   const toast = useToast();
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [labelOptions, setLabelOptions] = useState(labels);
 
-  useEffect(() => {
-    setLabelOptions(labels.length > 0 ? labels : ['Default']);
-  }, [labels]);
-
-  // Defensive: ensure selectedIndex is within bounds
-  useEffect(() => {
-    if (selectedIndex >= addresses.length) {
-      setSelectedIndex(addresses.length > 0 ? addresses.length - 1 : 0);
+  // Sort addresses with default flagged first; no default means no reordering
+  const orderedAddresses = React.useMemo(() => {
+    if (!addresses || addresses.length === 0) {
+      // No default pre-fill; map shows Hyderabad location but form fields empty
+      return [];
     }
-  }, [addresses, selectedIndex]);
+    const defaultIndex = addresses.findIndex((addr) => addr.is_default === true);
+    if (defaultIndex === -1) return addresses;
+    return [addresses[defaultIndex], ...addresses.filter((_, idx) => idx !== defaultIndex)];
+  }, [addresses]);
 
-  // Current selected address or fallback
-  const selectedAddress = addresses[selectedIndex] || {
-    id: 'temp-0',
-    label: 'Default',
-    address_line: '',
-    pincode: '',
-    city: '',
-    state: '',
-    country: '',
-    lat: 17.385,
-    lng: 78.486,
-  };
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [labelInput, setLabelInput] = useState('');
 
-  // Update field handler
-  const updateField = (field) => (e) => {
-    const value = e.target.value ?? '';
-    setAddresses(prev => {
-      const copy = [...prev];
-      if (!copy[selectedIndex]) return prev;
-      copy[selectedIndex] = { ...copy[selectedIndex], [field]: value };
-      return copy;
+  // Update labelInput when selection changes
+  useEffect(() => {
+    if (orderedAddresses.length === 0) {
+      setSelectedIndex(0);
+      setLabelInput('');
+    } else {
+      if (selectedIndex >= orderedAddresses.length) setSelectedIndex(0);
+      setLabelInput(orderedAddresses[selectedIndex]?.label || '');
+    }
+  }, [orderedAddresses, selectedIndex]);
+
+  const selectedAddress = orderedAddresses[selectedIndex] || null;
+
+  // Find index in original addresses array by id
+  const originalIndex = React.useMemo(() => {
+    return addresses.findIndex((addr) => addr.id === selectedAddress?.id);
+  }, [addresses, selectedAddress]);
+
+  // Update selected address field in addresses array and labelInput state
+  const updateSelectedAddressField = (field, value) => {
+    setAddresses((prev) => {
+      const newAddresses = [...prev];
+      if (originalIndex === -1) {
+        const newAddr = { ...selectedAddress, [field]: value };
+        newAddresses.push(newAddr);
+      } else {
+        newAddresses[originalIndex] = { ...newAddresses[originalIndex], [field]: value };
+      }
+      return newAddresses;
     });
+
+    if (field === 'label') {
+      setLabelInput(value);
+    }
   };
 
-  // Update lat,lng from map interactions
-  const updateLocation = (lat, lng) => {
-    setAddresses(prev => {
-      const copy = [...prev];
-      if (!copy[selectedIndex]) return prev;
-      copy[selectedIndex] = { ...copy[selectedIndex], lat, lng };
-      return copy;
-    });
+  // Handle label input change (editable combo box)
+  const handleLabelInputChange = (e) => {
+    updateSelectedAddressField('label', e.target.value);
   };
 
-  // Autocomplete selection handler
-  const onAutocompleteSelect = (item) => {
-    if (typeof setAddresses !== 'function') {
+  // Select label from dropdown menu
+  const handleLabelSelect = (val) => {
+    updateSelectedAddressField('label', val);
+  };
+
+  // Reverse geocode on map marker movement
+  const updateLocation = async (lat, lng) => {
+    try {
+      const res = await fetch(`/api/nextbillion/reverse-geocode?lat=${lat}&lng=${lng}`);
+      if (!res.ok) throw new Error('Reverse geocode failed');
+      const data = await res.json();
+
+      const newAddressLine = data.features?.[0]?.properties?.label || '';
+      const newPincode = data.features?.[0]?.properties?.postal_code || '';
+
+      updateSelectedAddressField('lat', lat);
+      updateSelectedAddressField('lng', lng);
+
+      // Update address line only if empty to not overwrite manual input
+      if (!selectedAddress?.address_line || selectedAddress.address_line.trim() === '') {
+        updateSelectedAddressField('address_line', newAddressLine);
+      }
+      updateSelectedAddressField('pincode', newPincode);
+    } catch (err) {
       toast({
-        title: 'Address update function missing',
-        status: 'error',
+        title: 'Reverse geocode failed',
+        description: 'Could not update address fields from map',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      updateSelectedAddressField('lat', lat);
+      updateSelectedAddressField('lng', lng);
+    }
+  };
+
+  // Autocomplete address selection
+  const onAutocompleteSelect = (item) => {
+    if (!item?.position) return;
+    const { lat, lng } = item.position;
+
+    setAddresses((prev) => {
+      const newAddresses = [...prev];
+      if (originalIndex === -1) {
+        // new address
+        newAddresses.push({
+          ...selectedAddress,
+          lat,
+          lng,
+          address_line: item.title || '',
+          pincode: item.address?.postalCode || '',
+        });
+      } else {
+        newAddresses[originalIndex] = {
+          ...newAddresses[originalIndex],
+          lat,
+          lng,
+          address_line: item.title || '',
+          pincode: item.address?.postalCode || '',
+        };
+      }
+      return newAddresses;
+    });
+  };
+
+  // Use browser geolocation for current location
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: 'Geolocation not supported',
+        description: 'Your browser does not support location services.',
+        status: 'warning',
       });
       return;
     }
-    if (!item?.position) return;
-
-    setAddresses(prev => {
-      const copy = [...prev];
-      if (!copy[selectedIndex]) return prev;
-
-      // Always update lat/lng for new position
-      copy[selectedIndex].lat = item.position.lat;
-      copy[selectedIndex].lng = item.position.lng;
-
-      // Only update address_line if currently empty or matches previous suggested text
-      if (!copy[selectedIndex].address_line || copy[selectedIndex].address_line.trim() === item.title.trim()) {
-        copy[selectedIndex].address_line = item.title || '';
-        copy[selectedIndex].pincode = item.address?.postalCode || '';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        updateLocation(latitude, longitude);
+        toast({
+          title: 'Location set',
+          description: 'Your current location has been set for this address.',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+      },
+      (error) => {
+        toast({
+          title: 'Failed to get location',
+          description: error.message || 'Permission denied or unavailable.',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
       }
-      return copy;
-    });
+    );
   };
 
-  // Add new address button handler
+  // Add new blank address
   const addAddress = () => {
     const newAddress = {
       id: `temp-${Date.now()}`,
-      label: 'Default',
+      label: '',
       address_line: '',
       pincode: '',
       city: '',
       state: '',
       country: '',
-      lat: 17.385,
-      lng: 78.486,
+      lat: HYDERABAD_COORDS.lat,
+      lng: HYDERABAD_COORDS.lng,
+      is_default: false,
     };
-    setAddresses(prev => [...prev, newAddress]);
-    setSelectedIndex(addresses.length); // Select new address tab
+    setAddresses((prev) => [...prev, newAddress]);
+    setSelectedIndex(orderedAddresses.length); // select newly added address
   };
 
-  // Delete currently selected address
+  // Delete selected address
   const deleteAddress = () => {
-    if (selectedIndex === -1) return;
-    setAddresses(prev => {
-      const copy = prev.filter((_, i) => i !== selectedIndex);
-      return copy;
+    if (!selectedAddress) return;
+    setAddresses((prev) => {
+      if (originalIndex === -1) return prev;
+      const filtered = prev.filter((_, i) => i !== originalIndex);
+      return filtered;
     });
-    setSelectedIndex(addresses.length > 1 ? 0 : -1);
-  };
-
-  // Add new label handler
-  const addLabel = () => {
-    const input = prompt('Enter new label');
-    if (!input) return;
-    const trimmedLabel = input.trim();
-    if (!trimmedLabel) {
-      toast({ title: 'Label cannot be empty', status: 'warning' });
-      return;
-    }
-    if (labelOptions.includes(trimmedLabel)) {
-      toast({ title: 'Label already exists', status: 'info' });
-      // Select existing label
-      updateField('label')({ target: { value: trimmedLabel } });
-      return;
-    }
-    setLabelOptions(prev => [...prev, trimmedLabel]);
-    updateField('label')({ target: { value: trimmedLabel } });
-    toast({ title: `Added label: "${trimmedLabel}"`, status: 'success' });
+    setSelectedIndex(0);
   };
 
   return (
-    <VStack spacing={6} w='full' maxW='700px' mx='auto' p={4} borderWidth='1px' borderRadius='md'>
-      {/* Address selector dropdown */}
-      <Select
-        value={selectedIndex}
-        onChange={e => setSelectedIndex(Number(e.target.value))}
-        mb={4}
-        w='full'
-      >
-        {addresses.map((addr, idx) => (
-          <option key={`${addr.id ?? 'addr'}-${idx}`} value={idx}>
-            {addr.label || 'No Label'}
-          </option>
-        ))}
-      </Select>
+    <VStack spacing={6} w="full" maxW="700px" mx="auto" p={4} borderWidth="1px" borderRadius="md" align="flex-start">
+      <FormControl>
+        <FormLabel>Address Label</FormLabel>
+        <Menu>
+          {({ isOpen }) => (
+            <>
+              <HStack spacing={2}>
+                <Input
+                  placeholder="Type or select a label"
+                  value={labelInput}
+                  onChange={handleLabelInputChange}
+                  autoComplete="off"
+                />
+                <MenuButton 
+                  as={IconButton} 
+                  aria-label="Select label" 
+                  icon={<ChevronDownIcon />} 
+                  size="md" 
+                />
+                <IconButton 
+                  aria-label="Add new address" 
+                  icon={<AddIcon />} 
+                  colorScheme="blue" 
+                  size="md" 
+                  onClick={addAddress} 
+                />
+                <IconButton 
+                  aria-label="Delete selected address" 
+                  icon={<DeleteIcon />} 
+                  colorScheme="red" 
+                  size="md" 
+                  onClick={deleteAddress} 
+                  isDisabled={!selectedAddress}
+                />
+              </HStack>
 
-      {/* Label input */}
-      <Input
-        placeholder='Address Label'
-        value={selectedAddress.label ?? ''}
-        onChange={updateField('label')}
-        mb={2}
-      />
+              {isOpen && labels.length > 0 && (
+                <MenuList maxHeight="160px" overflowY="auto" zIndex={1000}>
+                  {labels.map((label, idx) => (
+                    <MenuItem
+                      key={idx}
+                      onClick={() => handleLabelSelect(label)}
+                      bg={label === labelInput ? 'blue.100' : 'white'}
+                    >
+                      {label}
+                    </MenuItem>
+                  ))}
+                </MenuList>
+              )}
+            </>
+          )}
+        </Menu>
+      </FormControl>
 
-      <Button size='sm' mb={3} onClick={addLabel}>
-        + Add Label
-      </Button>
-
-      {/* Address line and pin */}
-      <HStack mb={2}>
+      <HStack mb={2} w="full">
         <Input
-          placeholder='Address Line'
+          placeholder="Address Line"
           flex={3}
-          value={selectedAddress.address_line ?? ''}
-          onChange={updateField('address_line')}
+          value={selectedAddress?.address_line ?? ''}
+          onChange={handleInputChange('address_line')}
         />
         <Input
-          placeholder='Pincode'
+          placeholder="Pincode"
           flex={1}
-          value={selectedAddress.pincode ?? ''}
-          onChange={updateField('pincode')}
+          value={selectedAddress?.pincode ?? ''}
+          onChange={handleInputChange('pincode')}
         />
       </HStack>
 
-      {/* City, State, Country */}
-      <HStack mb={2}>
+      <HStack mb={2} w="full">
         <Input
-          placeholder='City'
-          value={selectedAddress.city ?? ''}
-          onChange={updateField('city')}
+          placeholder="City"
+          value={selectedAddress?.city ?? ''}
+          onChange={handleInputChange('city')}
         />
         <Input
-          placeholder='State'
-          value={selectedAddress.state ?? ''}
-          onChange={updateField('state')}
+          placeholder="State"
+          value={selectedAddress?.state ?? ''}
+          onChange={handleInputChange('state')}
         />
         <Input
-          placeholder='Country'
-          value={selectedAddress.country ?? ''}
-          onChange={updateField('country')}
+          placeholder="Country"
+          value={selectedAddress?.country ?? ''}
+          onChange={handleInputChange('country')}
         />
       </HStack>
 
-      {/* Leaflet Map container: Ensure fixed height and width */}
-      <Box height='300px' width='100%' borderRadius='md' overflow='hidden' mb={3}>
+      <Box height="300px" width="100%" borderRadius="md" overflow="hidden" mb={3}>
         <LeafletMap
-          markerPosition={[selectedAddress.lat ?? 17.385, selectedAddress.lng ?? 78.486]}
+          markerPosition={[
+            selectedAddress?.lat ?? HYDERABAD_COORDS.lat,
+            selectedAddress?.lng ?? HYDERABAD_COORDS.lng,
+          ]}
           onLocationChange={updateLocation}
         />
       </Box>
 
-      {/* Autocomplete search input */}
-      <AddressSearch onSelect={onAutocompleteSelect} at={`${selectedAddress.lat ?? 17.385},${selectedAddress.lng ?? 78.486}`} />
+      <AddressSearch
+        onSelect={onAutocompleteSelect}
+        at={`${selectedAddress?.lat ?? HYDERABAD_COORDS.lat},${selectedAddress?.lng ?? HYDERABAD_COORDS.lng}`}
+      />
 
-      {/* Controls */}
-      <HStack justify='flex-end' spacing={4} w='full'>
-        <Button onClick={deleteAddress} leftIcon={<DeleteIcon />} colorScheme='red'>
-          Delete
-        </Button>
-        <Button onClick={addAddress} leftIcon={<SmallAddIcon />} colorScheme='blue'>
-          Add New Address
-        </Button>
-      </HStack>
+      <Button
+        onClick={handleUseCurrentLocation}
+        leftIcon={<AddIcon />}
+        colorScheme="blue"
+        mt={2}
+        w="full"
+      >
+        Use My Location
+      </Button>
     </VStack>
   );
+
+  // Utility for handling input changes for address fields
+  function handleInputChange(field) {
+    return (e) => updateSelectedAddressField(field, e.target.value);
+  }
 }

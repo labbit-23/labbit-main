@@ -1,16 +1,22 @@
-// app/api/patients/address_labels/route.js
-// Fetch distinct non-null, non-empty labels from patient_addresses
-
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseServer';
 
-export async function GET() {
+export async function GET(request) {
   try {
-    const { data, error } = await supabase
+    const url = new URL(request.url);
+    const patient_id = url.searchParams.get('patient_id');
+
+    let query = supabase
       .from('patient_addresses')
       .select('label', { distinct: true })
       .neq('label', null)
-      .not('label', 'eq', '')
+      .not('label', 'eq', '');
+
+    if (patient_id) {
+      query = query.eq('patient_id', patient_id);
+    }
+
+    const { data, error } = await query
       .order('label', { ascending: true })
       .limit(100);
 
@@ -21,7 +27,7 @@ export async function GET() {
 
     const labels = (data || []).map(item => item.label).filter(Boolean);
 
-    console.log(`Fetched ${labels.length} distinct labels`);
+    console.log(`Fetched ${labels.length} distinct labels${patient_id ? ` for patient ${patient_id}` : '' }`);
     return NextResponse.json(labels, { status: 200 });
   } catch (err) {
     console.error('Unexpected error in address_labels API:', err);

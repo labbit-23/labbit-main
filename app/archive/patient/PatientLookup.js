@@ -1,3 +1,5 @@
+// File: /app/patient/PatientLookup.js
+
 "use client";
 
 import React, { useState } from "react";
@@ -9,12 +11,8 @@ import {
   HStack,
   useToast,
 } from "@chakra-ui/react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// FIX: import the singleton Supabase client
+import { supabase } from "../../lib/supabaseClient"; // <--- update the path if needed
 
 export default function PatientLookup({
   phone,
@@ -101,16 +99,15 @@ export default function PatientLookup({
         if (apiData.length === 1) {
           const extPatient = apiData[0];
           setPatient({
-            id: null, // no internal id - external record
+            id: null,
             name: extPatient.FNAME?.trim() || "",
             phone: phone.trim(),
             dob: extPatient.DOB?.split(" ")[0] || "",
             email: extPatient.EMAIL || "",
-            gender: "", // external API does not provide gender
+            gender: "",
             cregno: extPatient.CREGNO || null,
           });
-
-          // Reset addresses as external API does not provide them
+          // External API does not provide addresses
           setAddresses([]);
           setSelectedAddressId("");
           setAddressLabel("");
@@ -124,7 +121,6 @@ export default function PatientLookup({
             isClosable: true,
           });
         } else if (apiData.length > 1) {
-          // Multiple external patients found for this phone, prompt user to refine
           throw new Error(
             "Multiple patients found in external database for this phone number. Please refine your search."
           );

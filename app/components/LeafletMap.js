@@ -40,7 +40,7 @@ export default function LeafletMap({ markerPosition, onLocationChange }) {
   return (
     <MapContainer
       center={markerPosition || [17.385, 78.486]}
-      zoom={13}
+      zoom={16}
       style={{ height: '300px', width: '100%' }}
       scrollWheelZoom={false}
     >

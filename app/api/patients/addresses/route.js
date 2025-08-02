@@ -1,4 +1,4 @@
-// app/api/patients/addresses/route.js
+// File: /app/api/patients/addresses/route.js
 // Modified to support modular address management with validation & defaults
 
 import { NextResponse } from 'next/server';
@@ -32,6 +32,7 @@ export async function GET(request) {
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
 }
+
 
 // POST handler with validation & ensuring single default address logic
 export async function POST(request) {
@@ -67,16 +68,23 @@ export async function POST(request) {
       }
     }
 
-    // Ensure only the last address in list is default; clear is_default for others
-    const mappedAddresses = addresses.map((addr, idx, arr) => {
-      // Remove pin_code if present (DB schema uses 'pincode')
-      const { pin_code, ...cleanAddr } = addr;
-      return {
-        ...cleanAddr,
-        patient_id,
-        is_default: idx === arr.length - 1, // last one is default
-      };
+    // Sanitize IDs for new addresses (remove non-UUID temp IDs)
+    const sanitizedAddresses = addresses.map(addr => {
+      const { id, ...rest } = addr;
+      if (id && typeof id === 'string' && id.startsWith('temp')) {
+        // new address with temporary client-side ID — remove it before upsert
+        return { ...rest, patient_id };
+      }
+      // existing address with valid id
+      return { ...addr, patient_id };
     });
+
+    // Ensure only one default address: the last one is default, others cleared
+    const mappedAddresses = sanitizedAddresses.map((addr, idx, arr) => ({
+      ...addr,
+      // last address in the array is default, others are false
+      is_default: idx === arr.length - 1,
+    }));
 
     console.log('[POST addresses] Upserting addresses with last set as default:', mappedAddresses);
 

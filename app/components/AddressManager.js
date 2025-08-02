@@ -1,3 +1,4 @@
+//app/components/AddressManager.js
 import React, { useEffect, useState } from 'react';
 import { VStack, Text } from '@chakra-ui/react';
 import AddressPicker from './AddressPicker';
@@ -6,12 +7,16 @@ export default function AddressManager({ patientId, onChange }) {
   const [addresses, setAddresses] = useState([]);
   const [labels, setLabels] = useState([]);
 
-  useEffect(() => {
-    fetch('/api/patients/address_labels')
-      .then(res => res.json())
-      .then(data => setLabels(Array.isArray(data) ? data : []))
-      .catch(() => setLabels([]));
-  }, []);
+    useEffect(() => {
+    if (!patientId) {
+        setLabels([]);
+        return;
+    }
+    fetch(`/api/patients/address_labels?patient_id=${patientId}`)
+        .then(res => res.json())
+        .then(data => setLabels(Array.isArray(data) ? data : []))
+        .catch(() => setLabels([]));
+    }, [patientId]);
 
   useEffect(() => {
     if (!patientId) {
@@ -29,7 +34,7 @@ export default function AddressManager({ patientId, onChange }) {
           const defaultAddr = {
             id: 'temp-default',
             label: 'Default',
-            address_line: 'SDRC',
+            address_line: '',
             pincode: '',
             city: '',
             state: '',

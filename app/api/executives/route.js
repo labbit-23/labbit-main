@@ -1,3 +1,4 @@
+//app/api/executives/route.js
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -52,13 +53,34 @@ export async function PUT(request) {
   return NextResponse.json(updated, { status: 200 });
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
-    // Fetch all executives with desired fields
-    const { data, error } = await supabase
+    const url = new URL(request.url);
+    const activeParam = url.searchParams.get("active");
+    const typeParam = url.searchParams.get("type");
+
+    let query = supabase
       .from("executives")
       .select("id, name, phone, type, status, active")
       .order("created_at", { ascending: false });
+
+    // Apply filters if query params are present
+
+    if (activeParam !== null) {
+      // Convert string to boolean
+      const activeBoolean = activeParam.toLowerCase() === "true";
+      query = query.eq("active", activeBoolean);
+    }
+
+    if (typeParam) {
+      // Case-insensitive match like
+      // You can adjust this if you want exact matches instead
+      query = query.ilike("type", typeParam);
+      // or for partial inclusion:
+      // query = query.ilike("type", `%${typeParam}%`);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
