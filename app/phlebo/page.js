@@ -13,13 +13,11 @@ import {
 } from "@chakra-ui/react";
 import { supabase } from "../../lib/supabaseClient";
 
-
 import ShortcutBar from "../../components/ShortcutBar"; // Adjust if needed
 import ActiveVisitsTab from "./ActiveVisitsTab";
 import PatientLookupTab from "./PatientLookupTab";
 import VisitDetailTab from "./VisitDetailTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
-
 
 export default function PhleboTabbedPage({ hvExecutiveId: loggedInExecutiveId, userRole = "executive" }) {
   // State to hold loaded executives list
@@ -35,6 +33,9 @@ export default function PhleboTabbedPage({ hvExecutiveId: loggedInExecutiveId, u
   // Date selection state
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
 
+  // Define lockExecutive - disable executive selector when logged-in executive fixed
+  const lockExecutive = Boolean(loggedInExecutiveId);
+
   // Fetch executives on mount
   useEffect(() => {
     async function fetchExecutives() {
@@ -42,7 +43,8 @@ export default function PhleboTabbedPage({ hvExecutiveId: loggedInExecutiveId, u
         const { data, error } = await supabase
           .from("executives")
           .select("id, name")
-          .in("status", ["active", "available"]);
+          .in("status", ["active", "available"])
+          .eq("type", "Phlebo");  // or .in("role", ["phlebo", "executive"]) as needed
 
         if (error) throw error;
 
@@ -53,7 +55,7 @@ export default function PhleboTabbedPage({ hvExecutiveId: loggedInExecutiveId, u
           setSelectedExecutiveId(loggedInExecutiveId);
           const exec = data.find((e) => e.id === loggedInExecutiveId);
           setSelectedExecutiveName(exec ? exec.name : null);
-        } else if (data.length > 0) {
+        } else if (data?.length > 0) {
           setSelectedExecutiveId(data[0].id);
           setSelectedExecutiveName(data[0].name);
         }
@@ -75,9 +77,6 @@ export default function PhleboTabbedPage({ hvExecutiveId: loggedInExecutiveId, u
     if (exec) setSelectedExecutiveName(exec.name);
   }, [selectedExecutiveId, executives]);
 
-  // Disable executive selector if logged-in executive provided (fixed)
-  const isExecutiveSelectorDisabled = Boolean(loggedInExecutiveId);
-
   const handleVisitSelect = (visit) => {
     setSelectedVisit(visit);
     setTabIndex(2); // Switch to 'Visit Details' tab
@@ -92,8 +91,9 @@ export default function PhleboTabbedPage({ hvExecutiveId: loggedInExecutiveId, u
         setSelectedDate={setSelectedDate}
         executives={executives}
         selectedExecutiveId={selectedExecutiveId}
-        setSelectedExecutiveId={isExecutiveSelectorDisabled ? undefined : setSelectedExecutiveId}
-        // If executive is fixed, don't expose setter, disabling selector in ShortcutBar
+        setSelectedExecutiveId={lockExecutive ? undefined : setSelectedExecutiveId} 
+        // If executive is locked, do not allow setter to disable selector
+        lockExecutive={lockExecutive} // Pass lockExecutive explicitly
       />
 
       <Box
