@@ -16,47 +16,107 @@ export default function DashboardMetrics({ hvExecutiveId, date }) {
   const toast = useToast();
 
   useEffect(() => {
+    if (!date) return; // Don't fetch if date isn't set
+
+    let cancelled = false;
     async function fetchMetrics() {
       setLoading(true);
-      const queryDate = date || new Date().toISOString().slice(0, 10);
-
       try {
+        const queryDate = date;
+
+        // Base filter for visit_date
+        const baseFilter = (query) => query.eq("visit_date", queryDate);
+
+        // 1. Total Visits
+        const totalQuery = baseFilter(
+          supabase.from("visits").select("id", { count: "exact", head: true })
+        );
+        // 2. Assigned Visits (all assigned for Admin, filtered for HV)
+        let assignedQuery = baseFilter(
+          supabase.from("visits").select("id", { count: "exact", head: true })
+        );
+        if (hvExecutiveId) {
+          assignedQuery = assignedQuery.eq("executive_id", hvExecutiveId);
+        } else {
+          assignedQuery = assignedQuery.not("executive_id", "is", null);
+        }
+        // 3. Completed Visits
+        const completedQuery = baseFilter(
+          supabase
+            .from("visits")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "completed")
+        );
+        // 4. Pending Visits
+        const pendingQuery = baseFilter(
+          supabase
+            .from("visits")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "pending")
+        );
+        // 5. Unassigned Visits
+        const unassignedQuery = baseFilter(
+          supabase
+            .from("visits")
+            .select("id", { count: "exact", head: true })
+            .is("executive_id", null)
+        );
+
+        // Await everything in parallel
         const [
-          totalRes,
-          assignedRes,
-          completedRes,
-          pendingRes,
-          unassignedRes,
+          { count: totalCount, error: totalErr },
+          { count: assignedCount, error: assignedErr },
+          { count: completedCount, error: completedErr },
+          { count: pendingCount, error: pendingErr },
+          { count: unassignedCount, error: unassignedErr },
         ] = await Promise.all([
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).eq("executive_id", hvExecutiveId),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).eq("status", "completed"),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).eq("status", "pending"),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).is("executive_id", null),
+          totalQuery,
+          assignedQuery,
+          completedQuery,
+          pendingQuery,
+          unassignedQuery,
         ]);
 
-        setMetrics({
-          total: totalRes.count ?? 0,
-          assigned: assignedRes.count ?? 0,
-          completed: completedRes.count ?? 0,
-          pending: pendingRes.count ?? 0,
-          unassigned: unassignedRes.count ?? 0,
-        });
+        // If any error: throw so loading is stopped and toast shown.
+        if (totalErr || assignedErr || completedErr || pendingErr || unassignedErr) {
+          throw new Error(
+            totalErr?.message ||
+              assignedErr?.message ||
+              completedErr?.message ||
+              pendingErr?.message ||
+              unassignedErr?.message ||
+              "Error fetching metrics"
+          );
+        }
+
+        if (!cancelled) {
+          setMetrics({
+            total: totalCount ?? 0,
+            assigned: assignedCount ?? 0,
+            completed: completedCount ?? 0,
+            pending: pendingCount ?? 0,
+            unassigned: unassignedCount ?? 0,
+          });
+        }
       } catch (error) {
-        toast({
-          title: "Error loading dashboard metrics",
-          description: error.message || "Please try again later.",
-          status: "error",
-          duration: 5000,
-          isClosable: true,
-        });
+        if (!cancelled) {
+          toast({
+            title: "Error loading dashboard metrics",
+            description: error.message || "Please try again later.",
+            status: "error",
+            duration: 6000,
+            isClosable: true,
+          });
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    if (hvExecutiveId && date) {
-      fetchMetrics();
-    }
+
+    fetchMetrics();
+    return () => {
+      cancelled = true;
+    };
   }, [hvExecutiveId, date, toast]);
 
   if (loading) {
@@ -67,60 +127,65 @@ export default function DashboardMetrics({ hvExecutiveId, date }) {
     );
   }
 
-  // Scrollable container with horizontal scrolling
   return (
-    <Box overflowX="auto" mb={6} py={2}>
+    <Box overflowX="auto" mb={6}>
       <Flex minW="600px" gap={4}>
         <Stat
           bg="gray.50"
           p={4}
           rounded="md"
           boxShadow="sm"
-          minW="140px"
+          minW={140}
           flex="none"
         >
-          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total Visits Today</StatLabel>
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total Visits</StatLabel>
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.total}</StatNumber>
         </Stat>
-        <Stat
-          bg="teal.50"
-          p={4}
-          rounded="md"
-          boxShadow="sm"
-          minW="140px"
-          flex="none"
-        >
-          <StatLabel fontSize={{ base: "sm", md: "md" }}>Assigned to Me</StatLabel>
-          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.assigned}</StatNumber>
-        </Stat>
+
+        {hvExecutiveId && (
+          <Stat
+            bg="teal.50"
+            p={4}
+            rounded="md"
+            boxShadow="sm"
+            minW={140}
+            flex="none"
+          >
+            <StatLabel fontSize={{ base: "sm", md: "md" }}>Assigned to Me</StatLabel>
+            <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.assigned}</StatNumber>
+          </Stat>
+        )}
+
         <Stat
           bg="green.50"
           p={4}
           rounded="md"
           boxShadow="sm"
-          minW="140px"
+          minW={140}
           flex="none"
         >
           <StatLabel fontSize={{ base: "sm", md: "md" }}>Completed</StatLabel>
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.completed}</StatNumber>
         </Stat>
+
         <Stat
           bg="yellow.50"
           p={4}
           rounded="md"
           boxShadow="sm"
-          minW="140px"
+          minW={140}
           flex="none"
         >
           <StatLabel fontSize={{ base: "sm", md: "md" }}>Pending</StatLabel>
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.pending}</StatNumber>
         </Stat>
+
         <Stat
           bg="red.50"
           p={4}
           rounded="md"
           boxShadow="sm"
-          minW="140px"
+          minW={140}
           flex="none"
         >
           <StatLabel fontSize={{ base: "sm", md: "md" }}>Unassigned</StatLabel>

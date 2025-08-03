@@ -339,7 +339,7 @@ export default function AdminDashboard() {
           )}
 
           <Box mb={6}>
-            <DashboardMetrics hvExecutiveId={null} />
+            <DashboardMetrics hvExecutiveId={null} date={selectedDate} />
           </Box>
 
           <Tabs index={tabIndex} onChange={setTabIndex} variant="enclosed" colorScheme="green" isLazy>
