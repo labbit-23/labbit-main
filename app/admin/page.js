@@ -1,3 +1,5 @@
+// File: /app/admin/page.js
+
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
@@ -23,8 +25,7 @@ import dayjs from "dayjs";
 
 import { supabase } from "../../lib/supabaseClient";
 
-import ShortcutBar from "../../components/ShortcutBar"; // **Import ShortcutBar**
-
+import ShortcutBar from "../../components/ShortcutBar";
 import VisitsTable from "./components/VisitsTable";
 import VisitModal from "./components/VisitModal";
 import ExecutiveList from "./components/ExecutiveList";
@@ -32,7 +33,7 @@ import ExecutiveModal from "./components/ExecutiveModal";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 
-const DEFAULT_LAB_ID = "b539909242";
+const DEFAULT_LAB_ID = "b539909242"; // Update as needed
 
 export default function AdminDashboard() {
   const [tabIndex, setTabIndex] = useState(0);
@@ -59,7 +60,7 @@ export default function AdminDashboard() {
     setLoading(true);
     setErrorMsg("");
     try {
-      const apiExecutivesFetch = fetch("/api/executives?active=true").then((res) => {
+      const apiExecutivesFetch = fetch("/api/executives?active=true&type=Phlebo").then((res) => {
         if (!res.ok) throw new Error("Failed to fetch executives");
         return res.json();
       });
@@ -75,9 +76,9 @@ export default function AdminDashboard() {
           .select(
             `
             *,
-            patient:patient_id(name, phone),
-            executive:executive_id(id,name),
-            lab:lab_id(name),
+            patient:patient_id(id, name, phone),
+            executive:executive_id(id, name),
+            lab:lab_id(id, name),
             time_slot:time_slot(id, slot_name, start_time, end_time)
           `
           )
@@ -115,7 +116,18 @@ export default function AdminDashboard() {
     fetchAll();
   }, [fetchAll]);
 
-  // Visit save handler
+  // Create a deduplicated patient list for Select field (in modal)
+  const uniquePatients = React.useMemo(() => {
+    const map = new Map();
+    visits.forEach((v) => {
+      if (v.patient && v.patient.id) {
+        map.set(v.patient.id, v.patient);
+      }
+    });
+    return Array.from(map.values());
+  }, [visits]);
+
+  // Visit save handler - FIX time_slot as the key sent to DB
   const handleVisitSave = async (formData) => {
     setLoadingVisitModal(true);
     try {
@@ -130,7 +142,7 @@ export default function AdminDashboard() {
         executive_id: formData.executive_id || null,
         lab_id: formData.lab_id,
         visit_date: formData.visit_date,
-        time_slot: formData.time_slot,
+        time_slot: formData.time_slot, // Schema correct!
         address: formData.address,
         status: formData.status,
       };
@@ -283,24 +295,19 @@ export default function AdminDashboard() {
         backgroundSize: "contain",
       }}
     >
-      {/* Fixed Shortcut Bar */}
       <ShortcutBar />
 
-      {/* Content Container */}
       <Flex align="flex-start" justify="center" minH="100vh" py={8} pt="64px">
         <Box
           w="full"
           maxW="7xl"
           mx="auto"
-          bg="rgba(255, 255, 255, 0.5)" // semi-transparent overlay
+          bg="rgba(255, 255, 255, 0.5)"
           borderRadius="xl"
           boxShadow="2xl"
           px={[4, 8]}
           py={[8, 14]}
         >
-          {/* Existing Admin Dashboard content */}
-
-          {/* Header: Title + Date picker + Download button */}
           <Flex align="center" marginBottom="8" wrap="wrap" gap={3}>
             <Heading color="green.600" size="xl" fontWeight="extrabold" flex="1 1 auto">
               Labbit Admin Dashboard
@@ -320,25 +327,21 @@ export default function AdminDashboard() {
               icon={<DownloadIcon />}
               aria-label="Download Visits Schedule"
               size="md"
-              // colorScheme="brand" // Uncomment if your “brand” color is set up
               onClick={handleDownloadSchedule}
               title="Download Visits Schedule"
             />
           </Flex>
 
-          {/* Error message */}
           {errorMsg && (
             <Text color="red.500" marginBottom="6">
               {errorMsg}
             </Text>
           )}
 
-          {/* Dashboard Metrics shown always */}
           <Box mb={6}>
             <DashboardMetrics hvExecutiveId={null} />
           </Box>
 
-          {/* Tabs */}
           <Tabs index={tabIndex} onChange={setTabIndex} variant="enclosed" colorScheme="green" isLazy>
             <TabList>
               <Tab>Visits</Tab>
@@ -349,7 +352,6 @@ export default function AdminDashboard() {
             <TabPanels>
               {/* Visits Tab */}
               <TabPanel>
-                {/* VisitsTable wrapped in ref for download */}
                 <Box ref={visitsTableRef}>
                   <VisitsTable
                     visits={visits.filter((v) => v.visit_date?.slice(0, 10) === selectedDate)}
@@ -360,7 +362,7 @@ export default function AdminDashboard() {
                       visitModal.onOpen();
                     }}
                     onDelete={handleVisitDelete}
-                    onAssign={onAssign} // our new assign handler
+                    onAssign={onAssign}
                     loading={loading}
                   />
                 </Box>
@@ -374,7 +376,7 @@ export default function AdminDashboard() {
                   onSubmit={handleVisitSave}
                   visitInitialData={editingVisit}
                   isLoading={loadingVisitModal}
-                  patients={visits.map((v) => v.patient) || []}
+                  patients={uniquePatients}
                   executives={executives}
                   labs={labs}
                   timeSlots={timeSlots}

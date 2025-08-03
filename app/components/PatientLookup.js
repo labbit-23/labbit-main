@@ -1,6 +1,8 @@
+// File: /app/components/PatientLookup.js
+
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Button,
@@ -13,7 +15,6 @@ import {
   Spinner,
   Badge,
   Flex,
-  HStack,
 } from '@chakra-ui/react';
 
 export default function PatientLookup({ onPatientSelected, onNewPatient }) {
@@ -25,8 +26,8 @@ export default function PatientLookup({ onPatientSelected, onNewPatient }) {
   const toast = useToast();
 
   const getPatientSource = (patient) => {
-    if ('mrn' in patient) return 'Supabase';
-    if ('cregno' in patient) return 'External';
+    if (patient.mrn) return 'Labbit'; // Supabase patient label
+    if (patient.cregno) return patient.labName || 'External'; // External patient's lab or 'External'
     return 'Unknown';
   };
 
@@ -42,6 +43,7 @@ export default function PatientLookup({ onPatientSelected, onNewPatient }) {
     setNoResults(false);
     setPatients([]);
     setSelectedPatientId(null);
+    onPatientSelected?.(null);
 
     try {
       const res = await fetch(`/api/patient-lookup?phone=${cleanedPhone}`);
@@ -88,10 +90,9 @@ export default function PatientLookup({ onPatientSelected, onNewPatient }) {
     }
   }
 
-  // Handle patient card selection inside lookup
   const handlePatientSelect = (patient) => {
     if (selectedPatientId === patient.id) {
-      // Unselect if the same patient is clicked again
+      // Unselect if same patient clicked again
       setSelectedPatientId(null);
       onPatientSelected?.(null);
     } else {

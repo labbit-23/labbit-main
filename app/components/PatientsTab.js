@@ -3,7 +3,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Box, Button, HStack, useToast } from '@chakra-ui/react';
+import { 
+  Box, 
+  Button, 
+  HStack, 
+  useToast 
+} from '@chakra-ui/react';
 
 import PatientLookup from './PatientLookup';
 import ModularPatientModal from './ModularPatientModal';
@@ -13,37 +18,41 @@ export default function PatientsTab({
   fetchPatients,
   fetchVisits,
   onPatientSelected,
-  selectedPatient: propSelectedPatient, // controlled prop
+  selectedPatient: propSelectedPatient, // controlled prop optional
 }) {
-  // Use internal state only if no controlled prop is provided (uncontrolled mode)
+  // Internal state for patient selection when uncontrolled
   const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
 
-  // Determine whether to use controlled or uncontrolled selectedPatient
-  const selectedPatient =
-    propSelectedPatient !== undefined ? propSelectedPatient : internalSelectedPatient;
+  // Handle controlled vs uncontrolled selected patient
+  const selectedPatient = propSelectedPatient !== undefined 
+    ? propSelectedPatient 
+    : internalSelectedPatient;
 
+  // Modals visibility state
   const [patientModalOpen, setPatientModalOpen] = useState(false);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
+
+  // State for editing a visit
   const [editingVisit, setEditingVisit] = useState(null);
-  const [isSavingVisit, setIsSavingVisit] = useState(false);
+  
+  // Loading state for saving visit
+  const [isSaving, setIsSaving] = useState(false);
 
   const toast = useToast();
 
-  // Use this function to handle patient selection coming from PatientLookup or elsewhere
-  const onPatientSelectedInternal = (patient) => {
-    // Update internal state only if uncontrolled
+  // Called when patient is selected from lookup or elsewhere
+  const onPatientSelectionHandler = (patient) => {
     if (propSelectedPatient === undefined) {
       setInternalSelectedPatient(patient);
     }
-    // Always notify parent if callback is provided
     if (onPatientSelected) {
       onPatientSelected(patient);
     }
     setEditingVisit(null);
   };
 
-  const onNewPatient = () => {
-    // Clear selection to null on starting new patient creation
+  // Open patient modal; clears selection if uncontrolled
+  const onOpenPatientModal = () => {
     if (propSelectedPatient === undefined) {
       setInternalSelectedPatient(null);
     }
@@ -53,13 +62,15 @@ export default function PatientsTab({
     setPatientModalOpen(true);
   };
 
-  const onPatientModalClose = () => setPatientModalOpen(false);
-  const onVisitModalClose = () => {
+  // Close modal handlers
+  const onClosePatientModal = () => setPatientModalOpen(false);
+  const onCloseVisitModal = () => {
     setVisitModalOpen(false);
     setEditingVisit(null);
   };
 
-  const onPatientModalSubmit = async (savedPatient) => {
+  // After patient save in modal, refresh patient list and set as selected
+  const onPatientSave = async (savedPatient) => {
     if (fetchPatients) await fetchPatients();
     if (propSelectedPatient === undefined) {
       setInternalSelectedPatient(savedPatient);
@@ -76,23 +87,21 @@ export default function PatientsTab({
     });
   };
 
-  // Helper to sanitize UUID fields by converting empty string to null
-  const sanitizeVisitPayload = (data) => {
+  // Sanitize empty strings to null for UUID fields before API calls
+  const sanitizePayload = (data) => {
     const uuidFields = ['patient_id', 'executive_id', 'lab_id', 'time_slot', 'address_id'];
     const cleaned = { ...data };
-    uuidFields.forEach((field) => {
-      if (cleaned[field] === '') {
-        cleaned[field] = null;
-      }
+    uuidFields.forEach(field => {
+      if (cleaned[field] === '') cleaned[field] = null;
     });
     return cleaned;
   };
 
-  // Handler for creating/updating visit
-  const onVisitModalSubmit = async (visitData) => {
-    setIsSavingVisit(true);
+  // Save visit (create or update)
+  const onSaveVisit = async (visitData) => {
+    setIsSaving(true);
     try {
-      const payload = sanitizeVisitPayload(visitData);
+      const payload = sanitizePayload(visitData);
       let res;
       if (payload.id) {
         // Update visit
@@ -111,20 +120,17 @@ export default function PatientsTab({
       }
       const result = await res.json();
       if (!res.ok) {
-        throw new Error(result.error || 'Visit save failed');
+        throw new Error(result.error || 'Failed to save visit.');
       }
-
       toast({
         title: payload.id ? 'Visit updated' : 'Visit created',
-        description: 'Visit record was saved successfully.',
+        description: 'Visit record saved successfully.',
         status: 'success',
         duration: 3000,
         isClosable: true,
       });
-
-      setVisitModalOpen(false);
-      setEditingVisit(null);
-
+      onCloseVisitModal();
+      // Refresh data after save
       if (fetchPatients) await fetchPatients();
       if (fetchVisits) await fetchVisits();
     } catch (error) {
@@ -136,44 +142,55 @@ export default function PatientsTab({
         isClosable: true,
       });
     } finally {
-      setIsSavingVisit(false);
+      setIsSaving(false);
     }
   };
 
-  // You can add support for editing an existing visit if required:
-  // const onEditVisitClick = (visit) => {
-  //   setEditingVisit(visit);
-  //   setVisitModalOpen(true);
-  // };
-
   return (
     <Box>
-      <PatientLookup onPatientSelected={onPatientSelectedInternal} onNewPatient={onNewPatient} />
+      {/* Patient Lookup component */}
+      <PatientLookup 
+        onPatientSelected={onPatientSelectionHandler} 
+        onNewPatient={onOpenPatientModal} 
+      />
 
-      <HStack spacing={4} mt={4}>
-        <Button colorScheme="blue" onClick={() => setPatientModalOpen(true)} isDisabled={!selectedPatient}>
-          Modify Patient
+      {/* Action Buttons */}
+      <HStack mt={4} spacing={4}>
+        <Button 
+          colorScheme="blue" 
+          onClick={() => setPatientModalOpen(true)} 
+          isDisabled={!selectedPatient} 
+        >
+          {/* Show Save Patient when no ID */}
+          {selectedPatient && !selectedPatient.id ? 'Save Patient' : 'Modify Patient'}
         </Button>
-        <Button colorScheme="green" onClick={() => setVisitModalOpen(true)} isDisabled={!selectedPatient}>
+        <Button 
+          colorScheme="green" 
+          onClick={() => setVisitModalOpen(true)} 
+          // Disable if no patient selected OR patient has no ID (unsaved)
+          isDisabled={!selectedPatient || !selectedPatient.id} 
+        >
           Book Visit
         </Button>
       </HStack>
 
-      <ModularPatientModal
-        isOpen={patientModalOpen}
-        onClose={onPatientModalClose}
-        onSubmit={onPatientModalSubmit}
-        initialPatient={selectedPatient}
+      {/* Patient Modal */}
+      <ModularPatientModal 
+        isOpen={patientModalOpen} 
+        onClose={onClosePatientModal} 
+        onSubmit={onPatientSave} 
+        initialPatient={selectedPatient} 
       />
 
-      <VisitModal
-        isOpen={visitModalOpen}
-        onClose={onVisitModalClose}
-        onSubmit={onVisitModalSubmit}
-        patientId={selectedPatient?.id}
-        patients={selectedPatient ? [selectedPatient] : []}
-        visitInitialData={editingVisit}
-        isLoading={isSavingVisit}
+      {/* Visit Modal */}
+      <VisitModal 
+        isOpen={visitModalOpen} 
+        onClose={onCloseVisitModal} 
+        onSubmit={onSaveVisit} 
+        patientId={selectedPatient?.id} 
+        patients={selectedPatient ? [selectedPatient] : []} 
+        visitInitialData={null /* Or set if visit editing is enabled */}
+        isLoading={isSaving} 
       />
     </Box>
   );
