@@ -1,4 +1,4 @@
-///app/components/PatientsTab.js
+// File: /app/components/PatientsTab.js
 
 'use client';
 
@@ -9,8 +9,19 @@ import PatientLookup from './PatientLookup';
 import ModularPatientModal from './ModularPatientModal';
 import VisitModal from './VisitModal';
 
-export default function PatientsTab({ fetchPatients, fetchVisits }) {
-  const [selectedPatient, setSelectedPatient] = useState(null);
+export default function PatientsTab({
+  fetchPatients,
+  fetchVisits,
+  onPatientSelected,
+  selectedPatient: propSelectedPatient, // controlled prop
+}) {
+  // Use internal state only if no controlled prop is provided (uncontrolled mode)
+  const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
+
+  // Determine whether to use controlled or uncontrolled selectedPatient
+  const selectedPatient =
+    propSelectedPatient !== undefined ? propSelectedPatient : internalSelectedPatient;
+
   const [patientModalOpen, setPatientModalOpen] = useState(false);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [editingVisit, setEditingVisit] = useState(null);
@@ -18,13 +29,27 @@ export default function PatientsTab({ fetchPatients, fetchVisits }) {
 
   const toast = useToast();
 
-  const onPatientSelected = (patient) => {
-    setSelectedPatient(patient);
+  // Use this function to handle patient selection coming from PatientLookup or elsewhere
+  const onPatientSelectedInternal = (patient) => {
+    // Update internal state only if uncontrolled
+    if (propSelectedPatient === undefined) {
+      setInternalSelectedPatient(patient);
+    }
+    // Always notify parent if callback is provided
+    if (onPatientSelected) {
+      onPatientSelected(patient);
+    }
     setEditingVisit(null);
   };
 
   const onNewPatient = () => {
-    setSelectedPatient(null);
+    // Clear selection to null on starting new patient creation
+    if (propSelectedPatient === undefined) {
+      setInternalSelectedPatient(null);
+    }
+    if (onPatientSelected) {
+      onPatientSelected(null);
+    }
     setPatientModalOpen(true);
   };
 
@@ -36,7 +61,12 @@ export default function PatientsTab({ fetchPatients, fetchVisits }) {
 
   const onPatientModalSubmit = async (savedPatient) => {
     if (fetchPatients) await fetchPatients();
-    setSelectedPatient(savedPatient);
+    if (propSelectedPatient === undefined) {
+      setInternalSelectedPatient(savedPatient);
+    }
+    if (onPatientSelected) {
+      onPatientSelected(savedPatient);
+    }
     setPatientModalOpen(false);
     toast({
       title: 'Patient saved',
@@ -110,7 +140,7 @@ export default function PatientsTab({ fetchPatients, fetchVisits }) {
     }
   };
 
-  // Example: you can support editing an existing visit with this:
+  // You can add support for editing an existing visit if required:
   // const onEditVisitClick = (visit) => {
   //   setEditingVisit(visit);
   //   setVisitModalOpen(true);
@@ -118,7 +148,7 @@ export default function PatientsTab({ fetchPatients, fetchVisits }) {
 
   return (
     <Box>
-      <PatientLookup onPatientSelected={onPatientSelected} onNewPatient={onNewPatient} />
+      <PatientLookup onPatientSelected={onPatientSelectedInternal} onNewPatient={onNewPatient} />
 
       <HStack spacing={4} mt={4}>
         <Button colorScheme="blue" onClick={() => setPatientModalOpen(true)} isDisabled={!selectedPatient}>

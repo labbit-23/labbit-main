@@ -14,13 +14,10 @@ import {
   useToast,
   HStack,
 } from "@chakra-ui/react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../../lib/supabaseClient";
 import VisitScheduler from "../patient/VisitScheduler"; // Adjust path if needed
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+
 
 export default function PatientLookupTab({ onSelectVisit, hvExecutiveId }) {
   const toast = useToast();

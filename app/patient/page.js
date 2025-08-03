@@ -1,36 +1,53 @@
-// File: /app/patient/page.js
-
+//app/patient/page.js
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Heading, Text, VStack, Flex, Button } from "@chakra-ui/react";
 import ShortcutBar from "../../components/ShortcutBar";
-
-// Use the shared/global components ONLY (not /app/patient/)
-import PatientLookup from "../components/PatientLookup";
+import PatientVisitCards from "../components/PatientVisitCards";
+import PatientsTab from '../components/PatientsTab';
+import AddressPicker from "../components/AddressPicker";       // Make sure these imports exist
 import AddressManager from "../components/AddressManager";
-import AddressPicker from "../components/AddressPicker";
 import ModularPatientModal from "../components/ModularPatientModal";
 import VisitModal from "../components/VisitModal";
-import PatientsTab from "../components/PatientsTab";
 
 export default function PatientDashboard() {
-  // Global state for patient/phone/address/visit selection
+  // For now, hardcode userRole as "patient"
+  const userRole = "patient";
+
   const [phone, setPhone] = useState("");
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
-
-  // Modal controls
   const [isPatientModalOpen, setPatientModalOpen] = useState(false);
   const [isVisitModalOpen, setVisitModalOpen] = useState(false);
-  const [visitToEdit, setVisitToEdit] = useState(null);
+  const [visitToEdit, setVisitModalToEdit] = useState(null);
 
-  // Handler to open visit modal for new/edit visit
+  // State to hold the currently selected visit card
+  const [selectedVisitId, setSelectedVisitId] = useState(null);
+
   const openVisitModal = (visit = null) => {
-    setVisitToEdit(visit);
+    setVisitModalToEdit(visit);
     setVisitModalOpen(true);
   };
+
+  // Select visit card handler: toggles selection
+  const handleSelectVisit = (visitId) => {
+    setSelectedVisitId(visitId === selectedVisitId ? null : visitId);
+  };
+
+  // Logging selected patient and selected visit for debug
+  useEffect(() => {
+    if (selectedPatient) {
+      console.log("Selected patient:", selectedPatient);
+    } else {
+      console.log("No patient selected");
+    }
+  }, [selectedPatient]);
+
+  useEffect(() => {
+    console.log("Selected Visit ID:", selectedVisitId);
+  }, [selectedVisitId]);
 
   return (
     <Box
@@ -43,13 +60,14 @@ export default function PatientDashboard() {
         backgroundSize: "cover",
       }}
     >
-      <ShortcutBar />
+      {/* Pass userRole prop */}
+      <ShortcutBar userRole={userRole} />
 
       <Flex align="flex-start" justify="center" minH="100vh" py={8} pt="64px">
         <Box
           maxW="600px"
           w="full"
-          bg="rgba(255,255,255,0.5)"
+          bg="rgba(255,255,255,0.75)"
           borderRadius="xl"
           boxShadow="2xl"
           p={6}
@@ -59,9 +77,7 @@ export default function PatientDashboard() {
               Welcome to Labbit
             </Heading>
 
-            
-
-            {/* If managing multiple patients (family) */}
+            {/* PatientsTab to select patient */}
             <PatientsTab onPatientSelected={setSelectedPatient} />
 
             {selectedPatient ? (
@@ -70,20 +86,19 @@ export default function PatientDashboard() {
                   Hello, {selectedPatient.name || "Patient"}!
                 </Text>
 
-                {/* Pick an address (do not use AddressEditor) */}
+                
+                {/* AddressPicker and AddressManager */}
+                {/*
                 <AddressPicker
                   patientId={selectedPatient.id}
                   selectedAddress={selectedAddress}
                   setSelectedAddress={setSelectedAddress}
                 />
-
-                {/* Full address management */}
                 <AddressManager
                   patientId={selectedPatient.id}
                   onAddressesChange={setAddresses}
                 />
-
-                {/* Button to open patient info edit modal */}
+                
                 <Button
                   colorScheme="blue"
                   onClick={() => setPatientModalOpen(true)}
@@ -96,10 +111,8 @@ export default function PatientDashboard() {
                   isOpen={isPatientModalOpen}
                   onClose={() => setPatientModalOpen(false)}
                   patient={selectedPatient}
-                  // Add a save handler if needed
                 />
 
-                {/* Visit modal for new visits */}
                 <Button
                   colorScheme="green"
                   mt={4}
@@ -108,6 +121,18 @@ export default function PatientDashboard() {
                 >
                   Book a Home Visit
                 </Button>
+                
+                */}
+                
+                {/* PatientVisitCards with selection */}
+                <PatientVisitCards
+                  patientId={selectedPatient.id}
+                  selectedVisitId={selectedVisitId}
+                  onSelectVisit={handleSelectVisit}
+                  openVisitModal={openVisitModal}
+                />
+
+                {/* Visit modal for new/edit */}
                 <VisitModal
                   isOpen={isVisitModalOpen}
                   onClose={() => setVisitModalOpen(false)}

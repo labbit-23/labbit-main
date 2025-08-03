@@ -1,10 +1,10 @@
-//components/DashboardMetrics.js
+// File: /components/DashboardMetrics.js
 
 import React, { useEffect, useState } from "react";
-import { Box, SimpleGrid, Stat, StatLabel, StatNumber, useToast } from "@chakra-ui/react";
+import { Box, Flex, Stat, StatLabel, StatNumber, useToast } from "@chakra-ui/react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function DashboardMetrics({ hvExecutiveId }) {
+export default function DashboardMetrics({ hvExecutiveId, date }) {
   const [metrics, setMetrics] = useState({
     total: 0,
     assigned: 0,
@@ -18,9 +18,9 @@ export default function DashboardMetrics({ hvExecutiveId }) {
   useEffect(() => {
     async function fetchMetrics() {
       setLoading(true);
-      const today = new Date().toISOString().slice(0, 10);
+      const queryDate = date || new Date().toISOString().slice(0, 10);
+
       try {
-        // Run queries in parallel
         const [
           totalRes,
           assignedRes,
@@ -28,11 +28,11 @@ export default function DashboardMetrics({ hvExecutiveId }) {
           pendingRes,
           unassignedRes,
         ] = await Promise.all([
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", today),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", today).eq("executive_id", hvExecutiveId),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", today).eq("status", "completed"),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", today).eq("status", "pending"),
-          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", today).is("executive_id", null),
+          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate),
+          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).eq("executive_id", hvExecutiveId),
+          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).eq("status", "completed"),
+          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).eq("status", "pending"),
+          supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", queryDate).is("executive_id", null),
         ]);
 
         setMetrics({
@@ -54,35 +54,79 @@ export default function DashboardMetrics({ hvExecutiveId }) {
         setLoading(false);
       }
     }
-    fetchMetrics();
-  }, [hvExecutiveId, toast]);
+    if (hvExecutiveId && date) {
+      fetchMetrics();
+    }
+  }, [hvExecutiveId, date, toast]);
 
   if (loading) {
-    return <Box>Loading metrics...</Box>;
+    return (
+      <Box textAlign="center" py={4} color="gray.500">
+        Loading metrics...
+      </Box>
+    );
   }
 
+  // Scrollable container with horizontal scrolling
   return (
-    <SimpleGrid columns={[2, null, 5]} spacing={4} mb={6}>
-      <Stat bg="gray.50" p={4} rounded="md" boxShadow="sm">
-        <StatLabel>Total Visits Today</StatLabel>
-        <StatNumber>{metrics.total}</StatNumber>
-      </Stat>
-      <Stat bg="teal.50" p={4} rounded="md" boxShadow="sm">
-        <StatLabel>Assigned to Me</StatLabel>
-        <StatNumber>{metrics.assigned}</StatNumber>
-      </Stat>
-      <Stat bg="green.50" p={4} rounded="md" boxShadow="sm">
-        <StatLabel>Completed</StatLabel>
-        <StatNumber>{metrics.completed}</StatNumber>
-      </Stat>
-      <Stat bg="yellow.50" p={4} rounded="md" boxShadow="sm">
-        <StatLabel>Pending</StatLabel>
-        <StatNumber>{metrics.pending}</StatNumber>
-      </Stat>
-      <Stat bg="red.50" p={4} rounded="md" boxShadow="sm">
-        <StatLabel>Unassigned</StatLabel>
-        <StatNumber>{metrics.unassigned}</StatNumber>
-      </Stat>
-    </SimpleGrid>
+    <Box overflowX="auto" mb={6} py={2}>
+      <Flex minW="600px" gap={4}>
+        <Stat
+          bg="gray.50"
+          p={4}
+          rounded="md"
+          boxShadow="sm"
+          minW="140px"
+          flex="none"
+        >
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total Visits Today</StatLabel>
+          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.total}</StatNumber>
+        </Stat>
+        <Stat
+          bg="teal.50"
+          p={4}
+          rounded="md"
+          boxShadow="sm"
+          minW="140px"
+          flex="none"
+        >
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Assigned to Me</StatLabel>
+          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.assigned}</StatNumber>
+        </Stat>
+        <Stat
+          bg="green.50"
+          p={4}
+          rounded="md"
+          boxShadow="sm"
+          minW="140px"
+          flex="none"
+        >
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Completed</StatLabel>
+          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.completed}</StatNumber>
+        </Stat>
+        <Stat
+          bg="yellow.50"
+          p={4}
+          rounded="md"
+          boxShadow="sm"
+          minW="140px"
+          flex="none"
+        >
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Pending</StatLabel>
+          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.pending}</StatNumber>
+        </Stat>
+        <Stat
+          bg="red.50"
+          p={4}
+          rounded="md"
+          boxShadow="sm"
+          minW="140px"
+          flex="none"
+        >
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Unassigned</StatLabel>
+          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.unassigned}</StatNumber>
+        </Stat>
+      </Flex>
+    </Box>
   );
 }
