@@ -40,10 +40,9 @@ const statusColorScheme = (status) => {
       return "purple";
     case "completed":
       return "green";
+    case "disabled":
+      return "gray";
     case "unassigned":
-      return "gray";
-    case "disabled":       // New disabled status styling
-      return "gray";
     default:
       return "gray";
   }
@@ -55,17 +54,11 @@ const formatDate = (dateInput) => {
   return d.toISOString().split("T")[0];
 };
 
-// Group visits by executive id, returning groups like:
-// [{ exec: executiveObject|null, visits: [...] }, ...]
 const groupVisitsByExecutive = (visits, executives) => {
-  const execMap = new Map();
-  for (const exec of executives) {
-    execMap.set(exec.id, exec);
-  }
-
+  const execMap = new Map(executives.map((exec) => [exec.id, exec]));
   const groups = new Map();
 
-  visits.forEach((visit) => {
+  for (const visit of visits) {
     let execId = visit.executive?.id ?? visit.executive_id ?? null;
     if (!execId) execId = null;
 
@@ -76,10 +69,22 @@ const groupVisitsByExecutive = (visits, executives) => {
       });
     }
     groups.get(execId).visits.push(visit);
+  }
+
+  // Sort visits within each group by time_slot.start_time (proper date compare)
+  groups.forEach((group) => {
+    group.visits.sort((a, b) => {
+      const timeA = a?.time_slot?.start_time ?? "";
+      const timeB = b?.time_slot?.start_time ?? "";
+      const dateA = new Date(`1970-01-01T${timeA}Z`);
+      const dateB = new Date(`1970-01-01T${timeB}Z`);
+      return dateA - dateB;
+    });
   });
 
-  // Sort groups by exec name, putting unassigned first
   const sortedGroups = Array.from(groups.values());
+
+  // Sort groups by executive name with unassigned first
   sortedGroups.sort((a, b) => {
     if (a.exec === null && b.exec !== null) return -1;
     if (a.exec !== null && b.exec === null) return 1;
@@ -95,31 +100,27 @@ export default function VisitsTable({
   executives = [],
   timeSlots = [],
   onEdit,
-  onDelete,   // Will be used for soft-delete as disable
+  onDelete,
   onAssign,
   loading = false,
 }) {
   const [assigning, setAssigning] = useState(new Set());
-  const [selectedExecByVisit, setSelectedExecByVisit] = useState({});
+  const [selectedExec, setSelectedExec] = useState({});
 
   const groups = groupVisitsByExecutive(visits, executives);
 
   const getSlotDisplay = (visit) => {
-    if (visit.time_slot?.slot_name) {
-      return `${visit.time_slot.slot_name} (${visit.time_slot.start_time.slice(0, 5)} - ${visit.time_slot.end_time.slice(0, 5)})`;
-    }
+    if (visit?.time_slot?.slot_name) return visit.time_slot.slot_name;
     if (timeSlots.length) {
-      const slotId = visit.time_slot_id || visit.time_slot;
-      const found = timeSlots.find((s) => s.id === slotId);
-      if (found) {
-        return `${found.slot_name} (${found.start_time.slice(0, 5)} - ${found.end_time.slice(0, 5)})`;
-      }
+      const id = visit.time_slot ?? visit.time_slot_id;
+      const slot = timeSlots.find((s) => s.id === id);
+      if (slot) return slot.slot_name;
     }
     return "Unknown";
   };
 
   const handleAssign = async (visit) => {
-    const execId = selectedExecByVisit[visit.id];
+    const execId = selectedExec[visit.id];
     if (!execId) {
       alert("Please select an executive");
       return;
@@ -127,17 +128,17 @@ export default function VisitsTable({
     if (!onAssign) return;
 
     try {
-      setAssigning(prev => new Set(prev).add(visit.id));
+      setAssigning((prev) => new Set(prev).add(visit.id));
       await onAssign(visit.id, execId);
-      setSelectedExecByVisit(prev => {
+      setSelectedExec((prev) => {
         const copy = { ...prev };
         delete copy[visit.id];
         return copy;
       });
     } catch (error) {
-      alert("Error assigning visit: " + error.message);
+      alert("Error assigning: " + error.message);
     } finally {
-      setAssigning(prev => {
+      setAssigning((prev) => {
         const copy = new Set(prev);
         copy.delete(visit.id);
         return copy;
@@ -145,13 +146,14 @@ export default function VisitsTable({
     }
   };
 
-  // Soft delete handler: sets status to 'disabled' and unassigns executive
-  const handleSoftDelete = async (visit) => {
-    if (!window.confirm("Are you sure you want to disable this visit?")) return;
-    if (!onDelete) return alert("Delete handler not provided");
-
+  const handleDisable = async (visit) => {
+    if (!window.confirm(`Do you really want to disable visit ${visit.visit_code}?`)) return;
+    if (!onDelete) {
+      alert("Disable action not configured");
+      return;
+    }
     try {
-      await onDelete(visit.id, "disabled");  // Provide status param
+      await onDelete(visit.id, "disabled");
     } catch (error) {
       alert("Error disabling visit: " + error.message);
     }
@@ -166,108 +168,89 @@ export default function VisitsTable({
   }
 
   if (!visits.length) {
-    return (
-      <Text textAlign="center" py={10} color="gray.600">
-        No visits found.
-      </Text>
-    );
+    return <Text textAlign="center" py={10}>No visits found.</Text>;
   }
 
   return (
-    <Box overflowX="auto" bg="white" borderRadius="xl" shadow="lg" p={4}>
-      {groups.map(({ exec, visits }) => (
-        <Box key={exec ? exec.id : "unassigned"} mb={8}>
-          <Text fontWeight="bold" fontSize="lg" mb={3} color={exec ? "green.700" : "gray.600"}>
-            {exec ? exec.name : "Unassigned"}
-          </Text>
-
-          <Table variant="simple" size="sm" rounded="xl" overflowX="auto">
-            <Thead bg="gray.100">
-              <Tr>
-                <Th>Code</Th>
-                <Th>Date</Th>
-                <Th>Slot</Th>
-                <Th>Patient</Th>
-                <Th>Lab</Th>
-                <Th>Status</Th>
-                <Th isNumeric>Actions</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {visits.map((visit) => {
-                const isUnassigned = !visit.executive_id || visit.executive_id === "";
-
-                return (
-                  <Tr key={visit.id}>
-                    <Td>{visit.visit_code || "N/A"}</Td>
-                    <Td>{formatDate(visit.visit_date)}</Td>
-                    <Td>{getSlotDisplay(visit)}</Td>
-                    <Td>{visit.patient?.name || "Unknown"}</Td>
-                    <Td>{visit.lab?.name || "N/A"}</Td>
-                    <Td>
-                      <Badge
-                        colorScheme={statusColorScheme(visit.status)}
-                        rounded="md"
-                        px={2}
-                        cursor={isUnassigned ? "pointer" : "default"}
-                      >
-                        {visit.status?.toUpperCase().replace(/_/g, " ")}
-                      </Badge>
-                    </Td>
-                    <Td isNumeric>
-                      <HStack spacing={2} justify="flex-end">
-                        <IconButton
-                          aria-label="Edit visit"
-                          icon={<EditIcon />}
-                          size="sm"
-                          onClick={() => onEdit && onEdit(visit)}
-                        />
-                        <IconButton
-                          aria-label="Disable visit"
-                          icon={<DeleteIcon />}
-                          size="sm"
-                          colorScheme="red"
-                          onClick={() => handleSoftDelete(visit)}
-                        />
-                        {isUnassigned && exec === null && (
-                          <>
-                            <Select
-                              size="xs"
-                              w="120px"
-                              placeholder="Assign Exec"
-                              onChange={(e) =>
-                                setSelectedExecByVisit((prev) => ({ ...prev, [visit.id]: e.target.value }))
-                              }
-                              value={selectedExecByVisit[visit.id] || ""}
-                            >
-                              {executives.map((ex) => (
-                                <option key={ex.id} value={ex.id}>
-                                  {ex.name}
-                                </option>
-                              ))}
-                            </Select>
-
-                            <IconButton
-                              aria-label="Assign visit"
-                              icon={<AddIcon />}
-                              size="xs"
-                              colorScheme="green"
-                              onClick={() => handleAssign(visit)}
-                              isDisabled={!selectedExecByVisit[visit.id]}
-                              isLoading={assigning.has(visit.id)}
-                              title="Assign this visit"
-                            />
-                          </>
-                        )}
-                      </HStack>
-                    </Td>
-                  </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
-        </Box>
-      ))}
-    </Box>
+    <>
+      <style>{`
+        /* Hide elements with 'no-export' inside .hide-on-export */
+        .hide-on-export .no-export {
+          display: none !important;
+        }
+      `}</style>
+      <Box overflowX="auto" bg="white" rounded="xl" shadow="lg" p={4} className="hide-on-export">
+        {groups.map(({ exec, visits }) => (
+          <Box key={exec ? exec.id : "unassigned"} mb={8}>
+            <Text fontWeight="bold" fontSize="lg" mb={3} color={exec ? "green.700" : "gray.600"}>
+              {exec ? exec.name : "Unassigned"}
+            </Text>
+            <Table variant="simple" size="sm" rounded className="visits-table" overflowX="auto">
+              <Thead bg="gray.100">
+                <Tr>
+                  <Th>Code</Th>
+                  <Th>Date</Th>
+                  <Th>Slot</Th>
+                  <Th>Patient</Th>
+                  <Th>Status</Th>
+                  <Th className="no-export" isNumeric>Actions</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {visits.map((visit) => {
+                  const isUnassigned = !visit.executive_id || visit.executive_id === "";
+                  return (
+                    <Tr key={visit.id}>
+                      <Td>{visit.visit_code ?? "N/A"}</Td>
+                      <Td>{formatDate(visit.visit_date)}</Td>
+                      <Td>{getSlotDisplay(visit)}</Td>
+                      <Td>
+                        <Box>{visit.patient?.name ?? "Unknown"}</Box>
+                        <Box fontWeight="bold" fontSize="sm" color="gray.700">
+                          {visit.patient?.phone ?? "No Phone"}
+                        </Box>
+                      </Td>
+                      <Td>
+                        <Badge colorScheme={statusColorScheme(visit.status)} rounded="md" px={2}>
+                          {visit.status?.toUpperCase().replace(/_/g, " ") ?? "UNKNOWN"}
+                        </Badge>
+                      </Td>
+                      <Td className="no-export" isNumeric>
+                        <HStack spacing={2} justify="flex-end">
+                          <IconButton aria-label="Edit" icon={<EditIcon />} size="sm" onClick={() => onEdit && onEdit(visit)} />
+                          <IconButton aria-label="Disable" icon={<DeleteIcon />} size="sm" colorScheme="red" onClick={() => handleDisable(visit)} />
+                          {isUnassigned && exec === null && (
+                            <>
+                              <Select
+                                size="xs"
+                                w={120}
+                                placeholder="Assign Exec"
+                                onChange={e =>
+                                  setSelectedExec(prev => ({ ...prev, [visit.id]: e.target.value }))
+                                }
+                                value={selectedExec[visit.id] ?? ""}
+                              />
+                              <IconButton
+                                aria-label="Assign"
+                                icon={<AddIcon />}
+                                size="xs"
+                                colorScheme="green"
+                                onClick={() => handleAssign(visit)}
+                                isDisabled={!selectedExec[visit.id]}
+                                isLoading={assigning.has(visit.id)}
+                              />
+                            </>
+                          )}
+                        </HStack>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </Tbody>
+            </Table>
+          </Box>
+        ))}
+      </Box>
+    </>
   );
 }
