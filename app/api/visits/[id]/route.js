@@ -1,4 +1,4 @@
-//app/api/visits/[id]/route.js
+// File: /app/api/visits/[id]/route.js
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -9,7 +9,7 @@ const supabase = createClient(
 );
 
 /**
- * GET - Fetch a single visit by ID (optional, if you want to support fetching specific visit)
+ * GET - Fetch a single visit by ID
  */
 export async function GET(request, { params }) {
   const { id } = params;
@@ -108,32 +108,6 @@ export async function PUT(request, { params }) {
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (err) {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
-}
-
-/**
- * DELETE - Optionally, to delete a visit by ID (if needed)
- */
-export async function DELETE(request, { params }) {
-  const { id } = params;
-
-  if (!id) {
-    return NextResponse.json({ error: "Missing visit ID" }, { status: 400 });
-  }
-
-  try {
-    const { error } = await supabase.from("visits").delete().eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json(
-      { message: "Visit deleted successfully" },
-      { status: 200 }
-    );
   } catch (err) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -26,6 +26,14 @@ const formatDate = (dateInput) => {
   return d.toISOString().split("T")[0]; // yyyy-mm-dd
 };
 
+// Helper to fetch sequential visit code from your backend
+async function getVisitCode(visitDate) {
+  const resp = await fetch(`/api/generate-visit-code?date=${visitDate}`);
+  if (!resp.ok) throw new Error("Failed to generate visit code");
+  const { visitCode } = await resp.json();
+  return visitCode;
+}
+
 export default function VisitModal({
   isOpen,
   onClose,
@@ -42,10 +50,11 @@ export default function VisitModal({
     executive_id: "",
     lab_id: "",
     visit_date: formatDate(new Date()),
-    time_slot: "", // updated field name here
+    time_slot: "",
     address: "",
     status: "booked",
   });
+  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
     if (visitInitialData) {
@@ -54,7 +63,7 @@ export default function VisitModal({
         executive_id: visitInitialData.executive_id || "",
         lab_id: visitInitialData.lab_id || "",
         visit_date: formatDate(visitInitialData.visit_date) || formatDate(new Date()),
-        time_slot: visitInitialData.time_slot || "", // updated field name here
+        time_slot: visitInitialData.time_slot || "",
         address: visitInitialData.address || "",
         status: visitInitialData.status || "booked",
       });
@@ -75,9 +84,26 @@ export default function VisitModal({
     setFormData((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
-    onSubmit(formData);
+    let visitData = { ...formData };
+    try {
+      setIsGenerating(true);
+
+      // Only generate a code if creating, not editing
+      if (!visitInitialData) {
+        visitData.visit_code = await getVisitCode(formData.visit_date);
+      } else if (visitInitialData.visit_code) {
+        visitData.visit_code = visitInitialData.visit_code;
+      }
+
+      onSubmit(visitData);
+    } catch (err) {
+      alert("Could not generate visit code. Please try again.");
+      console.error(err);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -189,7 +215,7 @@ export default function VisitModal({
         </ModalBody>
 
         <ModalFooter>
-          <Button isLoading={isLoading} colorScheme="teal" type="submit" mr={3}>
+          <Button isLoading={isLoading || isGenerating} colorScheme="teal" type="submit" mr={3}>
             {visitInitialData ? "Update" : "Create"}
           </Button>
           <Button onClick={onClose} variant="ghost">
