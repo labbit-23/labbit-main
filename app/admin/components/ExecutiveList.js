@@ -1,4 +1,4 @@
-// app/admin/components/ExecutiveList.js
+// File: app/admin/components/ExecutiveList.js
 
 "use client";
 
@@ -18,12 +18,13 @@ import {
   Badge,
   useToast,
   Heading,
-  VStack,
+  Image,
 } from "@chakra-ui/react";
 import ExecutiveModal from "./ExecutiveModal";
 
 export default function ExecutiveList({
   executives = [],
+  labs = [],
   loading = false,
   onRefresh = () => {},
 }) {
@@ -33,52 +34,54 @@ export default function ExecutiveList({
   const [isSaving, setIsSaving] = useState(false);
   const [disableLoadingId, setDisableLoadingId] = useState(null);
 
-  // Group executives dynamically by the exact types coming from DB,
-  // grouping unknown or empty types under "Unknown"
+  // Memoized grouping and sorting
   const groupedExecutives = useMemo(() => {
     const groups = {};
-
-    // Group executives by trimmed type or "Unknown" if empty or missing
-    executives.forEach((exec) => {
+    executives.forEach(exec => {
       const execType = exec.type ? exec.type.trim() : "";
       const groupKey = execType !== "" ? execType : "Unknown";
-
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
-      }
-
+      if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push(exec);
     });
 
-    // Sort group keys alphabetically (change if you want different order)
+    // Alphabetical order of type
     const sortedGroupKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-
-    // Sort each group so active executives come before inactive
     sortedGroupKeys.forEach((key) => {
       groups[key].sort((a, b) => {
-        const aActive = ((a.status || a.active) || "").toString().toLowerCase() === "active" || a.active === true;
-        const bActive = ((b.status || b.active) || "").toString().toLowerCase() === "active" || b.active === true;
-        if (aActive === bActive) return 0;
-        return aActive ? -1 : 1;
+        // Active first, then Available, then others/inactive
+        const aStatus =
+          ((a.status || a.active) || "").toString().toLowerCase() === "active"
+            ? 1
+            : ((a.status || "").toString().toLowerCase() === "available" ? 0 : -1);
+        const bStatus =
+          ((b.status || b.active) || "").toString().toLowerCase() === "active"
+            ? 1
+            : ((b.status || "").toString().toLowerCase() === "available" ? 0 : -1);
+        if (aStatus === bStatus) return 0;
+        return aStatus > bStatus ? -1 : 1;
       });
     });
 
-    // Return new object respecting sorted keys order
+    // Return sorted object
     const sortedGroups = {};
-    sortedGroupKeys.forEach((key) => {
+    sortedGroupKeys.forEach(key => {
       sortedGroups[key] = groups[key];
     });
-
     return sortedGroups;
   }, [executives]);
 
-  // Local copy to reflect UI changes immediately without waiting for server reload
   const [localExecutives, setLocalExecutives] = useState(executives);
 
-  // Sync local state with parent updates
   useEffect(() => {
     setLocalExecutives(executives);
   }, [executives]);
+
+  // Get lab name/logo by lab_id
+  const getLabInfo = (exec) => {
+    if (!exec.lab_id) return { name: "--", logo_url: null };
+    const found = (exec.lab && exec.lab.name) ? exec.lab : labs.find(l => l.id === exec.lab_id);
+    return found || { name: "--", logo_url: null };
+  };
 
   const handleUpdate = (exec) => {
     setSelectedExecutive(exec);
@@ -88,33 +91,32 @@ export default function ExecutiveList({
   const handleSave = async (execData) => {
     setIsSaving(true);
     try {
-      const method = execData.id ? "PUT" : "POST";
+      const isUpdate = !!execData.id;
+      // For new Phlebo, set status default value to Available
+      if (!isUpdate && (execData.type?.toLowerCase() === "phlebo" || execData.type?.toLowerCase() === "phlebotomist")) {
+        execData.status = "available";
+      }
+      const method = isUpdate ? "PUT" : "POST";
       const res = await fetch("/api/executives", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(execData),
       });
-
       if (!res.ok) throw new Error(await res.text());
-
       const savedExec = await res.json();
-
       toast({
-        title: `Executive ${execData.id ? "updated" : "created"} successfully`,
+        title: `Executive ${isUpdate ? "updated" : "created"} successfully`,
         status: "success",
       });
-
       setModalOpen(false);
       setSelectedExecutive(null);
-
       setLocalExecutives((current) => {
-        if (execData.id) {
+        if (isUpdate) {
           return current.map((e) => (e.id === savedExec.id ? savedExec : e));
         } else {
           return [savedExec, ...current];
         }
       });
-
       onRefresh();
     } catch (e) {
       toast({ title: "Save failed", description: e.message, status: "error" });
@@ -127,25 +129,20 @@ export default function ExecutiveList({
     setDisableLoadingId(exec.id);
     const isActive = (exec.status || "").toLowerCase() === "active" || exec.active === true;
     const newStatus = isActive ? "inactive" : "active";
-
     try {
       const res = await fetch(`/api/executives/${exec.id}/updateStatus`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-
       if (!res.ok) throw new Error(await res.text());
-
       toast({
         title: `Executive status changed to ${newStatus}`,
         status: "success",
       });
-
       setLocalExecutives((current) =>
         current.map((e) => (e.id === exec.id ? { ...e, status: newStatus } : e))
       );
-
       onRefresh();
     } catch (e) {
       toast({ title: "Status update failed", description: e.message, status: "error" });
@@ -177,7 +174,6 @@ export default function ExecutiveList({
           <Heading size="md" mb={3} textTransform="capitalize">
             {type}
           </Heading>
-
           <Table
             variant="simple"
             size="sm"
@@ -190,7 +186,8 @@ export default function ExecutiveList({
               <Tr>
                 <Th>Name</Th>
                 <Th>Phone</Th>
-                <Th>Type</Th>
+                <Th>Email</Th>
+                <Th>Lab</Th>
                 <Th>Status</Th>
                 <Th isNumeric>Actions</Th>
               </Tr>
@@ -199,21 +196,40 @@ export default function ExecutiveList({
               {execs.map((exec) => {
                 const statusLower = (exec.status || "").toLowerCase();
                 const isActive = statusLower === "active" || exec.active === true;
-
+                const labInfo = getLabInfo(exec);
                 return (
                   <Tr key={exec.id}>
                     <Td>{exec.name}</Td>
                     <Td>{exec.phone}</Td>
-                    <Td>{exec.type && exec.type.trim() !== "" ? exec.type : "Unknown"}</Td>
+                    <Td>{exec.email}</Td>
+                    <Td>
+                      <HStack>
+                        {labInfo.logo_url && (
+                          <Image
+                            src={labInfo.logo_url}
+                            alt={labInfo.name + " logo"}
+                            height="30px"
+                            borderRadius="sm"
+                          />
+                        )}
+                        <Text display="inline">{labInfo.name}</Text>
+                      </HStack>
+                    </Td>
                     <Td>
                       <Badge
-                        colorScheme={isActive ? "green" : "red"}
+                        colorScheme={
+                          isActive
+                            ? "green"
+                            : statusLower === "available"
+                            ? "blue"
+                            : "red"
+                        }
                         textTransform="capitalize"
                         px={2}
                         py={1}
                         rounded="md"
                       >
-                        {isActive ? "Active" : "Inactive"}
+                        {isActive ? "Active" : statusLower === "available" ? "Available" : "Inactive"}
                       </Badge>
                     </Td>
                     <Td isNumeric>
@@ -243,7 +259,6 @@ export default function ExecutiveList({
           </Table>
         </Box>
       ))}
-
       <ExecutiveModal
         isOpen={modalOpen}
         onClose={() => {
@@ -253,6 +268,7 @@ export default function ExecutiveList({
         initialData={selectedExecutive}
         onSaveSuccess={handleSave}
         isLoading={isSaving}
+        labs={labs}
       />
     </>
   );

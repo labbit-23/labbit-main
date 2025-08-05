@@ -179,7 +179,7 @@ export default function VisitsTable({
           display: none !important;
         }
       `}</style>
-      <Box overflowX="auto" bg="white" rounded="xl" shadow="lg" p={4} className="hide-on-export">
+      <Box overflowX="auto" bg="white" rounded="xl" shadow="lg" p={4}>
         {groups.map(({ exec, visits }) => (
           <Box key={exec ? exec.id : "unassigned"} mb={8}>
             <Text fontWeight="bold" fontSize="lg" mb={3} color={exec ? "green.700" : "gray.600"}>

@@ -1,3 +1,5 @@
+//app/admin/components/ExecutiveModal.js
+
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -23,52 +25,53 @@ import {
 export default function ExecutiveModal({
   isOpen,
   onClose,
-  onSaveSuccess,          // Callback when save is successful to refresh parent list
-  initialData = null,     // Object with executive info to edit or null for new
+  onSaveSuccess,
+  initialData = null,
 }) {
   const toast = useToast();
 
   const roles = ["Phlebo", "Admin", "Courier", "Management"]; // Customize as needed
 
-  // Default form state
   const defaultForm = {
     id: null,
     name: "",
     phone: "",
+    email: "",
     type: roles[0],
     active: true,
   };
 
   const [formData, setFormData] = useState(defaultForm);
-  const [loading, setLoading] = useState(false);  // Form submit loading state
+  const [loading, setLoading] = useState(false);
 
-  // Initialize form on modal open or when initialData changes
   useEffect(() => {
     if (isOpen) {
-      if (initialData && typeof initialData.id !== "undefined" && initialData.id !== null) {
-        // Editing existing executive
+      if (initialData && initialData.id != null) {
         setFormData({
           id: initialData.id,
           name: initialData.name || "",
           phone: initialData.phone || "",
+          email: initialData.email || "",
           type: roles.includes(initialData.type) ? initialData.type : roles[0],
           active: typeof initialData.active === "boolean" ? initialData.active : true,
         });
       } else {
-        // Creating new executive
         setFormData(defaultForm);
       }
     }
-  // Only run when modal opens or executive id changes
   }, [isOpen, initialData?.id]);
 
-  // General input change handler
   const handleChange = (field) => (event) => {
     const val = event.target.type === "checkbox" ? event.target.checked : event.target.value;
     setFormData((prev) => ({ ...prev, [field]: val }));
   };
 
-  // Basic validation
+  const validateEmail = (email) => {
+    // Simple email Regex pattern
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
+
   const validate = () => {
     if (!formData.name.trim()) {
       toast({ title: "Name is required", status: "warning" });
@@ -82,6 +85,10 @@ export default function ExecutiveModal({
       toast({ title: "Enter a valid 10-digit phone number", status: "warning" });
       return false;
     }
+    if (!formData.email.trim() || !validateEmail(formData.email.trim())) {
+      toast({ title: "Valid email is required", status: "warning" });
+      return false;
+    }
     if (!formData.type || !roles.includes(formData.type)) {
       toast({ title: "Role selection is required", status: "warning" });
       return false;
@@ -89,22 +96,25 @@ export default function ExecutiveModal({
     return true;
   };
 
-  // Form submit handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!validate()) return;
 
     setLoading(true);
 
     try {
-      // Use appropriate HTTP method based on presence of id (edit or create)
-      const method = formData.id ? "PUT" : "POST";
+      // For new phlebos, default status to "available"
+      const payload = {
+        ...formData,
+        status: !formData.id && formData.type.toLowerCase() === "phlebo" ? "available" : (formData.status || (formData.active ? "active" : "inactive")),
+      };
+
+      const method = payload.id ? "PUT" : "POST";
 
       const res = await fetch("/api/executives", {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -113,12 +123,12 @@ export default function ExecutiveModal({
       }
 
       const savedExec = await res.json();
+
       toast({
-        title: `Executive ${formData.id ? "updated" : "created"} successfully!`,
+        title: `Executive ${payload.id ? "updated" : "created"} successfully!`,
         status: "success",
       });
 
-      // Notify parent to refresh list and close modal
       if (onSaveSuccess) {
         onSaveSuccess(savedExec);
       }
@@ -141,9 +151,7 @@ export default function ExecutiveModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => {
-        if (!loading) onClose();
-      }}
+      onClose={() => { if (!loading) onClose(); }}
       size="md"
       isCentered
       closeOnOverlayClick={!loading}
@@ -175,6 +183,18 @@ export default function ExecutiveModal({
                 maxLength={10}
                 disabled={loading}
                 type="tel"
+              />
+            </FormControl>
+
+            <FormControl id="email" isRequired>
+              <FormLabel>Email Address</FormLabel>
+              <Input
+                placeholder="Email"
+                value={formData.email}
+                onChange={handleChange("email")}
+                disabled={loading}
+                type="email"
+                autoComplete="off"
               />
             </FormControl>
 
@@ -210,13 +230,7 @@ export default function ExecutiveModal({
         </ModalBody>
 
         <ModalFooter>
-          <Button
-            type="submit"
-            colorScheme="blue"
-            isLoading={loading}
-            isDisabled={loading}
-            mr={3}
-          >
+          <Button type="submit" colorScheme="blue" isLoading={loading} isDisabled={loading} mr={3}>
             {isEditing ? "Update" : "Save"}
           </Button>
           <Button onClick={onClose} isDisabled={loading} variant="ghost">

@@ -77,7 +77,7 @@ export default function AdminDashboard() {
             `
             *,
             patient:patient_id(id, name, phone),
-            executive:executive_id(id, name),
+            executive:executive_id(id, name, email, lab_id),
             lab:lab_id(id, name),
             time_slot:time_slot(id, slot_name, start_time, end_time)
           `
@@ -142,7 +142,7 @@ export default function AdminDashboard() {
         executive_id: formData.executive_id || null,
         lab_id: formData.lab_id,
         visit_date: formData.visit_date,
-        time_slot: formData.time_slot, // Schema correct!
+        time_slot: formData.time_slot,
         address: formData.address,
         status: formData.status,
       };
@@ -250,7 +250,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // Download visits table as PNG using html2canvas
+  // Download visits table as PNG using html2canvas with temporary hide-on-export class
   const handleDownloadSchedule = async () => {
     if (!visitsTableRef.current) {
       toast({
@@ -261,6 +261,7 @@ export default function AdminDashboard() {
       });
       return;
     }
+    visitsTableRef.current.classList.add("hide-on-export"); // Hide actions column temporarily
     try {
       const canvas = await html2canvas(visitsTableRef.current, { backgroundColor: "#fff", scale: 2 });
       const link = document.createElement("a");
@@ -281,6 +282,8 @@ export default function AdminDashboard() {
         duration: 4000,
         isClosable: true,
       });
+    } finally {
+      visitsTableRef.current.classList.remove("hide-on-export"); // Restore visibility
     }
   };
 
@@ -307,6 +310,7 @@ export default function AdminDashboard() {
           boxShadow="2xl"
           px={[4, 8]}
           py={[8, 14]}
+          ref={visitsTableRef}
         >
           <Flex align="center" marginBottom="8" wrap="wrap" gap={3}>
             <Heading color="green.600" size="xl" fontWeight="extrabold" flex="1 1 auto">
@@ -352,20 +356,18 @@ export default function AdminDashboard() {
             <TabPanels>
               {/* Visits Tab */}
               <TabPanel>
-                <Box ref={visitsTableRef}>
-                  <VisitsTable
-                    visits={visits.filter((v) => v.visit_date?.slice(0, 10) === selectedDate)}
-                    executives={executives}
-                    timeSlots={timeSlots}
-                    onEdit={(visit) => {
-                      setEditingVisit(visit);
-                      visitModal.onOpen();
-                    }}
-                    onDelete={handleVisitDelete}
-                    onAssign={onAssign}
-                    loading={loading}
-                  />
-                </Box>
+                <VisitsTable
+                  visits={visits.filter((v) => v.visit_date?.slice(0, 10) === selectedDate)}
+                  executives={executives}
+                  timeSlots={timeSlots}
+                  onEdit={(visit) => {
+                    setEditingVisit(visit);
+                    visitModal.onOpen();
+                  }}
+                  onDelete={handleVisitDelete}
+                  onAssign={onAssign}
+                  loading={loading}
+                />
 
                 <VisitModal
                   isOpen={visitModal.isOpen}
@@ -395,12 +397,13 @@ export default function AdminDashboard() {
                     Add Executive
                   </Button>
                 </Flex>
-                <ExecutiveList executives={executives} />
+                <ExecutiveList executives={executives} labs={labs} loading={loading} onRefresh={fetchAll} />
                 <ExecutiveModal
                   isOpen={executiveModal.isOpen}
                   onClose={executiveModal.onClose}
-                  onSubmit={handleExecutiveCreate}
+                  onSaveSuccess={handleExecutiveCreate}
                   isLoading={loadingExecutiveModal}
+                  labs={labs}
                 />
               </TabPanel>
             </TabPanels>
