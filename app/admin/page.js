@@ -27,7 +27,7 @@ import { supabase } from "../../lib/supabaseClient";
 
 import ShortcutBar from "../../components/ShortcutBar";
 import VisitsTable from "./components/VisitsTable";
-import VisitModal from "./components/VisitModal";
+import VisitModal from "../components/VisitModal";
 import ExecutiveList from "./components/ExecutiveList";
 import ExecutiveModal from "./components/ExecutiveModal";
 import PatientsTab from "../components/PatientsTab";

@@ -23,61 +23,74 @@ import {
   Collapse,
   IconButton,
   Flex,
+  HStack,
 } from '@chakra-ui/react';
 
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
+import AddressManager from './AddressManager';
 
-import AddressManager from './AddressManager'; // Update import path/name if needed
+function formatGender(val) {
+  if (!val) return '';
+  const g = String(val).toLowerCase();
+  if (g === 'm' || g === 'male') return 'Male';
+  if (g === 'f' || g === 'female') return 'Female';
+  if (g === 'o' || g === 'other') return 'Other';
+  return '';
+}
 
-export default function ModularPatientModal({ isOpen, onClose, onSubmit, initialPatient, disablePhoneInput = false }) {
+export default function ModularPatientModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  initialPatient,
+  disablePhoneInput = false,
+}) {
   const toast = useToast();
 
-  // Patient form state
+  // Removed MRN from state
   const [patientData, setPatientData] = useState({
     id: null,
     name: '',
     dob: '',
     gender: '',
     email: '',
-    cregno: '',
+    externalMrNo: '',
     phone: '',
+    address_line: '',
+    pincode: '',
   });
 
-  // Addresses state
   const [addresses, setAddresses] = useState([]);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
-
-  // Collapsible addresses toggle state
   const [showAddresses, setShowAddresses] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Toggle function for addresses section
-  const toggleAddresses = () => setShowAddresses((prev) => !prev);
+  const toggleAddresses = () => setShowAddresses(prev => !prev);
 
-  // Update local state when modal opens or initialPatient changes
   useEffect(() => {
     if (!isOpen) return;
 
     if (initialPatient) {
       setPatientData({
         id: initialPatient.id ?? null,
-        name: initialPatient.name ?? initialPatient.fname ?? '',
+        name: initialPatient.name ?? '',
         dob: initialPatient.dob ?? '',
-        gender: initialPatient.gender ?? '',
+        gender: formatGender(initialPatient.gender),
         email: initialPatient.email ?? '',
-        cregno: initialPatient.cregno ?? '',
+        externalMrNo: initialPatient.external_key ?? '',
         phone: initialPatient.phone ?? '',
+        address_line: initialPatient.address_line ?? '',
+        pincode: initialPatient.pincode ?? '',
       });
 
       if (initialPatient.addresses && Array.isArray(initialPatient.addresses)) {
-        // Use provided addresses if any
         setAddresses(initialPatient.addresses);
-        setShowAddresses(initialPatient.addresses.length > 0); // open if addresses exist
+        setShowAddresses(initialPatient.addresses.length > 0);
       } else if (initialPatient.id) {
-        // Fetch addresses from backend API for existing patient
         setLoadingAddresses(true);
         fetch(`/api/patients/addresses?patient_id=${initialPatient.id}`)
-          .then((res) => res.json())
-          .then((data) => {
+          .then(res => res.json())
+          .then(data => {
             if (Array.isArray(data)) setAddresses(data);
             else setAddresses([]);
             setShowAddresses(data?.length > 0);
@@ -88,32 +101,30 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
           })
           .finally(() => setLoadingAddresses(false));
       } else {
-        // New patient: start with empty addresses and collapsed
         setAddresses([]);
         setShowAddresses(false);
       }
     } else {
-      // No initialPatient: reset form and collapse addresses
       setPatientData({
         id: null,
         name: '',
         dob: '',
         gender: '',
         email: '',
-        cregno: '',
+        externalMrNo: '',
         phone: '',
+        address_line: '',
+        pincode: '',
       });
       setAddresses([]);
       setShowAddresses(false);
     }
   }, [initialPatient, isOpen]);
 
-  // Helper to update patient fields immutably
-  const updateField = (field) => (e) => {
-    setPatientData((prev) => ({ ...prev, [field]: e.target.value }));
+  const updateField = field => e => {
+    setPatientData(prev => ({ ...prev, [field]: e.target.value }));
   };
 
-  // Validate required form fields before saving
   const validateForm = () => {
     if (!patientData.name.trim()) {
       toast({ title: 'Please enter patient name', status: 'warning' });
@@ -130,14 +141,20 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
     return true;
   };
 
-  // Save patient including addresses
   const handleSave = async () => {
     if (!validateForm()) return;
+    setSaving(true);
 
     try {
       const payload = {
-        ...patientData,
-        addresses,
+        id: patientData.id,
+        phone: patientData.phone,       // always comes from verified/lookup
+        name: patientData.name,
+        dob: patientData.dob,
+        gender: patientData.gender,
+        email: patientData.email,
+        cregno: patientData.externalMrNo, // map UI field name to API's expected 'cregno'
+        addresses,                        // send addresses array to API
       };
 
       const res = await fetch('/api/patients', {
@@ -148,7 +165,11 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
 
       if (!res.ok) {
         const error = await res.json();
-        toast({ title: 'Save failed', description: error.error ?? 'Unknown error', status: 'error' });
+        toast({
+          title: 'Save failed',
+          description: error.error ?? 'Unknown error',
+          status: 'error',
+        });
         return;
       }
 
@@ -157,67 +178,97 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
       onSubmit?.(savedPatient);
       onClose();
     } catch (err) {
-      toast({ title: 'Error saving patient', description: err.message || 'Check console', status: 'error' });
+      toast({
+        title: 'Error saving patient',
+        description: err.message || 'Check console',
+        status: 'error',
+      });
+    } finally {
+      setSaving(false);
     }
   };
+
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="4xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent maxHeight="80vh" overflowY="auto">
         <ModalHeader>{patientData.id ? 'Edit Patient' : 'Add Patient'}</ModalHeader>
-        <ModalCloseButton />
+        <ModalCloseButton isDisabled={saving} />
 
         <ModalBody>
-          <VStack spacing={4} align="stretch">
+          <VStack spacing={3} align="stretch">
+            {/* Name */}
             <FormControl isRequired>
-              <FormLabel>Name</FormLabel>
-              <Input value={patientData.name} onChange={updateField('name')} />
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">Name</FormLabel>
+                <Input value={patientData.name} onChange={updateField('name')} />
+              </HStack>
             </FormControl>
 
+            {/* DOB */}
             <FormControl isRequired>
-              <FormLabel>Date of Birth</FormLabel>
-              <Input type="date" value={patientData.dob} onChange={updateField('dob')} />
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">DOB</FormLabel>
+                <Input type="date" value={patientData.dob} onChange={updateField('dob')} />
+              </HStack>
             </FormControl>
 
+            {/* Gender */}
             <FormControl>
-              <FormLabel>Gender</FormLabel>
-              <Select value={patientData.gender} onChange={updateField('gender')}>
-                <option value="">Select</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </Select>
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">Gender</FormLabel>
+                <Select value={patientData.gender} onChange={updateField('gender')}>
+                  <option value="">Select</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </Select>
+              </HStack>
             </FormControl>
 
+            {/* Email */}
             <FormControl>
-              <FormLabel>Email</FormLabel>
-              <Input type="email" value={patientData.email} onChange={updateField('email')} />
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">Email</FormLabel>
+                <Input type="email" value={patientData.email} onChange={updateField('email')} />
+              </HStack>
             </FormControl>
 
+            {/* Phone - always locked */}
             <FormControl isRequired>
-              <FormLabel>Phone</FormLabel>
-              <Input
-                value={patientData.phone}
-                maxLength={10}
-                onChange={updateField('phone')}
-                placeholder="10-digit phone number"
-                isDisabled={disablePhoneInput}
-                aria-readonly={disablePhoneInput}
-              />
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">Phone</FormLabel>
+                <Input
+                  value={patientData.phone}
+                  maxLength={10}
+                  onChange={updateField('phone')}
+                  placeholder="10-digit phone number"
+                  isDisabled
+                  aria-readonly="true"
+                />
+              </HStack>
             </FormControl>
 
+            {/* External MR No - always locked */}
             <FormControl>
-              <FormLabel>CREGNO</FormLabel>
-              <Input value={patientData.cregno} onChange={updateField('cregno')} isDisabled={!!patientData.id} />
-              {patientData.id && !patientData.cregno && (
-                <Text fontSize="sm" color="gray.500" mt={1}>
-                  Save patient to enable CREGNO input.
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">External MR No.</FormLabel>
+                <Input
+                  value={patientData.externalMrNo}
+                  onChange={updateField('externalMrNo')}
+                  isDisabled
+                  aria-readonly="true"
+                />
+              </HStack>
+              {patientData.id && !patientData.externalMrNo && (
+                <Text fontSize="sm" color="gray.500" ml="143px" mt={1}>
+                  Save patient to enable External MR No. input.
                 </Text>
               )}
             </FormControl>
 
-            {/* Collapsible Addresses Section */}
+            {/* Addresses */}
             <Box>
               <Flex
                 justify="space-between"
@@ -235,8 +286,8 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
                   size="sm"
                   icon={showAddresses ? <ChevronUpIcon /> : <ChevronDownIcon />}
                   aria-label={showAddresses ? 'Collapse addresses' : 'Expand addresses'}
-                  onClick={(e) => {
-                    e.stopPropagation(); // prevent toggleAddresses firing twice
+                  onClick={e => {
+                    e.stopPropagation();
                     toggleAddresses();
                   }}
                 />
@@ -246,7 +297,11 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
                   {loadingAddresses ? (
                     <Text>Loading addresses...</Text>
                   ) : (
-                    <AddressManager patientId={patientData.id} initialAddresses={addresses} onChange={setAddresses} />
+                    <AddressManager
+                      patientId={patientData.id}
+                      initialAddresses={addresses}
+                      onChange={setAddresses}
+                    />
                   )}
                 </Box>
               </Collapse>
@@ -255,10 +310,17 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
         </ModalBody>
 
         <ModalFooter>
-          <Button colorScheme="blue" onClick={handleSave} mr={3}>
+          <Button
+            colorScheme="blue"
+            onClick={handleSave}
+            mr={3}
+            isLoading={saving}
+            loadingText="Saving..."
+            isDisabled={saving}
+          >
             Save
           </Button>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} isDisabled={saving}>
             Cancel
           </Button>
         </ModalFooter>

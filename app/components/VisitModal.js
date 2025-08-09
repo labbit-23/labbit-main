@@ -35,6 +35,7 @@ const formatDate = (date) => {
   return new Date(date).toISOString().slice(0, 10);
 };
 
+
 export default function VisitModal({
   isOpen,
   onClose,
@@ -46,56 +47,93 @@ export default function VisitModal({
 }) {
   const toast = useToast();
   const user = useUser();
-  const { hiddenFields, readOnlyFields, defaultValues } = useModalSettings("VisitModal");
+  const { hiddenFields, readOnlyFields, defaultValues } =
+    useModalSettings("VisitModal");
 
   const safeVisitInitialData = visitInitialData || {};
-
-  // Determine resolved patient ID with fallback priorities
   const userPatientId = user?.userType === "patient" ? user.id : "";
-  const resolvedPatientId = patientId || safeVisitInitialData.patient_id || userPatientId || "";
+  const resolvedPatientId =
+    patientId || safeVisitInitialData.patient_id || userPatientId || "";
 
-  // Form data state initialization including id for edit
+  const normalizeId = (val, objectKey) => {
+    if (typeof val === "object" && val !== null) return val.id;
+    if (!val && safeVisitInitialData[objectKey]?.id)
+      return safeVisitInitialData[objectKey].id;
+    return val || "";
+  };
+
+  const normalizeStatus = () => {
+    return typeof safeVisitInitialData.status === "string" &&
+      safeVisitInitialData.status.trim() !== ""
+      ? safeVisitInitialData.status
+      : typeof defaultValues.status === "string" &&
+        defaultValues.status.trim() !== ""
+      ? defaultValues.status
+      : "unassigned";
+  };
+
   const [formData, setFormData] = useState(() => ({
     id: safeVisitInitialData.id || null,
-    patient_id: resolvedPatientId || defaultValues.patient_id || "",
-    executive_id: safeVisitInitialData.executive_id || defaultValues.executive_id || "",
-    lab_id: safeVisitInitialData.lab_id || defaultValues.lab_id || "",
+    patient_id:
+      resolvedPatientId || defaultValues.patient_id || "",
+    executive_id:
+      normalizeId(safeVisitInitialData.executive_id, "executive") ||
+      defaultValues.executive_id ||
+      "",
+    lab_id:
+      normalizeId(safeVisitInitialData.lab_id, "lab") ||
+      defaultValues.lab_id ||
+      "",
     visit_date: safeVisitInitialData.visit_date
       ? formatDate(safeVisitInitialData.visit_date)
       : defaultValues.visit_date || formatDate(new Date()),
     time_slot:
-      typeof safeVisitInitialData.time_slot === "object"
-        ? safeVisitInitialData.time_slot.id
-        : safeVisitInitialData.time_slot || defaultValues.time_slot || "",
-    address_id: safeVisitInitialData.address_id || defaultValues.address_id || "",
+      normalizeId(safeVisitInitialData.time_slot, "time_slot") ||
+      defaultValues.time_slot ||
+      "",
+    address_id:
+      safeVisitInitialData.address_id || defaultValues.address_id || "",
     address: safeVisitInitialData.address || defaultValues.address || "",
-    status: safeVisitInitialData.status || defaultValues.status || "unassigned",
+    status: normalizeStatus(),
   }));
 
-  // Sync formData.patient_id if patientId prop changes
+  // Sync state on edit mode
+  console.log("visitInitialData on modal open", visitInitialData);
   useEffect(() => {
-    if (patientId && formData.patient_id !== patientId) {
-      setFormData((f) => ({ ...f, patient_id: patientId }));
-      console.log("[VisitModal] formData.patient_id updated from prop patientId:", patientId);
-    }
-  }, [patientId]);
+    if (!isOpen) return;
+    setFormData((f) => ({
+      ...f,
+      patient_id:
+        resolvedPatientId || defaultValues.patient_id || "",
+      executive_id:
+        normalizeId(safeVisitInitialData.executive_id, "executive") ||
+        defaultValues.executive_id ||
+        "",
+      lab_id:
+        normalizeId(safeVisitInitialData.lab_id, "lab") ||
+        defaultValues.lab_id ||
+        "",
+      time_slot:
+        normalizeId(safeVisitInitialData.time_slot, "time_slot") ||
+        defaultValues.time_slot ||
+        "",
+      status: normalizeStatus(),
+    }));
+  }, [safeVisitInitialData, isOpen]);
 
-  // Dropdown data and loading states
   const [executives, setExecutives] = useState([]);
   const [labs, setLabs] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
   const [dropdownsLoading, setDropdownsLoading] = useState(true);
 
-  // Address toggle and loading state
   const [showAddresses, setShowAddresses] = useState(false);
   const [patientAddresses, setPatientAddresses] = useState([]);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
 
-  // Latest visit and loading state
   const [latestVisit, setLatestVisit] = useState(null);
   const [loadingLatest, setLoadingLatest] = useState(false);
 
-  // Load dropdown data on modal open
+  // Fetch dropdowns
   useEffect(() => {
     if (!isOpen) {
       setDropdownsLoading(true);
@@ -142,19 +180,20 @@ export default function VisitModal({
     };
   }, [isOpen]);
 
-  // Auto-select default lab if only one exists
+  // Auto-select lab if only one exists
   useEffect(() => {
     if (!isOpen || !formData.patient_id || labs.length === 0) return;
-
     if (labs.length === 1 && !formData.lab_id) {
-      console.log("[VisitModal] auto-selecting single lab:", labs[0]);
       setFormData((f) => ({ ...f, lab_id: labs[0].id }));
     } else if (!formData.lab_id && defaultValues.lab_id) {
-      setFormData((f) => ({ ...f, lab_id: defaultValues.lab_id }));
+      setFormData((f) => ({
+        ...f,
+        lab_id: defaultValues.lab_id,
+      }));
     }
   }, [isOpen, labs, formData.patient_id, defaultValues.lab_id, formData.lab_id]);
 
-  // Load latest visit summary on modal open or patient change
+  // Last visit
   useEffect(() => {
     if (!isOpen || !formData.patient_id) {
       setLatestVisit(null);
@@ -180,7 +219,7 @@ export default function VisitModal({
     };
   }, [isOpen, formData.patient_id]);
 
-  // Fetch addresses on toggle and patient id present
+  // Addresses fetch
   useEffect(() => {
     if (!showAddresses || !formData.patient_id) {
       setPatientAddresses([]);
@@ -208,7 +247,6 @@ export default function VisitModal({
 
   const toggleAddresses = () => setShowAddresses((v) => !v);
 
-  // Form field change handler - preserves all fields including id
   const handleChange = (field) => (e) => {
     const val = e.target.value;
     if (field === "address_id") {
@@ -223,7 +261,6 @@ export default function VisitModal({
     }
   };
 
-  // Validation - required fields and address if shown
   const isValid =
     Boolean(formData.patient_id) &&
     Boolean(formData.lab_id) &&
@@ -231,22 +268,8 @@ export default function VisitModal({
     Boolean(formData.time_slot) &&
     (!showAddresses || Boolean(formData.address_id));
 
-  // Submit handler, passes entire formData including id
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log("[VisitModal] submit with formData:", formData);
-
-    if (typeof onSubmit !== "function") {
-      toast({
-        title: "Submission Error",
-        description: "Submit handler missing.",
-        status: "error",
-        duration: 4000,
-        isClosable: true,
-      });
-      return;
-    }
-
     if (!isValid) {
       toast({
         title: "Validation Error",
@@ -257,13 +280,23 @@ export default function VisitModal({
       });
       return;
     }
-
     onSubmit(formData);
   };
 
-  // Patient ID fixed if readonly or prop present and not hidden
   const isPatientFixed = Boolean(
-    (resolvedPatientId && !hiddenFields.includes("patient_id")) || readOnlyFields.includes("patient_id")
+    (resolvedPatientId && !hiddenFields.includes("patient_id")) ||
+      readOnlyFields.includes("patient_id")
+  );
+
+  const renderRow = (label, field) => (
+    <FormControl isRequired>
+      <Flex align="center" gap={3}>
+        <FormLabel m="0" flex="0 0 140px">
+          {label}
+        </FormLabel>
+        {field}
+      </Flex>
+    </FormControl>
   );
 
   return (
@@ -285,7 +318,7 @@ export default function VisitModal({
           {dropdownsLoading ? (
             <Spinner size="xl" m="auto" />
           ) : (
-            <VStack spacing={4} align="stretch">
+            <VStack spacing={3} align="stretch">
               {loadingLatest ? (
                 <Spinner />
               ) : latestVisit ? (
@@ -303,15 +336,14 @@ export default function VisitModal({
                 </Text>
               )}
 
-              {!hiddenFields.includes("patient_id") && (
-                <FormControl isRequired>
-                  <FormLabel>Patient</FormLabel>
+              {!hiddenFields.includes("patient_id") &&
+                renderRow(
+                  "Patient",
                   <Select
                     value={formData.patient_id}
                     onChange={handleChange("patient_id")}
                     isDisabled={isPatientFixed}
                     placeholder={isPatientFixed ? undefined : "Select Patient"}
-                    required
                   >
                     {patients.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -319,12 +351,11 @@ export default function VisitModal({
                       </option>
                     ))}
                   </Select>
-                </FormControl>
-              )}
+                )}
 
-              {!hiddenFields.includes("executive_id") && (
-                <FormControl>
-                  <FormLabel>HV Executive</FormLabel>
+              {!hiddenFields.includes("executive_id") &&
+                renderRow(
+                  "HV Executive",
                   <Select
                     value={formData.executive_id || ""}
                     onChange={handleChange("executive_id")}
@@ -338,16 +369,14 @@ export default function VisitModal({
                       </option>
                     ))}
                   </Select>
-                </FormControl>
-              )}
+                )}
 
-              {!hiddenFields.includes("lab_id") && (
-                <FormControl isRequired>
-                  <FormLabel>Lab</FormLabel>
+              {!hiddenFields.includes("lab_id") &&
+                renderRow(
+                  "Lab",
                   <Select
                     value={formData.lab_id}
                     onChange={handleChange("lab_id")}
-                    required
                     placeholder="Select Lab"
                     isDisabled={readOnlyFields.includes("lab_id")}
                   >
@@ -357,52 +386,46 @@ export default function VisitModal({
                       </option>
                     ))}
                   </Select>
-                </FormControl>
-              )}
+                )}
 
-              {!hiddenFields.includes("visit_date") && (
-                <FormControl isRequired>
-                  <FormLabel>Visit Date</FormLabel>
+              {!hiddenFields.includes("visit_date") &&
+                renderRow(
+                  "Visit Date",
                   <Input
                     type="date"
                     value={formData.visit_date}
                     onChange={handleChange("visit_date")}
                     min={formatDate(new Date())}
-                    required
                     disabled={readOnlyFields.includes("visit_date")}
                   />
-                </FormControl>
-              )}
+                )}
 
-              {!hiddenFields.includes("time_slot") && (
-                <FormControl isRequired>
-                  <FormLabel>Time Slot</FormLabel>
+              {!hiddenFields.includes("time_slot") &&
+                renderRow(
+                  "Time Slot",
                   <Select
                     value={formData.time_slot}
                     onChange={handleChange("time_slot")}
-                    required
                     placeholder="Select Time Slot"
                     isDisabled={readOnlyFields.includes("time_slot")}
                   >
-                    {timeSlots.map(({ id, start_time, end_time }) => (
+                    {timeSlots.map(({ id, slot_name }) => (
                       <option key={id} value={id}>
-                        {`${start_time.slice(0, 5)} - ${end_time.slice(0, 5)}`}
+                        {slot_name}
                       </option>
                     ))}
                   </Select>
-                </FormControl>
-              )}
+                )}
 
-              {showAddresses && !hiddenFields.includes("address_id") && (
-                <FormControl isRequired>
-                  <FormLabel>Address for Sample Collection</FormLabel>
-                  {loadingAddresses ? (
+              {showAddresses && !hiddenFields.includes("address_id") &&
+                renderRow(
+                  "Address",
+                  loadingAddresses ? (
                     <Spinner />
                   ) : patientAddresses.length > 0 ? (
                     <Select
                       value={formData.address_id}
                       onChange={handleChange("address_id")}
-                      required
                       placeholder="Select Address"
                       isDisabled={readOnlyFields.includes("address_id")}
                     >
@@ -413,33 +436,26 @@ export default function VisitModal({
                       ))}
                     </Select>
                   ) : (
-                    <>
-                      <Text fontStyle="italic" color="gray.600" mb={2}>
-                        No saved addresses.
-                      </Text>
-                      <AddressManager
-                        patientId={formData.patient_id}
-                        onAddressAdded={(newAddress) => {
-                          setPatientAddresses((prev) => [...prev, newAddress]);
-                          setFormData((f) => ({
-                            ...f,
-                            address_id: newAddress.id,
-                            address: newAddress.address_line,
-                          }));
-                        }}
-                      />
-                    </>
-                  )}
-                </FormControl>
-              )}
+                    <AddressManager
+                      patientId={formData.patient_id}
+                      onAddressAdded={(newAddress) => {
+                        setPatientAddresses((prev) => [...prev, newAddress]);
+                        setFormData((f) => ({
+                          ...f,
+                          address_id: newAddress.id,
+                          address: newAddress.address_line,
+                        }));
+                      }}
+                    />
+                  )
+                )}
 
-              {!hiddenFields.includes("status") && (
-                <FormControl isRequired>
-                  <FormLabel>Status</FormLabel>
+              {!hiddenFields.includes("status") &&
+                renderRow(
+                  "Status",
                   <Select
                     value={formData.status}
                     onChange={handleChange("status")}
-                    required
                     isDisabled={readOnlyFields.includes("status")}
                   >
                     {[
@@ -459,8 +475,7 @@ export default function VisitModal({
                       </option>
                     ))}
                   </Select>
-                </FormControl>
-              )}
+                )}
             </VStack>
           )}
         </ModalBody>
@@ -475,7 +490,12 @@ export default function VisitModal({
           >
             {safeVisitInitialData.id ? "Update" : "Create"}
           </Button>
-          <Button disabled={isLoading} onClick={onClose} minWidth="100px" variant="outline">
+          <Button
+            disabled={isLoading}
+            onClick={onClose}
+            minWidth="100px"
+            variant="outline"
+          >
             Cancel
           </Button>
         </ModalFooter>

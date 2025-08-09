@@ -236,7 +236,7 @@ export default function VisitsTable({
             <Table variant="simple" size="sm" rounded className="visits-table" overflowX="auto">
               <Thead bg="gray.100">
                 <Tr>
-                  <Th>Code</Th>
+                  <Th>Address<p></p>/ Code</Th>
                   <Th>Date</Th>
                   <Th>Slot</Th>
                   <Th>Patient</Th>
@@ -249,7 +249,16 @@ export default function VisitsTable({
                   const isUnassigned = !visit.executive_id || visit.executive_id === "";
                   return (
                     <Tr key={visit.id}>
-                      <Td>{visit.visit_code ?? "N/A"}</Td>
+                      <Td>
+                        <Box fontWeight="bold" color="black">
+                          {visit.address && visit.address.length > 0
+                            ? (visit.address || "No Area")
+                            : "No Area"}
+                        </Box>
+                        <Box fontSize="sm" color="gray.500">
+                          {visit.visit_code ?? "N/A"}
+                        </Box>
+                      </Td>
                       <Td>{formatDate(visit.visit_date)}</Td>
                       <Td>{getSlotDisplay(visit)}</Td>
                       <Td>
