@@ -20,6 +20,11 @@ import {
 } from "@chakra-ui/react";
 import { EditIcon, DeleteIcon, AddIcon } from "@chakra-ui/icons";
 
+/**
+ * Maps visit status to Chakra UI badge color scheme.
+ * @param {string} status - Visit status string.
+ * @returns {string} - Chakra color scheme.
+ */
 const statusColorScheme = (status) => {
   switch (status) {
     case "booked":
@@ -48,17 +53,37 @@ const statusColorScheme = (status) => {
   }
 };
 
+/**
+ * Formats a date string into `YYYY-MM-DD`.
+ * @param {string|Date} dateInput - Date input.
+ * @returns {string} Formatted date string.
+ */
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
   const d = new Date(dateInput);
   return d.toISOString().split("T")[0];
 };
 
+/**
+ * Groups visits by executive.
+ * Unassigned visits are grouped under `exec === null`.
+ * @param {Array} visits - List of visits.
+ * @param {Array} executives - List of executives.
+ * @returns {Array} Sorted groups of visits by executive.
+ */
 const groupVisitsByExecutive = (visits, executives) => {
   const execMap = new Map(executives.map((exec) => [exec.id, exec]));
   const groups = new Map();
 
+  // Separate disabled visits
+  const disabledVisits = [];
+
   for (const visit of visits) {
+    if (visit.status === "disabled") {
+      disabledVisits.push(visit);
+      continue; // skip adding to other groups
+    }
+
     let execId = visit.executive?.id ?? visit.executive_id ?? null;
     if (!execId) execId = null;
 
@@ -71,7 +96,8 @@ const groupVisitsByExecutive = (visits, executives) => {
     groups.get(execId).visits.push(visit);
   }
 
-  // Sort visits within each group by time_slot.start_time (proper date compare)
+
+  // Sort visits within groups by their time slot start time
   groups.forEach((group) => {
     group.visits.sort((a, b) => {
       const timeA = a?.time_slot?.start_time ?? "";
@@ -84,7 +110,7 @@ const groupVisitsByExecutive = (visits, executives) => {
 
   const sortedGroups = Array.from(groups.values());
 
-  // Sort groups by executive name with unassigned first
+  // Sort groups so unassigned visits appear first, then alphabetically by executive name
   sortedGroups.sort((a, b) => {
     if (a.exec === null && b.exec !== null) return -1;
     if (a.exec !== null && b.exec === null) return 1;
@@ -104,11 +130,21 @@ export default function VisitsTable({
   onAssign,
   loading = false,
 }) {
+  // Track which visits are being assigned currently to show loading state on assign buttons
   const [assigning, setAssigning] = useState(new Set());
+
+  // Controlled state for selected executive per visit (keyed by visit.id)
   const [selectedExec, setSelectedExec] = useState({});
 
+  // Group visits by their assigned executive (or null if unassigned)
   const groups = groupVisitsByExecutive(visits, executives);
 
+  /**
+   * Returns the display label for the visit's time slot.
+   * Looks at time_slot from visit or fallbacks to timeSlots list.
+   * @param {Object} visit - Visit object.
+   * @returns {string} Display name of the time slot.
+   */
   const getSlotDisplay = (visit) => {
     if (visit?.time_slot?.slot_name) return visit.time_slot.slot_name;
     if (timeSlots.length) {
@@ -119,6 +155,11 @@ export default function VisitsTable({
     return "Unknown";
   };
 
+  /**
+   * Handles assigning an executive to a visit.
+   * Calls onAssign prop with visit ID and selected executive ID.
+   * @param {Object} visit - Visit to assign.
+   */
   const handleAssign = async (visit) => {
     const execId = selectedExec[visit.id];
     if (!execId) {
@@ -130,6 +171,8 @@ export default function VisitsTable({
     try {
       setAssigning((prev) => new Set(prev).add(visit.id));
       await onAssign(visit.id, execId);
+
+      // Clear selected exec after successful assign
       setSelectedExec((prev) => {
         const copy = { ...prev };
         delete copy[visit.id];
@@ -138,6 +181,7 @@ export default function VisitsTable({
     } catch (error) {
       alert("Error assigning: " + error.message);
     } finally {
+      // Remove visit from assigning loading set
       setAssigning((prev) => {
         const copy = new Set(prev);
         copy.delete(visit.id);
@@ -146,6 +190,10 @@ export default function VisitsTable({
     }
   };
 
+  /**
+   * Handles disabling a visit (soft delete).
+   * @param {Object} visit - Visit to disable.
+   */
   const handleDisable = async (visit) => {
     if (!window.confirm(`Do you really want to disable visit ${visit.visit_code}?`)) return;
     if (!onDelete) {
@@ -173,8 +221,8 @@ export default function VisitsTable({
 
   return (
     <>
+      {/* Hide no-export elements when exporting */}
       <style>{`
-        /* Hide elements with 'no-export' inside .hide-on-export */
         .hide-on-export .no-export {
           display: none !important;
         }
@@ -217,19 +265,40 @@ export default function VisitsTable({
                       </Td>
                       <Td className="no-export" isNumeric>
                         <HStack spacing={2} justify="flex-end">
-                          <IconButton aria-label="Edit" icon={<EditIcon />} size="sm" onClick={() => onEdit && onEdit(visit)} />
-                          <IconButton aria-label="Disable" icon={<DeleteIcon />} size="sm" colorScheme="red" onClick={() => handleDisable(visit)} />
+                          {/* Edit visit button */}
+                          <IconButton 
+                            aria-label="Edit" 
+                            icon={<EditIcon />} 
+                            size="sm" 
+                            onClick={() => onEdit && onEdit(visit)} 
+                          />
+                          {/* Disable visit button */}
+                          <IconButton 
+                            aria-label="Disable" 
+                            icon={<DeleteIcon />} 
+                            size="sm" 
+                            colorScheme="red" 
+                            onClick={() => handleDisable(visit)} 
+                          />
+                          {/* Assign executive dropdown for unassigned visits */}
                           {isUnassigned && exec === null && (
                             <>
                               <Select
                                 size="xs"
                                 w={120}
                                 placeholder="Assign Exec"
-                                onChange={e =>
+                                onChange={(e) =>
                                   setSelectedExec(prev => ({ ...prev, [visit.id]: e.target.value }))
                                 }
                                 value={selectedExec[visit.id] ?? ""}
-                              />
+                              >
+                                {/* Options populated from executives prop */}
+                                {executives.map((execItem) => (
+                                  <option key={execItem.id} value={execItem.id}>
+                                    {execItem.name}
+                                  </option>
+                                ))}
+                              </Select>
                               <IconButton
                                 aria-label="Assign"
                                 icon={<AddIcon />}

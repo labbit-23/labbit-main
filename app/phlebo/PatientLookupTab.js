@@ -1,3 +1,5 @@
+// File: /app/phlebo/PatientLookupTab.js
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -10,17 +12,21 @@ import {
   VStack,
   Text,
   Spinner,
-  Select,
   useToast,
-  HStack,
 } from "@chakra-ui/react";
 import { supabase } from "../../lib/supabaseClient";
 import VisitScheduler from "../patient/VisitScheduler"; // Adjust path if needed
 
+import { useUser } from "../context/UserContext"; // Import global user context
 
-
-export default function PatientLookupTab({ onSelectVisit, hvExecutiveId }) {
+export default function PatientLookupTab({ onSelectVisit, hvExecutiveId: propHvExecutiveId }) {
   const toast = useToast();
+
+  const { user, isLoading: userLoading } = useUser();
+
+  // Internal executive ID state
+  const [hvExecutiveId, setHvExecutiveId] = useState(propHvExecutiveId || null);
+
   const [phone, setPhone] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
@@ -38,7 +44,16 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId }) {
   const [selectedSlotId, setSelectedSlotId] = useState("");
   const [creatingVisit, setCreatingVisit] = useState(false);
 
-  // Fetch time slots on mount for VisitScheduler
+  // Update hvExecutiveId when user or propHvExecutiveId changes
+  useEffect(() => {
+    if (propHvExecutiveId) {
+      setHvExecutiveId(propHvExecutiveId);
+    } else if (!userLoading && user && user.userType === "executive") {
+      setHvExecutiveId(user.id);
+    }
+  }, [propHvExecutiveId, user, userLoading]);
+
+  // Fetch time slots on mount
   useEffect(() => {
     async function fetchTimeSlots() {
       const { data, error } = await supabase
@@ -94,9 +109,11 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId }) {
     try {
       const { data, error } = await supabase
         .from("visits")
-        .select("id, visit_date, status, time_slot, time_slot:time_slot(slot_name, start_time, end_time)")
+        .select(
+          "id, visit_date, status, time_slot, time_slot:time_slot(slot_name, start_time, end_time)"
+        )
         .eq("patient_id", patientId)
-        .filter('status', 'not.in', '(completed,canceled)')
+        .filter("status", "not.in", "(completed,canceled)")
         .order("visit_date", { ascending: false });
       if (error) throw error;
       setActiveVisits(data || []);
@@ -108,7 +125,7 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId }) {
     }
   };
 
-  // Create a new visit assigned to the current HV executive
+  // Create a new visit assigned to current HV executive
   const createVisit = async () => {
     if (!selectedPatient || !visitDate || !selectedSlotId) {
       toast({ title: "Please select patient, visit date, and time slot", status: "warning" });
@@ -131,20 +148,18 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId }) {
             status: "assigned",
           },
         ])
-        .select(`
-          *,
-          patient:patient_id(name, phone),
-          time_slot:time_slot(id, slot_name, start_time, end_time)
-        `)
+        .select(
+          "*, patient:patient_id(name, phone), time_slot:time_slot(id, slot_name, start_time, end_time)"
+        )
         .single();
       if (error) throw error;
 
       toast({ title: "Visit created and assigned to you", status: "success" });
       onSelectVisit(data); // Pass the new visit up for details tab
-      // Clear form and reset
+      // Reset form
       setSelectedPatient(null);
       setSelectedSlotId("");
-      setVisitDate(new Date().toISOString().slice(0,10));
+      setVisitDate(new Date().toISOString().slice(0, 10));
       setPhone("");
       setActiveVisits([]);
     } catch (err) {

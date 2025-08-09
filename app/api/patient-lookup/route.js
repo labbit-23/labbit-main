@@ -1,33 +1,56 @@
-// app/api/patient-lookup/route.js
+// File: /app/api/patient-lookup/route.js
 import { NextResponse } from "next/server";
 import { supabase } from '../../../lib/supabaseServer';
 
-const DEFAULT_LAB_ID = "b539c161-1e2b-480b-9526-d4b37bd37b1e";
+// Gender map supporting both raw codes and mapped letters for compatibility
+const genderMap = {
+  "1": "M",
+  "0": "F",
+  "m": "M",
+  "f": "F",
+  "male": "M",
+  "female": "F",
+  "": ""
+};
+
+// Maps external gender values to standardized M/F using genderMap
+function mapGender(value, genderMap) {
+  if (value === null || value === undefined || value === '') return genderMap[''] || '';
+  const valStr = String(value).trim().toLowerCase();
+  for (const [key, val] of Object.entries(genderMap)) {
+    if (key.toLowerCase() === valStr) {
+      return val;
+    }
+  }
+  return ''; // fallback if no mapping found
+}
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const phone = searchParams.get("phone");
 
-  console.log('🔍 [Patient Lookup] Incoming request for phone:', phone);
-
   if (!phone) {
-    console.log('❌ [Patient Lookup] Missing phone parameter');
     return NextResponse.json({ error: "Missing phone parameter" }, { status: 400 });
   }
 
-  // Sanitize phone
   const cleanPhone = phone.replace(/\D/g, '');
-  console.log('📞 [Patient Lookup] Cleaned phone:', cleanPhone);
 
   if (cleanPhone.length < 10 || cleanPhone.length > 13) {
-    console.log('❌ [Patient Lookup] Invalid phone length:', cleanPhone.length);
     return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
   }
 
   try {
-    // ✅ Step 1: Check Supabase first
-    
-    const {   data: localPatients, error: localError } = await supabase
+    // Fetch default lab with name for source display
+    const { data: defaultLab } = await supabase
+      .from('labs')
+      .select('id, name')
+      .eq('is_default', true)
+      .single();
+
+    const labName = defaultLab?.name || 'External';
+
+    // Step 1: Lookup patient locally
+    const { data: localPatients, error: localError } = await supabase
       .from('patients')
       .select(`
         id,
@@ -39,73 +62,77 @@ export async function GET(req) {
         mrn,
         patient_addresses(address_line, pincode, lat, lng, is_default)
       `)
-      .eq('phone', cleanPhone); // ✅ Exact match
+      .eq('phone', cleanPhone);
 
-    
-    if (localError) {
-      console.error('❌ [Patient Lookup] Supabase query error:', localError);
-      throw localError;
-    }
+    if (localError) throw localError;
 
-    // ✅ If found in Supabase → enrich with CREGNO
     if (localPatients && localPatients.length > 0) {
-      console.log(`🟢 [Patient Lookup] SUCCESS: Found ${localPatients.length} patient(s) in Supabase for phone: ${cleanPhone}`);
-    
-      // ✅ Step 2: Fetch CREGNO for each patient
       const enrichedPatients = await Promise.all(localPatients.map(async (p) => {
         const defaultAddr = p.patient_addresses?.find(a => a.is_default);
-        console.log(`🔍 [Patient Lookup] Fetching CREGNO for patient ID: ${p.id}`);
 
-        // Fetch CREGNO from patient_external_keys
-        const {   data: externalKeys, error: keyError } = await supabase
+        const { data: keys, error: keyError } = await supabase
           .from('patient_external_keys')
           .select('external_key')
           .eq('patient_id', p.id)
-          .eq('lab_id', DEFAULT_LAB_ID)
+          .eq('lab_id', defaultLab?.id)
           .limit(1);
 
-        console.log(`🔍 [Patient Lookup] CREGNO query result for ${p.id}:`, { externalKeys, keyError });
+        const external_key = keyError ? '' : keys?.[0]?.external_key || '';
 
-        const cregno = keyError
-          ? (console.error('❌ CREGNO lookup error:', keyError), '')
-          : (externalKeys?.[0]?.external_key || '');
+        const normalizedGender = mapGender(p.gender, genderMap);
 
         return {
           id: p.id,
           name: p.name || 'Unknown Patient',
           phone: p.phone || cleanPhone,
           dob: p.dob ? p.dob.split('T')[0] : '',
-          gender: p.gender || '',
+          gender: normalizedGender,
           email: p.email || '',
           mrn: p.mrn || '',
           address_line: defaultAddr?.address_line || '',
           pincode: defaultAddr?.pincode || '',
           lat: defaultAddr?.lat || null,
           lng: defaultAddr?.lng || null,
-          cregno,
+          external_key,
+          source: labName,
         };
       }));
 
-      console.log('🟢 [Patient Lookup] Final enriched patients:', enrichedPatients);
       return NextResponse.json({ patients: enrichedPatients }, { status: 200 });
     }
 
-    // ❌ Not found in Supabase → proceed to external API
-    console.log(`🔴 [Patient Lookup] No patient found in Supabase for phone: ${cleanPhone}. Checking external API...`);
+    // Step 2: Patient not found locally, lookup externally
+    const { data: apiConfig, error: apiError } = await supabase
+      .from('labs_apis')
+      .select('base_url, auth_details, templates')
+      .eq('lab_id', defaultLab.id)
+      .eq('api_name', 'external_patient_lookup')
+      .single();
 
-    const baseURL = process.env.NEXT_PUBLIC_PATIENT_LOOKUP_URL;
-    const apiKey = process.env.NEXT_PUBLIC_PATIENT_LOOKUP_KEY;
+    if (apiError || !apiConfig) {
+      return NextResponse.json({ error: "Default lab external patient API config missing" }, { status: 500 });
+    }
 
-    console.log('🌐 [Patient Lookup] External API Config:', { hasURL: !!baseURL, hasKey: !!apiKey });
+    const baseURL = apiConfig.base_url;
+    const apiKey = apiConfig.auth_details?.apikey;
 
     if (!baseURL || !apiKey) {
-      console.log('❌ [Patient Lookup] API configuration missing');
-      return NextResponse.json({ error: "API configuration missing" }, { status: 500 });
+      return NextResponse.json({ error: "External API URL or key missing" }, { status: 500 });
     }
+
+    const fieldMap = apiConfig.templates?.field_map || {
+      name: "FNAME",
+      dob: "DOB",
+      gender: "SEX",
+      email: "EMAIL",
+      mrn: "MRN",
+      address_line: ["DISTRICTNEW", "STATENEW", "PINCODE"],
+      pincode: "PINCODE",
+      external_key: "CREGNO"
+    };
 
     const dataParam = encodeURIComponent(JSON.stringify([{ phone: cleanPhone }]));
     const url = `${baseURL}&data=${dataParam}`;
-    console.log('🌐 [Patient Lookup] External API URL:', url);
 
     const apiRes = await fetch(url, {
       headers: {
@@ -114,50 +141,48 @@ export async function GET(req) {
       },
     });
 
-    console.log('🌐 [Patient Lookup] External API response status:', apiRes.status);
-
     if (!apiRes.ok) {
       const text = await apiRes.text();
-      console.log('❌ [Patient Lookup] External API error:', text);
       return NextResponse.json({ error: text }, { status: apiRes.status });
     }
 
     const data = await apiRes.json();
-    console.log('🌐 [Patient Lookup] External API response data:', data);
 
-    // Normalize external API response
-    let patients = [];
-
+    let patientsArray = [];
     if (Array.isArray(data)) {
-      patients = data;
+      patientsArray = data;
     } else if (data.patients && Array.isArray(data.patients)) {
-      patients = data.patients;
-    } else if (data.name) {
-      patients = [data];
+      patientsArray = data.patients;
+    } else if (data.name || data[fieldMap.name]) {
+      patientsArray = [data];
     }
 
-    const normalized = patients.map(p => ({
-      id: null,
-      name: p.FNAME ? p.FNAME.trim() : 'Unknown Patient',
-      phone: cleanPhone,
-      dob: p.DOB ? p.DOB.split(' ')[0] : '',
-      gender: p.GENDER || p.SEX || '',
-      email: p.EMAIL || '',
-      mrn: p.MRN || '',
-      address_line: [p.DISTRICTNEW, p.STATENEW, p.PINCODE].filter(Boolean).join(', '),
-      pincode: p.PINCODE || '',
-      lat: null,
-      lng: null,
-      cregno: p.CREGNO || '',
-    }));
+    const normalized = patientsArray.map(p => {
+      const genderValue = p[fieldMap.gender] ?? '';
+      const mappedGender = mapGender(genderValue, genderMap);
 
-    console.log('🌐 [Patient Lookup] Normalized external patients:', normalized);
+      return {
+        id: null,
+        name: p[fieldMap.name]?.trim() || 'Unknown Patient',
+        phone: cleanPhone,
+        dob: p[fieldMap.dob]?.split(' ')[0] || '',
+        gender: mappedGender,
+        email: p[fieldMap.email] || '',
+        mrn: p[fieldMap.mrn] || '',
+        address_line: Array.isArray(fieldMap.address_line)
+          ? fieldMap.address_line.map(k => p[k]).filter(Boolean).join(', ')
+          : '',
+        pincode: p[fieldMap.pincode] || '',
+        lat: null,
+        lng: null,
+        external_key: p[fieldMap.external_key] || '',
+        source: labName,
+      };
+    });
+
     return NextResponse.json({ patients: normalized }, { status: 200 });
   } catch (err) {
-    console.error('🚨 [Patient Lookup] CRITICAL ERROR:', err);
-    return NextResponse.json(
-      { error: "Proxy error: " + err.message },
-      { status: 500 }
-    );
+    console.error('Patient Lookup Error:', err);
+    return NextResponse.json({ error: "Proxy error: " + err.message }, { status: 500 });
   }
 }

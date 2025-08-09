@@ -1,9 +1,8 @@
 // File: /app/api/patients/addresses/route.js
-// Modified to support modular address management with validation & defaults
-
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseServer'; // Ensure path is correct
+import { supabase } from '@/lib/supabaseServer';
 
+// GET: List patient addresses
 export async function GET(request) {
   const url = new URL(request.url);
   const patient_id = url.searchParams.get('patient_id');
@@ -33,8 +32,7 @@ export async function GET(request) {
   }
 }
 
-
-// POST handler with validation & ensuring single default address logic
+// POST: Upsert patient addresses — respects is_default and includes area
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -50,47 +48,55 @@ export async function POST(request) {
       );
     }
 
-    // Validate required fields for each address (label, lat/lng)
+    // Validate mandatory fields
     for (const [i, addr] of addresses.entries()) {
       if (!addr.label || typeof addr.label !== 'string' || addr.label.trim() === '') {
-        console.warn(`[POST addresses] Address at index ${i} missing or invalid label`);
         return NextResponse.json(
           { error: `Address at index ${i} missing required field 'label'` },
           { status: 400 }
         );
       }
       if (typeof addr.lat !== 'number' || typeof addr.lng !== 'number') {
-        console.warn(`[POST addresses] Address at index ${i} missing valid lat/lng`);
         return NextResponse.json(
           { error: `Address at index ${i} missing valid 'lat' or 'lng'` },
           { status: 400 }
         );
       }
+      // Area is optional — no strict validation yet
+      if (addr.area && typeof addr.area !== 'string') {
+        return NextResponse.json(
+          { error: `Address at index ${i} has invalid 'area' type` },
+          { status: 400 }
+        );
+      }
     }
 
-    // Sanitize IDs for new addresses (remove non-UUID temp IDs)
-    const sanitizedAddresses = addresses.map(addr => {
+    // Sanitize IDs for newly added addresses
+    const sanitized = addresses.map(addr => {
       const { id, ...rest } = addr;
       if (id && typeof id === 'string' && id.startsWith('temp')) {
-        // new address with temporary client-side ID — remove it before upsert
         return { ...rest, patient_id };
       }
-      // existing address with valid id
       return { ...addr, patient_id };
     });
 
-    // Ensure only one default address: the last one is default, others cleared
-    const mappedAddresses = sanitizedAddresses.map((addr, idx, arr) => ({
+    // Ensure exactly one default
+    let hasDefault = sanitized.some(a => a.is_default === true);
+    const mapped = sanitized.map((addr, idx) => ({
       ...addr,
-      // last address in the array is default, others are false
-      is_default: idx === arr.length - 1,
+      is_default: addr.is_default === true // trust client flag
     }));
 
-    console.log('[POST addresses] Upserting addresses with last set as default:', mappedAddresses);
+    // If none marked default, set first one as default
+    if (!hasDefault && mapped.length > 0) {
+      mapped[0].is_default = true;
+    }
+
+    console.log('[POST addresses] Upserting addresses (respecting is_default & area):', mapped);
 
     const { data, error } = await supabase
       .from('patient_addresses')
-      .upsert(mappedAddresses, { onConflict: ['id'] })
+      .upsert(mapped, { onConflict: ['id'] })
       .select();
 
     if (error) {
@@ -98,14 +104,10 @@ export async function POST(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(`[POST addresses] Successfully upserted ${data.length} addresses for patient_id: ${patient_id}`);
-
+    console.log(`[POST addresses] Successfully upserted ${data.length} addresses.`);
     return NextResponse.json(data, { status: 200 });
   } catch (err) {
     console.error('[POST addresses] Unexpected error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
 }

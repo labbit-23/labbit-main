@@ -1,21 +1,27 @@
-// /app/api/verify-otp.js
-import { NextResponse } from "next/server";
-import { supabase } from '@/lib/supabaseServer'; // Adjust import path accordingly
+// File: /app/api/verify-otp/route.js
+
+import { NextResponse } from 'next/server';
+import { getIronSession } from 'iron-session';
+import { ironOptions } from '@/lib/session'; // Adjust path if needed
 import crypto from 'crypto';
+import { supabase } from '@/lib/supabaseServer'; // Adjust path if needed
 
 export async function POST(request) {
   try {
-    const { phone, otp } = await request.json();
+    const body = await request.json();
+    const { phone: rawPhone, otp } = body;
 
-    if (!phone || !otp) {
-      return NextResponse.json({ error: "Missing phone or OTP" }, { status: 400 });
+    if (!rawPhone || !otp) {
+      return NextResponse.json({ error: 'Missing phone or OTP' }, { status: 400 });
     }
 
-    // Hash the received OTP for comparison
+    const phone = rawPhone.replace(/\D/g, '');
+
+    // Hash OTP to compare securely
     const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
 
-    // Query for a valid OTP record: matching phone, OTP hash, unused and unexpired
-    const { data: otpRecord, error } = await supabase
+    // Verify OTP record exists, unused, and not expired
+    const { data: otpRecord, error: otpError } = await supabase
       .from('otp_codes')
       .select('*')
       .eq('phone', phone)
@@ -26,16 +32,16 @@ export async function POST(request) {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      console.error('Error querying OTP:', error);
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    if (otpError) {
+      console.error('OTP verification DB error:', otpError);
+      return NextResponse.json({ error: 'Internal error during OTP validation' }, { status: 500 });
     }
 
     if (!otpRecord) {
       return NextResponse.json({ error: 'Invalid or expired OTP' }, { status: 400 });
     }
 
-    // Mark this OTP record as used
+    // Mark OTP as used
     const { error: updateError } = await supabase
       .from('otp_codes')
       .update({ is_used: true })
@@ -43,39 +49,85 @@ export async function POST(request) {
 
     if (updateError) {
       console.error('Failed to mark OTP as used:', updateError);
-      // Not blocking success; log and proceed
+      return NextResponse.json({ error: 'Internal error during OTP update' }, { status: 500 });
     }
 
-    // OPTIONAL: Lookup user in your 'users' table associated with this phone to get userId
-    // Example:
-    const { data: userProfile, error: userError } = await supabase
-      .from('users')
-      .select('id, user_type')
+    // Lookup patients linked to phone
+    const { data: patients, error: patientError } = await supabase
+      .from('patients')
+      .select('id, name, email, mrn')
+      .eq('phone', phone);
+
+    if (patientError) {
+      console.error('Patient lookup error:', patientError);
+      return NextResponse.json({ error: 'Internal error during patient lookup' }, { status: 500 });
+    }
+
+    // Lookup executives linked to phone and active
+    const { data: executive, error: execError } = await supabase
+      .from('executives')
+      .select('id, name, email, status, type, active')
       .eq('phone', phone)
+      .eq('active', true)
       .maybeSingle();
 
-    if (userError) {
-      console.error('Failed to find user for phone:', userError);
-      return NextResponse.json({ error: 'User lookup failed' }, { status: 500 });
+    if (execError) {
+      console.error('Executive lookup error:', execError);
+      return NextResponse.json({ error: 'Internal error during executive lookup' }, { status: 500 });
     }
 
-    if (!userProfile) {
-      // Optionally create new user here if needed, or reject
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    // TODO: Implement session/token generation or return info so frontend can create auth session
-
-    // For now just respond with user info and success
-    return NextResponse.json({
+    // Prepare response payload with default userType and redirectUrl
+    const payload = {
       message: 'OTP verified successfully',
-      userId: userProfile.id,
-      userType: userProfile.user_type || null,
-      // you may add password reset flag or other metadata here
-    });
+      userType: 'patient',  // default if no exec found
+      verifiedPhone: phone,
+      patients: patients || [],
+      executive: executive || null,
+      redirectUrl: '/patient', // default redirect for patients
+    };
 
-  } catch (err) {
-    console.error('Unexpected error in verify-otp:', err);
-    return NextResponse.json({ error: 'Unexpected server error' }, { status: 500 });
+    if (executive) {
+      payload.userType = 'executive';
+
+      const execType = (executive.type || '').trim().toLowerCase();
+      const adminTypes = ['admin', 'manager', 'director'];
+
+      console.log('EXEC TYPE:', execType, 'REDIRECT before assign:', payload.redirectUrl);
+
+      if (adminTypes.includes(execType)) {
+        payload.redirectUrl = '/admin';
+      } else if (execType === 'phlebo') {
+        payload.redirectUrl = '/phlebo';
+      } else {
+        payload.redirectUrl = '/dashboard';
+      }
+
+      console.log('REDIRECT after assign:', payload.redirectUrl);
+    }
+
+    // Create JSON response
+    const response = NextResponse.json(payload, { status: 200 });
+
+    // Save full user data in session (including patients and executive)
+    const session = await getIronSession(request, response, ironOptions);
+
+    session.user = {
+      phone,
+      userType: payload.userType,
+      executiveType: executive ? executive.type : null,
+      executiveId: executive ? executive.id : null,
+      executiveData: executive || null,
+      patients: patients || [],
+    };
+
+    await session.save();
+
+    return response;
+  } catch (error) {
+    console.error('Unexpected error in /api/verify-otp:', error);
+    return NextResponse.json(
+      { error: 'Unexpected server error' },
+      { status: 500 }
+    );
   }
 }

@@ -1,3 +1,5 @@
+//app/admin/componentss/PatientList.js
+
 "use client";
 
 import React, { useState } from "react";

@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Box,
   Tabs,
@@ -16,8 +16,8 @@ import {
   Text,
   Heading,
   useToast,
-  Input,
   IconButton,
+  Spinner,
 } from "@chakra-ui/react";
 import { AddIcon, DownloadIcon } from "@chakra-ui/icons";
 import html2canvas from "html2canvas";
@@ -33,9 +33,12 @@ import ExecutiveModal from "./components/ExecutiveModal";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 
-const DEFAULT_LAB_ID = "b539909242"; // Update as needed
+import RequireAuth from "../../components/RequireAuth"; // new auth guard
 
 export default function AdminDashboard() {
+  const toast = useToast();
+
+  // State and hooks for dashboard data
   const [tabIndex, setTabIndex] = useState(0);
   const [visits, setVisits] = useState([]);
   const [executives, setExecutives] = useState([]);
@@ -43,24 +46,33 @@ export default function AdminDashboard() {
   const [timeSlots, setTimeSlots] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
-  const toast = useToast();
+  const [selectedDate, setSelectedDate] = useState(
+    dayjs().format("YYYY-MM-DD")
+  );
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
 
   const [editingVisit, setEditingVisit] = useState(null);
   const [loadingVisitModal, setLoadingVisitModal] = useState(false);
-  const [loadingExecutiveModal, setLoadingExecutiveModal] = useState(false);
+  const [loadingExecutiveModal, setLoadingExecutiveModal] =
+    useState(false);
 
   const visitsTableRef = useRef();
 
-  // Fetch all data for tabs
+  const activePhlebos = React.useMemo(() => {
+    return executives.filter(
+      (exec) =>
+        exec.active === true &&
+        (exec.type || "").toLowerCase() === "phlebo"
+    );
+  }, [executives]);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setErrorMsg("");
     try {
-      const apiExecutivesFetch = fetch("/api/executives?active=true&type=Phlebo").then((res) => {
+      const apiExecutivesFetch = fetch("/api/executives").then((res) => {
         if (!res.ok) throw new Error("Failed to fetch executives");
         return res.json();
       });
@@ -85,7 +97,10 @@ export default function AdminDashboard() {
           .order("created_at", { ascending: false }),
         apiExecutivesFetch,
         supabase.from("labs").select("id, name").order("name"),
-        supabase.from("visit_time_slots").select("id, slot_name, start_time, end_time").order("start_time"),
+        supabase
+          .from("visit_time_slots")
+          .select("id, slot_name, start_time, end_time")
+          .order("start_time"),
       ]);
 
       if (visitsError) throw visitsError;
@@ -116,7 +131,6 @@ export default function AdminDashboard() {
     fetchAll();
   }, [fetchAll]);
 
-  // Create a deduplicated patient list for Select field (in modal)
   const uniquePatients = React.useMemo(() => {
     const map = new Map();
     visits.forEach((v) => {
@@ -127,7 +141,6 @@ export default function AdminDashboard() {
     return Array.from(map.values());
   }, [visits]);
 
-  // Visit save handler - FIX time_slot as the key sent to DB
   const handleVisitSave = async (formData) => {
     setLoadingVisitModal(true);
     try {
@@ -148,7 +161,10 @@ export default function AdminDashboard() {
       };
 
       if (editingVisit && editingVisit.id) {
-        const { error } = await supabase.from("visits").update(visitPayload).eq("id", editingVisit.id);
+        const { error } = await supabase
+          .from("visits")
+          .update(visitPayload)
+          .eq("id", editingVisit.id);
         if (error) throw error;
         toast({ title: "Visit updated", status: "success" });
       } else {
@@ -169,7 +185,6 @@ export default function AdminDashboard() {
     setLoadingVisitModal(false);
   };
 
-  // Executive create handler
   const handleExecutiveCreate = async (formData) => {
     setLoadingExecutiveModal(true);
     try {
@@ -185,23 +200,21 @@ export default function AdminDashboard() {
     setLoadingExecutiveModal(false);
   };
 
-  // Delete visit handler
-  const handleVisitDelete = async (id) => {
-    if (!window.confirm("Delete this visit?")) return;
+  const handleVisitDelete = async (id, status = "disabled") => {
+    if (!window.confirm("Disable this visit? This will archive it, not delete.")) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from("visits").delete().eq("id", id);
+      const { error } = await supabase.from("visits").update({ status }).eq("id", id);
       if (error) throw error;
-      toast({ title: "Visit deleted", status: "info" });
+      toast({ title: "Visit disabled", status: "info" });
       await fetchAll();
     } catch (error) {
-      toast({ title: "Error deleting visit", description: error.message, status: "error" });
+      toast({ title: "Error disabling visit", description: error.message, status: "error" });
       console.error(error);
     }
     setLoading(false);
   };
 
-  // Generate new visit code helper
   async function generateNewVisitCode() {
     const today = dayjs().format("YYYYMMDD");
     const startOfDay = dayjs().startOf("day").toISOString();
@@ -220,196 +233,155 @@ export default function AdminDashboard() {
     return `VISIT-${today}-${seqNumPadded}`;
   }
 
-  // onAssign handler to update unassigned visit with executive and accepted status
   const onAssign = async (visitId, executiveId) => {
     try {
       const { error } = await supabase
         .from("visits")
-        .update({
-          executive_id: executiveId,
-          status: "accepted",
-        })
+        .update({ executive_id: executiveId, status: "accepted" })
         .eq("id", visitId);
-
       if (error) throw error;
       await fetchAll();
-      toast({
-        title: "Visit assigned",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: "Visit assigned", status: "success", duration: 3000, isClosable: true });
     } catch (err) {
-      toast({
-        title: "Error assigning visit",
-        description: err.message || "Could not assign the visit",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
+      toast({ title: "Error assigning visit", description: err.message || "Could not assign the visit", status: "error", duration: 5000, isClosable: true });
     }
   };
 
-  // Download visits table as PNG using html2canvas with temporary hide-on-export class
   const handleDownloadSchedule = async () => {
     if (!visitsTableRef.current) {
-      toast({
-        title: "Table not ready for download",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: "Table not ready for download", status: "warning", duration: 3000, isClosable: true });
       return;
     }
-    visitsTableRef.current.classList.add("hide-on-export"); // Hide actions column temporarily
+    visitsTableRef.current.classList.add("hide-on-export");
     try {
       const canvas = await html2canvas(visitsTableRef.current, { backgroundColor: "#fff", scale: 2 });
       const link = document.createElement("a");
       link.href = canvas.toDataURL("image/png");
       link.download = `Visit_Schedule_${selectedDate}.png`;
       link.click();
-      toast({
-        title: "Download started",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: "Download started", status: "success", duration: 3000, isClosable: true });
     } catch (err) {
-      toast({
-        title: "Download error",
-        description: err.message || "",
-        status: "error",
-        duration: 4000,
-        isClosable: true,
-      });
+      toast({ title: "Download error", description: err.message || "", status: "error", duration: 4000, isClosable: true });
     } finally {
-      visitsTableRef.current.classList.remove("hide-on-export"); // Restore visibility
+      visitsTableRef.current.classList.remove("hide-on-export");
     }
   };
 
   return (
-    <Box
-      minH="100vh"
-      w="100vw"
-      style={{
-        backgroundImage: 'url("/visual.png")',
-        backgroundPosition: "top center",
-        backgroundRepeat: "no-repeat",
-        backgroundSize: "contain",
-      }}
-    >
-      <ShortcutBar />
+    <RequireAuth roles={['admin','manager','director']}>
+      <Box
+        minH="100vh"
+        w="100vw"
+        style={{
+          backgroundImage: 'url("/visual.png")',
+          backgroundPosition: "top center",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "contain",
+        }}
+      >
+        <ShortcutBar
+          userRole="admin"
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          executives={executives}
+        />
 
-      <Flex align="flex-start" justify="center" minH="100vh" py={8} pt="64px">
-        <Box
-          w="full"
-          maxW="7xl"
-          mx="auto"
-          bg="rgba(255, 255, 255, 0.5)"
-          borderRadius="xl"
-          boxShadow="2xl"
-          px={[4, 8]}
-          py={[8, 14]}
-          ref={visitsTableRef}
-        >
-          <Flex align="center" marginBottom="8" wrap="wrap" gap={3}>
-            <Heading color="green.600" size="xl" fontWeight="extrabold" flex="1 1 auto">
-              Labbit Admin Dashboard
-            </Heading>
+        <Flex align="flex-start" justify="center" minH="100vh" py={8} pt="64px">
+          <Box
+            w="full"
+            maxW="7xl"
+            mx="auto"
+            bg="rgba(255, 255, 255, 0.5)"
+            borderRadius="xl"
+            boxShadow="2xl"
+            px={[4, 8]}
+            py={[8, 14]}
+            ref={visitsTableRef}
+          >
+            <Flex align="center" marginBottom="8" wrap="wrap" gap={3}>
+              <Heading color="green.600" size="xl" fontWeight="extrabold" flex="1 1 auto">
+                Labbit Admin Dashboard
+              </Heading>
+              <IconButton
+                icon={<DownloadIcon />}
+                aria-label="Download Visits Schedule"
+                size="md"
+                onClick={handleDownloadSchedule}
+                title="Download Visits Schedule"
+              />
+            </Flex>
 
-            <Input
-              type="date"
-              value={selectedDate}
-              max={dayjs().add(1, "year").format("YYYY-MM-DD")}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              maxW="160px"
-              size="md"
-              aria-label="Select date to filter visits"
-            />
+            {errorMsg && (
+              <Text color="red.500" marginBottom="6">
+                {errorMsg}
+              </Text>
+            )}
 
-            <IconButton
-              icon={<DownloadIcon />}
-              aria-label="Download Visits Schedule"
-              size="md"
-              onClick={handleDownloadSchedule}
-              title="Download Visits Schedule"
-            />
-          </Flex>
+            <Box mb={6}>
+              <DashboardMetrics hvExecutiveId={null} date={selectedDate} />
+            </Box>
 
-          {errorMsg && (
-            <Text color="red.500" marginBottom="6">
-              {errorMsg}
-            </Text>
-          )}
+            <Tabs index={tabIndex} onChange={setTabIndex} variant="enclosed" colorScheme="green" isLazy>
+              <TabList>
+                <Tab>Visits</Tab>
+                <Tab>Patients</Tab>
+                <Tab>Executives</Tab>
+              </TabList>
 
-          <Box mb={6}>
-            <DashboardMetrics hvExecutiveId={null} date={selectedDate} />
+              <TabPanels>
+                <TabPanel>
+                  <VisitsTable
+                    visits={visits.filter((v) => v.visit_date?.slice(0, 10) === selectedDate)}
+                    executives={activePhlebos}
+                    timeSlots={timeSlots}
+                    onEdit={(visit) => {
+                      setEditingVisit(visit);
+                      visitModal.onOpen();
+                    }}
+                    onDelete={handleVisitDelete}
+                    onAssign={onAssign}
+                    loading={loading}
+                  />
+                  <VisitModal
+                    isOpen={visitModal.isOpen}
+                    onClose={() => {
+                      visitModal.onClose();
+                      setEditingVisit(null);
+                    }}
+                    onSubmit={handleVisitSave}
+                    visitInitialData={editingVisit}
+                    isLoading={loadingVisitModal}
+                    patients={uniquePatients}
+                    executives={activePhlebos}
+                    labs={labs}
+                    timeSlots={timeSlots}
+                  />
+                </TabPanel>
+
+                <TabPanel>
+                  <PatientsTab fetchPatients={fetchAll} fetchVisits={fetchAll} />
+                </TabPanel>
+
+                <TabPanel>
+                  <Flex marginBottom="4" justifyContent="flex-end">
+                    <Button leftIcon={<AddIcon />} colorScheme="green" onClick={executiveModal.onOpen}>
+                      Add Executive
+                    </Button>
+                  </Flex>
+                  <ExecutiveList executives={executives} labs={labs} loading={loading} onRefresh={fetchAll} />
+                  <ExecutiveModal
+                    isOpen={executiveModal.isOpen}
+                    onClose={executiveModal.onClose}
+                    onSaveSuccess={handleExecutiveCreate}
+                    isLoading={loadingExecutiveModal}
+                    labs={labs}
+                  />
+                </TabPanel>
+              </TabPanels>
+            </Tabs>
           </Box>
-
-          <Tabs index={tabIndex} onChange={setTabIndex} variant="enclosed" colorScheme="green" isLazy>
-            <TabList>
-              <Tab>Visits</Tab>
-              <Tab>Patients</Tab>
-              <Tab>Executives</Tab>
-            </TabList>
-
-            <TabPanels>
-              {/* Visits Tab */}
-              <TabPanel>
-                <VisitsTable
-                  visits={visits.filter((v) => v.visit_date?.slice(0, 10) === selectedDate)}
-                  executives={executives}
-                  timeSlots={timeSlots}
-                  onEdit={(visit) => {
-                    setEditingVisit(visit);
-                    visitModal.onOpen();
-                  }}
-                  onDelete={handleVisitDelete}
-                  onAssign={onAssign}
-                  loading={loading}
-                />
-
-                <VisitModal
-                  isOpen={visitModal.isOpen}
-                  onClose={() => {
-                    visitModal.onClose();
-                    setEditingVisit(null);
-                  }}
-                  onSubmit={handleVisitSave}
-                  visitInitialData={editingVisit}
-                  isLoading={loadingVisitModal}
-                  patients={uniquePatients}
-                  executives={executives}
-                  labs={labs}
-                  timeSlots={timeSlots}
-                />
-              </TabPanel>
-
-              {/* Patients Tab */}
-              <TabPanel>
-                <PatientsTab fetchPatients={fetchAll} fetchVisits={fetchAll} />
-              </TabPanel>
-
-              {/* Executives Tab */}
-              <TabPanel>
-                <Flex marginBottom="4" justifyContent="flex-end">
-                  <Button leftIcon={<AddIcon />} colorScheme="green" onClick={executiveModal.onOpen}>
-                    Add Executive
-                  </Button>
-                </Flex>
-                <ExecutiveList executives={executives} labs={labs} loading={loading} onRefresh={fetchAll} />
-                <ExecutiveModal
-                  isOpen={executiveModal.isOpen}
-                  onClose={executiveModal.onClose}
-                  onSaveSuccess={handleExecutiveCreate}
-                  isLoading={loadingExecutiveModal}
-                  labs={labs}
-                />
-              </TabPanel>
-            </TabPanels>
-          </Tabs>
-        </Box>
-      </Flex>
-    </Box>
+        </Flex>
+      </Box>
+    </RequireAuth>
   );
 }

@@ -19,7 +19,7 @@ import {
 import { supabase } from "../../lib/supabaseClient";
 import { FiNavigation } from "react-icons/fi";
 import { FaMotorcycle } from "react-icons/fa";
-
+import { useUser } from "../context/UserContext"; // Use the global user context
 
 const STATUS_STYLES = {
   pending: { bg: "yellow.100", borderColor: "yellow.400" },
@@ -36,12 +36,21 @@ function getStatusStyle(status) {
 }
 
 export default function ActiveVisitsTab({
-  hvExecutiveId,     // Pass down from page.js (currently selected executive)
-  selectedDate,      // Pass down from page.js (currently selected date)
+  selectedDate,
   onSelectVisit,
   selectedVisit,
 }) {
   const toast = useToast();
+  const { user, isLoading: userLoading } = useUser();
+
+  // Executive ID from user context if executive and phlebo
+  const hvExecutiveId =
+    !userLoading &&
+    user &&
+    user.userType === "executive" &&
+    (user.executiveType || "").toLowerCase() === "phlebo"
+      ? user.id
+      : null;
 
   const [visits, setVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
@@ -53,6 +62,7 @@ export default function ActiveVisitsTab({
     setSelectedVisitId(selectedVisit?.id ?? null);
   }, [selectedVisit]);
 
+  // Fetch visits when hvExecutiveId or selectedDate changes
   useEffect(() => {
     async function fetchVisits() {
       if (!hvExecutiveId || !selectedDate) {
@@ -93,15 +103,20 @@ export default function ActiveVisitsTab({
         setLoadingVisits(false);
       }
     }
-    fetchVisits();
-  }, [hvExecutiveId, selectedDate, toast]);
+
+    if (!userLoading) {
+      fetchVisits();
+    } else {
+      setVisits([]);
+    }
+  }, [hvExecutiveId, selectedDate, toast, userLoading]);
 
   const assignedVisits = visits.filter((v) => v.executive_id === hvExecutiveId);
   const unassignedVisits = visits.filter((v) => !v.executive_id);
 
   const assignVisit = async (visitId) => {
     if (!hvExecutiveId) {
-      toast({ title: "Please select an executive", status: "warning" });
+      toast({ title: "User not logged in as executive", status: "warning" });
       return;
     }
     try {
@@ -111,7 +126,7 @@ export default function ActiveVisitsTab({
         .eq("id", visitId);
       if (error) throw error;
       toast({ title: "Visit assigned", status: "success", duration: 3000 });
-      // Refresh visits
+      // Refresh visits after assignment
       const { data, error: fetchError } = await supabase
         .from("visits")
         .select(`
@@ -154,7 +169,7 @@ export default function ActiveVisitsTab({
         duration: 3000,
       });
 
-      // Refresh visits
+      // Refresh visits after starting
       const { data, error: fetchError } = await supabase
         .from("visits")
         .select(`
@@ -187,13 +202,14 @@ export default function ActiveVisitsTab({
       toast({ title: "No address provided", status: "warning" });
       return;
     }
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      address
+    )}`;
     window.open(url, "_blank");
   };
 
   const handleRowClick = (visit) => {
     if (selectedVisitId === visit.id) {
-      // Card already selected, open Visit Details via parent callback
       if (onSelectVisit) onSelectVisit(visit);
     } else {
       setSelectedVisitId(visit.id);
@@ -322,4 +338,3 @@ export default function ActiveVisitsTab({
     </Box>
   );
 }
-

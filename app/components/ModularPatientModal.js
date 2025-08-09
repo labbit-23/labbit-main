@@ -1,4 +1,5 @@
-// app/components/ModularPatientModal.js
+// File: /app/components/ModularPatientModal.js
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -18,11 +19,17 @@ import {
   Text,
   VStack,
   useToast,
+  Box,
+  Collapse,
+  IconButton,
+  Flex,
 } from '@chakra-ui/react';
+
+import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
 
 import AddressManager from './AddressManager'; // Update import path/name if needed
 
-export default function ModularPatientModal({ isOpen, onClose, onSubmit, initialPatient }) {
+export default function ModularPatientModal({ isOpen, onClose, onSubmit, initialPatient, disablePhoneInput = false }) {
   const toast = useToast();
 
   // Patient form state
@@ -39,6 +46,12 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
   // Addresses state
   const [addresses, setAddresses] = useState([]);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
+
+  // Collapsible addresses toggle state
+  const [showAddresses, setShowAddresses] = useState(false);
+
+  // Toggle function for addresses section
+  const toggleAddresses = () => setShowAddresses((prev) => !prev);
 
   // Update local state when modal opens or initialPatient changes
   useEffect(() => {
@@ -58,6 +71,7 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
       if (initialPatient.addresses && Array.isArray(initialPatient.addresses)) {
         // Use provided addresses if any
         setAddresses(initialPatient.addresses);
+        setShowAddresses(initialPatient.addresses.length > 0); // open if addresses exist
       } else if (initialPatient.id) {
         // Fetch addresses from backend API for existing patient
         setLoadingAddresses(true);
@@ -66,15 +80,20 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
           .then((data) => {
             if (Array.isArray(data)) setAddresses(data);
             else setAddresses([]);
+            setShowAddresses(data?.length > 0);
           })
-          .catch(() => setAddresses([]))
+          .catch(() => {
+            setAddresses([]);
+            setShowAddresses(false);
+          })
           .finally(() => setLoadingAddresses(false));
       } else {
-        // New patient: start with empty addresses
+        // New patient: start with empty addresses and collapsed
         setAddresses([]);
+        setShowAddresses(false);
       }
     } else {
-      // No initialPatient: clear form
+      // No initialPatient: reset form and collapse addresses
       setPatientData({
         id: null,
         name: '',
@@ -85,6 +104,7 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
         phone: '',
       });
       setAddresses([]);
+      setShowAddresses(false);
     }
   }, [initialPatient, isOpen]);
 
@@ -182,16 +202,14 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
                 maxLength={10}
                 onChange={updateField('phone')}
                 placeholder="10-digit phone number"
+                isDisabled={disablePhoneInput}
+                aria-readonly={disablePhoneInput}
               />
             </FormControl>
 
             <FormControl>
               <FormLabel>CREGNO</FormLabel>
-              <Input
-                value={patientData.cregno}
-                onChange={updateField('cregno')}
-                isDisabled={!!patientData.id}
-              />
+              <Input value={patientData.cregno} onChange={updateField('cregno')} isDisabled={!!patientData.id} />
               {patientData.id && !patientData.cregno && (
                 <Text fontSize="sm" color="gray.500" mt={1}>
                   Save patient to enable CREGNO input.
@@ -199,18 +217,40 @@ export default function ModularPatientModal({ isOpen, onClose, onSubmit, initial
               )}
             </FormControl>
 
-            <FormControl>
-              <FormLabel>Addresses</FormLabel>
-              {loadingAddresses ? (
-                <Text>Loading addresses...</Text>
-              ) : (
-                <AddressManager
-                  patientId={patientData.id}
-                  initialAddresses={addresses}
-                  onChange={setAddresses}
+            {/* Collapsible Addresses Section */}
+            <Box>
+              <Flex
+                justify="space-between"
+                align="center"
+                cursor="pointer"
+                onClick={toggleAddresses}
+                p={2}
+                borderBottom="1px solid"
+                borderColor="gray.200"
+                userSelect="none"
+                fontWeight="semibold"
+              >
+                Addresses
+                <IconButton
+                  size="sm"
+                  icon={showAddresses ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                  aria-label={showAddresses ? 'Collapse addresses' : 'Expand addresses'}
+                  onClick={(e) => {
+                    e.stopPropagation(); // prevent toggleAddresses firing twice
+                    toggleAddresses();
+                  }}
                 />
-              )}
-            </FormControl>
+              </Flex>
+              <Collapse in={showAddresses} animateOpacity>
+                <Box mt={3}>
+                  {loadingAddresses ? (
+                    <Text>Loading addresses...</Text>
+                  ) : (
+                    <AddressManager patientId={patientData.id} initialAddresses={addresses} onChange={setAddresses} />
+                  )}
+                </Box>
+              </Collapse>
+            </Box>
           </VStack>
         </ModalBody>
 

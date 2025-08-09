@@ -14,45 +14,77 @@ import {
   useBreakpointValue,
 } from "@chakra-ui/react";
 import { FiLogOut, FiHome } from "react-icons/fi";
-import DateSelector from "../app/components/DateSelector"; // Use your confirmed import path
+import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
+import { useUser } from "../app/context/UserContext"; // global user context
+
 export default function ShortcutBar({
-  userRole = "admin",
   executives = [],
   selectedExecutiveId,
   setSelectedExecutiveId,
-  hvExecutiveName,
+  patients = [],
+  selectedPatientId,
+  setSelectedPatientId,
   selectedDate,
   setSelectedDate,
   lockExecutive = false,
 }) {
   const router = useRouter();
-
   const isMobile = useBreakpointValue({ base: true, md: false });
+  const { user, refreshUser } = useUser(); // ✅ get refreshUser
 
+  // Logout handler: clears session, refreshes user context, then moves to login
   const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      alert("Error logging out: " + error.message);
-    } else {
-      router.push("/");
+    try {
+      // 1. Clear server-side session cookie
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      if (!res.ok) throw new Error("Failed to logout from server");
+
+      // 2. Clear any Supabase session
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        alert("Error logging out Supabase: " + error.message);
+        return;
+      }
+
+      // 3. Refresh context so `user` becomes null immediately
+      await refreshUser();
+
+      // 4. Redirect to login (replace avoids going back with back button)
+      router.replace("/login");
+
+    } catch (error) {
+      alert("Logout failed: " + error.message);
     }
   };
 
   const handleHomeDashboard = (e) => {
     e.stopPropagation();
-    if (userRole === "patient") {
-      router.push("/patient");  // Updated per your last note
-    } else if (userRole === "phlebo" || userRole === "executive") {
-      router.push("/phlebo");
-    } else if (userRole === "admin") {
-      router.push("/admin");
-    } else {
+    if (!user) {
       router.push("/");
+      return;
+    }
+    switch (user.userType) {
+      case "patient":
+        router.push("/patient");
+        break;
+      case "executive":
+        if (["admin", "manager", "director"].includes((user.executiveType || "").toLowerCase())) {
+          router.push("/admin");
+        } else if ((user.executiveType || "").toLowerCase() === "phlebo") {
+          router.push("/phlebo");
+        } else {
+          router.push("/dashboard");
+        }
+        break;
+      default:
+        router.push("/");
     }
   };
+
+  const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
   return (
     <Box
@@ -65,7 +97,6 @@ export default function ShortcutBar({
       boxShadow="sm"
       zIndex={1000}
     >
-      {/* First line: Logo + Welcome + Executive selector + Home/Logout */}
       <Flex
         height="56px"
         px={{ base: 2, md: 4 }}
@@ -73,9 +104,8 @@ export default function ShortcutBar({
         justify="space-between"
         userSelect="none"
       >
-        {/* Left side */}
+        {/* Left side: logo + welcome */}
         <Flex align="center" flexShrink={0} minW="280px" gap={3}>
-          {/* Logo: clickable only */}
           <Box
             cursor="pointer"
             onClick={(e) => {
@@ -97,44 +127,56 @@ export default function ShortcutBar({
             />
           </Box>
 
-          {/* Welcome */}
           <Text
             fontWeight="bold"
             fontSize={{ base: "sm", md: "md" }}
             color="teal.600"
             whiteSpace="nowrap"
-            userSelect="none"
-            display={{ base: "none", md: "block" }} // hide on mobile to save space
+            display={{ base: "none", md: "block" }}
           >
             Welcome
           </Text>
 
-          {/* Executive Selector */}
-          {executives.length > 0 && setSelectedExecutiveId && (
-            <Select
-              size="sm"
-              maxW="140px"
-              value={selectedExecutiveId || ""}
-              onChange={(e) => {
-                e.stopPropagation();
-                setSelectedExecutiveId(e.target.value);
-              }}
-              aria-label="Select Executive"
-              isDisabled={lockExecutive}
-              whiteSpace="nowrap"
-            >
-              {executives.map(({ id, name }) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </Select>
+          {/* Patient info */}
+          {user?.userType === "patient" && (
+            <Box whiteSpace="nowrap" fontWeight="medium" color="gray.700" fontSize="sm">
+              <Text>Phone: {user.phone || "N/A"}</Text>
+              {patients.length > 0 && setSelectedPatientId && (
+                <Select
+                  size="sm"
+                  maxW="160px"
+                  mt={1}
+                  value={selectedPatientId || ""}
+                  onChange={(e) => setSelectedPatientId(e.target.value)}
+                  aria-label="Select Patient"
+                  placeholder="Select Patient"
+                >
+                  {patients.map(({ id, name }) => (
+                    <option key={id} value={id}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              {selectedPatient && (
+                <Text mt={1} fontWeight="bold" color="teal.700">
+                  Selected: {selectedPatient.name}
+                </Text>
+              )}
+            </Box>
+          )}
+
+          {/* Executive/Admin/Phlebo info */}
+          {user?.userType === "executive" && user?.name && (
+            <Text fontWeight="bold" fontSize={{ base: "sm", md: "md" }} color="teal.700">
+              {user.name}
+            </Text>
           )}
         </Flex>
 
-        {/* Right side: Home and Logout */}
+        {/* Right side: Dashboard home + Logout */}
         <Flex align="center" gap={2} flexShrink={0}>
-          <Tooltip label="Dashboard Home" aria-label="Go to dashboard home">
+          <Tooltip label="Dashboard Home">
             <IconButton
               icon={<FiHome />}
               onClick={handleHomeDashboard}
@@ -143,8 +185,7 @@ export default function ShortcutBar({
               aria-label="Go to dashboard home"
             />
           </Tooltip>
-
-          <Tooltip label="Logout" aria-label="Logout">
+          <Tooltip label="Logout">
             <IconButton
               icon={<FiLogOut />}
               onClick={handleLogout}
@@ -156,7 +197,7 @@ export default function ShortcutBar({
         </Flex>
       </Flex>
 
-      {/* Second line: DateSelector (only visible on mobile) */}
+      {/* Second line: date selector */}
       {isMobile && selectedDate && setSelectedDate && (
         <Box
           px={2}
@@ -171,7 +212,6 @@ export default function ShortcutBar({
         </Box>
       )}
 
-      {/* On desktop, place DateSelector centered inline and visible */}
       {!isMobile && selectedDate && setSelectedDate && (
         <Flex
           position="absolute"
@@ -180,7 +220,7 @@ export default function ShortcutBar({
           transform="translateX(-50%)"
           height="72px"
           alignItems="center"
-          pointerEvents="none" // To avoid overlapping clickable areas in desktop header
+          pointerEvents="none"
           userSelect="none"
           zIndex={999}
           px={4}

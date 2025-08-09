@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -11,27 +11,113 @@ import {
   useToast,
 } from '@chakra-ui/react';
 
+import { useUser } from '../context/UserContext';
 import PatientLookup from './PatientLookup';
 import ModularPatientModal from './ModularPatientModal';
 import VisitModal from './VisitModal';
+import PatientVisitCards from './PatientVisitCards';
+import AddressManager from './AddressManager'; // real AddressManager
 
 export default function PatientsTab({
   fetchPatients,
-  fetchVisits,
   onPatientSelected,
-  selectedPatient: propSelectedPatient, // controlled prop optional
+  selectedPatient: propSelectedPatient,
+  phone = '',
+  disablePhoneInput = false,
 }) {
+  const toast = useToast();
+
+  const { user, isLoading: isUserLoading } = useUser();
+  const isPatientUser = user?.userType === 'patient';
+
   const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
-  const selectedPatient = propSelectedPatient !== undefined ? propSelectedPatient : internalSelectedPatient;
+  const [initialPhone, setInitialPhone] = useState('');
+  const [localDisablePhoneInput, setLocalDisablePhoneInput] = useState(false);
+
+  const selectedPatient =
+    propSelectedPatient !== undefined ? propSelectedPatient : internalSelectedPatient;
+
+  const [visits, setVisits] = useState([]);
+  const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitsError, setVisitsError] = useState(null);
+
+  const [selectedVisitId, setSelectedVisitId] = useState(null);
+  const [editingVisit, setEditingVisit] = useState(null);
 
   const [patientModalOpen, setPatientModalOpen] = useState(false);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
-  const [editingVisit, setEditingVisit] = useState(null);
 
   const [isSavingPatient, setIsSavingPatient] = useState(false);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
 
-  const toast = useToast();
+  const [addressManagerOpen, setAddressManagerOpen] = useState(false);
+
+  // NEW: state for labels -> button text
+  const [hasAddresses, setHasAddresses] = useState(false);
+  const [loadingLabels, setLoadingLabels] = useState(false);
+
+  // Auto-load logged-in patient info
+  useEffect(() => {
+    if (!isUserLoading && isPatientUser) {
+      const patientFromUser = {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+      };
+      setInternalSelectedPatient(patientFromUser);
+      setInitialPhone(user.phone || '');
+      setLocalDisablePhoneInput(true);
+      if (onPatientSelected) {
+        onPatientSelected(patientFromUser);
+      }
+    }
+  }, [user, isUserLoading, isPatientUser, onPatientSelected]);
+
+  // Fetch visits when patient changes
+  useEffect(() => {
+    if (!selectedPatient?.id) {
+      setVisits([]);
+      setVisitsError(null);
+      setLoadingVisits(false);
+      return;
+    }
+    const fetchVisits = async () => {
+      setLoadingVisits(true);
+      setVisitsError(null);
+      try {
+        const res = await fetch(`/api/visits?patient_id=${selectedPatient.id}`);
+        if (!res.ok) throw new Error('Failed to fetch visits');
+        const data = await res.json();
+        setVisits(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setVisitsError(err.message || 'Error fetching visits');
+        setVisits([]);
+      } finally {
+        setLoadingVisits(false);
+      }
+    };
+    fetchVisits();
+  }, [selectedPatient]);
+
+  // NEW: fetch address labels when patient changes
+  useEffect(() => {
+    if (!selectedPatient?.id) {
+      setHasAddresses(false);
+      return;
+    }
+    setLoadingLabels(true);
+    fetch(`/api/patients/address_labels?patient_id=${selectedPatient.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setHasAddresses(true);
+        } else {
+          setHasAddresses(false);
+        }
+      })
+      .catch(() => setHasAddresses(false))
+      .finally(() => setLoadingLabels(false));
+  }, [selectedPatient]);
 
   const onPatientSelectionHandler = (patient) => {
     if (propSelectedPatient === undefined) {
@@ -41,44 +127,21 @@ export default function PatientsTab({
       onPatientSelected(patient);
     }
     setEditingVisit(null);
+    setSelectedVisitId(null);
+    setAddressManagerOpen(false);
   };
 
-  const onOpenPatientModal = () => {
-    if (propSelectedPatient === undefined) {
-      setInternalSelectedPatient(null);
-    }
-    if (onPatientSelected) {
-      onPatientSelected(null);
-    }
-    setPatientModalOpen(true);
-  };
-
-  const onClosePatientModal = () => setPatientModalOpen(false);
-  const onCloseVisitModal = () => {
-    setVisitModalOpen(false);
-    setEditingVisit(null);
-  };
-
-  // Prevent multiple rapid saves by disabling save button and ignoring calls when already saving
   const onPatientSave = async (savedPatient) => {
     if (isSavingPatient) return;
-
     setIsSavingPatient(true);
     try {
       if (fetchPatients) await fetchPatients();
       if (propSelectedPatient === undefined) {
         setInternalSelectedPatient(savedPatient);
       }
-      if (onPatientSelected) {
-        onPatientSelected(savedPatient);
-      }
+      if (onPatientSelected) onPatientSelected(savedPatient);
       setPatientModalOpen(false);
-      toast({
-        title: 'Patient saved',
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: 'Patient saved', status: 'success', duration: 3000, isClosable: true });
     } catch (error) {
       toast({
         title: 'Error saving patient',
@@ -92,59 +155,45 @@ export default function PatientsTab({
     }
   };
 
-  // Sanitize payload
-  const sanitizePayload = (data) => {
-    const uuidFields = ['patient_id', 'executive_id', 'lab_id', 'time_slot', 'address_id'];
-    const cleaned = { ...data };
-    uuidFields.forEach((field) => {
-      if (cleaned[field] === '') cleaned[field] = null;
-    });
-    return cleaned;
-  };
-
-  const getVisitCode = async (date) => {
-    const response = await fetch(`/api/generate-visit-code?date=${date}`);
-    if (!response.ok) throw new Error('Failed to get visit code');
-    const { visitCode } = await response.json();
-    return visitCode;
-  };
-
-  const onSaveVisit = async (visitData) => {
+  const handleVisitSubmit = async (formData) => {
     if (isSavingVisit) return;
-
     setIsSavingVisit(true);
+
+    const payload = {
+      ...formData,
+      executive_id: formData.executive_id || null,
+      address_id: formData.address_id || null,
+    };
+
     try {
-      let payload = sanitizePayload(visitData);
-      if (!payload.id) {
-        payload.visit_code = await getVisitCode(payload.visit_date);
-      }
-      let res;
-      if (payload.id) {
-        res = await fetch(`/api/visits/${payload.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-      } else {
-        res = await fetch('/api/visits', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-      }
-      const result = await res.json();
+      const isUpdate = Boolean(formData.id);
+      const url = isUpdate ? `/api/visits/${formData.id}` : '/api/visits';
+      const method = isUpdate ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
       if (!res.ok) {
-        throw new Error(result.error || 'Failed to save visit.');
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to save visit');
       }
+
+      const savedVisit = await res.json();
+
+      setVisits((prev) =>
+        isUpdate ? prev.map((v) => (v.id === savedVisit.id ? savedVisit : v)) : [savedVisit, ...prev]
+      );
+      setVisitModalOpen(false);
+      setEditingVisit(null);
+      setSelectedVisitId(savedVisit.id);
       toast({
-        title: payload.id ? 'Visit updated' : 'Visit created',
+        title: isUpdate ? 'Visit updated successfully' : 'Visit created successfully',
         status: 'success',
         duration: 3000,
         isClosable: true,
       });
-      onCloseVisitModal();
-      if (fetchPatients) await fetchPatients();
-      if (fetchVisits) await fetchVisits();
     } catch (error) {
       toast({
         title: 'Error saving visit',
@@ -158,25 +207,105 @@ export default function PatientsTab({
     }
   };
 
+  const handleManageAddressClick = () => {
+    setAddressManagerOpen(true);
+  };
+
   return (
     <Box>
-      <PatientLookup onPatientSelected={onPatientSelectionHandler} onNewPatient={onOpenPatientModal} />
+      <PatientLookup
+        initialPhone={initialPhone || (isPatientUser ? user.phone : phone)}
+        disablePhoneInput={localDisablePhoneInput}
+        onPatientSelected={onPatientSelectionHandler}
+        onNewPatient={() => {
+          if (propSelectedPatient === undefined) {
+            setInternalSelectedPatient(null);
+            setInitialPhone('');
+            setLocalDisablePhoneInput(false);
+          }
+          if (onPatientSelected) onPatientSelected(null);
+          setPatientModalOpen(true);
+          setAddressManagerOpen(false);
+        }}
+      />
 
       <HStack mt={4} spacing={4}>
-        <Button colorScheme="blue" onClick={() => setPatientModalOpen(true)} disabled={!selectedPatient || isSavingPatient}>
-          {isSavingPatient ? <Spinner size="sm" /> : selectedPatient && !selectedPatient.id ? 'Save Patient' : 'Modify Patient'}
+        <Button
+          colorScheme="blue"
+          onClick={() => setPatientModalOpen(true)}
+          disabled={!selectedPatient || isSavingPatient}
+        >
+          {isSavingPatient ? (
+            <Spinner size="sm" />
+          ) : selectedPatient && !selectedPatient.id ? (
+            'Save Patient'
+          ) : (
+            'Modify Patient'
+          )}
         </Button>
-        <Button colorScheme="green" onClick={() => setVisitModalOpen(true)} disabled={!selectedPatient || !selectedPatient.id || isSavingVisit}>
+
+        <Button
+          colorScheme="green"
+          onClick={() => setVisitModalOpen(true)}
+          disabled={!selectedPatient?.id || isSavingVisit}
+        >
           {isSavingVisit ? <Spinner size="sm" /> : 'Book Visit'}
+        </Button>
+
+        <Button
+          colorScheme="purple"
+          onClick={handleManageAddressClick}
+          disabled={!selectedPatient?.id || loadingLabels}
+        >
+          {loadingLabels ? (
+            <Spinner size="sm" />
+          ) : hasAddresses ? (
+            'Manage Address'
+          ) : (
+            'Add Address'
+          )}
         </Button>
       </HStack>
 
-      <ModularPatientModal isOpen={patientModalOpen} onClose={onClosePatientModal} onSubmit={onPatientSave} initialPatient={selectedPatient} />
+      {selectedPatient?.id && (
+        <Box mt={6}>
+          {!addressManagerOpen ? (
+            <PatientVisitCards
+              visits={visits}
+              selectedVisitId={selectedVisitId}
+              onSelectVisit={setSelectedVisitId}
+              openVisitModal={(visit) => {
+                setEditingVisit(visit);
+                setVisitModalOpen(true);
+              }}
+              loading={loadingVisits}
+              error={visitsError}
+              setVisitsLoading={setIsSavingVisit}
+            />
+          ) : (
+            <AddressManager
+              patientId={selectedPatient.id}
+              onChange={() => {}}
+            />
+          )}
+        </Box>
+      )}
+
+      <ModularPatientModal
+        isOpen={patientModalOpen}
+        onClose={() => setPatientModalOpen(false)}
+        onSubmit={onPatientSave}
+        initialPatient={selectedPatient}
+      />
 
       <VisitModal
+        key={editingVisit?.id || 'new'}
         isOpen={visitModalOpen}
-        onClose={onCloseVisitModal}
-        onSubmit={onSaveVisit}
+        onClose={() => {
+          setVisitModalOpen(false);
+          setEditingVisit(null);
+        }}
+        onSubmit={handleVisitSubmit}
         patientId={selectedPatient?.id}
         patients={selectedPatient ? [selectedPatient] : []}
         visitInitialData={editingVisit}

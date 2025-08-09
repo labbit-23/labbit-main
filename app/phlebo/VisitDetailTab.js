@@ -1,3 +1,5 @@
+// File: /app/phlebo/VisitDetailTab.js
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -18,7 +20,7 @@ import { ExternalLinkIcon } from "@chakra-ui/icons";
 import { supabase } from "../../lib/supabaseClient";
 import TestPackageSelector from "../../components/TestPackageSelector";
 
-
+import { useUser } from "../context/UserContext"; // Import global user context
 
 const VISIT_STATUSES = [
   "pending",
@@ -40,20 +42,22 @@ const STATUS_LABELS = {
 
 export default function VisitDetailTab({ visit, onBack }) {
   const toast = useToast();
+  const { user, isLoading: userLoading } = useUser();
 
+  // Loading and selection states
   const [loadingDetails, setLoadingDetails] = useState(false);
-  // storing selected items as Set of IDs (either test IDs or package IDs as strings)
   const [selectedTestIds, setSelectedTestIds] = useState(new Set());
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [visitStatus, setVisitStatus] = useState(visit.status);
 
+  // Update local visit status and selections when visit prop changes
   useEffect(() => {
     setVisitStatus(visit.status);
     fetchVisitSelections();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visit]);
 
-  // Load pre-selected tests/packages from visit_details
+  // Load selected tests/packages for this visit from DB
   const fetchVisitSelections = async () => {
     setLoadingDetails(true);
     try {
@@ -82,28 +86,41 @@ export default function VisitDetailTab({ visit, onBack }) {
     }
   };
 
-  // Save selected tests/packages to DB on Save button click
+  // Save selected tests/packages
   const saveSelectedTests = async () => {
+    if (userLoading) {
+      toast({
+        title: "User data is loading, please wait",
+        status: "warning",
+      });
+      return;
+    }
+    if (!user || !user.id) {
+      toast({
+        title: "User not authenticated",
+        status: "error",
+      });
+      return;
+    }
+
     setLoadingDetails(true);
     try {
-      // Clear existing selections for this visit first
+      // Optionally add authorization validation here against user.id
+
+      // Clear existing selections
       const { error: delError } = await supabase
         .from("visit_details")
         .delete()
         .eq("visit_id", visit.id);
       if (delError) throw delError;
 
-      // Insert current selections, distinguishing test_id and package_id columns
+      // Prepare insert data (adjust distinguishing logic if needed)
       const inserts = [];
       selectedTestIds.forEach((id) => {
-        // You must decide how to distinguish test vs package id
-        // Here we assume your TestPackageSelector only sends raw ids,
-        // so you may need additional logic or IDs prefixed to differentiate
-        // For safety, try to fetch both columns but only set one per insert
         inserts.push({
           visit_id: visit.id,
-          test_id: id,      // if id is package_id maybe handle accordingly
-          package_id: null, // update if needed
+          test_id: id, // Adjust if package_id needed separately
+          package_id: null,
         });
       });
 
@@ -129,8 +146,25 @@ export default function VisitDetailTab({ visit, onBack }) {
 
   // Update visit status in DB
   const updateStatus = async (newStatus) => {
+    if (userLoading) {
+      toast({
+        title: "User data is loading, please wait",
+        status: "warning",
+      });
+      return;
+    }
+    if (!user || !user.id) {
+      toast({
+        title: "User not authenticated",
+        status: "error",
+      });
+      return;
+    }
+
     setUpdatingStatus(true);
     try {
+      // Optionally add authorization validation here against user.id
+
       const { error } = await supabase
         .from("visits")
         .update({ status: newStatus })
@@ -153,15 +187,24 @@ export default function VisitDetailTab({ visit, onBack }) {
     }
   };
 
-  // Compose Google Maps URL if lat and lng available in visit
+  // Google Maps URL for visit address
   const mapsUrl =
     visit.lat && visit.lng
       ? `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`
       : null;
 
+  // While user info is loading, optionally show a spinner or placeholder
+  if (userLoading) {
+    return (
+      <Flex justify="center" align="center" minH="200px">
+        <Spinner size="lg" />
+      </Flex>
+    );
+  }
+
   return (
     <Box>
-      {/* Navigation */}
+      {/* Back Button */}
       {onBack && (
         <Button mb={4} colorScheme="gray" onClick={onBack}>
           ← Back to Visits
@@ -191,7 +234,6 @@ export default function VisitDetailTab({ visit, onBack }) {
         ))}
       </Stack>
 
-      {/* Navigation Button */}
       {mapsUrl && (
         <HStack spacing={4} mb={6}>
           <Link href={mapsUrl} isExternal>
@@ -203,7 +245,6 @@ export default function VisitDetailTab({ visit, onBack }) {
         </HStack>
       )}
 
-      {/* Test/Package Selection */}
       <FormControl mb={6}>
         <FormLabel>Select Tests / Packages Performed</FormLabel>
         {loadingDetails ? (

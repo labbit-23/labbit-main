@@ -1,50 +1,17 @@
 // File: /app/components/PatientVisitCards.js
 'use client';
 
-import { useEffect, useState } from "react";
-import { SimpleGrid, Spinner, Text, Box } from "@chakra-ui/react";
+import { SimpleGrid, Spinner, Text, Box, VStack } from "@chakra-ui/react";
 import PatientVisitCard from "./PatientVisitCard";
 
 export default function PatientVisitCards({
-  patientId,
+  visits,
   selectedVisitId,
   onSelectVisit,
-  openVisitModal
+  openVisitModal,
+  loading = false,
+  error = null,
 }) {
-  const [visits, setVisits] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (!patientId) {
-      setVisits(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    fetch(`/api/visits?patient_id=${patientId}`)
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Error fetching visits: ${res.statusText}`);
-        }
-        return res.json();
-      })
-      .then((data) => {
-        setVisits(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || "Failed to fetch visits");
-        setVisits([]);
-        setLoading(false);
-      });
-  }, [patientId]);
-
-  if (!patientId) return null;
-
   if (loading) return <Spinner size="lg" my={6} />;
 
   if (error)
@@ -88,25 +55,50 @@ export default function PatientVisitCards({
     .filter((v) => new Date(v.visit_date).setHours(0, 0, 0, 0) < today.getTime())
     .sort((a, b) => new Date(b.visit_date) - new Date(a.visit_date))[0];
 
+  const renderVisitDetails = (visit) => (
+    <VStack align="start" spacing={1} mt={1}>
+      {visit.address && (
+        <Text fontSize="sm" color="gray.600" noOfLines={1} title={visit.address}>
+          📍 {visit.address}
+        </Text>
+      )}
+      {visit.executive && visit.executive.name && (
+        <Text fontSize="sm" color="gray.600" noOfLines={1} title={visit.executive.name}>
+          🧑‍⚕️ HV: {visit.executive.name}
+        </Text>
+      )}
+      {!visit.executive?.name && visit.executive_id && (
+        <Text fontSize="sm" color="gray.400" noOfLines={1} title={visit.executive_id}>
+          🧑‍⚕️ HV ID: {visit.executive_id.slice(0, 8)}...
+        </Text>
+      )}
+    </VStack>
+  );
+
   return (
     <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mt={6}>
       {activeVisits.map((visit) => (
-        <PatientVisitCard
-          key={visit.id}
-          visit={visit}
-          isSelected={selectedVisitId === visit.id}
-          onSelect={() => onSelectVisit(visit.id)}
-          openVisitModal={() => openVisitModal(visit)}
-        />
+        <Box key={visit.id} position="relative">
+          <PatientVisitCard
+            visit={visit}
+            isSelected={selectedVisitId === visit.id}
+            onSelect={() => onSelectVisit(visit.id)}
+            openVisitModal={() => openVisitModal(visit)}
+          />
+          {renderVisitDetails(visit)}
+        </Box>
       ))}
       {lastPastVisit && (
-        <PatientVisitCard
-          visit={lastPastVisit}
-          isPast
-          isSelected={selectedVisitId === lastPastVisit.id}
-          onSelect={() => onSelectVisit(lastPastVisit.id)}
-          openVisitModal={() => openVisitModal(lastPastVisit)}
-        />
+        <Box key={lastPastVisit.id} position="relative">
+          <PatientVisitCard
+            visit={lastPastVisit}
+            isPast
+            isSelected={selectedVisitId === lastPastVisit.id}
+            onSelect={() => onSelectVisit(lastPastVisit.id)}
+            openVisitModal={() => openVisitModal(lastPastVisit)}
+          />
+          {renderVisitDetails(lastPastVisit)}
+        </Box>
       )}
     </SimpleGrid>
   );

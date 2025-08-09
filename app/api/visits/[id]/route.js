@@ -1,15 +1,10 @@
 // File: /app/api/visits/[id]/route.js
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from "../../../../lib/supabaseServer"; // adjust the relative path as needed
 
 /**
- * GET - Fetch a single visit by ID
+ * GET - Fetch a single visit by ID with executive and time_slot details
  */
 export async function GET(request, { params }) {
   const { id } = params;
@@ -21,18 +16,20 @@ export async function GET(request, { params }) {
   try {
     const { data, error } = await supabase
       .from("visits")
-      .select(
-        `
+      .select(`
         id,
         patient_id,
         executive_id,
+        executive:executive_id (
+          id,
+          name,
+          phone
+        ),
         lab_id,
         visit_date,
         time_slot,
         address,
         status,
-        patient_id,
-        address,
         address_id,
         time_slot:time_slot (
           id,
@@ -40,8 +37,7 @@ export async function GET(request, { params }) {
           start_time,
           end_time
         )
-        `
-      )
+      `)
       .eq("id", id)
       .single();
 
@@ -68,21 +64,18 @@ export async function PUT(request, { params }) {
   try {
     const body = await request.json();
 
-    // Build update object
-    const updateData = {};
-
-    // Pick relevant fields if they exist in request body
     const allowedFields = [
       "patient_id",
       "executive_id",
       "lab_id",
       "visit_date",
-      "time_slot",  // Use "time_slot" since you confirmed keys can remain as is
+      "time_slot",
       "address",
       "address_id",
       "status",
     ];
 
+    const updateData = {};
     for (const field of allowedFields) {
       if (field in body) {
         updateData[field] = body[field];
@@ -100,7 +93,28 @@ export async function PUT(request, { params }) {
       .from("visits")
       .update(updateData)
       .eq("id", id)
-      .select()
+      .select(`
+        id,
+        patient_id,
+        executive_id,
+        executive:executive_id (
+          id,
+          name,
+          phone
+        ),
+        lab_id,
+        visit_date,
+        time_slot,
+        address,
+        status,
+        address_id,
+        time_slot:time_slot (
+          id,
+          slot_name,
+          start_time,
+          end_time
+        )
+      `)
       .single();
 
     if (error) {

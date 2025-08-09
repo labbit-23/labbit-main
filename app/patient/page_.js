@@ -2,11 +2,11 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Box, Heading, Text, VStack, Flex, Button } from "@chakra-ui/react";
 import ShortcutBar from "../../components/ShortcutBar";
 
-// REUSE your components:
+// Your app-specific components
 import PatientsTab from "./PatientsTab";
 import VisitModal from "./VisitModal";
 import AddressManager from "../../components/AddressManager";
@@ -17,10 +17,10 @@ import ModularPatientModal from "../../components/ModularPatientModal";
 export default function PatientDashboard({ initialPhone }) {
   // State for selected patient, visit, and modal control
   const [selectedPatient, setSelectedPatient] = useState(null);
-  const [selectedVisit, setSelectedVisit] = useState(null);
+  const [selectedVisit, setSelectedVisit] = useState(null); // null for "new", object for edit
   const [visitModalOpen, setVisitModalOpen] = useState(false);
 
-  // Address states
+  // Address-related UI state (if needed for display)
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState("");
   const [addressLabel, setAddressLabel] = useState("");
@@ -29,6 +29,22 @@ export default function PatientDashboard({ initialPhone }) {
 
   // Patient Modal state
   const [patientModalOpen, setPatientModalOpen] = useState(false);
+
+  // Submission logic for VisitModal
+  const handleVisitSubmit = (formData) => {
+    // You can add API calls, notification, visit refresh, etc. here
+    // For now, just close the modal.
+    setVisitModalOpen(false);
+    // Optionally update local visits state, selectedVisit, etc.
+  };
+
+  // Memoize any default values for VisitModal to avoid effect loops
+  const visitModalDefaultValues = useMemo(
+    () => ({
+      status: "booked", // example; add more defaults as needed
+    }),
+    []
+  );
 
   return (
     <Box
@@ -57,20 +73,19 @@ export default function PatientDashboard({ initialPhone }) {
               Welcome to Labbit
             </Heading>
 
-            {/* PatientsTab for listing, switching, or managing family patients */}
+            {/* PatientsTab for switching/managing patient selection */}
             <PatientsTab
-              onPatientSelected={(patient) => setSelectedPatient(patient)}
-              // add other handlers if needed
+              onPatientSelected={setSelectedPatient}
+              // other handlers as needed
             />
 
-            {/* Selected patient actions */}
             {selectedPatient ? (
               <>
                 <Text fontWeight="medium" color="gray.600">
                   Current: {selectedPatient.name}
                 </Text>
 
-                {/* Address picker for this patient */}
+                {/* Address picker - can manage or edit outside VisitModal */}
                 <AddressSelector
                   addresses={addresses}
                   selectedAddressId={selectedAddressId}
@@ -83,14 +98,14 @@ export default function PatientDashboard({ initialPhone }) {
                   setLatLng={setLatLng}
                 />
 
-                {/* Manage addresses if needed */}
+                {/* Manage addresses for current patient */}
                 <AddressManager patientId={selectedPatient.id} />
 
-                {/* Button to open VisitModal for new visit booking */}
+                {/* Book new visit button */}
                 <Button
                   colorScheme="green"
                   onClick={() => {
-                    setSelectedVisit(null); // Set to null for a new booking, or pass visit for edit
+                    setSelectedVisit(null); // new booking
                     setVisitModalOpen(true);
                   }}
                   width="100%"
@@ -98,22 +113,25 @@ export default function PatientDashboard({ initialPhone }) {
                   Book a Home Visit
                 </Button>
 
-                {/* VisitModal for booking/editing visits */}
-                <VisitModal
-                  isOpen={visitModalOpen}
-                  onClose={() => setVisitModalOpen(false)}
-                  onSubmit={/* callback to handle new/edited visit submission */}
-                  patientId={selectedPatient.id}
-                  addresses={addresses}
-                  visitInitialData={selectedVisit}
-                  // Add other props as required
-                />
+                {/* VisitModal for creating or editing a visit (edit logic can be added as needed) */}
+                {visitModalOpen && (
+                  <VisitModal
+                    isOpen={visitModalOpen}
+                    onClose={() => setVisitModalOpen(false)}
+                    onSubmit={handleVisitSubmit}
+                    patientId={selectedPatient.id}
+                    visitInitialData={selectedVisit}
+                    defaultValues={visitModalDefaultValues}
+                    // Pass hiddenFields/readOnlyFields if needed for role
+                  />
+                )}
 
-                {/* ModularPatientModal for editing patient info */}
+                {/* Edit patient info */}
                 <ModularPatientModal
                   isOpen={patientModalOpen}
                   onClose={() => setPatientModalOpen(false)}
                   patient={selectedPatient}
+                  // add other props as needed
                 />
               </>
             ) : (
