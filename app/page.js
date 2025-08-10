@@ -45,7 +45,7 @@ export default function Page() {
             mb={8}
             maxH="80px"
             objectFit="contain"
-            fallbackSrc="https://via.placeholder.com/150"
+            fallbackSrc="https://sdrc.in/wp-content/uploads/2024/09/SRDC-logo_cropped-624x219.png"
           />
           <Heading
             size="2xl"

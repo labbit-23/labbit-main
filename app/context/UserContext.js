@@ -12,7 +12,9 @@ export function UserProvider({ children }) {
 
   const fetchUser = async () => {
     try {
-      const res = await fetch("/api/me");
+      const res = await fetch("/api/me", {
+      credentials: "include", // ✅ send cookies/session in browser fetch
+    });
       if (!res.ok) {
         setUser(null);
         return;

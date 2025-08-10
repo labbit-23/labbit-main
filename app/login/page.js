@@ -124,7 +124,7 @@ export default function LoginPage() {
     async function checkSession() {
       setCheckingSession(true);
       try {
-        const res = await fetch('/api/me');
+        const res = await fetch('/api/me', { credentials: 'include' });
         if (res.ok) {
           const user = await res.json();
           const execType = (user.executiveType || '').toLowerCase();

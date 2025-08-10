@@ -14,11 +14,23 @@ export default function RequireAuth({ children, roles = [] }) {
 
   useEffect(() => {
     if (!isLoading) {
-      const roleKey = user?.userType === "executive"
-        ? (user.executiveType || "").toLowerCase()
-        : user?.userType;
+      const roleKey =
+        user?.userType === "executive"
+          ? (user.executiveType || "").toLowerCase().trim()
+          : (user?.userType || "").toLowerCase().trim();
 
-      const isAllowed = user && (roles.length === 0 || roles.includes(roleKey));
+      const allowedRoles = roles.map((r) => r.toLowerCase().trim());
+      const isAllowed = !!user && (allowedRoles.length === 0 || allowedRoles.includes(roleKey));
+
+      console.log("RequireAuth check", {
+        user,
+        isLoading,
+        roleKey,
+        roles,
+        allowedRoles,
+        isAllowed,
+        pathname,
+      });
 
       if (!isAllowed && pathname !== "/login") {
         router.replace("/login");
@@ -34,8 +46,9 @@ export default function RequireAuth({ children, roles = [] }) {
     );
   }
 
+  // While redirecting, avoid rendering anything
   if (!user) {
-    return null; // nothing while redirecting
+    return null;
   }
 
   return <>{children}</>;
