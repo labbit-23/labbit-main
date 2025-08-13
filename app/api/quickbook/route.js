@@ -3,6 +3,7 @@
 // =============================================
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
+import { sendQuickbookPatientSms } from "@/lib/visitSms";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,7 @@ export async function POST(req) {
       timeslot,
       persons,
       whatsapp,
-      agree,
+      agree
     } = body;
 
     if (!patientName || !phone || !date || !timeslot || !agree) {
@@ -29,6 +30,7 @@ export async function POST(req) {
       );
     }
 
+    // 1️⃣ Insert booking into quickbookings table
     const { data, error } = await supabase
       .from("quickbookings")
       .insert([
@@ -41,8 +43,8 @@ export async function POST(req) {
           timeslot,
           persons,
           whatsapp,
-          agree,
-        },
+          agree
+        }
       ])
       .select();
 
@@ -51,10 +53,18 @@ export async function POST(req) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Optionally trigger WhatsApp message here if whatsapp = true
-    // e.g., call /api/whatsapp/send
+    const booking = data[0];
 
-    return NextResponse.json({ success: true, booking: data[0] }, { status: 200 });
+    // 2️⃣ Send patient_visit SMS with status = PENDING
+    try {
+      await sendQuickbookPatientSms(booking.id);
+      console.log("Quick Book PENDING SMS sent to patient:", booking.phone);
+    } catch (smsErr) {
+      console.error("Failed to send Quick Book SMS:", smsErr);
+    }
+
+    return NextResponse.json({ success: true, booking }, { status: 200 });
+
   } catch (err) {
     console.error("[QuickBook POST Error]", err);
     return NextResponse.json({ error: err.message }, { status: 500 });

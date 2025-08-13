@@ -31,7 +31,8 @@ import {
   Textarea,
   Select,
   Link as ChakraLink,
-  useBreakpointValue
+  useBreakpointValue,
+  SimpleGrid
 } from "@chakra-ui/react";
 import { useState, useEffect } from "react";
 import Carousel from "./components/Carousel";
@@ -59,21 +60,19 @@ export default function LandingPage() {
     date: "",
     timeslot: "",
     persons: 1,
-    whatsapp: false,
-    agree: false
+    whatsapp: true, // pre-ticked
+    agree: true     // pre-ticked
   });
   const [loading, setLoading] = useState(false);
   const [timeslots, setTimeslots] = useState([]);
   const [showTests, setShowTests] = useState({ tests: [], title: "" });
 
-  // Sticky header scroll state
+  // Sticky header scroll
   const [scrolled, setScrolled] = useState(false);
   const isMobile = useBreakpointValue({ base: true, md: false });
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 40);
-    };
+    const handleScroll = () => setScrolled(window.scrollY > 40);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -81,8 +80,13 @@ export default function LandingPage() {
   useEffect(() => {
     fetch("/api/visits/time_slots")
       .then((res) => res.json())
-      .then((data) => setTimeslots(Array.isArray(data) ? data : []))
-      .catch(() => setTimeslots([]));
+      .then((data) => {
+        setTimeslots(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error("Error fetching timeslots", err);
+        setTimeslots([]);
+      });
   }, []);
 
   const handleChange = (field) => (e) =>
@@ -90,18 +94,13 @@ export default function LandingPage() {
 
   const handlePersonsChange = (value) => {
     const val = Number(value);
-    if (!isNaN(val) && val > 0)
+    if (!isNaN(val) && val > 0) {
       setForm((prev) => ({ ...prev, persons: val }));
+    }
   };
 
   const handleSubmit = async () => {
-    if (
-      !form.patientName ||
-      !form.phone ||
-      !form.date ||
-      !form.timeslot ||
-      !form.agree
-    ) {
+    if (!form.patientName || !form.phone || !form.date || !form.timeslot || !form.agree) {
       toast({
         title: "Please fill all required fields and accept consent.",
         status: "warning"
@@ -125,8 +124,8 @@ export default function LandingPage() {
         date: "",
         timeslot: "",
         persons: 1,
-        whatsapp: false,
-        agree: false
+        whatsapp: true,
+        agree: true
       });
       onClose();
     } catch (err) {
@@ -136,17 +135,19 @@ export default function LandingPage() {
     }
   };
 
+  // Fixed carousel responsiveness with 3/2/1 slides + mobile padding tweaks
   const sliderSettings = {
     dots: true,
     infinite: true,
     speed: 500,
+    arrows: false,
     slidesToShow: 3,
     slidesToScroll: 1,
-    arrows: false,
     adaptiveHeight: true,
     responsive: [
-      { breakpoint: 1024, settings: { slidesToShow: 2 } },
-      { breakpoint: 640, settings: { slidesToShow: 1 } }
+      { breakpoint: 1024, settings: { slidesToShow: 3 } },
+      { breakpoint: 768,  settings: { slidesToShow: 2 } },
+      { breakpoint: 480,  settings: { slidesToShow: 1 } }
     ]
   };
 
@@ -156,27 +157,18 @@ export default function LandingPage() {
   return (
     <Box minH="100vh" bgGradient="linear(to-b, white, gray.100)">
       {/* Sticky Header */}
-      <Box
-        position="sticky"
-        top="0"
-        zIndex="1000"
-        bg="white"
-        boxShadow={scrolled ? "sm" : "none"}
-        transition="all 0.2s ease"
-      >
+      <Box position="sticky" top="0" zIndex="1000" bg="white" boxShadow={scrolled ? "sm" : "none"}>
         <Flex
           justify="space-between"
           align="center"
-          px={[2, 8]}
+          px={{ base: 2, md: 8 }}
           py={scrolled && isMobile ? 1 : 3}
-          transition="all 0.2s ease"
         >
           <HStack spacing={2}>
             <Image
               src={LABBIT_LOGO}
               alt="Labbit Logo"
               maxH={scrolled && isMobile ? "40px" : "60px"}
-              transition="all 0.2s ease"
             />
           </HStack>
           <HStack gap={3}>
@@ -196,79 +188,55 @@ export default function LandingPage() {
         </Flex>
       </Box>
 
-      {/* HERO */}
+      {/* Hero */}
       <Box textAlign="center" mb={8} px={4}>
-        <Heading size="2xl" color="teal.600">
-          Welcome to Labbit
-        </Heading>
+        <Heading size="2xl" color="teal.600">Welcome to Labbit</Heading>
         <Text fontSize="lg" color="gray.700">
-          <b style={{ color: "#00b1b9" }}>Seamless Home Blood Collection</b> and
-          health checkups, trusted by SDRC.
+          <b style={{ color: "#00b1b9" }}>Seamless Home Blood Collection</b> and health checkups, trusted by SDRC.
         </Text>
       </Box>
 
-      {/* SDRC Logo above carousel */}
+      {/* SDRC Logo */}
       <Box textAlign="center" mb={4}>
         <Image src={SDRC_LOGO} alt="SDRC Logo" w="120px" mx="auto" />
       </Box>
 
-      {/* CAROUSEL */}
+      {/* Carousel */}
       <Box maxW="1100px" mx="auto" mb={7} px={2}>
-        <Carousel
-          settings={sliderSettings}
-          minHeight="420px"
-          showArrows={showArrows}
-        >
+        <Carousel settings={sliderSettings} minHeight="420px" showArrows={showArrows}>
           {pkgArray.map((pkg, idx) => (
-            <Box
-              key={pkg.name || idx}
-              p={4}
-              display="flex"
-              flexDirection="column"
-              alignItems="center"
-            >
+            <Box key={pkg.name || idx} p={{ base: 2, md: 4 }} display="flex" flexDirection="column" alignItems="center">
               <Box
                 borderWidth="1px"
                 borderRadius="2xl"
                 bg="white"
                 shadow="md"
-                px={3}
-                py={5}
-                h="420px"
+                px={{ base: 2, md: 3 }}
+                py={{ base: 4, md: 5 }}
+                minH={{ base: "auto", md: "420px" }}
                 display="flex"
                 flexDirection="column"
                 justifyContent="space-between"
                 textAlign="center"
               >
-                <Heading size="md" color="teal.700" mb={2}>
-                  {pkg.name}
-                </Heading>
-                <Text fontSize="sm" color="gray.600" mb={2}>
-                  {pkg.description}
-                </Text>
+                <Heading size="md" color="teal.700" mb={2}>{pkg.name}</Heading>
+                <Text fontSize="sm" color="gray.600" mb={2}>{pkg.description}</Text>
                 <Divider mb={2} />
                 {pkg.variants.map((v, vi) => (
                   <Box key={v.name || vi} mb={3} p={2} bg="gray.50" borderRadius="md">
                     {v.name && (
-                      <Text fontWeight="bold" color="teal.800" mb={1}>
-                        {v.name}
-                      </Text>
+                      <Text fontWeight="bold" color="teal.800" mb={1}>{v.name}</Text>
                     )}
-                    <Text color="green.700" fontWeight="bold" mb={0}>
-                      ₹{v.price}
-                    </Text>
+                    <Text color="green.700" fontWeight="bold">₹{v.price}</Text>
                     <Text fontSize="xs" color="gray.600" mb={2}>
                       ({v.parameters} parameters)
                     </Text>
-
-                    {/* Preview tests if only one variant */}
                     {pkg.variants.length === 1 && (
                       <Text fontSize="xs" color="gray.500" mb={2}>
                         {v.tests.slice(0, 3).join(", ")}
                         {v.tests.length > 3 ? ", ..." : ""}
                       </Text>
                     )}
-
                     <Button
                       size="xs"
                       colorScheme="teal"
@@ -292,7 +260,7 @@ export default function LandingPage() {
         </Carousel>
       </Box>
 
-      {/* INCLUDED TESTS MODAL */}
+      {/* Tests Modal */}
       <Modal isOpen={testModalOpen} onClose={onTestModalClose} size="lg" isCentered>
         <ModalOverlay />
         <ModalContent>
@@ -317,102 +285,96 @@ export default function LandingPage() {
         </ModalContent>
       </Modal>
 
-      {/* QUICK BOOK MODAL */}
+      {/* Quick Book Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="lg" isCentered>
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Quick Book</ModalHeader>
           <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={2}>
+          <ModalBody px={{ base: 4, md: 6 }} py={4}>
+            <VStack spacing={4} align="stretch">
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl>
+                  <FormLabel fontSize="sm" fontWeight="semibold">Patient Name</FormLabel>
+                  <Input value={form.patientName} onChange={handleChange("patientName")} size="sm" />
+                </FormControl>
+                <FormControl>
+                  <FormLabel fontSize="sm" fontWeight="semibold">Phone</FormLabel>
+                  <Input value={form.phone} onChange={handleChange("phone")} size="sm" />
+                </FormControl>
+              </SimpleGrid>
+
               <FormControl>
-                <FormLabel>Patient Name</FormLabel>
-                <Input
-                  value={form.patientName}
-                  onChange={handleChange("patientName")}
-                  size="sm"
-                />
+                <FormLabel fontSize="sm" fontWeight="semibold">Tests / Package</FormLabel>
+                <Textarea value={form.packageName} onChange={handleChange("packageName")} size="sm" />
               </FormControl>
-              <FormControl>
-                <FormLabel>Phone</FormLabel>
-                <Input
-                  value={form.phone}
-                  onChange={handleChange("phone")}
-                  size="sm"
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Tests/Package</FormLabel>
-                <Textarea
-                  value={form.packageName}
-                  onChange={handleChange("packageName")}
-                  size="sm"
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Area / Pincode</FormLabel>
-                <Input
-                  value={form.area}
-                  onChange={handleChange("area")}
-                  size="sm"
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Date</FormLabel>
-                <Input
-                  type="date"
-                  value={form.date}
-                  onChange={handleChange("date")}
-                  size="sm"
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Timeslot</FormLabel>
-                <Select
-                  value={form.timeslot}
-                  onChange={handleChange("timeslot")}
-                  size="sm"
-                  placeholder={
-                    timeslots.length === 0 ? "Loading..." : "Select slot"
-                  }
+
+              <Divider borderColor="gray.200" />
+
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl>
+                  <FormLabel fontSize="sm" fontWeight="semibold">Area / Pincode</FormLabel>
+                  <Input value={form.area} onChange={handleChange("area")} size="sm" />
+                </FormControl>
+                <FormControl>
+                  <FormLabel fontSize="sm" fontWeight="semibold">Date</FormLabel>
+                  <Input type="date" value={form.date} onChange={handleChange("date")} size="sm" />
+                </FormControl>
+              </SimpleGrid>
+
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl>
+                  <FormLabel fontSize="sm" fontWeight="semibold">Timeslot</FormLabel>
+                  <Select
+                    value={form.timeslot}
+                    onChange={handleChange("timeslot")}
+                    size="sm"
+                    placeholder={timeslots.length === 0 ? "Loading..." : "Select slot"}
+                  >
+                    {timeslots.map((slot) => (
+                      <option key={slot.id} value={slot.id}>
+                        {slot.slot_name}
+                      </option>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl maxW={{ base: "100%", md: "120px" }}>
+                  <FormLabel fontSize="sm" fontWeight="semibold">Persons</FormLabel>
+                  <NumberInput value={form.persons} onChange={handlePersonsChange} size="sm" min={1}>
+                    <NumberInputField />
+                  </NumberInput>
+                </FormControl>
+              </SimpleGrid>
+
+              <Divider borderColor="gray.200" />
+
+              <HStack spacing={6} flexWrap="wrap">
+                <Checkbox
+                  isChecked={form.whatsapp}
+                  onChange={(e) => setForm((p) => ({ ...p, whatsapp: e.target.checked }))}
                 >
-                  {timeslots.map((slot) => (
-                    <option key={slot.id} value={slot.value}>
-                      {slot.label}
-                    </option>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl>
-                <FormLabel>No. of Persons</FormLabel>
-                <NumberInput
-                  value={form.persons}
-                  onChange={handlePersonsChange}
-                  size="sm"
-                  maxW="80px"
+                  Contact me on WhatsApp
+                </Checkbox>
+                <Checkbox
+                  isChecked={form.agree}
+                  onChange={(e) => setForm((p) => ({ ...p, agree: e.target.checked }))}
                 >
-                  <NumberInputField />
-                </NumberInput>
-              </FormControl>
-              <Checkbox
-                isChecked={form.whatsapp}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, whatsapp: e.target.checked }))
-                }
-              >
-                Contact me on WhatsApp
-              </Checkbox>
-              <Checkbox
-                isChecked={form.agree}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, agree: e.target.checked }))
-                }
-              >
-                I agree to be contacted
-              </Checkbox>
-              <Button onClick={handleSubmit} isLoading={loading} colorScheme="teal">
-                Submit
-              </Button>
+                  I agree to be contacted
+                </Checkbox>
+              </HStack>
+
+              <Flex justify={{ base: "center", md: "flex-end" }} pt={2}>
+                <Button
+                  onClick={handleSubmit}
+                  isLoading={loading}
+                  colorScheme="teal"
+                  px={8}
+                  size="md"
+                  borderRadius="full"
+                >
+                  Submit Booking
+                </Button>
+              </Flex>
             </VStack>
           </ModalBody>
         </ModalContent>
