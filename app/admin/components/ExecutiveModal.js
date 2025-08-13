@@ -29,8 +29,7 @@ export default function ExecutiveModal({
   initialData = null,
 }) {
   const toast = useToast();
-
-  const roles = ["Phlebo", "Admin", "Courier", "Management"]; // Customize as needed
+  const roles = ["Phlebo", "Admin", "Courier", "Management"];
 
   const defaultForm = {
     id: null,
@@ -39,13 +38,21 @@ export default function ExecutiveModal({
     email: "",
     type: roles[0],
     active: true,
+    lab_id: "",
   };
 
   const [formData, setFormData] = useState(defaultForm);
   const [loading, setLoading] = useState(false);
+  const [labs, setLabs] = useState([]);
 
   useEffect(() => {
     if (isOpen) {
+      // Fetch labs for logged-in admin only
+      fetch("/api/labs?my_labs=true")
+        .then((r) => r.json())
+        .then((data) => setLabs(Array.isArray(data) ? data : []))
+        .catch(() => setLabs([]));
+
       if (initialData && initialData.id != null) {
         setFormData({
           id: initialData.id,
@@ -53,21 +60,27 @@ export default function ExecutiveModal({
           phone: initialData.phone || "",
           email: initialData.email || "",
           type: roles.includes(initialData.type) ? initialData.type : roles[0],
-          active: typeof initialData.active === "boolean" ? initialData.active : true,
+          active:
+            typeof initialData.active === "boolean"
+              ? initialData.active
+              : true,
+          lab_id: initialData.lab_id || "",
         });
       } else {
         setFormData(defaultForm);
       }
     }
-  }, [isOpen, initialData?.id]);
+  }, [isOpen, initialData]);
 
   const handleChange = (field) => (event) => {
-    const val = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    const val =
+      event.target.type === "checkbox"
+        ? event.target.checked
+        : event.target.value;
     setFormData((prev) => ({ ...prev, [field]: val }));
   };
 
   const validateEmail = (email) => {
-    // Simple email Regex pattern
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(email);
   };
@@ -82,7 +95,10 @@ export default function ExecutiveModal({
       return false;
     }
     if (!/^\d{10}$/.test(formData.phone.trim())) {
-      toast({ title: "Enter a valid 10-digit phone number", status: "warning" });
+      toast({
+        title: "Enter a valid 10-digit phone number",
+        status: "warning",
+      });
       return false;
     }
     if (!formData.email.trim() || !validateEmail(formData.email.trim())) {
@@ -93,6 +109,10 @@ export default function ExecutiveModal({
       toast({ title: "Role selection is required", status: "warning" });
       return false;
     }
+    if (!formData.lab_id) {
+      toast({ title: "Lab assignment is required", status: "warning" });
+      return false;
+    }
     return true;
   };
 
@@ -101,20 +121,13 @@ export default function ExecutiveModal({
     if (!validate()) return;
 
     setLoading(true);
-
     try {
-      // For new phlebos, default status to "available"
-      const payload = {
-        ...formData,
-        status: !formData.id && formData.type.toLowerCase() === "phlebo" ? "available" : (formData.status || (formData.active ? "active" : "inactive")),
-      };
-
-      const method = payload.id ? "PUT" : "POST";
+      const method = formData.id ? "PUT" : "POST";
 
       const res = await fetch("/api/executives", {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(formData),
       });
 
       if (!res.ok) {
@@ -123,16 +136,14 @@ export default function ExecutiveModal({
       }
 
       const savedExec = await res.json();
-
       toast({
-        title: `Executive ${payload.id ? "updated" : "created"} successfully!`,
+        title: `Executive ${formData.id ? "updated" : "created"} successfully!`,
         status: "success",
       });
 
       if (onSaveSuccess) {
         onSaveSuccess(savedExec);
       }
-
       onClose();
     } catch (error) {
       toast({
@@ -151,15 +162,23 @@ export default function ExecutiveModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => { if (!loading) onClose(); }}
+      onClose={() => {
+        if (!loading) onClose();
+      }}
       size="md"
       isCentered
       closeOnOverlayClick={!loading}
       closeOnEsc={!loading}
     >
       <ModalOverlay />
-      <ModalContent as="form" onSubmit={handleSubmit} data-testid="executive-modal">
-        <ModalHeader>{isEditing ? "Update Executive" : "Create Executive"}</ModalHeader>
+      <ModalContent
+        as="form"
+        onSubmit={handleSubmit}
+        data-testid="executive-modal"
+      >
+        <ModalHeader>
+          {isEditing ? "Update Executive" : "Create Executive"}
+        </ModalHeader>
         <ModalCloseButton disabled={loading} />
         <ModalBody>
           <VStack spacing={4}>
@@ -213,6 +232,22 @@ export default function ExecutiveModal({
               </Select>
             </FormControl>
 
+            <FormControl id="lab_id" isRequired>
+              <FormLabel>Lab</FormLabel>
+              <Select
+                value={formData.lab_id}
+                onChange={handleChange("lab_id")}
+                disabled={loading}
+              >
+                <option value="">Select lab</option>
+                {labs.map((lab) => (
+                  <option key={lab.id} value={lab.id}>
+                    {lab.name}
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+
             <FormControl id="active">
               <HStack alignItems="center">
                 <FormLabel htmlFor="active-switch" mb="0">
@@ -230,7 +265,13 @@ export default function ExecutiveModal({
         </ModalBody>
 
         <ModalFooter>
-          <Button type="submit" colorScheme="blue" isLoading={loading} isDisabled={loading} mr={3}>
+          <Button
+            type="submit"
+            colorScheme="blue"
+            isLoading={loading}
+            isDisabled={loading}
+            mr={3}
+          >
             {isEditing ? "Update" : "Save"}
           </Button>
           <Button onClick={onClose} isDisabled={loading} variant="ghost">

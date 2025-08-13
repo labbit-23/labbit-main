@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Table,
   Thead,
@@ -18,6 +18,7 @@ import {
   Badge,
   VStack,
   Button,
+  Flex,
 } from "@chakra-ui/react";
 
 const formatDate = (dateInput) => {
@@ -29,8 +30,8 @@ const formatDate = (dateInput) => {
 export default function PatientList({ patients = [], loading = false, visits = [] }) {
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Map patient ID to pending visits count or flag
-  const patientPendingVisitsMap = React.useMemo(() => {
+  // Map patient ID → pending visits count
+  const patientPendingVisitsMap = useMemo(() => {
     const map = {};
     visits.forEach((visit) => {
       if (visit.status === "pending" && visit.patient_id) {
@@ -40,8 +41,17 @@ export default function PatientList({ patients = [], loading = false, visits = [
     return map;
   }, [visits]);
 
-  // useMemo for filtered and sorted patients, no state update in effect
-  const filteredPatients = React.useMemo(() => {
+  // 🔹 New: Count visits per HV (or Unassigned)
+  const hvVisitCounts = useMemo(() => {
+    return visits.reduce((acc, visit) => {
+      const label = visit.executive?.name || "Unassigned";
+      acc[label] = (acc[label] || 0) + 1;
+      return acc;
+    }, {});
+  }, [visits]);
+
+  // Filter + sort patients
+  const filteredPatients = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
     const filtered = patients.filter((p) => {
       return (
@@ -52,7 +62,7 @@ export default function PatientList({ patients = [], loading = false, visits = [
     filtered.sort((a, b) => {
       const aPending = patientPendingVisitsMap[a.id] || 0;
       const bPending = patientPendingVisitsMap[b.id] || 0;
-      return bPending - aPending; // Descending, pending visits first
+      return bPending - aPending;
     });
     return filtered;
   }, [patients, searchTerm, patientPendingVisitsMap]);
@@ -75,6 +85,19 @@ export default function PatientList({ patients = [], loading = false, visits = [
 
   return (
     <Box>
+      {/* 🔹 HV visit counts row */}
+      <Flex mb={3} gap={2} flexWrap="wrap">
+        {Object.entries(hvVisitCounts).map(([label, count]) => (
+          <Badge
+            key={label}
+            colorScheme={label === "Unassigned" ? "red" : "green"}
+            fontSize="sm"
+          >
+            {label} ({count})
+          </Badge>
+        ))}
+      </Flex>
+
       <VStack align="start" mb={4}>
         <HStack spacing={3} maxW="400px" width="100%">
           <Input
@@ -89,6 +112,7 @@ export default function PatientList({ patients = [], loading = false, visits = [
           </Button>
         </HStack>
       </VStack>
+
       <Table
         variant="simple"
         size="sm"

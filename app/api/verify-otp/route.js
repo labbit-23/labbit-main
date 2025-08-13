@@ -111,14 +111,29 @@ export async function POST(request) {
     // Save full user data in session (including patients and executive)
     const session = await getIronSession(request, response, ironOptions);
 
-    session.user = {
-      phone,
-      userType: payload.userType,
-      executiveType: executive ? executive.type : null,
-      executiveId: executive ? executive.id : null,
-      executiveData: executive || null,
-      patients: patients || [],
-    };
+    if (executive) {
+      const execType = (executive.type || '').trim().toLowerCase();
+      session.user = {
+        phone,
+        id: executive.id,
+        name: executive.name,
+        email: executive.email,
+        userType: execType,
+        roleKey: execType,
+        executiveType: execType,
+        executiveId: executive.id,
+        executiveData: executive,
+        patients: patients || [],
+      };
+    } else {
+      session.user = {
+        phone,
+        userType: "patient",
+        roleKey: "patient",
+        patients: patients || [],
+      };
+    }
+
 
     await session.save();
 

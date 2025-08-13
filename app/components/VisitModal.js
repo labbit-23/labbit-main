@@ -1,505 +1,467 @@
 // File: /app/components/VisitModal.js
-
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  ModalCloseButton,
-  Button,
-  VStack,
-  FormControl,
-  FormLabel,
-  Select,
-  Input,
-  Text,
-  Spinner,
-  Box,
-  Switch,
-  Flex,
-  Spacer,
-  useToast,
+  Modal, ModalOverlay, ModalContent, ModalHeader,
+  ModalBody, ModalFooter, ModalCloseButton, Button,
+  VStack, FormControl, FormLabel, Select, Input,
+  Text, Spinner, Box, Flex, useToast, IconButton
 } from "@chakra-ui/react";
+import { EditIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
 import { useUser } from "../context/UserContext";
-import { useModalSettings } from "../../lib/useModalSettings";
 import AddressManager from "./AddressManager";
+import AddressModal from "./AddressModal";
+import { getModalFieldSettings } from "../../lib/modalFieldSettings";
 
-const formatDate = (date) => {
-  if (!date) return "";
-  return new Date(date).toISOString().slice(0, 10);
-};
-
+const formatDate = (date) =>
+  date ? new Date(date).toISOString().slice(0, 10) : "";
 
 export default function VisitModal({
   isOpen,
   onClose,
   onSubmit,
-  visitInitialData,
+  visitInitialData = {},
   patientId,
-  patients = [],
-  isLoading,
+  isLoading: modalLoading,
 }) {
   const toast = useToast();
-  const user = useUser();
-  const { hiddenFields, readOnlyFields, defaultValues } =
-    useModalSettings("VisitModal");
+  const { user, isLoading: userLoading } = useUser();
+  if (userLoading || !user) return null;
 
-  const safeVisitInitialData = visitInitialData || {};
-  const userPatientId = user?.userType === "patient" ? user.id : "";
-  const resolvedPatientId =
-    patientId || safeVisitInitialData.patient_id || userPatientId || "";
+  const role = (user.userType || user.executiveType || "patient").toLowerCase();
+  const { hiddenFields, readOnlyFields, defaultValues } = useMemo(
+    () => getModalFieldSettings("VisitModal", role),
+    [role]
+  );
 
-  const normalizeId = (val, objectKey) => {
-    if (typeof val === "object" && val !== null) return val.id;
-    if (!val && safeVisitInitialData[objectKey]?.id)
-      return safeVisitInitialData[objectKey].id;
-    return val || "";
-  };
+  const patientName =
+    visitInitialData?.patient?.name || "Unknown Patient";
+  const initialPatientId =
+    visitInitialData?.patient_id || patientId || "";
 
-  const normalizeStatus = () => {
-    return typeof safeVisitInitialData.status === "string" &&
-      safeVisitInitialData.status.trim() !== ""
-      ? safeVisitInitialData.status
-      : typeof defaultValues.status === "string" &&
-        defaultValues.status.trim() !== ""
-      ? defaultValues.status
-      : "unassigned";
-  };
-
-  const [formData, setFormData] = useState(() => ({
-    id: safeVisitInitialData.id || null,
-    patient_id:
-      resolvedPatientId || defaultValues.patient_id || "",
-    executive_id:
-      normalizeId(safeVisitInitialData.executive_id, "executive") ||
-      defaultValues.executive_id ||
-      "",
-    lab_id:
-      normalizeId(safeVisitInitialData.lab_id, "lab") ||
-      defaultValues.lab_id ||
-      "",
-    visit_date: safeVisitInitialData.visit_date
-      ? formatDate(safeVisitInitialData.visit_date)
-      : defaultValues.visit_date || formatDate(new Date()),
-    time_slot:
-      normalizeId(safeVisitInitialData.time_slot, "time_slot") ||
-      defaultValues.time_slot ||
-      "",
-    address_id:
-      safeVisitInitialData.address_id || defaultValues.address_id || "",
-    address: safeVisitInitialData.address || defaultValues.address || "",
-    status: normalizeStatus(),
-  }));
-
-  // Sync state on edit mode
-  console.log("visitInitialData on modal open", visitInitialData);
-  useEffect(() => {
-    if (!isOpen) return;
-    setFormData((f) => ({
-      ...f,
-      patient_id:
-        resolvedPatientId || defaultValues.patient_id || "",
-      executive_id:
-        normalizeId(safeVisitInitialData.executive_id, "executive") ||
-        defaultValues.executive_id ||
-        "",
-      lab_id:
-        normalizeId(safeVisitInitialData.lab_id, "lab") ||
-        defaultValues.lab_id ||
-        "",
-      time_slot:
-        normalizeId(safeVisitInitialData.time_slot, "time_slot") ||
-        defaultValues.time_slot ||
-        "",
-      status: normalizeStatus(),
-    }));
-  }, [safeVisitInitialData, isOpen]);
+  const [formData, setFormData] = useState({
+    id: null,
+    patient_id: initialPatientId,
+    executive_id: "",
+    lab_id: "",
+    visit_date: "",
+    time_slot: "",
+    address_id: "",
+    address: "",
+    status: defaultValues.status || "unassigned",
+    ...defaultValues,
+  });
 
   const [executives, setExecutives] = useState([]);
   const [labs, setLabs] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
+  const [statusOptions, setStatusOptions] = useState([]);
   const [dropdownsLoading, setDropdownsLoading] = useState(true);
-
-  const [showAddresses, setShowAddresses] = useState(false);
   const [patientAddresses, setPatientAddresses] = useState([]);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
-
   const [latestVisit, setLatestVisit] = useState(null);
   const [loadingLatest, setLoadingLatest] = useState(false);
+  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(null);
 
-  // Fetch dropdowns
+  // Reset formData when visitInitialData changes
   useEffect(() => {
-    if (!isOpen) {
-      setDropdownsLoading(true);
-      return;
+    if (visitInitialData?.id) {
+      setFormData({
+        id: visitInitialData.id,
+        patient_id: visitInitialData.patient_id || patientId || "",
+        executive_id:
+          typeof visitInitialData.executive_id === "object"
+            ? visitInitialData.executive_id.id
+            : visitInitialData.executive_id || "",
+        lab_id:
+          typeof visitInitialData.lab_id === "object"
+            ? visitInitialData.lab_id.id
+            : visitInitialData.lab_id || "",
+        visit_date: formatDate(visitInitialData.visit_date),
+        time_slot:
+          typeof visitInitialData.time_slot === "object"
+            ? visitInitialData.time_slot.id
+            : visitInitialData.time_slot || "",
+        address_id: visitInitialData.address_id || "",
+        address: visitInitialData.address || "",
+        status: visitInitialData.status || defaultValues.status || "unassigned",
+        ...defaultValues,
+      });
+    } else {
+      setFormData({
+        id: null,
+        patient_id: patientId || "",
+        executive_id: "",
+        lab_id: "",
+        visit_date: "",
+        time_slot: "",
+        address_id: "",
+        address: "",
+        status: defaultValues.status || "unassigned",
+        ...defaultValues,
+      });
     }
+  }, [visitInitialData, patientId, defaultValues]);
+
+  // Load dropdowns
+  useEffect(() => {
+    if (!isOpen) { setDropdownsLoading(true); return; }
     let isMounted = true;
     setDropdownsLoading(true);
     Promise.all([
-      fetch("/api/executives").then((r) => r.json()),
-      fetch("/api/labs").then((r) => r.json()),
-      fetch("/api/visits/time_slots").then((r) => r.json()),
+      fetch("/api/executives").then(r => r.json()),
+      fetch("/api/labs").then(r => r.json()),
+      fetch("/api/visits/time_slots").then(r => r.json()),
+      fetch("/api/visits/status").then(r => r.json()),
     ])
-      .then(([execData, labsData, timeSlotsData]) => {
+      .then(([execData, labsData, timeData, statusData]) => {
         if (!isMounted) return;
-        setExecutives(
-          Array.isArray(execData)
-            ? execData.filter(
-                (e) =>
-                  e.type?.toLowerCase() === "phlebo" &&
-                  (e.status?.toLowerCase() === "active" || e.active)
-              )
-            : []
-        );
+        setExecutives(Array.isArray(execData) ? execData.filter(
+          e => e.type?.toLowerCase() === "phlebo" &&
+               (e.status?.toLowerCase() === "active" || e.active)
+        ) : []);
         setLabs(Array.isArray(labsData) ? labsData : []);
-        setTimeSlots(Array.isArray(timeSlotsData) ? timeSlotsData : []);
+        setTimeSlots(Array.isArray(timeData) ? timeData : []);
+        setStatusOptions(Array.isArray(statusData) ? statusData : []);
       })
       .catch(() => {
-        if (isMounted) {
-          setExecutives([]);
-          setLabs([]);
-          setTimeSlots([]);
-        }
+        if (!isMounted) return;
+        setExecutives([]); setLabs([]); setTimeSlots([]); setStatusOptions([]);
       })
-      .finally(() => {
-        if (isMounted) {
-          setDropdownsLoading(false);
-          setShowAddresses(false);
-          setPatientAddresses([]);
-          setLatestVisit(null);
-        }
-      });
-    return () => {
-      isMounted = false;
-    };
+      .finally(() => { if (isMounted) setDropdownsLoading(false); });
+    return () => { isMounted = false; };
   }, [isOpen]);
 
-  // Auto-select lab if only one exists
+  // Auto-select lab if only one
   useEffect(() => {
     if (!isOpen || !formData.patient_id || labs.length === 0) return;
-    if (labs.length === 1 && !formData.lab_id) {
-      setFormData((f) => ({ ...f, lab_id: labs[0].id }));
-    } else if (!formData.lab_id && defaultValues.lab_id) {
-      setFormData((f) => ({
-        ...f,
-        lab_id: defaultValues.lab_id,
-      }));
-    }
-  }, [isOpen, labs, formData.patient_id, defaultValues.lab_id, formData.lab_id]);
+    setFormData(prev => {
+      if (!prev.lab_id) {
+        if (labs.length === 1) return { ...prev, lab_id: labs[0].id };
+        if (defaultValues.lab_id) return { ...prev, lab_id: defaultValues.lab_id };
+      }
+      return prev;
+    });
+  }, [isOpen, labs, formData.patient_id, defaultValues.lab_id]);
 
-  // Last visit
+  // Validate time slot
   useEffect(() => {
-    if (!isOpen || !formData.patient_id) {
-      setLatestVisit(null);
-      return;
-    }
+    if (timeSlots.length === 0) return;
+    setFormData(prev => {
+      if (prev.time_slot && !timeSlots.some(slot => slot.id === prev.time_slot)) {
+        return { ...prev, time_slot: "" };
+      }
+      return prev;
+    });
+  }, [timeSlots]);
+
+  // Load latest visit summary
+  useEffect(() => {
+    if (!isOpen || !formData.patient_id) { setLatestVisit(null); return; }
     let cancelled = false;
     setLoadingLatest(true);
     fetch(`/api/visits?patient_id=${formData.patient_id}&limit=1&order=desc`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) {
-          setLatestVisit(data?.[0] || null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLatestVisit(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingLatest(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then(r => r.json())
+      .then(data => { if (!cancelled) setLatestVisit(data?.[0] || null); })
+      .catch(() => { if (!cancelled) setLatestVisit(null); })
+      .finally(() => { if (!cancelled) setLoadingLatest(false); });
+    return () => { cancelled = true; };
   }, [isOpen, formData.patient_id]);
 
-  // Addresses fetch
+  // Load full patient addresses + auto select default or single
   useEffect(() => {
-    if (!showAddresses || !formData.patient_id) {
-      setPatientAddresses([]);
-      return;
-    }
+    if (!formData.patient_id) { setPatientAddresses([]); return; }
     let cancelled = false;
     setLoadingAddresses(true);
     fetch(`/api/patients/addresses?patient_id=${formData.patient_id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) {
-          setPatientAddresses(Array.isArray(data) ? data : []);
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        const addresses = Array.isArray(data) ? data : [];
+        setPatientAddresses(addresses);
+        if (!formData.address_id) {
+          const defaultAddr = addresses.find(a => a.is_default);
+          if (defaultAddr) {
+            setFormData(f => ({
+              ...f,
+              address_id: defaultAddr.id,
+              address: defaultAddr.area || defaultAddr.address_line || "",
+            }));
+          }
+          else if (addresses.length === 1) {
+            setFormData(f => ({
+              ...f,
+              address_id: addresses[0].id,
+              address: addresses[0].area || addresses[0].address_line || "",
+            }));
+          }
         }
       })
-      .catch(() => {
-        if (!cancelled) setPatientAddresses([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingAddresses(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showAddresses, formData.patient_id]);
+      .catch(() => { if (!cancelled) setPatientAddresses([]); })
+      .finally(() => { if (!cancelled) setLoadingAddresses(false); });
+    return () => { cancelled = true; };
+  }, [formData.patient_id]);
 
-  const toggleAddresses = () => setShowAddresses((v) => !v);
-
-  const handleChange = (field) => (e) => {
+  const handleChange = field => e => {
     const val = e.target.value;
     if (field === "address_id") {
-      const addr = patientAddresses.find((a) => a.id === val);
-      setFormData((f) => ({
+      const addr = patientAddresses.find(a => a.id === val);
+      setFormData(f => ({
         ...f,
         address_id: val,
-        address: addr?.address_line || "",
+        address: addr?.area || addr?.address_line || f.address,
       }));
     } else {
-      setFormData((f) => ({ ...f, [field]: val }));
+      setFormData(f => ({ ...f, [field]: val }));
     }
   };
 
   const isValid =
-    Boolean(formData.patient_id) &&
-    Boolean(formData.lab_id) &&
-    Boolean(formData.visit_date) &&
-    Boolean(formData.time_slot) &&
-    (!showAddresses || Boolean(formData.address_id));
+    !!formData.patient_id &&
+    !!formData.lab_id &&
+    !!formData.visit_date &&
+    !!formData.time_slot &&
+    !!formData.address;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = e => {
     e.preventDefault();
     if (!isValid) {
-      toast({
+      return toast({
         title: "Validation Error",
-        description: "Please complete all required fields.",
+        description: "Please complete all required fields (Lab, Date, Time, Area/Address).",
         status: "warning",
-        duration: 3000,
-        isClosable: true,
       });
-      return;
     }
     onSubmit(formData);
+    toast({
+      title: formData.id ? "Visit updated successfully." : "Visit created successfully.",
+      status: "success",
+    });
   };
-
-  const isPatientFixed = Boolean(
-    (resolvedPatientId && !hiddenFields.includes("patient_id")) ||
-      readOnlyFields.includes("patient_id")
-  );
 
   const renderRow = (label, field) => (
     <FormControl isRequired>
       <Flex align="center" gap={3}>
-        <FormLabel m="0" flex="0 0 140px">
-          {label}
-        </FormLabel>
+        <FormLabel m="0" flex="0 0 140px">{label}</FormLabel>
         {field}
       </Flex>
     </FormControl>
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" isCentered>
-      <ModalOverlay />
-      <ModalContent as="form" onSubmit={handleSubmit}>
-        <ModalHeader>
-          {safeVisitInitialData.id ? "Edit" : "Create"} Visit
-          <Flex align="center" mt={2}>
-            <Text fontSize="sm" mr={2}>
-              Show Addresses:
-            </Text>
-            <Switch isChecked={showAddresses} onChange={toggleAddresses} />
-            <Spacer />
-          </Flex>
-        </ModalHeader>
-        <ModalCloseButton isDisabled={isLoading} />
-        <ModalBody>
-          {dropdownsLoading ? (
-            <Spinner size="xl" m="auto" />
-          ) : (
-            <VStack spacing={3} align="stretch">
-              {loadingLatest ? (
-                <Spinner />
-              ) : latestVisit ? (
-                <Box p={3} mb={4} borderWidth="1px" bg="gray.50" borderRadius="md">
-                  <Text fontWeight="bold" mb={2}>
-                    Last Visit Summary
+    <>
+      <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" isCentered>
+        <ModalOverlay />
+        <ModalContent as="form" onSubmit={handleSubmit}>
+          <ModalHeader>{formData.id ? "Edit" : "Create"} Visit</ModalHeader>
+          <ModalCloseButton isDisabled={modalLoading} />
+          <ModalBody>
+            <Box mb={3}>
+              <Text fontSize="lg" fontWeight="semibold" color="teal.600">
+                {patientName}
+              </Text>
+            </Box>
+
+            {dropdownsLoading ? (
+              <Spinner size="xl" m="auto" />
+            ) : (
+              <VStack spacing={3} align="stretch">
+                {loadingLatest ? (
+                  <Spinner />
+                ) : latestVisit ? (
+                  <Box p={2} mb={3} borderWidth="1px" bg="gray.50" borderRadius="sm">
+                    <Text fontWeight="semibold" fontSize="sm">Last Visit</Text>
+                    <Text fontSize="xs">
+                      Date: {dayjs(latestVisit.visit_date).format("YYYY-MM-DD")}
+                    </Text>
+                    <Text fontSize="xs">
+                      Status: {latestVisit.status?.replace(/_/g, " ").toUpperCase() || "-"}
+                    </Text>
+                    <Text fontSize="xs">Address: {latestVisit.address || "-"}</Text>
+                  </Box>
+                ) : (
+                  <Text fontSize="xs" mb={3} fontStyle="italic" color="gray.500">
+                    No previous visit data.
                   </Text>
-                  <Text>Date: {dayjs(latestVisit.visit_date).format("YYYY-MM-DD")}</Text>
-                  <Text>Status: {latestVisit.status?.replace(/_/g, " ") || "-"}</Text>
-                  <Text>Address: {latestVisit.address || "-"}</Text>
-                </Box>
-              ) : (
-                <Text mb={4} fontStyle="italic" color="gray.600">
-                  No previous visit data.
-                </Text>
-              )}
-
-              {!hiddenFields.includes("patient_id") &&
-                renderRow(
-                  "Patient",
-                  <Select
-                    value={formData.patient_id}
-                    onChange={handleChange("patient_id")}
-                    isDisabled={isPatientFixed}
-                    placeholder={isPatientFixed ? undefined : "Select Patient"}
-                  >
-                    {patients.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.phone || "No phone"})
-                      </option>
-                    ))}
-                  </Select>
                 )}
 
-              {!hiddenFields.includes("executive_id") &&
-                renderRow(
-                  "HV Executive",
-                  <Select
-                    value={formData.executive_id || ""}
-                    onChange={handleChange("executive_id")}
-                    placeholder="Unassigned"
-                    isDisabled={readOnlyFields.includes("executive_id")}
-                  >
-                    <option value="">Unassigned</option>
-                    {executives.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.name} ({e.status || "unknown"})
-                      </option>
-                    ))}
-                  </Select>
-                )}
-
-              {!hiddenFields.includes("lab_id") &&
-                renderRow(
-                  "Lab",
-                  <Select
-                    value={formData.lab_id}
-                    onChange={handleChange("lab_id")}
-                    placeholder="Select Lab"
-                    isDisabled={readOnlyFields.includes("lab_id")}
-                  >
-                    {labs.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-
-              {!hiddenFields.includes("visit_date") &&
-                renderRow(
-                  "Visit Date",
-                  <Input
-                    type="date"
-                    value={formData.visit_date}
-                    onChange={handleChange("visit_date")}
-                    min={formatDate(new Date())}
-                    disabled={readOnlyFields.includes("visit_date")}
-                  />
-                )}
-
-              {!hiddenFields.includes("time_slot") &&
-                renderRow(
-                  "Time Slot",
-                  <Select
-                    value={formData.time_slot}
-                    onChange={handleChange("time_slot")}
-                    placeholder="Select Time Slot"
-                    isDisabled={readOnlyFields.includes("time_slot")}
-                  >
-                    {timeSlots.map(({ id, slot_name }) => (
-                      <option key={id} value={id}>
-                        {slot_name}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-
-              {showAddresses && !hiddenFields.includes("address_id") &&
-                renderRow(
-                  "Address",
-                  loadingAddresses ? (
-                    <Spinner />
-                  ) : patientAddresses.length > 0 ? (
+                {/* Executive */}
+                {!hiddenFields.includes("executive_id") &&
+                  renderRow("HV Executive",
                     <Select
-                      value={formData.address_id}
-                      onChange={handleChange("address_id")}
-                      placeholder="Select Address"
-                      isDisabled={readOnlyFields.includes("address_id")}
+                      value={formData.executive_id}
+                      onChange={handleChange("executive_id")}
+                      placeholder="Unassigned"
+                      isDisabled={readOnlyFields.includes("executive_id")}
                     >
-                      {patientAddresses.map(({ id, address_line }) => (
-                        <option key={id} value={id}>
-                          {address_line}
-                        </option>
+                      <option value="">Unassigned</option>
+                      {executives.map(e => (
+                        <option key={e.id} value={e.id}>{e.name}</option>
                       ))}
                     </Select>
-                  ) : (
-                    <AddressManager
-                      patientId={formData.patient_id}
-                      onAddressAdded={(newAddress) => {
-                        setPatientAddresses((prev) => [...prev, newAddress]);
-                        setFormData((f) => ({
-                          ...f,
-                          address_id: newAddress.id,
-                          address: newAddress.address_line,
-                        }));
-                      }}
+                  )}
+
+                {/* Lab */}
+                {!hiddenFields.includes("lab_id") &&
+                  renderRow("Lab",
+                    <Select
+                      value={formData.lab_id}
+                      onChange={handleChange("lab_id")}
+                      placeholder="Select Lab"
+                      isDisabled={readOnlyFields.includes("lab_id")}
+                    >
+                      {labs.map(l => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                    </Select>
+                  )}
+
+                {/* Visit Date */}
+                {!hiddenFields.includes("visit_date") &&
+                  renderRow("Visit Date",
+                    <Input
+                      type="date"
+                      value={formData.visit_date}
+                      onChange={handleChange("visit_date")}
+                      min={formatDate(new Date())}
+                      isDisabled={readOnlyFields.includes("visit_date")}
                     />
-                  )
-                )}
+                  )}
 
-              {!hiddenFields.includes("status") &&
-                renderRow(
-                  "Status",
-                  <Select
-                    value={formData.status}
-                    onChange={handleChange("status")}
-                    isDisabled={readOnlyFields.includes("status")}
-                  >
-                    {[
-                      "unassigned",
-                      "booked",
-                      "accepted",
-                      "pending",
-                      "postponed",
-                      "rejected",
-                      "in_progress",
-                      "sample_picked",
-                      "sample_dropped",
-                      "completed",
-                    ].map((status) => (
-                      <option key={status} value={status}>
-                        {status.replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-            </VStack>
-          )}
-        </ModalBody>
+                {/* Time Slot */}
+                {!hiddenFields.includes("time_slot") &&
+                  renderRow("Time Slot",
+                    <Select
+                      value={formData.time_slot}
+                      onChange={handleChange("time_slot")}
+                      placeholder="Select Time Slot"
+                      isDisabled={readOnlyFields.includes("time_slot")}
+                    >
+                      {timeSlots.map(({ id, slot_name }) => (
+                        <option key={id} value={id}>{slot_name}</option>
+                      ))}
+                    </Select>
+                  )}
 
-        <ModalFooter justifyContent="flex-end" gap={3}>
-          <Button
-            isLoading={isLoading}
-            colorScheme="blue"
-            type="submit"
-            disabled={isLoading || !isValid}
-            minWidth="100px"
-          >
-            {safeVisitInitialData.id ? "Update" : "Create"}
-          </Button>
-          <Button
-            disabled={isLoading}
-            onClick={onClose}
-            minWidth="100px"
-            variant="outline"
-          >
-            Cancel
-          </Button>
-        </ModalFooter>
-      </ModalContent>
-    </Modal>
+                {/* Address / Area */}
+                {!hiddenFields.includes("address_id") &&
+                  renderRow("Address / Area",
+                    loadingAddresses ? (
+                      <Spinner />
+                    ) : patientAddresses.length > 0 ? (
+                      <Flex w="100%" direction="column" gap={2}>
+                        <Flex w="100%" gap={2}>
+                          <Select
+                            flex="1"
+                            value={formData.address_id}
+                            onChange={handleChange("address_id")}
+                            placeholder="Select Saved Address"
+                            isDisabled={readOnlyFields.includes("address_id")}
+                          >
+                            {patientAddresses.map(({ id, label, area, address_line }) => (
+                              <option key={id} value={id}>
+                                {label || address_line} {area ? `(${area})` : ""}
+                              </option>
+                            ))}
+                          </Select>
+                          <IconButton
+                            aria-label="Edit address"
+                            icon={<EditIcon />}
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              const addr = patientAddresses.find(a => a.id === formData.address_id) || null;
+                              if (!addr) return;
+                              setEditingAddress(addr);
+                              setIsAddressModalOpen(true);
+                            }}
+                          />
+                        </Flex>
+                        <Input
+                          placeholder="Quick area (optional)"
+                          value={formData.address}
+                          onChange={e => setFormData(f => ({ ...f, address: e.target.value }))}
+                        />
+                      </Flex>
+                    ) : (
+                      <Input
+                        placeholder="Enter area (quick)"
+                        value={formData.address}
+                        onChange={e => setFormData(f => ({ ...f, address: e.target.value }))}
+                      />
+                    )
+                  )}
+
+                {/* Status */}
+                {!hiddenFields.includes("status") &&
+                  renderRow("Status",
+                    <Select
+                      value={formData.status}
+                      onChange={handleChange("status")}
+                      isDisabled={readOnlyFields.includes("status")}
+                    >
+                      <optgroup label="Normal Progression">
+                        {statusOptions.filter(s => s.order >= 1)
+                          .sort((a, b) => a.order - b.order)
+                          .map(({ code, label }) => (
+                            <option key={code} value={code}>{label}</option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="Abnormal / Exception">
+                        {statusOptions.filter(s => s.order <= 0)
+                          .sort((a, b) => a.order - b.order)
+                          .map(({ code, label }) => (
+                            <option key={code} value={code}>{label}</option>
+                          ))}
+                      </optgroup>
+                    </Select>
+                  )}
+              </VStack>
+            )}
+          </ModalBody>
+
+          <ModalFooter justifyContent="flex-end" gap={3}>
+            <Button
+              isLoading={modalLoading}
+              colorScheme="blue"
+              type="submit"
+              disabled={modalLoading || !isValid}
+              minWidth="100px"
+            >
+              {formData.id ? "Update" : "Create"}
+            </Button>
+            <Button onClick={onClose} variant="outline" disabled={modalLoading} minWidth="100px">
+              Cancel
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <AddressModal
+        isOpen={isAddressModalOpen}
+        onClose={() => setIsAddressModalOpen(false)}
+        address={editingAddress}
+        onSave={(updated) => {
+          setIsAddressModalOpen(false);
+          setPatientAddresses(prev => {
+            const idx = prev.findIndex(a => a.id === updated.id);
+            if (idx !== -1) {
+              const copy = [...prev];
+              copy[idx] = updated;
+              return copy;
+            }
+            return [...prev, updated];
+          });
+          setFormData(f => ({
+            ...f,
+            address_id: updated.id,
+            address: updated.area || updated.address_line || "",
+          }));
+        }}
+      />
+    </>
   );
 }

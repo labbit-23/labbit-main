@@ -122,15 +122,16 @@ export async function POST(req) {
     });
 
     session.user = {
-      userType: "executive",
       id: executive.id,
       name: executive.name,
       email: executive.email,
       phone: executive.phone,
       labIds,
-      executiveType: execType,
-      // Add any other fields you need in session
+      userType: "executive",         // 
+      roleKey: execType,          // <- actual role from DB (lowercased) <- for RequireAuth
+      executiveType: execType,    // <- actual role from DB (lowercased) <- optional for legacy code
     };
+
 
     await session.save();
 

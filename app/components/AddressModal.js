@@ -15,6 +15,7 @@ const LeafletMap = dynamic(() => import('./LeafletMap'), { ssr: false });
 
 export default function AddressModal({ isOpen, onClose, onSave, address }) {
   const [form, setForm] = useState({
+    id: null,
     label: '',
     area: '',
     address_line: '',
@@ -32,12 +33,25 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // Load from prop
+  // Initialize form values
   useEffect(() => {
     if (address) {
-      setForm(address);
+      setForm({
+        id: address.id || null,
+        label: address.label || '',
+        area: address.area || '',
+        address_line: address.address_line || '',
+        pincode: address.pincode || '',
+        city: address.city || '',
+        state: address.state || '',
+        country: address.country || '',
+        lat: address.lat || 17.385,
+        lng: address.lng || 78.486,
+        is_default: !!address.is_default
+      });
     } else {
       setForm({
+        id: null,
         label: '',
         area: '',
         address_line: '',
@@ -84,12 +98,12 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
       const data = await res.json();
       setForm(f => ({
         ...f,
-        address_line: f.address_line || data.address_line,
-        area: f.area || data.area,
-        city: f.city || data.city,
-        state: f.state || data.state,
-        country: f.country || data.country,
-        pincode: f.pincode || data.pincode
+        address_line: f.address_line || data.address_line || '',
+        area: f.area || data.area || '',
+        city: f.city || data.city || '',
+        state: f.state || data.state || '',
+        country: f.country || data.country || '',
+        pincode: f.pincode || data.pincode || ''
       }));
     } catch (err) {
       console.error(err);
@@ -104,15 +118,15 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
       const data = await res.json();
       setForm(f => ({
         ...f,
-        city: f.city || data.city,
-        state: f.state || data.state,
-        country: f.country || data.country,
-        area: f.area || data.area
+        city: f.city || data.city || '',
+        state: f.state || data.state || '',
+        country: f.country || data.country || '',
+        area: f.area || data.area || ''
       }));
     } catch {}
   };
 
-  // Use current geolocation
+  // Use current geo
   const handleUseCurrentLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(async (pos) => {
@@ -130,18 +144,71 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
     await performReverseGeocode(lat, lng);
   };
 
+  // Local save click — defers actual POST/PUT to parent for now
+  const handleSaveClick = () => {
+    onSave?.(form);
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent>
         <ModalHeader>{address ? 'Edit' : 'Add'} Address</ModalHeader>
         <ModalCloseButton />
-        <ModalBody>
+        {/* LIMIT HEIGHT + SCROLL for gestures */}
+        <ModalBody maxH="70vh" overflowY="auto">
           <VStack spacing={4} align="stretch">
-            {/* Map */}
-            <LeafletMap markerPosition={[form.lat, form.lng]} onLocationChange={handleMapSelect} />
 
-            {/* Search under map */}
+            {/* --- Top section: label + address line + area + pin --- */}
+            <FormControl>
+              <FormLabel>Label</FormLabel>
+              <HStack>
+                <Input
+                  value={form.label}
+                  readOnly={!editingLabel}
+                  onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
+                />
+                <IconButton
+                  icon={<EditIcon />}
+                  size="sm"
+                  onClick={() => setEditingLabel(!editingLabel)}
+                  aria-label="Edit label"
+                />
+              </HStack>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Address Line</FormLabel>
+              <Input
+                value={form.address_line}
+                onChange={e => setForm(f => ({ ...f, address_line: e.target.value }))}
+              />
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Area</FormLabel>
+              <Input
+                value={form.area}
+                onChange={e => setForm(f => ({ ...f, area: e.target.value }))}
+              />
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Pincode</FormLabel>
+              <Input
+                value={form.pincode}
+                onBlur={handlePinLookup}
+                onChange={e => setForm(f => ({ ...f, pincode: e.target.value }))}
+              />
+            </FormControl>
+
+            {/* --- Map + search section --- */}
+            <LeafletMap
+              markerPosition={[form.lat, form.lng]}
+              onLocationChange={handleMapSelect}
+              style={{ height: "200px" }} // smaller map
+            />
+
             <HStack>
               <Input
                 value={searchTerm}
@@ -160,70 +227,55 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
             {searchResults.length > 0 && (
               <VStack mt={2} maxH="150px" overflowY="auto" p={2} border="1px solid #E2E8F0" borderRadius="md" bg="white">
                 {searchResults.map(feature => (
-                  <Text key={feature.id} cursor="pointer" _hover={{ bg: "teal.50" }} onClick={() => handleSelectSuggestion(feature)}>
+                  <Text
+                    key={feature.id}
+                    cursor="pointer"
+                    _hover={{ bg: "teal.50" }}
+                    onClick={() => handleSelectSuggestion(feature)}
+                  >
                     {feature.place_name || feature.properties?.name}
                   </Text>
                 ))}
               </VStack>
             )}
 
-            {/* Inline label edit */}
-            <FormControl>
-              <FormLabel>Label</FormLabel>
-              <HStack>
-                <Input
-                  value={form.label}
-                  readOnly={!editingLabel}
-                  onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
-                />
-                <IconButton
-                  icon={<EditIcon />}
-                  size="sm"
-                  onClick={() => setEditingLabel(!editingLabel)}
-                />
-              </HStack>
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Address Line</FormLabel>
-              <Input value={form.address_line} onChange={e => setForm(f => ({ ...f, address_line: e.target.value }))} />
-            </FormControl>
-
-            <HStack>
-              <FormControl>
-                <FormLabel>Pincode</FormLabel>
-                <Input value={form.pincode} onBlur={handlePinLookup} onChange={e => setForm(f => ({ ...f, pincode: e.target.value }))} />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Area</FormLabel>
-                <Input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} />
-              </FormControl>
-            </HStack>
-
+            {/* --- Bottom section: City/State/Country --- */}
             <HStack>
               <FormControl>
                 <FormLabel>City</FormLabel>
-                <Input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
+                <Input
+                  value={form.city}
+                  onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+                />
               </FormControl>
               <FormControl>
                 <FormLabel>State</FormLabel>
-                <Input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} />
+                <Input
+                  value={form.state}
+                  onChange={e => setForm(f => ({ ...f, state: e.target.value }))}
+                />
               </FormControl>
               <FormControl>
                 <FormLabel>Country</FormLabel>
-                <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} />
+                <Input
+                  value={form.country}
+                  onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
+                />
               </FormControl>
             </HStack>
 
-            {/* Set as default toggle */}
+            {/* Set default */}
             <FormControl display="flex" alignItems="center">
               <FormLabel mb="0">Set as default</FormLabel>
-              <Switch isChecked={form.is_default} onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))} />
+              <Switch
+                isChecked={form.is_default}
+                onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))}
+              />
             </FormControl>
           </VStack>
         </ModalBody>
         <ModalFooter>
-          <Button onClick={() => onSave(form)} colorScheme="blue" mr={3}>Save</Button>
+          <Button onClick={handleSaveClick} colorScheme="blue" mr={3}>Save</Button>
           <Button onClick={onClose}>Cancel</Button>
         </ModalFooter>
       </ModalContent>

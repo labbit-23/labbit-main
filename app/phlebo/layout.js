@@ -1,12 +1,13 @@
-//app/phlebo/layout.js
-
 import { redirect } from "next/navigation";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "../../lib/session";
 import { cookies } from "next/headers";
 
 export default async function PhleboLayout({ children }) {
+  // Get the cookie store like admin/layout.js
   const cookieStore = await cookies();
+
+  // Use the cookie store directly here (like in admin/layout.js)
   const session = await getIronSession(cookieStore, ironOptions);
 
   const roleKey =
@@ -20,5 +21,5 @@ export default async function PhleboLayout({ children }) {
     redirect("/login");
   }
 
-  return children;
+  return <>{children}</>;
 }

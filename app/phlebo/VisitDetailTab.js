@@ -15,49 +15,52 @@ import {
   FormLabel,
   Link,
   HStack,
+  Flex,
 } from "@chakra-ui/react";
 import { ExternalLinkIcon } from "@chakra-ui/icons";
 import { supabase } from "../../lib/supabaseClient";
 import TestPackageSelector from "../../components/TestPackageSelector";
-
-import { useUser } from "../context/UserContext"; // Import global user context
-
-const VISIT_STATUSES = [
-  "pending",
-  "in_progress",
-  "sample_picked",
-  "sample_dropped",
-  "billed",
-  "completed",
-];
-
-const STATUS_LABELS = {
-  pending: "Pending",
-  in_progress: "In Progress",
-  sample_picked: "Sample Picked",
-  sample_dropped: "Sample Dropped",
-  billed: "Billed",
-  completed: "Completed",
-};
+import { useUser } from "../context/UserContext";
 
 export default function VisitDetailTab({ visit, onBack }) {
   const toast = useToast();
   const { user, isLoading: userLoading } = useUser();
 
-  // Loading and selection states
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [selectedTestIds, setSelectedTestIds] = useState(new Set());
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [visitStatus, setVisitStatus] = useState(visit.status);
+  const [statusOptions, setStatusOptions] = useState([]);
 
-  // Update local visit status and selections when visit prop changes
+  // Load statuses from API
+  useEffect(() => {
+    async function fetchStatuses() {
+      try {
+        const res = await fetch("/api/visits/status");
+        const data = await res.json();
+        const sorted = Array.isArray(data)
+          ? data.sort((a, b) => a.order - b.order)
+          : [];
+        setStatusOptions(sorted);
+      } catch (err) {
+        toast({
+          title: "Error loading statuses",
+          description: err.message,
+          status: "error",
+        });
+      }
+    }
+    fetchStatuses();
+  }, [toast]);
+
+  // Update local visit status and selections when visit changes
   useEffect(() => {
     setVisitStatus(visit.status);
     fetchVisitSelections();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visit]);
 
-  // Load selected tests/packages for this visit from DB
+  // Load selected tests/packages
   const fetchVisitSelections = async () => {
     setLoadingDetails(true);
     try {
@@ -65,7 +68,6 @@ export default function VisitDetailTab({ visit, onBack }) {
         .from("visit_details")
         .select("test_id, package_id")
         .eq("visit_id", visit.id);
-
       if (error) throw error;
 
       const selections = new Set();
@@ -73,7 +75,6 @@ export default function VisitDetailTab({ visit, onBack }) {
         if (item.test_id) selections.add(item.test_id);
         if (item.package_id) selections.add(item.package_id);
       });
-
       setSelectedTestIds(selections);
     } catch (err) {
       toast({
@@ -89,43 +90,35 @@ export default function VisitDetailTab({ visit, onBack }) {
   // Save selected tests/packages
   const saveSelectedTests = async () => {
     if (userLoading) {
-      toast({
-        title: "User data is loading, please wait",
-        status: "warning",
-      });
+      toast({ title: "User data is loading, please wait", status: "warning" });
       return;
     }
     if (!user || !user.id) {
-      toast({
-        title: "User not authenticated",
-        status: "error",
-      });
+      toast({ title: "User not authenticated", status: "error" });
       return;
     }
 
     setLoadingDetails(true);
     try {
-      // Optionally add authorization validation here against user.id
-
-      // Clear existing selections
       const { error: delError } = await supabase
         .from("visit_details")
         .delete()
         .eq("visit_id", visit.id);
       if (delError) throw delError;
 
-      // Prepare insert data (adjust distinguishing logic if needed)
       const inserts = [];
       selectedTestIds.forEach((id) => {
         inserts.push({
           visit_id: visit.id,
-          test_id: id, // Adjust if package_id needed separately
+          test_id: id,
           package_id: null,
         });
       });
 
       if (inserts.length) {
-        const { error: insError } = await supabase.from("visit_details").insert(inserts);
+        const { error: insError } = await supabase
+          .from("visit_details")
+          .insert(inserts);
         if (insError) throw insError;
       }
 
@@ -154,17 +147,12 @@ export default function VisitDetailTab({ visit, onBack }) {
       return;
     }
     if (!user || !user.id) {
-      toast({
-        title: "User not authenticated",
-        status: "error",
-      });
+      toast({ title: "User not authenticated", status: "error" });
       return;
     }
 
     setUpdatingStatus(true);
     try {
-      // Optionally add authorization validation here against user.id
-
       const { error } = await supabase
         .from("visits")
         .update({ status: newStatus })
@@ -173,7 +161,9 @@ export default function VisitDetailTab({ visit, onBack }) {
 
       setVisitStatus(newStatus);
       toast({
-        title: `Visit marked as ${STATUS_LABELS[newStatus]}`,
+        title: `Visit marked as ${
+          statusOptions.find((s) => s.code === newStatus)?.label || newStatus
+        }`,
         status: "success",
       });
     } catch (err) {
@@ -187,13 +177,23 @@ export default function VisitDetailTab({ visit, onBack }) {
     }
   };
 
-  // Google Maps URL for visit address
+  // Derive next & previous statuses
+  const currentIndex = statusOptions.findIndex(
+    (s) => s.code === visitStatus
+  );
+  const nextStatus =
+    currentIndex >= 0 && currentIndex < statusOptions.length - 1
+      ? statusOptions[currentIndex + 1]
+      : null;
+  const prevStatus = currentIndex > 0
+    ? statusOptions[currentIndex - 1]
+    : null;
+
   const mapsUrl =
     visit.lat && visit.lng
       ? `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`
       : null;
 
-  // While user info is loading, optionally show a spinner or placeholder
   if (userLoading) {
     return (
       <Flex justify="center" align="center" minH="200px">
@@ -204,7 +204,6 @@ export default function VisitDetailTab({ visit, onBack }) {
 
   return (
     <Box>
-      {/* Back Button */}
       {onBack && (
         <Button mb={4} colorScheme="gray" onClick={onBack}>
           ← Back to Visits
@@ -215,25 +214,59 @@ export default function VisitDetailTab({ visit, onBack }) {
         Visit Details for {visit.patient?.name || "Unknown"}
       </Heading>
 
+      {/* Current status */}
       <Text mb={4}>
-        Status: <strong>{STATUS_LABELS[visitStatus] || visitStatus}</strong>
+        Status:{" "}
+        <strong>
+          {statusOptions.find((s) => s.code === visitStatus)?.label ||
+            visitStatus}
+        </strong>
       </Text>
 
+      {/* Main nav buttons */}
       <Stack direction="row" spacing={4} mb={6} flexWrap="wrap">
-        {VISIT_STATUSES.map((status) => (
+        {prevStatus && (
           <Button
-            key={status}
-            colorScheme={visitStatus === status ? "teal" : "blue"}
-            onClick={() => updateStatus(status)}
+            colorScheme={prevStatus.order <= 0 ? "red" : "gray"}
+            onClick={() => updateStatus(prevStatus.code)}
             isLoading={updatingStatus}
-            isDisabled={updatingStatus || visitStatus === status}
-            mb={2}
           >
-            {STATUS_LABELS[status]}
+            ← Back to {prevStatus.label}
+          </Button>
+        )}
+        {nextStatus && (
+          <Button
+            colorScheme={nextStatus.order <= 0 ? "red" : "teal"}
+            onClick={() => updateStatus(nextStatus.code)}
+            isLoading={updatingStatus}
+          >
+            Mark as {nextStatus.label} →
+          </Button>
+        )}
+      </Stack>
+
+      {/* Quick override list */}
+      <Stack direction="row" wrap="wrap" mb={6}>
+        {statusOptions.map((s) => (
+          <Button
+            key={s.code}
+            size="sm"
+            colorScheme={
+              s.order <= 0
+                ? "red"
+                : s.code === visitStatus
+                ? "teal"
+                : "gray"
+            }
+            onClick={() => updateStatus(s.code)}
+            isDisabled={updatingStatus || s.code === visitStatus}
+          >
+            {s.label}
           </Button>
         ))}
       </Stack>
 
+      {/* Navigation */}
       {mapsUrl && (
         <HStack spacing={4} mb={6}>
           <Link href={mapsUrl} isExternal>
@@ -245,6 +278,7 @@ export default function VisitDetailTab({ visit, onBack }) {
         </HStack>
       )}
 
+      {/* Test/package selection */}
       <FormControl mb={6}>
         <FormLabel>Select Tests / Packages Performed</FormLabel>
         {loadingDetails ? (
@@ -256,7 +290,12 @@ export default function VisitDetailTab({ visit, onBack }) {
             loading={loadingDetails}
           />
         )}
-        <Button mt={4} colorScheme="blue" onClick={saveSelectedTests} isLoading={loadingDetails}>
+        <Button
+          mt={4}
+          colorScheme="blue"
+          onClick={saveSelectedTests}
+          isLoading={loadingDetails}
+        >
           Save Selected Tests/Packages
         </Button>
       </FormControl>

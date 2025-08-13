@@ -11,14 +11,43 @@ import {
   Box,
   Text,
   Select,
+  Badge,
   useBreakpointValue,
 } from "@chakra-ui/react";
 import { FiLogOut, FiHome } from "react-icons/fi";
 import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+import { useUser } from "../app/context/UserContext";
 
-import { useUser } from "../app/context/UserContext"; // global user context
+// Map roles to display label and color scheme
+const ROLE_MARKERS = {
+  admin:      { label: "Admin",    color: "blue"   },
+  manager:    { label: "Manager",  color: "cyan"   },
+  director:   { label: "Director", color: "purple" },
+  phlebo:     { label: "Phlebo",   color: "green"  },
+  patient:    { label: "Patient",  color: "orange" },
+  guest:      { label: "Guest",    color: "gray"   },
+  unknown:    { label: "User",     color: "gray"   },
+};
+
+function getRoleMarker(user) {
+  if (!user) return ROLE_MARKERS.guest;
+  if (user.userType === "patient") return ROLE_MARKERS.patient;
+  if (user.userType === "executive") {
+    const type = (user.executiveType || "").toLowerCase();
+    return (
+      ROLE_MARKERS[type] ||
+      (type === "admin"
+        ? ROLE_MARKERS.admin
+        : type === "phlebo"
+        ? ROLE_MARKERS.phlebo
+        : ROLE_MARKERS.unknown)
+    );
+  }
+  // fallback
+  return ROLE_MARKERS.unknown;
+}
 
 export default function ShortcutBar({
   executives = [],
@@ -33,28 +62,21 @@ export default function ShortcutBar({
 }) {
   const router = useRouter();
   const isMobile = useBreakpointValue({ base: true, md: false });
-  const { user, refreshUser } = useUser(); // ✅ get refreshUser
+  const { user, refreshUser } = useUser();
 
-  // Logout handler: clears session, refreshes user context, then moves to login
+  // Logout handler
   const handleLogout = async () => {
     try {
-      // 1. Clear server-side session cookie
       const res = await fetch("/api/auth/logout", { method: "POST" });
       if (!res.ok) throw new Error("Failed to logout from server");
 
-      // 2. Clear any Supabase session
       const { error } = await supabase.auth.signOut();
       if (error) {
         alert("Error logging out Supabase: " + error.message);
         return;
       }
-
-      // 3. Refresh context so `user` becomes null immediately
       await refreshUser();
-
-      // 4. Redirect to login (replace avoids going back with back button)
       router.replace("/login");
-
     } catch (error) {
       alert("Logout failed: " + error.message);
     }
@@ -86,6 +108,9 @@ export default function ShortcutBar({
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
+  // Role indicator badge logic
+  const roleMarker = getRoleMarker(user);
+
   return (
     <Box
       position="fixed"
@@ -104,7 +129,7 @@ export default function ShortcutBar({
         justify="space-between"
         userSelect="none"
       >
-        {/* Left side: logo + welcome */}
+        {/* Left: Logo & welcome */}
         <Flex align="center" flexShrink={0} minW="280px" gap={3}>
           <Box
             cursor="pointer"
@@ -126,7 +151,6 @@ export default function ShortcutBar({
               onDragStart={(e) => e.preventDefault()}
             />
           </Box>
-
           <Text
             fontWeight="bold"
             fontSize={{ base: "sm", md: "md" }}
@@ -136,7 +160,6 @@ export default function ShortcutBar({
           >
             Welcome
           </Text>
-
           {/* Patient info */}
           {user?.userType === "patient" && (
             <Box whiteSpace="nowrap" fontWeight="medium" color="gray.700" fontSize="sm">
@@ -174,7 +197,7 @@ export default function ShortcutBar({
           )}
         </Flex>
 
-        {/* Right side: Dashboard home + Logout */}
+        {/* Right: Home button, Role badge, Logout */}
         <Flex align="center" gap={2} flexShrink={0}>
           <Tooltip label="Dashboard Home">
             <IconButton
@@ -185,6 +208,24 @@ export default function ShortcutBar({
               aria-label="Go to dashboard home"
             />
           </Tooltip>
+          {/* Role indicator badge */}
+          {!!user && (
+            <Tooltip label={`Logged in as ${roleMarker.label}`}>
+              <Badge
+                colorScheme={roleMarker.color}
+                variant="subtle"
+                px={2}
+                py="1"
+                borderRadius="md"
+                fontSize="0.88em"
+                fontWeight="bold"
+                pointerEvents="auto"
+                userSelect="none"
+              >
+                {roleMarker.label}
+              </Badge>
+            </Tooltip>
+          )}
           <Tooltip label="Logout">
             <IconButton
               icon={<FiLogOut />}

@@ -30,6 +30,11 @@ export default function PatientsTab({
   const { user, isLoading: isUserLoading } = useUser();
   const isPatientUser = user?.userType === 'patient';
 
+  console.log("[PatientsTab] Render", {
+    isUserLoading,
+    user
+    });
+
   const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
   const [initialPhone, setInitialPhone] = useState('');
   const [localDisablePhoneInput, setLocalDisablePhoneInput] = useState(false);
@@ -298,19 +303,33 @@ export default function PatientsTab({
         initialPatient={selectedPatient}
       />
 
-      <VisitModal
-        key={editingVisit?.id || 'new'}
-        isOpen={visitModalOpen}
-        onClose={() => {
-          setVisitModalOpen(false);
-          setEditingVisit(null);
-        }}
-        onSubmit={handleVisitSubmit}
-        patientId={selectedPatient?.id}
-        patients={selectedPatient ? [selectedPatient] : []}
-        visitInitialData={editingVisit}
-        isLoading={isSavingVisit}
-      />
+        {!isUserLoading && user?.userType && visitModalOpen && (
+        <VisitModal
+            key={editingVisit?.id || 'new'}
+            isOpen={visitModalOpen}
+            onClose={() => {
+            setVisitModalOpen(false);
+            setEditingVisit(null);
+            }}
+            onSubmit={handleVisitSubmit}
+            patientId={selectedPatient?.id}
+            patients={selectedPatient ? [selectedPatient] : []}
+            visitInitialData={
+            editingVisit && editingVisit.id
+                ? editingVisit
+                : selectedPatient
+                ? {
+                    patient_id: selectedPatient.id,
+                    patient: { name: selectedPatient.name }
+                }
+                : {}
+            }
+            isLoading={isSavingVisit}
+            userType={user.userType}  // Pass role explicitly here
+        />
+        )}
+
+
     </Box>
   );
 }

@@ -18,6 +18,7 @@ import {
   useToast,
   IconButton,
   Spinner,
+  Badge
 } from "@chakra-ui/react";
 import { AddIcon, DownloadIcon } from "@chakra-ui/icons";
 import html2canvas from "html2canvas";
@@ -32,7 +33,6 @@ import ExecutiveList from "./components/ExecutiveList";
 import ExecutiveModal from "./components/ExecutiveModal";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
-
 import RequireAuth from "../../components/RequireAuth"; // new auth guard
 
 export default function AdminDashboard() {
@@ -267,6 +267,19 @@ export default function AdminDashboard() {
     }
   };
 
+  // 🔹 NEW: Today's visits and counts per HV/unassigned
+  const todaysVisits = visits.filter(
+    (v) => v.visit_date?.slice(0, 10) === selectedDate
+  );
+
+  const hvVisitCounts = React.useMemo(() => {
+    return todaysVisits.reduce((acc, visit) => {
+      const label = visit.executive?.name || "Unassigned";
+      acc[label] = (acc[label] || 0) + 1;
+      return acc;
+    }, {});
+  }, [todaysVisits]);
+
   return (
     <RequireAuth roles={['admin','manager','director']}>
       <Box
@@ -330,11 +343,27 @@ export default function AdminDashboard() {
 
               <TabPanels>
                 <TabPanel>
+                  {/* 🔹 Counter badges */}
+                  {Object.keys(hvVisitCounts).length > 0 && (
+                    <Flex mb={4} gap={2} flexWrap="wrap">
+                      {Object.entries(hvVisitCounts).map(([label, count]) => (
+                        <Badge
+                          key={label}
+                          colorScheme={label === "Unassigned" ? "red" : "green"}
+                          fontSize="sm"
+                        >
+                          {label} ({count})
+                        </Badge>
+                      ))}
+                    </Flex>
+                  )}
+
                   <VisitsTable
-                    visits={visits.filter((v) => v.visit_date?.slice(0, 10) === selectedDate)}
+                    visits={todaysVisits}
                     executives={activePhlebos}
                     timeSlots={timeSlots}
                     onEdit={(visit) => {
+                      console.log("Editing visit:", visit.id, visit.visit_code);
                       setEditingVisit(visit);
                       visitModal.onOpen();
                     }}
