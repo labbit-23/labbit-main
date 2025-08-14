@@ -1,5 +1,4 @@
 // File: /components/ShortcutBar.js
-
 "use client";
 
 import React from "react";
@@ -22,13 +21,13 @@ import { useUser } from "../app/context/UserContext";
 
 // Map roles to display label and color scheme
 const ROLE_MARKERS = {
-  admin:      { label: "Admin",    color: "blue"   },
-  manager:    { label: "Manager",  color: "cyan"   },
-  director:   { label: "Director", color: "purple" },
-  phlebo:     { label: "Phlebo",   color: "green"  },
-  patient:    { label: "Patient",  color: "orange" },
-  guest:      { label: "Guest",    color: "gray"   },
-  unknown:    { label: "User",     color: "gray"   },
+  admin:    { label: "Admin",    color: "blue"   },
+  manager:  { label: "Manager",  color: "cyan"   },
+  director: { label: "Director", color: "purple" },
+  phlebo:   { label: "Phlebo",   color: "green"  },
+  patient:  { label: "Patient",  color: "orange" },
+  guest:    { label: "Guest",    color: "gray"   },
+  unknown:  { label: "User",     color: "gray"   },
 };
 
 function getRoleMarker(user) {
@@ -45,7 +44,6 @@ function getRoleMarker(user) {
         : ROLE_MARKERS.unknown)
     );
   }
-  // fallback
   return ROLE_MARKERS.unknown;
 }
 
@@ -64,12 +62,10 @@ export default function ShortcutBar({
   const isMobile = useBreakpointValue({ base: true, md: false });
   const { user, refreshUser } = useUser();
 
-  // Logout handler
   const handleLogout = async () => {
     try {
       const res = await fetch("/api/auth/logout", { method: "POST" });
       if (!res.ok) throw new Error("Failed to logout from server");
-
       const { error } = await supabase.auth.signOut();
       if (error) {
         alert("Error logging out Supabase: " + error.message);
@@ -107,8 +103,6 @@ export default function ShortcutBar({
   };
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
-
-  // Role indicator badge logic
   const roleMarker = getRoleMarker(user);
 
   return (
@@ -122,15 +116,17 @@ export default function ShortcutBar({
       boxShadow="sm"
       zIndex={1000}
     >
+      {/* First row: logo + info + home/role/logout all fit here */}
       <Flex
         height="56px"
         px={{ base: 2, md: 4 }}
         align="center"
         justify="space-between"
         userSelect="none"
+        flexWrap="nowrap"
       >
-        {/* Left: Logo & welcome */}
-        <Flex align="center" flexShrink={0} minW="280px" gap={3}>
+        {/* Left section: logo + name (truncate if needed) */}
+        <Flex align="center" gap={2} flexShrink={1} minW={0}>
           <Box
             cursor="pointer"
             onClick={(e) => {
@@ -140,34 +136,26 @@ export default function ShortcutBar({
             maxH="44px"
             display="flex"
             alignItems="center"
+            flexShrink={0}
           >
             <Image
               src="/logo.png"
               alt="Labbit Logo"
-              maxH="36px"
+              maxH={{ base: "28px", md: "36px" }}
               objectFit="contain"
-              _hover={{ opacity: 0.8 }}
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
             />
           </Box>
-          <Text
-            fontWeight="bold"
-            fontSize={{ base: "sm", md: "md" }}
-            color="teal.600"
-            whiteSpace="nowrap"
-            display={{ base: "none", md: "block" }}
-          >
-            Welcome
-          </Text>
-          {/* Patient info */}
+
+          {/* Patient dropdown only for patient role */}
           {user?.userType === "patient" && (
-            <Box whiteSpace="nowrap" fontWeight="medium" color="gray.700" fontSize="sm">
-              <Text>Phone: {user.phone || "N/A"}</Text>
+            <Box whiteSpace="nowrap" fontWeight="medium" color="gray.700" fontSize="sm" minW={0}>
+              <Text isTruncated>Phone: {user.phone || "N/A"}</Text>
               {patients.length > 0 && setSelectedPatientId && (
                 <Select
                   size="sm"
-                  maxW="160px"
+                  maxW="140px"
                   mt={1}
                   value={selectedPatientId || ""}
                   onChange={(e) => setSelectedPatientId(e.target.value)}
@@ -181,46 +169,45 @@ export default function ShortcutBar({
                   ))}
                 </Select>
               )}
-              {selectedPatient && (
-                <Text mt={1} fontWeight="bold" color="teal.700">
-                  Selected: {selectedPatient.name}
-                </Text>
-              )}
             </Box>
           )}
 
-          {/* Executive/Admin/Phlebo info */}
+          {/* Executive/Admin/Phlebo name */}
           {user?.userType === "executive" && user?.name && (
-            <Text fontWeight="bold" fontSize={{ base: "sm", md: "md" }} color="teal.700">
+            <Text
+              fontWeight="bold"
+              fontSize={{ base: "sm", md: "md" }}
+              color="teal.700"
+              isTruncated
+              maxW={{ base: "90px", sm: "150px" }}
+            >
               {user.name}
             </Text>
           )}
         </Flex>
 
-        {/* Right: Home button, Role badge, Logout */}
-        <Flex align="center" gap={2} flexShrink={0}>
+        {/* Right section: Home + Role badge + Logout */}
+        <Flex align="center" gap={{ base: 1, sm: 2 }} flexShrink={0}>
           <Tooltip label="Dashboard Home">
             <IconButton
               icon={<FiHome />}
               onClick={handleHomeDashboard}
               variant="ghost"
-              size="md"
+              size={{ base: "sm", sm: "md" }}
               aria-label="Go to dashboard home"
             />
           </Tooltip>
-          {/* Role indicator badge */}
           {!!user && (
             <Tooltip label={`Logged in as ${roleMarker.label}`}>
               <Badge
                 colorScheme={roleMarker.color}
                 variant="subtle"
-                px={2}
-                py="1"
+                px={{ base: 1, sm: 2 }}
                 borderRadius="md"
-                fontSize="0.88em"
+                fontSize="xs"
                 fontWeight="bold"
-                pointerEvents="auto"
-                userSelect="none"
+                maxW="60px"
+                isTruncated
               >
                 {roleMarker.label}
               </Badge>
@@ -231,14 +218,14 @@ export default function ShortcutBar({
               icon={<FiLogOut />}
               onClick={handleLogout}
               variant="ghost"
-              size="md"
+              size={{ base: "sm", sm: "md" }}
               aria-label="Logout"
             />
           </Tooltip>
         </Flex>
       </Flex>
 
-      {/* Second line: date selector */}
+      {/* Second row: date selector */}
       {isMobile && selectedDate && setSelectedDate && (
         <Box
           px={2}

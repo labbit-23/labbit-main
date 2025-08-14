@@ -12,13 +12,13 @@ export default function Carousel({ children, settings, minHeight = "380px", show
   const sliderRef = useRef(null);
 
   return (
-    <Box position="relative" width="100%">
+    <Box position="relative" width="100%" overflow="hidden">
       {showArrows && (
         <IconButton
           aria-label="Previous Slide"
           icon={<ChevronLeftIcon />}
           position="absolute"
-          left="-40px"
+          left={{ base: "0", md: "-40px" }}
           top="50%"
           transform="translateY(-50%)"
           zIndex="docked"
@@ -32,7 +32,7 @@ export default function Carousel({ children, settings, minHeight = "380px", show
       <Slider ref={sliderRef} {...settings}>
         {Array.isArray(children)
           ? children.map((child, idx) => (
-              <Box key={idx} minH={minHeight}>
+              <Box key={idx} minH={minHeight} width="100%">
                 {child}
               </Box>
             ))
@@ -44,7 +44,7 @@ export default function Carousel({ children, settings, minHeight = "380px", show
           aria-label="Next Slide"
           icon={<ChevronRightIcon />}
           position="absolute"
-          right="-40px"
+          right={{ base: "0", md: "-40px" }}
           top="50%"
           transform="translateY(-50%)"
           zIndex="docked"

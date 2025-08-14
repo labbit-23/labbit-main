@@ -1,5 +1,4 @@
 // File: /app/phlebo/VisitDetailTab.js
-
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -16,8 +15,12 @@ import {
   Link,
   HStack,
   Flex,
+  Select,
+  IconButton,
+  Collapse,
+  Switch
 } from "@chakra-ui/react";
-import { ExternalLinkIcon } from "@chakra-ui/icons";
+import { ExternalLinkIcon, CheckIcon } from "@chakra-ui/icons";
 import { supabase } from "../../lib/supabaseClient";
 import TestPackageSelector from "../../components/TestPackageSelector";
 import { useUser } from "../context/UserContext";
@@ -31,6 +34,8 @@ export default function VisitDetailTab({ visit, onBack }) {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [visitStatus, setVisitStatus] = useState(visit.status);
   const [statusOptions, setStatusOptions] = useState([]);
+  const [selectedStatus, setSelectedStatus] = useState(visit.status);
+  const [showTestSelection, setShowTestSelection] = useState(false);
 
   // Load statuses from API
   useEffect(() => {
@@ -56,6 +61,7 @@ export default function VisitDetailTab({ visit, onBack }) {
   // Update local visit status and selections when visit changes
   useEffect(() => {
     setVisitStatus(visit.status);
+    setSelectedStatus(visit.status);
     fetchVisitSelections();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visit]);
@@ -137,7 +143,7 @@ export default function VisitDetailTab({ visit, onBack }) {
     }
   };
 
-  // Update visit status in DB
+  // Update visit status
   const updateStatus = async (newStatus) => {
     if (userLoading) {
       toast({
@@ -160,6 +166,7 @@ export default function VisitDetailTab({ visit, onBack }) {
       if (error) throw error;
 
       setVisitStatus(newStatus);
+      setSelectedStatus(newStatus);
       toast({
         title: `Visit marked as ${
           statusOptions.find((s) => s.code === newStatus)?.label || newStatus
@@ -177,7 +184,7 @@ export default function VisitDetailTab({ visit, onBack }) {
     }
   };
 
-  // Derive next & previous statuses
+  // Next/Prev status
   const currentIndex = statusOptions.findIndex(
     (s) => s.code === visitStatus
   );
@@ -188,6 +195,10 @@ export default function VisitDetailTab({ visit, onBack }) {
   const prevStatus = currentIndex > 0
     ? statusOptions[currentIndex - 1]
     : null;
+
+  // Grouped status options by order
+  const normalOptions = statusOptions.filter(s => s.order > 0);
+  const abnormalOptions = statusOptions.filter(s => s.order <= 0);
 
   const mapsUrl =
     visit.lat && visit.lng
@@ -214,6 +225,13 @@ export default function VisitDetailTab({ visit, onBack }) {
         Visit Details for {visit.patient?.name || "Unknown"}
       </Heading>
 
+      {/* Show visit.notes directly if exists */}
+      {visit.notes && (
+        <Text mb={4} fontSize="sm" bg="gray.50" p={2} borderRadius="md">
+          {visit.notes}
+        </Text>
+      )}
+
       {/* Current status */}
       <Text mb={4}>
         Status:{" "}
@@ -227,6 +245,7 @@ export default function VisitDetailTab({ visit, onBack }) {
       <Stack direction="row" spacing={4} mb={6} flexWrap="wrap">
         {prevStatus && (
           <Button
+            size="sm"
             colorScheme={prevStatus.order <= 0 ? "red" : "gray"}
             onClick={() => updateStatus(prevStatus.code)}
             isLoading={updatingStatus}
@@ -245,26 +264,40 @@ export default function VisitDetailTab({ visit, onBack }) {
         )}
       </Stack>
 
-      {/* Quick override list */}
-      <Stack direction="row" wrap="wrap" mb={6}>
-        {statusOptions.map((s) => (
-          <Button
-            key={s.code}
-            size="sm"
-            colorScheme={
-              s.order <= 0
-                ? "red"
-                : s.code === visitStatus
-                ? "teal"
-                : "gray"
-            }
-            onClick={() => updateStatus(s.code)}
-            isDisabled={updatingStatus || s.code === visitStatus}
-          >
-            {s.label}
-          </Button>
-        ))}
-      </Stack>
+      {/* Status override dropdown */}
+      <HStack spacing={2} mb={6} align="center">
+        <Select
+          size="sm"
+          value={selectedStatus}
+          onChange={(e) => setSelectedStatus(e.target.value)}
+        >
+          <optgroup label="Normal Flow">
+            {normalOptions.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.label}
+              </option>
+            ))}
+          </optgroup>
+          {abnormalOptions.length > 0 && (
+            <optgroup label="Abnormal Flow">
+              {abnormalOptions.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </Select>
+        <IconButton
+          aria-label="Update Status"
+          icon={<CheckIcon />}
+          size="sm"
+          colorScheme="teal"
+          onClick={() => updateStatus(selectedStatus)}
+          isLoading={updatingStatus}
+          isDisabled={selectedStatus === visitStatus}
+        />
+      </HStack>
 
       {/* Navigation */}
       {mapsUrl && (
@@ -278,27 +311,40 @@ export default function VisitDetailTab({ visit, onBack }) {
         </HStack>
       )}
 
-      {/* Test/package selection */}
-      <FormControl mb={6}>
-        <FormLabel>Select Tests / Packages Performed</FormLabel>
-        {loadingDetails ? (
-          <Spinner />
-        ) : (
-          <TestPackageSelector
-            initialSelectedTests={selectedTestIds}
-            onSelectionChange={setSelectedTestIds}
-            loading={loadingDetails}
-          />
-        )}
-        <Button
-          mt={4}
-          colorScheme="blue"
-          onClick={saveSelectedTests}
-          isLoading={loadingDetails}
-        >
-          Save Selected Tests/Packages
-        </Button>
+      {/* Toggle for tests/packages */}
+      <FormControl display="flex" alignItems="center" mb={4}>
+        <FormLabel htmlFor="toggle-tests" mb="0">
+          Show Test / Package Selection
+        </FormLabel>
+        <Switch
+          id="toggle-tests"
+          isChecked={showTestSelection}
+          onChange={(e) => setShowTestSelection(e.target.checked)}
+        />
       </FormControl>
+
+      <Collapse in={showTestSelection}>
+        <FormControl mb={6}>
+          <FormLabel>Select Tests / Packages Performed</FormLabel>
+          {loadingDetails ? (
+            <Spinner />
+          ) : (
+            <TestPackageSelector
+              initialSelectedTests={selectedTestIds}
+              onSelectionChange={setSelectedTestIds}
+              loading={loadingDetails}
+            />
+          )}
+          <Button
+            mt={4}
+            colorScheme="blue"
+            onClick={saveSelectedTests}
+            isLoading={loadingDetails}
+          >
+            Save Selected Tests/Packages
+          </Button>
+        </FormControl>
+      </Collapse>
     </Box>
   );
 }

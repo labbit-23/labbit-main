@@ -1,14 +1,9 @@
 // File: /app/components/PatientsTab.js
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Button,
-  HStack,
-  Spinner,
-  useToast,
+  Box, Text, Button, HStack, Spinner, useToast
 } from '@chakra-ui/react';
 
 import { useUser } from '../context/UserContext';
@@ -24,23 +19,22 @@ export default function PatientsTab({
   selectedPatient: propSelectedPatient,
   phone = '',
   disablePhoneInput = false,
+  quickbookContext = null,
 }) {
   const toast = useToast();
-
   const { user, isLoading: isUserLoading } = useUser();
   const isPatientUser = user?.userType === 'patient';
 
-  console.log("[PatientsTab] Render", {
-    isUserLoading,
-    user
-    });
-
   const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
-  const [initialPhone, setInitialPhone] = useState('');
+  const [initialPhone, setInitialPhone] = useState(
+    quickbookContext?.booking?.phone || ''
+  );
   const [localDisablePhoneInput, setLocalDisablePhoneInput] = useState(false);
 
   const selectedPatient =
-    propSelectedPatient !== undefined ? propSelectedPatient : internalSelectedPatient;
+    propSelectedPatient !== undefined
+      ? propSelectedPatient
+      : internalSelectedPatient;
 
   const [visits, setVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
@@ -57,7 +51,6 @@ export default function PatientsTab({
 
   const [addressManagerOpen, setAddressManagerOpen] = useState(false);
 
-  // NEW: state for labels -> button text
   const [hasAddresses, setHasAddresses] = useState(false);
   const [loadingLabels, setLoadingLabels] = useState(false);
 
@@ -78,7 +71,7 @@ export default function PatientsTab({
     }
   }, [user, isUserLoading, isPatientUser, onPatientSelected]);
 
-  // Fetch visits when patient changes
+  // Fetch visits for selected patient
   useEffect(() => {
     if (!selectedPatient?.id) {
       setVisits([]);
@@ -104,7 +97,7 @@ export default function PatientsTab({
     fetchVisits();
   }, [selectedPatient]);
 
-  // NEW: fetch address labels when patient changes
+  // Fetch address labels for patient
   useEffect(() => {
     if (!selectedPatient?.id) {
       setHasAddresses(false);
@@ -114,11 +107,7 @@ export default function PatientsTab({
     fetch(`/api/patients/address_labels?patient_id=${selectedPatient.id}`)
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
-          setHasAddresses(true);
-        } else {
-          setHasAddresses(false);
-        }
+        setHasAddresses(Array.isArray(data) && data.length > 0);
       })
       .catch(() => setHasAddresses(false))
       .finally(() => setLoadingLabels(false));
@@ -146,7 +135,17 @@ export default function PatientsTab({
       }
       if (onPatientSelected) onPatientSelected(savedPatient);
       setPatientModalOpen(false);
-      toast({ title: 'Patient saved', status: 'success', duration: 3000, isClosable: true });
+      toast({
+        title: 'Patient saved',
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+
+      // QuickBook: go straight to visit creation
+      if (quickbookContext?.source === 'quickbook') {
+        setVisitModalOpen(true);
+      }
     } catch (error) {
       toast({
         title: 'Error saving patient',
@@ -188,17 +187,29 @@ export default function PatientsTab({
       const savedVisit = await res.json();
 
       setVisits((prev) =>
-        isUpdate ? prev.map((v) => (v.id === savedVisit.id ? savedVisit : v)) : [savedVisit, ...prev]
+        isUpdate
+          ? prev.map((v) => (v.id === savedVisit.id ? savedVisit : v))
+          : [savedVisit, ...prev]
       );
       setVisitModalOpen(false);
       setEditingVisit(null);
       setSelectedVisitId(savedVisit.id);
+
       toast({
         title: isUpdate ? 'Visit updated successfully' : 'Visit created successfully',
         status: 'success',
         duration: 3000,
         isClosable: true,
       });
+
+      // QuickBook: mark booking as processed
+      if (quickbookContext?.source === 'quickbook') {
+        await fetch(`/api/quickbook/${quickbookContext.booking.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "PROCESSED", visit_id: savedVisit.id }),
+        });
+      }
     } catch (error) {
       toast({
         title: 'Error saving visit',
@@ -218,9 +229,34 @@ export default function PatientsTab({
 
   return (
     <Box>
+      {quickbookContext?.source === 'quickbook' && (
+        <Box bg="yellow.50" p={3} mb={4} borderRadius="md" border="1px solid" borderColor="yellow.200">
+          <Text fontSize="sm" color="yellow.800" fontWeight="medium">
+            Processing QuickBook booking — please confirm patient details and create a visit.
+          </Text>
+          <Text fontSize="xs" color="yellow.700" mt={1}>
+            {[
+              quickbookContext.booking.patient_name || '(No name)',
+              quickbookContext.booking.phone,
+              quickbookContext.booking.date,
+              quickbookContext.booking.time_slot?.slot_name,
+              quickbookContext.booking.package_name
+            ].filter(Boolean).join(' | ')}
+          </Text>
+        </Box>
+      )}
+
       <PatientLookup
-        initialPhone={initialPhone || (isPatientUser ? user.phone : phone)}
-        disablePhoneInput={localDisablePhoneInput}
+        initialPhone={
+          quickbookContext?.booking?.phone ||
+          initialPhone ||
+          (isPatientUser ? user.phone : phone)
+        }
+        disablePhoneInput={
+          quickbookContext?.source === 'quickbook'
+            ? true
+            : localDisablePhoneInput
+        }
         onPatientSelected={onPatientSelectionHandler}
         onNewPatient={() => {
           if (propSelectedPatient === undefined) {
@@ -288,10 +324,7 @@ export default function PatientsTab({
               setVisitsLoading={setIsSavingVisit}
             />
           ) : (
-            <AddressManager
-              patientId={selectedPatient.id}
-              onChange={() => {}}
-            />
+            <AddressManager patientId={selectedPatient.id} onChange={() => {}} />
           )}
         </Box>
       )}
@@ -303,33 +336,47 @@ export default function PatientsTab({
         initialPatient={selectedPatient}
       />
 
-        {!isUserLoading && user?.userType && visitModalOpen && (
+      {!isUserLoading && user?.userType && visitModalOpen && (
         <VisitModal
-            key={editingVisit?.id || 'new'}
-            isOpen={visitModalOpen}
-            onClose={() => {
+          key={editingVisit?.id || 'new'}
+          isOpen={visitModalOpen}
+          onClose={() => {
             setVisitModalOpen(false);
             setEditingVisit(null);
-            }}
-            onSubmit={handleVisitSubmit}
-            patientId={selectedPatient?.id}
-            patients={selectedPatient ? [selectedPatient] : []}
-            visitInitialData={
+          }}
+          onSubmit={handleVisitSubmit}
+          patientId={selectedPatient?.id}
+          patients={selectedPatient ? [selectedPatient] : []}
+          visitInitialData={
             editingVisit && editingVisit.id
-                ? editingVisit
-                : selectedPatient
-                ? {
-                    patient_id: selectedPatient.id,
-                    patient: { name: selectedPatient.name }
+              ? editingVisit
+              : quickbookContext?.source === 'quickbook'
+              ? {
+                  patient_id: selectedPatient?.id,
+                  patient: { name: selectedPatient?.name },
+                  visit_date: quickbookContext.booking?.date || '',
+                  time_slot: quickbookContext.booking?.time_slot?.id || '',
+                  notes: quickbookContext.booking?.tests?.length
+                    ? Array.isArray(quickbookContext.booking.tests)
+                      ? quickbookContext.booking.tests.join(', ')
+                      : quickbookContext.booking.tests
+                    : quickbookContext.booking?.package_name || '',
+                  prescription: quickbookContext.booking?.prescription || '',
+                  status: 'PENDING',
                 }
-                : {}
-            }
-            isLoading={isSavingVisit}
-            userType={user.userType}  // Pass role explicitly here
+              : selectedPatient
+              ? {
+                  patient_id: selectedPatient.id,
+                  patient: { name: selectedPatient.name },
+                  // ✅ Scrub any stale visit_code
+                  visit_code: undefined
+                }
+              : {}
+          }
+          isLoading={isSavingVisit}
+          userType={user.userType}
         />
-        )}
-
-
+      )}
     </Box>
   );
 }

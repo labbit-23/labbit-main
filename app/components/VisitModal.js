@@ -6,12 +6,11 @@ import {
   Modal, ModalOverlay, ModalContent, ModalHeader,
   ModalBody, ModalFooter, ModalCloseButton, Button,
   VStack, FormControl, FormLabel, Select, Input,
-  Text, Spinner, Box, Flex, useToast, IconButton
+  Text, Spinner, Box, Flex, useToast, IconButton, Textarea, Image
 } from "@chakra-ui/react";
 import { EditIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
 import { useUser } from "../context/UserContext";
-import AddressManager from "./AddressManager";
 import AddressModal from "./AddressModal";
 import { getModalFieldSettings } from "../../lib/modalFieldSettings";
 
@@ -41,6 +40,8 @@ export default function VisitModal({
   const initialPatientId =
     visitInitialData?.patient_id || patientId || "";
 
+  const [uploadingPrescription, setUploadingPrescription] = useState(false);
+
   const [formData, setFormData] = useState({
     id: null,
     patient_id: initialPatientId,
@@ -51,6 +52,12 @@ export default function VisitModal({
     address_id: "",
     address: "",
     status: defaultValues.status || "unassigned",
+    notes: visitInitialData?.tests?.length
+      ? Array.isArray(visitInitialData.tests)
+        ? visitInitialData.tests.join(", ")
+        : visitInitialData.tests
+      : visitInitialData?.package_name || visitInitialData?.notes || "",
+    prescription: visitInitialData?.prescription || "",
     ...defaultValues,
   });
 
@@ -66,28 +73,58 @@ export default function VisitModal({
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState(null);
 
-  // Reset formData when visitInitialData changes
+  const handlePrescriptionFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return; // ✅ Skip if nothing selected
+
+    setUploadingPrescription(true);
+    try {
+      const formDataObj = new FormData();
+      formDataObj.append("file", file);
+
+      const res = await fetch("/api/visits/upload-prescription", {
+        method: "POST",
+        body: formDataObj
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setFormData(f => ({ ...f, prescription: data.url }));
+        toast({ title: "Prescription uploaded", status: "success" });
+      } else {
+        throw new Error(data.error || "Upload failed");
+      }
+    } catch (err) {
+      toast({ title: "Error uploading prescription", description: err.message, status: "error" });
+    } finally {
+      setUploadingPrescription(false);
+    }
+  };
+
   useEffect(() => {
     if (visitInitialData?.id) {
       setFormData({
         id: visitInitialData.id,
         patient_id: visitInitialData.patient_id || patientId || "",
-        executive_id:
-          typeof visitInitialData.executive_id === "object"
-            ? visitInitialData.executive_id.id
-            : visitInitialData.executive_id || "",
-        lab_id:
-          typeof visitInitialData.lab_id === "object"
-            ? visitInitialData.lab_id.id
-            : visitInitialData.lab_id || "",
-        visit_date: formatDate(visitInitialData.visit_date),
-        time_slot:
-          typeof visitInitialData.time_slot === "object"
-            ? visitInitialData.time_slot.id
-            : visitInitialData.time_slot || "",
+        executive_id: typeof visitInitialData.executive_id === "object"
+          ? visitInitialData.executive_id.id
+          : visitInitialData.executive_id || "",
+        lab_id: typeof visitInitialData.lab_id === "object"
+          ? visitInitialData.lab_id.id
+          : visitInitialData.lab_id || "",
+        visit_date: visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
+        time_slot: typeof visitInitialData.time_slot === "object"
+          ? visitInitialData.time_slot.id
+          : visitInitialData.time_slot || "",
         address_id: visitInitialData.address_id || "",
         address: visitInitialData.address || "",
         status: visitInitialData.status || defaultValues.status || "unassigned",
+        notes: visitInitialData?.tests?.length
+          ? Array.isArray(visitInitialData.tests)
+            ? visitInitialData.tests.join(", ")
+            : visitInitialData.tests
+          : visitInitialData?.package_name || visitInitialData?.notes || "",
+        prescription: visitInitialData?.prescription || "",
         ...defaultValues,
       });
     } else {
@@ -96,17 +133,26 @@ export default function VisitModal({
         patient_id: patientId || "",
         executive_id: "",
         lab_id: "",
-        visit_date: "",
-        time_slot: "",
+        visit_date: visitInitialData && visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
+        time_slot: visitInitialData && visitInitialData.time_slot
+          ? typeof visitInitialData.time_slot === "object"
+            ? visitInitialData.time_slot.id
+            : visitInitialData.time_slot
+          : "",
         address_id: "",
         address: "",
         status: defaultValues.status || "unassigned",
+        notes: visitInitialData?.tests?.length
+          ? Array.isArray(visitInitialData.tests)
+            ? visitInitialData.tests.join(", ")
+            : visitInitialData.tests
+          : visitInitialData?.package_name || visitInitialData?.notes || "",
+        prescription: "",
         ...defaultValues,
       });
     }
   }, [visitInitialData, patientId, defaultValues]);
 
-  // Load dropdowns
   useEffect(() => {
     if (!isOpen) { setDropdownsLoading(true); return; }
     let isMounted = true;
@@ -135,7 +181,6 @@ export default function VisitModal({
     return () => { isMounted = false; };
   }, [isOpen]);
 
-  // Auto-select lab if only one
   useEffect(() => {
     if (!isOpen || !formData.patient_id || labs.length === 0) return;
     setFormData(prev => {
@@ -147,7 +192,6 @@ export default function VisitModal({
     });
   }, [isOpen, labs, formData.patient_id, defaultValues.lab_id]);
 
-  // Validate time slot
   useEffect(() => {
     if (timeSlots.length === 0) return;
     setFormData(prev => {
@@ -158,7 +202,6 @@ export default function VisitModal({
     });
   }, [timeSlots]);
 
-  // Load latest visit summary
   useEffect(() => {
     if (!isOpen || !formData.patient_id) { setLatestVisit(null); return; }
     let cancelled = false;
@@ -171,7 +214,6 @@ export default function VisitModal({
     return () => { cancelled = true; };
   }, [isOpen, formData.patient_id]);
 
-  // Load full patient addresses + auto select default or single
   useEffect(() => {
     if (!formData.patient_id) { setPatientAddresses([]); return; }
     let cancelled = false;
@@ -183,15 +225,14 @@ export default function VisitModal({
         const addresses = Array.isArray(data) ? data : [];
         setPatientAddresses(addresses);
         if (!formData.address_id) {
-          const defaultAddr = addresses.find(a => a.is_default);
-          if (defaultAddr) {
+          const defAddr = addresses.find(a => a.is_default);
+          if (defAddr) {
             setFormData(f => ({
               ...f,
-              address_id: defaultAddr.id,
-              address: defaultAddr.area || defaultAddr.address_line || "",
+              address_id: defAddr.id,
+              address: defAddr.area || defAddr.address_line || "",
             }));
-          }
-          else if (addresses.length === 1) {
+          } else if (addresses.length === 1) {
             setFormData(f => ({
               ...f,
               address_id: addresses[0].id,
@@ -242,8 +283,8 @@ export default function VisitModal({
     });
   };
 
-  const renderRow = (label, field) => (
-    <FormControl isRequired>
+  const renderRow = (label, field, required = true) => (
+    <FormControl isRequired={required}>
       <Flex align="center" gap={3}>
         <FormLabel m="0" flex="0 0 140px">{label}</FormLabel>
         {field}
@@ -269,28 +310,10 @@ export default function VisitModal({
               <Spinner size="xl" m="auto" />
             ) : (
               <VStack spacing={3} align="stretch">
-                {loadingLatest ? (
-                  <Spinner />
-                ) : latestVisit ? (
-                  <Box p={2} mb={3} borderWidth="1px" bg="gray.50" borderRadius="sm">
-                    <Text fontWeight="semibold" fontSize="sm">Last Visit</Text>
-                    <Text fontSize="xs">
-                      Date: {dayjs(latestVisit.visit_date).format("YYYY-MM-DD")}
-                    </Text>
-                    <Text fontSize="xs">
-                      Status: {latestVisit.status?.replace(/_/g, " ").toUpperCase() || "-"}
-                    </Text>
-                    <Text fontSize="xs">Address: {latestVisit.address || "-"}</Text>
-                  </Box>
-                ) : (
-                  <Text fontSize="xs" mb={3} fontStyle="italic" color="gray.500">
-                    No previous visit data.
-                  </Text>
-                )}
-
-                {/* Executive */}
+                {/* HV Exec now optional */}
                 {!hiddenFields.includes("executive_id") &&
-                  renderRow("HV Executive",
+                  renderRow(
+                    "HV Executive",
                     <Select
                       value={formData.executive_id}
                       onChange={handleChange("executive_id")}
@@ -301,12 +324,14 @@ export default function VisitModal({
                       {executives.map(e => (
                         <option key={e.id} value={e.id}>{e.name}</option>
                       ))}
-                    </Select>
-                  )}
+                    </Select>,
+                    false
+                  )
+                }
 
                 {/* Lab */}
                 {!hiddenFields.includes("lab_id") &&
-                  renderRow("Lab",
+                  renderRow("Lab", (
                     <Select
                       value={formData.lab_id}
                       onChange={handleChange("lab_id")}
@@ -317,11 +342,12 @@ export default function VisitModal({
                         <option key={l.id} value={l.id}>{l.name}</option>
                       ))}
                     </Select>
-                  )}
+                  ))
+                }
 
                 {/* Visit Date */}
                 {!hiddenFields.includes("visit_date") &&
-                  renderRow("Visit Date",
+                  renderRow("Visit Date", (
                     <Input
                       type="date"
                       value={formData.visit_date}
@@ -329,11 +355,12 @@ export default function VisitModal({
                       min={formatDate(new Date())}
                       isDisabled={readOnlyFields.includes("visit_date")}
                     />
-                  )}
+                  ))
+                }
 
                 {/* Time Slot */}
                 {!hiddenFields.includes("time_slot") &&
-                  renderRow("Time Slot",
+                  renderRow("Time Slot", (
                     <Select
                       value={formData.time_slot}
                       onChange={handleChange("time_slot")}
@@ -344,98 +371,99 @@ export default function VisitModal({
                         <option key={id} value={id}>{slot_name}</option>
                       ))}
                     </Select>
-                  )}
+                  ))
+                }
 
-                {/* Address / Area */}
+                {/* Address */}
                 {!hiddenFields.includes("address_id") &&
-                  renderRow("Address / Area",
-                    loadingAddresses ? (
-                      <Spinner />
-                    ) : patientAddresses.length > 0 ? (
-                      <Flex w="100%" direction="column" gap={2}>
-                        <Flex w="100%" gap={2}>
-                          <Select
-                            flex="1"
-                            value={formData.address_id}
-                            onChange={handleChange("address_id")}
-                            placeholder="Select Saved Address"
-                            isDisabled={readOnlyFields.includes("address_id")}
-                          >
-                            {patientAddresses.map(({ id, label, area, address_line }) => (
-                              <option key={id} value={id}>
-                                {label || address_line} {area ? `(${area})` : ""}
-                              </option>
-                            ))}
-                          </Select>
-                          <IconButton
-                            aria-label="Edit address"
-                            icon={<EditIcon />}
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              const addr = patientAddresses.find(a => a.id === formData.address_id) || null;
-                              if (!addr) return;
+                  renderRow("Address / Area", (
+                    loadingAddresses ? <Spinner /> :
+                    patientAddresses.length > 0 ? (
+                      <Flex gap={2}>
+                        <Select
+                          flex="1"
+                          value={formData.address_id}
+                          onChange={handleChange("address_id")}
+                        >
+                          {patientAddresses.map(({ id, label, area, address_line }) => (
+                            <option key={id} value={id}>
+                              {label || address_line} {area ? `(${area})` : ""}
+                            </option>
+                          ))}
+                        </Select>
+                        <IconButton
+                          aria-label="Edit address"
+                          icon={<EditIcon />}
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const addr = patientAddresses.find(a => a.id === formData.address_id);
+                            if (addr) {
                               setEditingAddress(addr);
                               setIsAddressModalOpen(true);
-                            }}
-                          />
-                        </Flex>
-                        <Input
-                          placeholder="Quick area (optional)"
-                          value={formData.address}
-                          onChange={e => setFormData(f => ({ ...f, address: e.target.value }))}
+                            }
+                          }}
                         />
                       </Flex>
                     ) : (
                       <Input
-                        placeholder="Enter area (quick)"
+                        placeholder="Enter area"
                         value={formData.address}
-                        onChange={e => setFormData(f => ({ ...f, address: e.target.value }))}
+                        onChange={handleChange("address")}
                       />
                     )
-                  )}
+                  ))
+                }
 
                 {/* Status */}
                 {!hiddenFields.includes("status") &&
-                  renderRow("Status",
+                  renderRow("Status", (
                     <Select
                       value={formData.status}
                       onChange={handleChange("status")}
-                      isDisabled={readOnlyFields.includes("status")}
                     >
-                      <optgroup label="Normal Progression">
-                        {statusOptions.filter(s => s.order >= 1)
-                          .sort((a, b) => a.order - b.order)
-                          .map(({ code, label }) => (
-                            <option key={code} value={code}>{label}</option>
-                          ))}
-                      </optgroup>
-                      <optgroup label="Abnormal / Exception">
-                        {statusOptions.filter(s => s.order <= 0)
-                          .sort((a, b) => a.order - b.order)
-                          .map(({ code, label }) => (
-                            <option key={code} value={code}>{label}</option>
-                          ))}
-                      </optgroup>
+                      {statusOptions.map(({ code, label }) => (
+                        <option key={code} value={code}>{label}</option>
+                      ))}
                     </Select>
-                  )}
+                  ))
+                }
+
+                {/* Test List */}
+                {renderRow("Test List", (
+                  <Textarea
+                    value={formData.notes}
+                    onChange={handleChange("notes")}
+                    placeholder="Enter test names..."
+                  />
+                ), false)}
+
+                {/* Prescription Upload */}
+                {renderRow("Prescription", (
+                  <>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePrescriptionFile}
+                      isDisabled={uploadingPrescription}
+                    />
+                    {uploadingPrescription && <Text fontSize="sm">Uploading...</Text>}
+                    {formData.prescription && (
+                      <Box mt={2}>
+                        <Image src={formData.prescription} alt="Prescription" maxH="200px" />
+                      </Box>
+                    )}
+                  </>
+                ), false)}
               </VStack>
             )}
           </ModalBody>
 
-          <ModalFooter justifyContent="flex-end" gap={3}>
-            <Button
-              isLoading={modalLoading}
-              colorScheme="blue"
-              type="submit"
-              disabled={modalLoading || !isValid}
-              minWidth="100px"
-            >
+          <ModalFooter gap={3}>
+            <Button type="submit" isLoading={modalLoading} colorScheme="blue" disabled={!isValid}>
               {formData.id ? "Update" : "Create"}
             </Button>
-            <Button onClick={onClose} variant="outline" disabled={modalLoading} minWidth="100px">
-              Cancel
-            </Button>
+            <Button onClick={onClose} variant="outline" disabled={modalLoading}>Cancel</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

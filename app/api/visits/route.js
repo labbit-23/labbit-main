@@ -5,7 +5,7 @@ import { supabase } from "../../../lib/supabaseServer";
 import {
   sendPatientVisitSms,
   sendPhleboVisitSms,
-} from "@/lib/visitSms"; // adjust path as needed
+} from "@/lib/visitSms"; // adjust import paths as needed
 
 /**
  * GET /api/visits?patient_id=<uuid>
@@ -38,6 +38,8 @@ export async function GET(request) {
         time_slot,
         address,
         status,
+        notes,
+        prescription,
         address_id,
         time_slot:time_slot (
           id,
@@ -55,9 +57,10 @@ export async function GET(request) {
 
     return NextResponse.json(data, { status: 200 });
   } catch (err) {
-    return NextResponse.json({
-      error: "Internal server error",
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -68,7 +71,10 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const visitData = await request.json();
-    if ("id" in visitData) delete visitData.id;
+
+    // Always ensure id and visit_code are not sent from client
+    delete visitData.id;
+    delete visitData.visit_code;
 
     const { data, error } = await supabase
       .from("visits")
@@ -87,12 +93,17 @@ export async function POST(request) {
         time_slot:time_slot (
           slot_name
         ),
-        status
+        status,
+        notes,
+        prescription
       `)
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: error?.message || "Visit creation failed" }, { status: 500 });
+      return NextResponse.json(
+        { error: error?.message || "Visit creation failed" },
+        { status: 500 }
+      );
     }
 
     // Always send patient SMS for new visit
@@ -114,9 +125,10 @@ export async function POST(request) {
     return NextResponse.json(data, { status: 201 });
   } catch (err) {
     console.error("POST /api/visits failed:", err);
-    return NextResponse.json({
-      error: err.message || "Internal server error",
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -168,12 +180,17 @@ export async function PUT(request) {
         time_slot:time_slot (
           slot_name
         ),
-        status
+        status,
+        notes,
+        prescription
       `)
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: error?.message || "Visit update failed" }, { status: 500 });
+      return NextResponse.json(
+        { error: error?.message || "Visit update failed" },
+        { status: 500 }
+      );
     }
 
     // Always send SMS to patient for visit update
@@ -184,8 +201,6 @@ export async function PUT(request) {
     }
 
     // Logic for when to send phlebo SMS:
-    // a) The executive was just assigned (prev.executive_id was null and data.executive_id is not null)
-    // b) The executive_id is the same, BUT time_slot has changed
     const isNewAssignment =
       !prev.executive_id && data.executive_id && data.executive?.phone;
     const isTimeslotChanged =
@@ -206,8 +221,9 @@ export async function PUT(request) {
     return NextResponse.json(data, { status: 200 });
   } catch (err) {
     console.error("PUT /api/visits failed:", err);
-    return NextResponse.json({
-      error: err.message || "Internal server error",
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }

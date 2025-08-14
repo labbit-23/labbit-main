@@ -19,7 +19,7 @@ import {
 import { supabase } from "../../lib/supabaseClient";
 import { FiNavigation } from "react-icons/fi";
 import { FaMotorcycle } from "react-icons/fa";
-import { useUser } from "../context/UserContext"; // Use the global user context
+import { useUser } from "../context/UserContext";
 
 const STATUS_STYLES = {
   pending: { bg: "yellow.100", borderColor: "yellow.400" },
@@ -35,15 +35,10 @@ function getStatusStyle(status) {
   return STATUS_STYLES[status] || STATUS_STYLES.default;
 }
 
-export default function ActiveVisitsTab({
-  selectedDate,
-  onSelectVisit,
-  selectedVisit,
-}) {
+export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedVisit }) {
   const toast = useToast();
   const { user, isLoading: userLoading } = useUser();
 
-  // Executive ID from user context if executive and phlebo
   const hvExecutiveId =
     !userLoading &&
     user &&
@@ -57,12 +52,12 @@ export default function ActiveVisitsTab({
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedVisitId, setSelectedVisitId] = useState(null);
 
-  // Sync internal selectedVisitId with prop selectedVisit
-  React.useEffect(() => {
+  // Sync prop -> state
+  useEffect(() => {
     setSelectedVisitId(selectedVisit?.id ?? null);
   }, [selectedVisit]);
 
-  // Fetch visits when hvExecutiveId or selectedDate changes
+  // Fetch visits
   useEffect(() => {
     async function fetchVisits() {
       if (!hvExecutiveId || !selectedDate) {
@@ -125,8 +120,9 @@ export default function ActiveVisitsTab({
         .update({ executive_id: hvExecutiveId, status: "assigned" })
         .eq("id", visitId);
       if (error) throw error;
+
       toast({ title: "Visit assigned", status: "success", duration: 3000 });
-      // Refresh visits after assignment
+      // Refresh visits
       const { data, error: fetchError } = await supabase
         .from("visits")
         .select(`
@@ -160,16 +156,11 @@ export default function ActiveVisitsTab({
         .from("visits")
         .update({ status: "started" })
         .eq("id", visitId);
-
       if (error) throw error;
 
-      toast({
-        title: "Visit started",
-        status: "success",
-        duration: 3000,
-      });
+      toast({ title: "Visit started", status: "success", duration: 3000 });
 
-      // Refresh visits after starting
+      // Refresh
       const { data, error: fetchError } = await supabase
         .from("visits")
         .select(`
@@ -202,18 +193,16 @@ export default function ActiveVisitsTab({
       toast({ title: "No address provided", status: "warning" });
       return;
     }
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      address
-    )}`;
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
     window.open(url, "_blank");
   };
 
   const handleRowClick = (visit) => {
     if (selectedVisitId === visit.id) {
-      if (onSelectVisit) onSelectVisit(visit);
+      onSelectVisit && onSelectVisit(visit);
     } else {
       setSelectedVisitId(visit.id);
-      if (onSelectVisit) onSelectVisit(visit);
+      onSelectVisit && onSelectVisit(visit);
     }
   };
 
@@ -223,6 +212,7 @@ export default function ActiveVisitsTab({
         <Spinner size="xl" />
       ) : (
         <>
+          {/* Assigned Visits */}
           <VStack spacing={4} mb={8} align="stretch">
             <Heading size="md">Assigned Visits ({assignedVisits.length})</Heading>
             {assignedVisits.length === 0 ? (
@@ -249,8 +239,22 @@ export default function ActiveVisitsTab({
                         {visit.status.replace(/_/g, " ")}
                       </Badge>
                     </HStack>
-                    <Text>{visit.visit_date}</Text>
-                    <Text>{visit.time_slot?.slot_name ?? "-"}</Text>
+                    {/* New: Area / Address */}
+                    {/* Row 2: Date (left) + Area (right) */}
+                    <HStack justify="space-between" align="center" mt={1}>
+                      <Text fontSize="sm" color="gray.700">
+                        {visit.visit_date}
+                      </Text>
+                      <Text fontSize="sm" fontWeight="semibold" color="blue.700">
+                        {visit.address ? visit.address.toUpperCase() : "NO AREA"}
+                      </Text>
+                    </HStack>
+
+                    {/* Row 3: Timeslot */}
+                    <Text fontWeight="bold" mt={1}>
+                      {visit.time_slot?.slot_name ?? "-"}
+                    </Text>
+
                     <HStack mt={3} spacing={2}>
                       <Button
                         size="sm"
@@ -281,6 +285,7 @@ export default function ActiveVisitsTab({
             )}
           </VStack>
 
+          {/* Unassigned Visits */}
           <Box>
             <Heading size="md" mb={3}>
               Unassigned Visits ({unassignedVisits.length})
@@ -298,9 +303,12 @@ export default function ActiveVisitsTab({
                     style={getStatusStyle(visit.status)}
                   >
                     <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
+                    {/* New: Area/Address */}
+                    <Text fontSize="sm" color="gray.600">
+                      {visit.address || "No Area"}
+                    </Text>
                     <Text>{visit.visit_date}</Text>
                     <Text>{visit.time_slot?.slot_name ?? "-"}</Text>
-
                     <HStack mt={2}>
                       <IconButton
                         aria-label="Navigate to address"
@@ -310,7 +318,6 @@ export default function ActiveVisitsTab({
                         onClick={() => navigateToVisit(visit.address)}
                         mr={2}
                       />
-
                       <Button
                         size="sm"
                         colorScheme="blue"
@@ -318,7 +325,6 @@ export default function ActiveVisitsTab({
                       >
                         Assign to Me
                       </Button>
-
                       <Button
                         size="sm"
                         ml={2}
