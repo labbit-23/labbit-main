@@ -33,7 +33,6 @@ function getPrimaryCategory(variant) {
 export default function LandingPage() {
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure(); // QuickBook
-  const { isOpen: testModalOpen, onOpen: onTestModalOpen, onClose: onTestModalClose } = useDisclosure();
   const { isOpen: compareModalOpen, onOpen: onCompareOpen, onClose: onCompareClose } = useDisclosure();
 
   const [form, setForm] = useState({
@@ -42,18 +41,16 @@ export default function LandingPage() {
   });
   const [loading, setLoading] = useState(false);
   const [timeslots, setTimeslots] = useState([]);
-  const [showTests, setShowTests] = useState({ tests: [], title: "", variantKey: "" });
   const [scrolled, setScrolled] = useState(false);
   const [compareMap, setCompareMap] = useState({});
+  const [singleVariant, setSingleVariant] = useState(null); // NEW: single package details mode
 
-  // Header shadow
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 40);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Load timeslots
   useEffect(() => {
     fetch("/api/visits/time_slots")
       .then(res => res.json())
@@ -75,9 +72,7 @@ export default function LandingPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/quickbook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form)
       });
       if (!res.ok) throw new Error("Booking failed");
       toast({ title: "Booking submitted!", status: "success" });
@@ -88,7 +83,6 @@ export default function LandingPage() {
     } finally { setLoading(false); }
   };
 
-  // No category restriction
   const toggleCompareVariant = (pkgName, variantName, variant) => {
     const key = getVariantKey(pkgName, variantName);
     setCompareMap(prev => {
@@ -100,6 +94,11 @@ export default function LandingPage() {
       }
       return newMap;
     });
+  };
+
+  const openSingleVariantModal = (pkgName, variantName, variant) => {
+    setSingleVariant({ pkgName, variantName, variant });
+    onCompareOpen();
   };
 
   const responsive = {
@@ -151,9 +150,7 @@ export default function LandingPage() {
           </HStack>
           <HStack gap={3}>
             <Button onClick={onOpen} colorScheme="teal" borderRadius="full">Quick Book</Button>
-            <Button as={ChakraLink} href="/login" variant="outline" colorScheme="teal" borderRadius="full">
-              Login / Signup
-            </Button>
+            <Button as={ChakraLink} href="/login" variant="outline" colorScheme="teal" borderRadius="full">Login / Signup</Button>
           </HStack>
         </Flex>
       </Box>
@@ -166,7 +163,6 @@ export default function LandingPage() {
         </Text>
       </Box>
 
-      {/* LOGO */}
       <Box textAlign="center" mb={4}>
         <Image src={SDRC_LOGO} alt="SDRC Logo" w="120px" mx="auto" />
       </Box>
@@ -177,7 +173,8 @@ export default function LandingPage() {
           {packages.map(pkg => (
             <Box key={pkg.name} borderWidth="1px" borderRadius="2xl" bg="white" shadow="md"
               px={{ base: 2, md: 3 }} py={{ base: 4, md: 5 }}
-              minH={{ base: "auto", md: "420px" }} display="flex" flexDirection="column" justifyContent="space-between">
+              minH={{ base: "auto", md: "420px" }} display="flex" flexDirection="column" justifyContent="space-between"
+            >
               <Heading size="md" color="teal.700" mb={2}>{pkg.name}</Heading>
               <Text fontSize="sm" color="gray.600" mb={2}>{pkg.description}</Text>
               <Divider mb={2} />
@@ -189,9 +186,11 @@ export default function LandingPage() {
                     <Text color="#F46C3B" fontWeight="bold" textAlign="center">₹ {v.price}</Text>
                     <Text fontSize="xs" color="gray.600" mb={2} textAlign="center">({v.parameters} parameters)</Text>
                     <Flex justify="space-between" mt={2}>
-                      <Checkbox size="sm" isChecked={!!compareMap[vKey]} onChange={() => toggleCompareVariant(pkg.name, v.name, v)}>Compare</Checkbox>
+                      <Checkbox size="sm" isChecked={!!compareMap[vKey]} onChange={() => toggleCompareVariant(pkg.name, v.name, v)}>
+                        Compare
+                      </Checkbox>
                       <Button size="xs" variant="outline" colorScheme="teal" borderRadius="full"
-                        onClick={() => { setShowTests({ tests: v.tests, title: `${pkg.name} — ${v.name}`, variantKey: vKey }); onTestModalOpen(); }}>
+                        onClick={() => openSingleVariantModal(pkg.name, v.name, v)}>
                         View Included Tests
                       </Button>
                     </Flex>
@@ -219,27 +218,15 @@ export default function LandingPage() {
         </Flex>
       )}
 
-      {/* MODALS */}
-      <CompareModal isOpen={compareModalOpen} onClose={onCompareClose} compareMap={compareMap} />
+      {/* UNIFIED MODAL */}
+      <CompareModal
+        isOpen={compareModalOpen}
+        onClose={() => { onCompareClose(); setSingleVariant(null); }}
+        compareMap={singleVariant ? {} : compareMap}
+        singleVariant={singleVariant}
+      />
 
-      {/* TESTS MODAL */}
-      <Modal isOpen={testModalOpen} onClose={onTestModalClose} size="lg" isCentered>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>{showTests.title}</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <List spacing={2} fontSize="sm">{showTests.tests.map((t, i) => <ListItem key={i}>• {t}</ListItem>)}</List>
-            <Divider my={2} />
-            <Box fontSize="xs" color="gray.600">
-              <Heading size="xs">Notes</Heading>
-              <List>{globalNotes.map((n, idx) => <ListItem key={idx}>{n}</ListItem>)}</List>
-            </Box>
-          </ModalBody>
-        </ModalContent>
-      </Modal>
-
-      {/* QUICK BOOK */}
+      {/* QUICK BOOK MODAL */}
       <Modal isOpen={isOpen} onClose={onClose} size="lg" isCentered scrollBehavior="inside">
         <ModalOverlay />
         <ModalContent>
@@ -271,9 +258,7 @@ export default function LandingPage() {
                 </FormControl>
                 <FormControl maxW={{ base: "100%", md: "120px" }}>
                   <FormLabel fontSize="sm">Persons</FormLabel>
-                  <NumberInput value={form.persons} onChange={handlePersonsChange} size="sm" min={1}>
-                    <NumberInputField />
-                  </NumberInput>
+                  <NumberInput value={form.persons} onChange={handlePersonsChange} size="sm" min={1}><NumberInputField /></NumberInput>
                 </FormControl>
               </SimpleGrid>
               <Divider />
