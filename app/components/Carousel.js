@@ -1,59 +1,45 @@
 // app/components/Carousel.js
 "use client";
-import "slick-carousel/slick/slick.css";
-import "slick-carousel/slick/slick-theme.css";
+import { Box } from "@chakra-ui/react";
+import MultiCarousel from "react-multi-carousel";
+import "react-multi-carousel/lib/styles.css";
 
-import { useRef } from "react";
-import Slider from "react-slick";
-import { IconButton, Box } from "@chakra-ui/react";
-import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
-
-export default function Carousel({ children, settings, minHeight = "380px", showArrows = true }) {
-  const sliderRef = useRef(null);
+export default function Carousel({ children }) {
+  const responsive = {
+    desktop: {
+      breakpoint: { max: 3000, min: 1024 },
+      items: 3,
+      slidesToSlide: 1,
+    },
+    tablet: {
+      breakpoint: { max: 1024, min: 640 },
+      items: 2,
+      slidesToSlide: 1,
+    },
+    mobile: {
+      breakpoint: { max: 640, min: 0 },
+      items: 1,
+      slidesToSlide: 1,
+    },
+  };
 
   return (
-    <Box position="relative" width="100%" overflow="hidden">
-      {showArrows && (
-        <IconButton
-          aria-label="Previous Slide"
-          icon={<ChevronLeftIcon />}
-          position="absolute"
-          left={{ base: "0", md: "-40px" }}
-          top="50%"
-          transform="translateY(-50%)"
-          zIndex="docked"
-          onClick={() => sliderRef.current?.slickPrev?.()}
-          size="sm"
-          colorScheme="teal"
-          isRound
-        />
-      )}
-
-      <Slider ref={sliderRef} {...settings}>
-        {Array.isArray(children)
-          ? children.map((child, idx) => (
-              <Box key={idx} minH={minHeight} width="100%">
-                {child}
-              </Box>
-            ))
-          : children}
-      </Slider>
-
-      {showArrows && (
-        <IconButton
-          aria-label="Next Slide"
-          icon={<ChevronRightIcon />}
-          position="absolute"
-          right={{ base: "0", md: "-40px" }}
-          top="50%"
-          transform="translateY(-50%)"
-          zIndex="docked"
-          onClick={() => sliderRef.current?.slickNext?.()}
-          size="sm"
-          colorScheme="teal"
-          isRound
-        />
-      )}
+    <Box w="100%">
+      <MultiCarousel
+        responsive={responsive}
+        arrows
+        infinite
+        autoPlay={false}
+        keyBoardControl
+        draggable
+        swipeable
+        showDots={false}
+        containerClass="carousel-container"
+        itemClass="px-2"
+        removeArrowOnDeviceType={["mobile"]}
+      >
+        {children}
+      </MultiCarousel>
     </Box>
   );
 }
