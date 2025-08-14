@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers"; // needed for getIronSession in route handlers
-import { sessionOptions } from "@/lib/session"; // your existing session config
+import { ironOptions as sessionOptions } from "@/lib/session"; // your existing session config
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

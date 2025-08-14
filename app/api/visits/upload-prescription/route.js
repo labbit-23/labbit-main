@@ -1,12 +1,7 @@
 // File: /app/api/visits/upload-prescription/route.js
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabaseServer";
 import { v4 as uuidv4 } from "uuid";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // keep this server-only
-);
 
 export async function POST(request) {
   try {
