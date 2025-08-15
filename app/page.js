@@ -179,7 +179,7 @@ export default function LandingPage() {
           keyBoardControl
           showDots={true}
           renderDotsOutside={true}
-          removeArrowOnDeviceType={["mobile"]}
+          //removeArrowOnDeviceType={["mobile"]}
           itemClass="px-6"
         >
           {packages.map(pkg => (

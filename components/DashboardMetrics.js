@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Box, Flex, Stat, StatLabel, StatNumber, useToast } from "@chakra-ui/react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function DashboardMetrics({ hvExecutiveId, date }) {
+export default function DashboardMetrics({ hvExecutiveId, date, collectionCentreId }) {
   const [metrics, setMetrics] = useState({
     total: 0,
     assigned: 0,
@@ -19,84 +19,114 @@ export default function DashboardMetrics({ hvExecutiveId, date }) {
     if (!date) return; // Don't fetch if date isn't set
 
     let cancelled = false;
+
     async function fetchMetrics() {
       setLoading(true);
       try {
+        // Build base query date boundaries
         const queryDate = date;
 
-        // Base filter for visit_date
-        const baseFilter = (query) => query.eq("visit_date", queryDate);
+        // If collectionCentreId is provided, show sample_pickups KPIs instead of visits
+        if (collectionCentreId) {
+          // Filter pickups by collection centre and requested_at date
+          const pickupsRes = await supabase
+            .from("sample_pickups")
+            .select("status, requested_at");
 
-        // 1. Total Visits
-        const totalQuery = baseFilter(
-          supabase.from("visits").select("id", { count: "exact", head: true })
-        );
-        // 2. Assigned Visits (all assigned for Admin, filtered for HV)
-        let assignedQuery = baseFilter(
-          supabase.from("visits").select("id", { count: "exact", head: true })
-        );
-        if (hvExecutiveId) {
-          assignedQuery = assignedQuery.eq("executive_id", hvExecutiveId);
-        } else {
-          assignedQuery = assignedQuery.not("executive_id", "is", null);
-        }
-        // 3. Completed Visits
-        const completedQuery = baseFilter(
-          supabase
-            .from("visits")
-            .select("id", { count: "exact", head: true })
-            .eq("status", "completed")
-        );
-        // 4. Pending Visits
-        const pendingQuery = baseFilter(
-          supabase
-            .from("visits")
-            .select("id", { count: "exact", head: true })
-            .eq("status", "pending")
-        );
-        // 5. Unassigned Visits
-        const unassignedQuery = baseFilter(
-          supabase
-            .from("visits")
-            .select("id", { count: "exact", head: true })
-            .is("executive_id", null)
-        );
+          if (pickupsRes.error) throw pickupsRes.error;
 
-        // Await everything in parallel
-        const [
-          { count: totalCount, error: totalErr },
-          { count: assignedCount, error: assignedErr },
-          { count: completedCount, error: completedErr },
-          { count: pendingCount, error: pendingErr },
-          { count: unassignedCount, error: unassignedErr },
-        ] = await Promise.all([
-          totalQuery,
-          assignedQuery,
-          completedQuery,
-          pendingQuery,
-          unassignedQuery,
-        ]);
-
-        // If any error: throw so loading is stopped and toast shown.
-        if (totalErr || assignedErr || completedErr || pendingErr || unassignedErr) {
-          throw new Error(
-            totalErr?.message ||
-              assignedErr?.message ||
-              completedErr?.message ||
-              pendingErr?.message ||
-              unassignedErr?.message ||
-              "Error fetching metrics"
-          );
-        }
-
-        if (!cancelled) {
-          setMetrics({
-            total: totalCount ?? 0,
-            assigned: assignedCount ?? 0,
-            completed: completedCount ?? 0,
-            pending: pendingCount ?? 0,
-            unassigned: unassignedCount ?? 0,
+          const filtered = (pickupsRes.data || []).filter((p) => {
+            const dt = new Date(p.requested_at);
+            const dtDateStr = dt.toISOString().slice(0, 10);
+            return dtDateStr === queryDate && p.collection_centre_id === collectionCentreId;
           });
+
+          if (!cancelled) {
+            const total = filtered.length;
+            const pending = filtered.filter((p) => p.status === "samples_ready").length;
+            const completed = filtered.filter((p) => p.status === "dropped").length;
+
+            setMetrics({
+              total,
+              assigned: 0, // Not applicable or handle based on assignment logic
+              completed,
+              pending,
+              unassigned: 0,
+            });
+          }
+        } else {
+          // Existing visits KPIs for admin or executive
+          const baseFilter = (query) => query.eq("visit_date", queryDate);
+
+          const totalQuery = baseFilter(
+            supabase.from("visits").select("id", { count: "exact", head: true })
+          );
+
+          let assignedQuery = baseFilter(
+            supabase.from("visits").select("id", { count: "exact", head: true })
+          );
+
+          if (hvExecutiveId) {
+            assignedQuery = assignedQuery.eq("executive_id", hvExecutiveId);
+          } else {
+            assignedQuery = assignedQuery.not("executive_id", "is", null);
+          }
+
+          const completedQuery = baseFilter(
+            supabase
+              .from("visits")
+              .select("id", { count: "exact", head: true })
+              .eq("status", "completed")
+          );
+
+          const pendingQuery = baseFilter(
+            supabase
+              .from("visits")
+              .select("id", { count: "exact", head: true })
+              .eq("status", "pending")
+          );
+
+          const unassignedQuery = baseFilter(
+            supabase
+              .from("visits")
+              .select("id", { count: "exact", head: true })
+              .is("executive_id", null)
+          );
+
+          const [
+            { count: totalCount, error: totalErr },
+            { count: assignedCount, error: assignedErr },
+            { count: completedCount, error: completedErr },
+            { count: pendingCount, error: pendingErr },
+            { count: unassignedCount, error: unassignedErr },
+          ] = await Promise.all([
+            totalQuery,
+            assignedQuery,
+            completedQuery,
+            pendingQuery,
+            unassignedQuery,
+          ]);
+
+          if (totalErr || assignedErr || completedErr || pendingErr || unassignedErr) {
+            throw new Error(
+              totalErr?.message ||
+                assignedErr?.message ||
+                completedErr?.message ||
+                pendingErr?.message ||
+                unassignedErr?.message ||
+                "Error fetching metrics"
+            );
+          }
+
+          if (!cancelled) {
+            setMetrics({
+              total: totalCount ?? 0,
+              assigned: assignedCount ?? 0,
+              completed: completedCount ?? 0,
+              pending: pendingCount ?? 0,
+              unassigned: unassignedCount ?? 0,
+            });
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -114,10 +144,11 @@ export default function DashboardMetrics({ hvExecutiveId, date }) {
     }
 
     fetchMetrics();
+
     return () => {
       cancelled = true;
     };
-  }, [hvExecutiveId, date, toast]);
+  }, [hvExecutiveId, date, collectionCentreId, toast]);
 
   if (loading) {
     return (
@@ -138,11 +169,11 @@ export default function DashboardMetrics({ hvExecutiveId, date }) {
           minW={140}
           flex="none"
         >
-          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total Visits</StatLabel>
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total {collectionCentreId ? "Pickups" : "Visits"}</StatLabel>
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.total}</StatNumber>
         </Stat>
 
-        {hvExecutiveId && (
+        {!collectionCentreId && hvExecutiveId && (
           <Stat
             bg="teal.50"
             p={4}
@@ -180,17 +211,19 @@ export default function DashboardMetrics({ hvExecutiveId, date }) {
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.pending}</StatNumber>
         </Stat>
 
-        <Stat
-          bg="red.50"
-          p={4}
-          rounded="md"
-          boxShadow="sm"
-          minW={140}
-          flex="none"
-        >
-          <StatLabel fontSize={{ base: "sm", md: "md" }}>Unassigned</StatLabel>
-          <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.unassigned}</StatNumber>
-        </Stat>
+        {!collectionCentreId && (
+          <Stat
+            bg="red.50"
+            p={4}
+            rounded="md"
+            boxShadow="sm"
+            minW={140}
+            flex="none"
+          >
+            <StatLabel fontSize={{ base: "sm", md: "md" }}>Unassigned</StatLabel>
+            <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.unassigned}</StatNumber>
+          </Stat>
+        )}
       </Flex>
     </Box>
   );

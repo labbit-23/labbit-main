@@ -37,6 +37,10 @@ export default function VisitDetailTab({ visit, onBack }) {
   const [selectedStatus, setSelectedStatus] = useState(visit.status);
   const [showTestSelection, setShowTestSelection] = useState(false);
 
+  // Prescription preview
+  const [prescriptionUrl, setPrescriptionUrl] = useState(null);
+  const [loadingPrescription, setLoadingPrescription] = useState(false);
+
   // Load statuses from API
   useEffect(() => {
     async function fetchStatuses() {
@@ -57,6 +61,35 @@ export default function VisitDetailTab({ visit, onBack }) {
     }
     fetchStatuses();
   }, [toast]);
+
+  // Prescription fetch effect
+  useEffect(() => {
+    if (!visit?.prescription) {
+      setPrescriptionUrl(null);
+      return;
+    }
+
+    if (/^https?:\/\//i.test(visit.prescription)) {
+      setPrescriptionUrl(visit.prescription);
+      return;
+    }
+
+    setLoadingPrescription(true);
+    const bucketName = "uploads";
+    const filePath = visit.prescription.replace(/^uploads\//, "");
+
+    supabase.storage
+      .from(bucketName)
+      .createSignedUrl(filePath, 60 * 60)
+      .then(({ data }) => {
+        setPrescriptionUrl(data?.signedUrl || null);
+        setLoadingPrescription(false);
+      })
+      .catch(() => {
+        setPrescriptionUrl(null);
+        setLoadingPrescription(false);
+      });
+  }, [visit]);
 
   // Update local visit status and selections when visit changes
   useEffect(() => {
@@ -231,6 +264,59 @@ export default function VisitDetailTab({ visit, onBack }) {
           {visit.notes}
         </Text>
       )}
+
+      {/* Prescription Preview Section */}
+      {loadingPrescription ? (
+        <Spinner size="sm" color="teal" mb={4} />
+      ) : prescriptionUrl ? (
+        <Box mb={4} p={3} bg="gray.50" borderRadius="md">
+          <Heading size="sm" mb={2}>Prescription</Heading>
+          {/\.(pdf)$/i.test(prescriptionUrl)
+            ? (
+              <Link href={prescriptionUrl} isExternal>
+                <Button leftIcon={<ExternalLinkIcon />} colorScheme="blue" variant="outline">
+                  View Prescription (PDF)
+                </Button>
+              </Link>
+            )
+            : (
+              <Link href={prescriptionUrl} isExternal>
+                <Box
+                  cursor="pointer"
+                  borderRadius="8px"
+                  overflow="hidden"
+                  border="1px solid #CBD5E0"
+                  boxShadow="sm"
+                  maxW="170px"
+                  maxH="170px"
+                  _hover={{ boxShadow: "md", borderColor: "teal.400" }}
+                  transition="all 0.15s"
+                >
+                  <img
+                    src={prescriptionUrl}
+                    alt="Prescription"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      display: "block",
+                      background: "#f9fafb"
+                    }}
+                  />
+                </Box>
+                <Text mt={2} fontSize="xs" color="gray.500">
+                  Tap image to open &amp; zoom
+                </Text>
+              </Link>
+            )
+          }
+        </Box>
+      ) : visit.prescription && typeof visit.prescription === "string" ? (
+        <Box mb={4} p={3} bg="gray.50" borderRadius="md" whiteSpace="pre-wrap">
+          <Heading size="sm" mb={2}>Prescription</Heading>
+          <Text>{visit.prescription}</Text>
+        </Box>
+      ) : null}
 
       {/* Current status */}
       <Text mb={4}>

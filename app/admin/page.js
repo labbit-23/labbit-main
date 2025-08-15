@@ -215,9 +215,9 @@ export default function AdminDashboard() {
   const nonDisabledTodaysVisits = sortedTodaysVisits.filter(
     (v) => v.status !== "disabled"
   );
+
   const perExecVisitCounts = nonDisabledTodaysVisits.reduce((acc, v) => {
-    const execId =
-      typeof v.executive_id === "object" ? v.executive_id.id : v.executive_id;
+    const execId = v.executive?.id ?? (typeof v.executive_id === "object" ? v.executive_id?.id : v.executive_id);
     if (execId) {
       acc[execId] = (acc[execId] || 0) + 1;
     }
