@@ -18,9 +18,11 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
 
   if (variants.length === 0) return null;
 
-  // Download displayed content as JPG
+  // Export with button hidden
   const downloadImage = async () => {
     if (!tableRef.current) return;
+    const btn = tableRef.current.querySelector('.no-print');
+    if (btn) btn.style.visibility = 'hidden';
     try {
       const canvas = await html2canvas(tableRef.current, { backgroundColor: "#fff", scale: 2 });
       const link = document.createElement("a");
@@ -29,6 +31,8 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
       link.click();
     } catch (err) {
       alert("Error generating image: " + err.message);
+    } finally {
+      if (btn) btn.style.visibility = 'visible';
     }
   };
 
@@ -39,23 +43,31 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
       <Modal isOpen={isOpen} onClose={onClose} size="lg" isCentered scrollBehavior="inside">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>
-            <Flex justify="space-between" align="center" w="100%">
-              <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
-              <Box /> {/* empty placeholder for alignment */}
-            </Flex>
-            <Heading size="md" mt={2}>{pkgName} — {variantName}</Heading>
-            <Text color="#F46C3B" fontWeight="semibold" mb={2}>₹ {variant.price}</Text>
-          </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            <Heading size="sm" mb={2}>Included Tests</Heading>
-            <Box maxH="400px" overflowY="auto" ref={tableRef} px={2}>
-              <ul style={{ paddingLeft: 20 }}>
-                {variant.tests.map((test, i) => (
-                  <li key={i}>{test}</li>
-                ))}
-              </ul>
+            <Box ref={tableRef} bg="white" p={2}>
+              <Flex justify="space-between" align="center" w="100%" mb={4}>
+                <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
+                <Button
+                  className="no-print"
+                  leftIcon={<DownloadIcon />}
+                  size="sm"
+                  colorScheme="teal"
+                  onClick={downloadImage}
+                >
+                  Download JPG
+                </Button>
+              </Flex>
+              <Heading size="md" mb={1}>{pkgName} — {variantName}</Heading>
+              <Text color="#F46C3B" fontWeight="semibold" mb={2}>₹ {variant.price}</Text>
+              <Heading size="sm" mb={2} mt={4}>Included Tests</Heading>
+              <Box maxH="400px" overflowY="auto" px={2}>
+                <ul style={{ paddingLeft: 20 }}>
+                  {variant.tests.map((test, i) => (
+                    <li key={i}>{test}</li>
+                  ))}
+                </ul>
+              </Box>
             </Box>
           </ModalBody>
         </ModalContent>
@@ -63,10 +75,10 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
     );
   }
 
-  // Multiple variants comparison
+  // Multiple variant compare
   if (variants.length < 2) return null;
 
-  // Group tests by category
+  // Group tests by category for compare table
   const testsByCategory = {};
   variants.forEach(({ variant }) => {
     variant.tests.forEach(test => {
@@ -83,17 +95,21 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside" isCentered>
       <ModalOverlay />
       <ModalContent maxW="90vw">
-        <ModalHeader>
-          <Flex justify="space-between" align="center" w="100%">
-            <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
-            <Button leftIcon={<DownloadIcon />} size="sm" colorScheme="teal" onClick={downloadImage}>
-              Download JPG
-            </Button>
-          </Flex>
-        </ModalHeader>
         <ModalCloseButton />
         <ModalBody>
-          <Box ref={tableRef} overflowX="auto" pb={4} px={2}>
+          <Box ref={tableRef} bg="white" p={2}>
+            <Flex justify="space-between" align="center" w="100%" mb={4}>
+              <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
+              <Button
+                className="no-print"
+                leftIcon={<DownloadIcon />}
+                size="sm"
+                colorScheme="teal"
+                onClick={downloadImage}
+              >
+                Download JPG
+              </Button>
+            </Flex>
             <Table size="sm">
               <Thead>
                 <Tr>

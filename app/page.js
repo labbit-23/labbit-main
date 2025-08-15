@@ -43,7 +43,7 @@ export default function LandingPage() {
   const [timeslots, setTimeslots] = useState([]);
   const [scrolled, setScrolled] = useState(false);
   const [compareMap, setCompareMap] = useState({});
-  const [singleVariant, setSingleVariant] = useState(null); // NEW: single package details mode
+  const [singleVariant, setSingleVariant] = useState(null); // unified compare modal
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 40);
@@ -113,29 +113,30 @@ export default function LandingPage() {
       <Global styles={`
         .react-multiple-carousel__arrow {
           background-color: rgba(0, 0, 0, 0.1) !important;
-          color: rgba(0, 0, 0, 0.6) !important;
-          width: 40px !important;
-          height: 40px !important;
-          border-radius: 50% !important;
+          color: rgba(86, 117, 114, 0.71) !important;
+          width: 30px !important;
+          height: 30px !important;
+          border-radius: 0 !important;
           display: flex !important;
           align-items: center !important;
           justify-content: center !important;
-          transition: background-color 0.3s ease, color 0.3s ease;
+          transition: color 0.3s ease;
+          
         }
         .react-multiple-carousel__arrow:hover {
           background-color: rgba(0, 0, 0, 0.3) !important;
-          color: rgba(0, 0, 0, 0.9) !important;
+          color: rgba(0, 0, 0, 0.6) !important;
         }
         .react-multiple-carousel__arrow--left {
-          left: -50px !important;
-          top: 50% !important;
+          left: 10px !important;
+          top: 65% !important;
           transform: translateY(-50%) !important;
           position: absolute !important;
           z-index: 10 !important;
         }
         .react-multiple-carousel__arrow--right {
-          right: -50px !important;
-          top: 50% !important;
+          right: 10px !important;
+          top: 65% !important;
           transform: translateY(-50%) !important;
           position: absolute !important;
           z-index: 10 !important;
@@ -168,8 +169,19 @@ export default function LandingPage() {
       </Box>
 
       {/* PACKAGES */}
-      <Box maxW="1100px" mx="auto" mb={7} px={2}>
-        <MultiCarousel {...{ responsive }} arrows infinite swipeable draggable keyBoardControl removeArrowOnDeviceType={["mobile"]} itemClass="px-2">
+      <Box maxW="1100px" mx="auto" mb={7} px={6} overflow="visible">
+        <MultiCarousel
+          responsive={responsive}
+          arrows
+          infinite
+          swipeable
+          draggable
+          keyBoardControl
+          showDots={true}
+          renderDotsOutside={true}
+          removeArrowOnDeviceType={["mobile"]}
+          itemClass="px-6"
+        >
           {packages.map(pkg => (
             <Box key={pkg.name} borderWidth="1px" borderRadius="2xl" bg="white" shadow="md"
               px={{ base: 2, md: 3 }} py={{ base: 4, md: 5 }}
@@ -205,7 +217,7 @@ export default function LandingPage() {
       {/* STICKY COMPARE BAR */}
       {Object.keys(compareMap).length > 0 && (
         <Flex position="fixed" bottom="0" left="0" right="0" bg="white" borderTop="1px solid" borderColor="gray.200" boxShadow="md"
-          py={2} px={4} justify="space-between" align="center" zIndex={2000}>
+          py={2} px={4} justifyContent="space-between" align="center" zIndex={2000}>
           <Text fontSize="md" fontWeight="medium">
             {Object.keys(compareMap).length} variant{Object.keys(compareMap).length > 1 ? "s" : ""} selected
           </Text>
@@ -218,7 +230,6 @@ export default function LandingPage() {
         </Flex>
       )}
 
-      {/* UNIFIED MODAL */}
       <CompareModal
         isOpen={compareModalOpen}
         onClose={() => { onCompareClose(); setSingleVariant(null); }}
