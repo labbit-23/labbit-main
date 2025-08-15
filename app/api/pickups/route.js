@@ -3,7 +3,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabaseServer";
 import { getIronSession } from "iron-session";
-import { ironOptions as sessionOptions } from "@/lib/sessionOptions"; // adjust path as needed
+import { ironOptions as sessionOptions } from "@/lib/session"; // adjust path as needed
 
 // Helper to get session and executive ID
 async function getExecutiveId(request) {
