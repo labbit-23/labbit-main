@@ -22,6 +22,7 @@ export async function POST(request) {
       type: data.type ?? "Unknown",
       active: data.active ?? true,
       status: data.status ?? "active",
+      password_hash: " ",
     })
     .select()
     .single();

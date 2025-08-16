@@ -32,6 +32,8 @@ export default function PatientsTab({
   );
   const [localDisablePhoneInput, setLocalDisablePhoneInput] = useState(false);
 
+  const [lastLookupPhone, setLastLookupPhone] = useState('');
+
   const selectedPatient =
     propSelectedPatient !== undefined
       ? propSelectedPatient
@@ -259,6 +261,8 @@ export default function PatientsTab({
             : localDisablePhoneInput
         }
         onPatientSelected={onPatientSelectionHandler}
+        onPhoneChange={setLastLookupPhone}    // Add this line
+
         onNewPatient={() => {
           if (propSelectedPatient === undefined) {
             setInternalSelectedPatient(null);
@@ -335,6 +339,8 @@ export default function PatientsTab({
         onClose={() => setPatientModalOpen(false)}
         onSubmit={onPatientSave}
         initialPatient={selectedPatient}
+        initialPhone={selectedPatient ? undefined : lastLookupPhone}
+        disablePhoneInput={selectedPatient ? false : true}
       />
 
       {!isUserLoading && user?.userType && visitModalOpen && (

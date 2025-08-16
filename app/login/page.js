@@ -129,7 +129,7 @@ export default function LoginPage() {
           const user = await res.json();
           const execType = (user.executiveType || '').toLowerCase();
           const adminRoles = ['admin', 'manager', 'director'];
-
+          const collectionRoles = ['logistics', 'b2b', 'b2badmin'];
           if (user.userType === 'patient' && user.phone) {
             router.replace('/patient');
             return;
@@ -144,7 +144,12 @@ export default function LoginPage() {
               router.replace('/phlebo');
               return;
             }
-            router.replace('/dashboard');
+            if (collectionRoles.includes(execType)) {
+              await refreshUser(); // from useUser()
+              router.replace('/collection-centre');
+              return;
+            }
+            router.replace('/');
             return;
           }
         }

@@ -22,6 +22,7 @@ export default function PatientLookup({
   disablePhoneInput = false,
   onPatientSelected,
   onNewPatient,
+  onPhoneChange,      // new prop
 }) {
   const [phone, setPhone] = useState(initialPhone);
   const [patients, setPatients] = useState([]);
@@ -43,6 +44,12 @@ export default function PatientLookup({
     if (patient.mrn) return `mrn-${patient.mrn}`;
     if (patient.external_key) return `externalkey-${patient.external_key}`;
     return null;
+  };
+  
+  const handlePhoneChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '');
+    setPhone(val);
+    if (onPhoneChange) onPhoneChange(val);
   };
 
   async function handleLookup(phoneToLookup = phone) {
@@ -134,17 +141,16 @@ export default function PatientLookup({
         <>
           <FormControl>
             <FormLabel>Phone Number</FormLabel>
-            <Input
-              value={phone}
-              placeholder="Enter patient phone"
-              onChange={(e) => {
-                if (!disablePhoneInput) setPhone(e.target.value.replace(/\D/g, ''));
-              }}
-              maxLength={10}
-              autoFocus={!disablePhoneInput}
-              disabled={disablePhoneInput}
-              aria-label="Patient phone input"
-            />
+          <Input
+            value={phone}
+            placeholder="Enter patient phone"
+            onChange={handlePhoneChange}
+            maxLength={10}
+            autoFocus={!disablePhoneInput}
+            disabled={disablePhoneInput}
+            aria-label="Patient phone input"
+          />
+
           </FormControl>
 
           <Button onClick={() => handleLookup()} colorScheme="blue" isLoading={loading} disabled={disablePhoneInput}>

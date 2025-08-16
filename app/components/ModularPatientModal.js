@@ -42,7 +42,8 @@ export default function ModularPatientModal({
   isOpen,
   onClose,
   onSubmit,
-  initialPatient,
+  initialPatient,  
+  initialPhone = '',
   disablePhoneInput = false,
 }) {
   const toast = useToast();
@@ -78,7 +79,7 @@ export default function ModularPatientModal({
         gender: formatGender(initialPatient.gender),
         email: initialPatient.email ?? '',
         externalMrNo: initialPatient.external_key ?? '',
-        phone: initialPatient.phone ?? '',
+        phone: initialPatient.phone ?? initialPhone ?? '',  // Use fallback initialPhone
         address_line: initialPatient.address_line ?? '',
         pincode: initialPatient.pincode ?? '',
       });
@@ -112,7 +113,7 @@ export default function ModularPatientModal({
         gender: '',
         email: '',
         externalMrNo: '',
-        phone: '',
+        phone: initialPhone ?? '',  // <--- use initialPhone directly
         address_line: '',
         pincode: '',
       });
@@ -244,7 +245,7 @@ export default function ModularPatientModal({
                   maxLength={10}
                   onChange={updateField('phone')}
                   placeholder="10-digit phone number"
-                  isDisabled
+                  isDisabled={disablePhoneInput}
                   aria-readonly="true"
                 />
               </HStack>

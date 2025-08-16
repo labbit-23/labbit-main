@@ -28,9 +28,10 @@ export async function GET(request) {
 
       // fetch the labs linked to this user from your mapping table
       const { data: userLabs, error: userLabsError } = await supabase
-        .from("user_labs") // or whatever mapping table you have
+        .from("executives_labs")
         .select("lab_id")
-        .eq("user_id", user.id);
+        .eq("executive_id", user.id);  // Change from user_id to executive_id
+
 
       if (userLabsError) {
         return NextResponse.json({ error: userLabsError.message }, { status: 500 });
