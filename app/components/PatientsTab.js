@@ -18,6 +18,7 @@ export default function PatientsTab({
   onPatientSelected,
   selectedPatient: propSelectedPatient,
   phone = '',
+  defaultExecutiveId = null,         // <-- Add this!
   disablePhoneInput = false,
   quickbookContext = null,
 }) {
@@ -375,6 +376,7 @@ export default function PatientsTab({
           }
           isLoading={isSavingVisit}
           userType={user.userType}
+          defaultExecutiveId={defaultExecutiveId}  // <-- Add this
         />
       )}
     </Box>

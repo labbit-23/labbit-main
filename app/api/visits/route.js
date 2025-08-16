@@ -5,34 +5,28 @@ import { supabase } from "../../../lib/supabaseServer";
 import {
   sendPatientVisitSms,
   sendPhleboVisitSms,
-} from "@/lib/visitSms"; // adjust import paths as needed
+} from "@/lib/visitSms";
 
-/**
- * GET /api/visits?patient_id=<uuid>
- */
+// GET /api/visits?patient_id=...&visit_date=...
 export async function GET(request) {
   try {
     const url = new URL(request.url);
     const patientId = url.searchParams.get("patient_id");
+    const visitDate = url.searchParams.get("visit_date");
 
-    if (!patientId) {
-      return NextResponse.json(
-        { error: "Missing patient_id query parameter" },
-        { status: 400 }
-      );
+    // Only respond if at least one filter is present
+    if (!patientId && !visitDate) {
+      return NextResponse.json([], { status: 200 });
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("visits")
       .select(`
         id,
-        patient_id,
+        visit_code,
+        patient:patient_id(id, name, phone),
         executive_id,
-        executive:executive_id (
-          id,
-          name,
-          phone
-        ),
+        executive:executive_id(id, name, phone),
         lab_id,
         visit_date,
         time_slot,
@@ -41,28 +35,26 @@ export async function GET(request) {
         notes,
         prescription,
         address_id,
-        time_slot:time_slot (
-          id,
-          slot_name,
-          start_time,
-          end_time
-        )
-      `)
-      .eq("patient_id", patientId)
-      .order("visit_date", { ascending: false });
+        time_slot:time_slot(id, slot_name, start_time, end_time)
+      `);
+
+    if (patientId) query = query.eq("patient_id", patientId);
+    if (visitDate) query = query.eq("visit_date", visitDate);
+
+    const { data, error } = await query.order("visit_date", { ascending: false });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(data, { status: 200 });
+    return NextResponse.json(data || [], { status: 200 });
   } catch (err) {
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+// (POST and PUT remain unchanged except for included visit_code, patient, etc. in SELECT as above)
+
 
 /**
  * POST /api/visits

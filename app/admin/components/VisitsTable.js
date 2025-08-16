@@ -9,30 +9,13 @@ import {
 } from "@chakra-ui/react";
 import { EditIcon, DeleteIcon, AddIcon } from "@chakra-ui/icons";
 
-// Map visit status to badge color
-const statusColorScheme = (status) => {
-  switch (status) {
-    case "booked": return "blue";
-    case "pending": return "orange";
-    case "accepted": return "teal";
-    case "postponed": return "yellow";
-    case "rejected": return "red";
-    case "in_progress": return "cyan";
-    case "sample_picked":
-    case "completed": return "green";
-    case "sample_dropped": return "purple";
-    case "disabled": return "gray";
-    default: return "gray";
-  }
-};
-
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
   const d = new Date(dateInput);
   return d.toISOString().split("T")[0];
 };
 
-// Group active visits by executive and also return disabled separately
+// Group active visits by executive and return disabled separately
 const groupVisitsByExecutive = (visits, executives) => {
   const execMap = new Map(executives.map((exec) => [exec.id, exec]));
   const groups = new Map();
@@ -53,7 +36,6 @@ const groupVisitsByExecutive = (visits, executives) => {
     groups.get(execId).visits.push(visit);
   }
 
-  // Sort each group's visits by start time
   groups.forEach((group) => {
     group.visits.sort((a, b) => {
       const timeA = a?.time_slot?.start_time ?? "";
@@ -62,7 +44,6 @@ const groupVisitsByExecutive = (visits, executives) => {
     });
   });
 
-  // Sort groups: unassigned first, then alpha by name
   const sortedGroups = Array.from(groups.values()).sort((a, b) => {
     if (a.exec === null && b.exec !== null) return -1;
     if (a.exec !== null && b.exec === null) return 1;
@@ -81,6 +62,7 @@ export default function VisitsTable({
   onDelete,
   onAssign,
   loading = false,
+  statusOptions = [], //added prop for dynamic status options
 }) {
   const [assigning, setAssigning] = useState(new Set());
   const [selectedExec, setSelectedExec] = useState({});
@@ -95,6 +77,12 @@ export default function VisitsTable({
       if (slot) return slot.slot_name;
     }
     return "Unknown";
+  };
+
+  // New function: get color from statusOptions prop
+  const getStatusColor = (status) => {
+    const statusObj = statusOptions.find(opt => opt.code === status);
+    return statusObj?.color || "gray";
   };
 
   const handleAssign = async (visit) => {
@@ -173,7 +161,7 @@ export default function VisitsTable({
                   const isUnassigned = !visit.executive_id;
                   return (
                     <Tr key={visit.id}>
-                      {/* Patient FIRST */}
+                      {/* Patient info */}
                       <Td>
                         <Box>{visit.patient?.name ?? "Unknown"}</Box>
                         <Box fontWeight="bold" fontSize="sm" color="gray.700">
@@ -193,20 +181,27 @@ export default function VisitsTable({
                       <Td>{formatDate(visit.visit_date)}</Td>
                       {/* Slot */}
                       <Td>{getSlotDisplay(visit)}</Td>
-                      {/* Status */}
+                      {/* Status with dynamic color */}
                       <Td>
-                        <Badge colorScheme={statusColorScheme(visit.status)} rounded="md" px={2}>
+                        <Badge colorScheme={getStatusColor(visit.status)} rounded="md" px={2}>
                           {visit.status?.toUpperCase().replace(/_/g, " ")}
                         </Badge>
                       </Td>
                       {/* Actions */}
                       <Td className="no-export" isNumeric>
                         <HStack spacing={2} justify="flex-end">
-                          <IconButton aria-label="Edit" icon={<EditIcon />} size="sm"
+                          <IconButton
+                            aria-label="Edit"
+                            icon={<EditIcon />}
+                            size="sm"
                             onClick={() => onEdit && onEdit(visit)}
                           />
-                          <IconButton aria-label="Disable" icon={<DeleteIcon />} size="sm"
-                            colorScheme="red" onClick={() => handleDisable(visit)}
+                          <IconButton
+                            aria-label="Disable"
+                            icon={<DeleteIcon />}
+                            size="sm"
+                            colorScheme="red"
+                            onClick={() => handleDisable(visit)}
                           />
                           {isUnassigned && exec === null && (
                             <>
@@ -267,14 +262,12 @@ export default function VisitsTable({
               <Tbody>
                 {disabled.map((visit) => (
                   <Tr key={visit.id} opacity={0.5} bg="gray.50">
-                    {/* Patient FIRST */}
                     <Td>
                       <Box>{visit.patient?.name ?? "Unknown"}</Box>
                       <Box fontWeight="bold" fontSize="sm" color="gray.700">
                         {visit.patient?.phone ?? "No Phone"}
                       </Box>
                     </Td>
-                    {/* Address / Code */}
                     <Td>
                       <Box fontWeight="bold">
                         {visit.address || "No Area"}
@@ -283,19 +276,15 @@ export default function VisitsTable({
                         {visit.visit_code ?? "N/A"}
                       </Box>
                     </Td>
-                    {/* Date */}
                     <Td>{formatDate(visit.visit_date)}</Td>
-                    {/* Slot */}
                     <Td>{getSlotDisplay(visit)}</Td>
-                    {/* Status */}
                     <Td>
                       <Badge colorScheme="gray" rounded="md" px={2}>
                         DISABLED
                       </Badge>
                     </Td>
-                    {/* Actions */}
                     <Td className="no-export" isNumeric>
-                      {/* Placeholder for re-enable / assign later */}
+                      {/* You can add re-enable or other actions here if needed */}
                     </Td>
                   </Tr>
                 ))}

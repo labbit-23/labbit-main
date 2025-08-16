@@ -24,12 +24,14 @@ export default function VisitModal({
   visitInitialData = {},
   patientId,
   isLoading: modalLoading,
+  defaultExecutiveId = "",      // <-- add this line
+
 }) {
   const toast = useToast();
   const { user, isLoading: userLoading } = useUser();
   if (userLoading || !user) return null;
 
-  const role = (user.userType || user.executiveType || "patient").toLowerCase();
+  const role = (user.executiveType || user.userType || "patient").toLowerCase();
   const { hiddenFields, readOnlyFields, defaultValues } = useMemo(
     () => getModalFieldSettings("VisitModal", role),
     [role]
@@ -39,13 +41,14 @@ export default function VisitModal({
     visitInitialData?.patient?.name || "Unknown Patient";
   const initialPatientId =
     visitInitialData?.patient_id || patientId || "";
+  const initialExecId = defaultValues.executive_id  || "";  
 
   const [uploadingPrescription, setUploadingPrescription] = useState(false);
 
   const [formData, setFormData] = useState({
     id: null,
     patient_id: initialPatientId,
-    executive_id: "",
+    executive_id: initialExecId,
     lab_id: "",
     visit_date: "",
     time_slot: "",
@@ -106,14 +109,14 @@ export default function VisitModal({
       setFormData({
         id: visitInitialData.id,
         patient_id: visitInitialData.patient_id || patientId || "",
-        executive_id: typeof visitInitialData.executive_id === "object"
+        executive_id: visitInitialData.executive_id && typeof visitInitialData.executive_id === "object"
           ? visitInitialData.executive_id.id
           : visitInitialData.executive_id || "",
-        lab_id: typeof visitInitialData.lab_id === "object"
+        lab_id: visitInitialData.lab_id && typeof visitInitialData.lab_id === "object"
           ? visitInitialData.lab_id.id
           : visitInitialData.lab_id || "",
         visit_date: visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
-        time_slot: typeof visitInitialData.time_slot === "object"
+        time_slot: visitInitialData.time_slot && typeof visitInitialData.time_slot === "object"
           ? visitInitialData.time_slot.id
           : visitInitialData.time_slot || "",
         address_id: visitInitialData.address_id || "",
@@ -128,10 +131,19 @@ export default function VisitModal({
         ...defaultValues,
       });
     } else {
+      //console.log('UserID: ' + user.id + '\n DefaultExecutiveID: ' +  defaultExecutiveId)
+      // Create mode:
+      let initialExecutive = "";
+
+      if (role === "phlebo") {
+        initialExecutive = String(user.id);
+      } else if (defaultValues.executive_id) {
+        initialExecutive = String(defaultValues.executive_id);
+      }
       setFormData({
         id: null,
         patient_id: patientId || "",
-        executive_id: "",
+        executive_id: initialExecutive,
         lab_id: "",
         visit_date: visitInitialData && visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
         time_slot: visitInitialData && visitInitialData.time_slot

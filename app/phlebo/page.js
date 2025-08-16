@@ -14,12 +14,12 @@ import { supabase } from "../../lib/supabaseClient";
 
 import ShortcutBar from "../../components/ShortcutBar";
 import ActiveVisitsTab from "./ActiveVisitsTab";
-import PatientLookupTab from "./PatientLookupTab";
+import PatientsTab from "../components/PatientsTab";  // Use PatientsTab here
 import VisitDetailTab from "./VisitDetailTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 
 import { useUser } from "../context/UserContext";
-import RequireAuth from "../../components/RequireAuth"; // ✅ enforced guard
+import RequireAuth from "../../components/RequireAuth";
 
 function PhleboContent({ userRole = "executive" }) {
   const { user } = useUser();
@@ -33,12 +33,12 @@ function PhleboContent({ userRole = "executive" }) {
     new Date().toISOString().slice(0, 10)
   );
 
+  // Lock executive to self if user is phlebo
   const lockExecutive =
     !!user &&
     user.userType === "executive" &&
     (user.executiveType || "").toLowerCase() === "phlebo";
 
-  // Lock executive to self after context has user
   useEffect(() => {
     if (lockExecutive) {
       setSelectedExecutiveId(user.id);
@@ -46,7 +46,6 @@ function PhleboContent({ userRole = "executive" }) {
     }
   }, [user, lockExecutive]);
 
-  // Fetch executives for dropdown if not locked
   useEffect(() => {
     async function fetchExecutives() {
       try {
@@ -55,13 +54,11 @@ function PhleboContent({ userRole = "executive" }) {
           .select("id, name")
           .in("status", ["active", "available"])
           .eq("type", "Phlebo");
-
         if (error) throw error;
         setExecutives(data || []);
-
         if (!lockExecutive && data?.length > 0) {
           setSelectedExecutiveId(data[0].id);
-          setSelectedExecutiveName(data[0].name);
+          setSelectedExecutiveName(data.name);
         }
       } catch (error) {
         console.error("Failed to fetch executives", error);
@@ -70,7 +67,6 @@ function PhleboContent({ userRole = "executive" }) {
     fetchExecutives();
   }, [lockExecutive]);
 
-  // Update name when selected ID changes
   useEffect(() => {
     if (!selectedExecutiveId || executives.length === 0) {
       setSelectedExecutiveName(null);
@@ -138,7 +134,13 @@ function PhleboContent({ userRole = "executive" }) {
             </TabPanel>
 
             <TabPanel p={6} bg="white" rounded="md" boxShadow="sm">
-              <PatientLookupTab onSelectVisit={handleVisitSelect} />
+              <PatientsTab
+                // Optionally pass quickbookContext here if relevant
+                //onPatientSelected={() => setTabIndex(0)} // example: go back to Active Visits on patient select
+                phone="" // or any default phone number if needed
+                defaultExecutiveId={selectedExecutiveId}     // Pass this prop!
+                disablePhoneInput={false}
+              />
             </TabPanel>
 
             <TabPanel p={6} bg="white" rounded="md" boxShadow="sm">
@@ -157,7 +159,6 @@ function PhleboContent({ userRole = "executive" }) {
   );
 }
 
-// ✅ RequireAuth is the *only* place we do auth/role checks now
 export default function PhleboPageWrapper(props) {
   return (
     <RequireAuth roles={['phlebo']}>

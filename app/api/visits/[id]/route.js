@@ -17,8 +17,8 @@ import {
 /**
  * GET - Fetch a single visit by ID with executive and time_slot details
  */
-export async function GET(request, { params }) {
-  const { id } = params;
+export async function GET(request, context) {
+  const { id } = await context.params;
 
   if (!id) {
     return NextResponse.json({ error: "Missing visit ID" }, { status: 400 });
@@ -67,15 +67,15 @@ export async function GET(request, { params }) {
  *  - Logs changes in visit_activity_log
  *  - Sends SMS notifications based on visit_statuses.notify_to (JSONB)
  */
-export async function PUT(request, { params }) {
-  const { id } = params;
+export async function PUT(request, context) {
+  const { id } = await context.params;
 
   if (!id) {
     return NextResponse.json({ error: "Missing visit ID" }, { status: 400 });
   }
 
-  // Load current user from session
-  const session = await getIronSession({ cookies }, ironOptions);
+  // Use cookies() directly as per working example
+  const session = await getIronSession(cookies(), ironOptions);
   const user = session?.user || null;
 
   try {
@@ -89,7 +89,9 @@ export async function PUT(request, { params }) {
       "time_slot",
       "address",
       "address_id",
-      "status"
+      "status",
+      "notes",
+      "prescription"
     ];
 
     const updateData = {};

@@ -34,6 +34,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [statusOptions, setStatusOptions] = useState([]);
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
@@ -65,7 +66,8 @@ export default function AdminDashboard() {
         executivesData,
         { data: labsData, error: labsError },
         { data: timeSlotsData, error: timeSlotsError },
-        { data: quickbookData, error: quickbookError }
+        { data: quickbookData, error: quickbookError },
+        { data: statusOptionsData, error: statusOptionsError }
       ] = await Promise.all([
         supabase
           .from("visits")
@@ -90,7 +92,11 @@ export default function AdminDashboard() {
             time_slot:timeslot(id, slot_name, start_time, end_time)
           `)
           .eq("status", "PENDING")
-          .order("created_at", { ascending: false })
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("visit_statuses")
+          .select("code, label, color, order")
+          .order("order")
       ]);
 
       if (visitsError) throw visitsError;
@@ -98,12 +104,14 @@ export default function AdminDashboard() {
       if (labsError) throw labsError;
       if (timeSlotsError) throw timeSlotsError;
       if (quickbookError) throw quickbookError;
+      if (statusOptionsError) throw statusOptionsError;
 
       setVisits(visitsData || []);
       setExecutives(executivesData || []);
       setLabs(labsData || []);
       setTimeSlots(timeSlotsData || []);
       setQuickbookings(quickbookData || []);
+      setStatusOptions(statusOptionsData || []);
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");
       toast({
@@ -184,6 +192,27 @@ export default function AdminDashboard() {
     setLoadingVisitModal(false);
   };
 
+  async function handleAssignToExec(visitId, execId) {
+    try {
+      const res = await fetch("/api/visits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: visitId, executive_id: execId, status: "booked" })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || "Assignment failed");
+      }
+      await fetchAll(); // Refresh visits list after assignment
+    } catch (error) {
+      toast({
+        title: "Failed to assign executive",
+        description: error.message,
+        status: "error"
+      });
+    }
+  }
+
   const today = dayjs().format("YYYY-MM-DD");
   const upcomingVisits = visits.filter(
     (v) => v.visit_date && v.visit_date.slice(0, 10) >= today
@@ -199,19 +228,16 @@ export default function AdminDashboard() {
   }, {});
   const pendingQuickbookCount = quickbookings.length;
 
-  // Only visits for the selected date
   const todaysVisits = visits.filter(
     (v) => v.visit_date?.slice(0, 10) === selectedDate
   );
 
-  // Sort: Disabled visits last
   const sortedTodaysVisits = [...todaysVisits].sort((a, b) => {
     if (a.status === "disabled" && b.status !== "disabled") return 1;
     if (a.status !== "disabled" && b.status === "disabled") return -1;
     return 0;
   });
 
-  // Per-exec daily counts (exclude Disabled)
   const nonDisabledTodaysVisits = sortedTodaysVisits.filter(
     (v) => v.status !== "disabled"
   );
@@ -223,6 +249,30 @@ export default function AdminDashboard() {
     }
     return acc;
   }, {});
+
+  async function handleDisableVisit(visitId, status) {
+  try {
+    const res = await fetch(`/api/visits/${visitId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || "Disable failed");
+    }
+    toast({ title: "Visit Disabled", status: "info" });
+    await fetchAll(); // Refresh visits immediately
+  } catch (err) {
+    toast({
+      title: "Error disabling visit",
+      description: err.message,
+      status: "error",
+    });
+  }
+}
 
   return (
     <RequireAuth roles={["admin", "manager", "director"]}>
@@ -354,6 +404,9 @@ export default function AdminDashboard() {
                       visitModal.onOpen();
                     }}
                     loading={loading}
+                    onAssign={handleAssignToExec}
+                    onDelete={handleDisableVisit} 
+                    statusOptions={statusOptions}
                   />
                   <VisitModal
                     isOpen={visitModal.isOpen}
@@ -368,6 +421,7 @@ export default function AdminDashboard() {
                     executives={activePhlebos}
                     labs={labs}
                     timeSlots={timeSlots}
+                    statusOptions={statusOptions}
                   />
                 </TabPanel>
 
