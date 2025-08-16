@@ -95,6 +95,7 @@ export async function GET(req) {
           lng: defaultAddr?.lng || null,
           external_key,
           source: labName,
+          lab_id: defaultLab.id,      // << ADD THIS line to link lab_id
         };
       }));
 
