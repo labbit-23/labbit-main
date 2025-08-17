@@ -202,12 +202,12 @@ export default function ShortcutBar({
               <Badge
                 colorScheme={roleMarker.color}
                 variant="subtle"
-                px={{ base: 1, sm: 2 }}
+                px={{ base: 2, sm: 3 }}
                 borderRadius="md"
                 fontSize="xs"
                 fontWeight="bold"
                 maxW="60px"
-                isTruncated
+                isTruncated = {false}
               >
                 {roleMarker.label}
               </Badge>

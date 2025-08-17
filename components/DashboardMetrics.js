@@ -56,7 +56,10 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
           }
         } else {
           // Existing visits KPIs for admin or executive
-          const baseFilter = (query) => query.eq("visit_date", queryDate);
+          const baseFilter = (query) =>
+            query
+              .eq("visit_date", queryDate)
+              .not("status", "eq", "disabled"); // Exclude disabled visits
 
           const totalQuery = baseFilter(
             supabase.from("visits").select("id", { count: "exact", head: true })

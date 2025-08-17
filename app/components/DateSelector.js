@@ -22,7 +22,7 @@ export default function DateSelector({ date, setDate }) {
 
   return (
     <HStack spacing={2} minW="180px" justify="center" px={1} py={0} width="100%">
-      <Button size="sm" onClick={handlePrevDay} aria-label="Previous Day">
+      <Button size="sm" minWidth="60px" onClick={handlePrevDay} aria-label="Previous Day">
         &#8592;
       </Button>
       <Input
@@ -33,7 +33,7 @@ export default function DateSelector({ date, setDate }) {
         max={dayjs().add(1, "year").format("YYYY-MM-DD")}
         min={dayjs().subtract(1, "year").format("YYYY-MM-DD")}
       />
-      <Button size="sm" onClick={handleNextDay} aria-label="Next Day">
+      <Button size="sm" minWidth="60px" onClick={handleNextDay} aria-label="Next Day">
         &#8594;
       </Button>
     </HStack>

@@ -10,7 +10,7 @@ import { CheckIcon, DownloadIcon } from "@chakra-ui/icons";
 import { testCategoryMap, categoryIconMap } from "@/lib/packages";
 import html2canvas from "html2canvas";
 
-const SDRC_LOGO = "https://sdrc.in/wp-content/uploads/2024/09/SRDC-logo_cropped-624x219.png";
+const SDRC_LOGO = "/SDRC_logo.png";
 
 export default function CompareModal({ isOpen, onClose, compareMap = {}, singleVariant = null }) {
   const variants = singleVariant ? [singleVariant] : Object.values(compareMap);
@@ -94,10 +94,30 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside" isCentered>
       <ModalOverlay />
-      <ModalContent maxW="90vw">
-        <ModalCloseButton />
+      <ModalContent
+        maxW={{ base: "none", md: "90vw" }}
+        width={{ base: "auto", md: "90vw" }}
+        >
+        <ModalCloseButton
+            style={{
+                position: "fixed",
+                top: "16px",
+                right: "16px",
+                zIndex: 2000,
+                background: "white",
+                borderRadius: "50%",
+                boxShadow: "md"
+            }}
+            />
+
         <ModalBody>
-          <Box ref={tableRef} bg="white" p={2}>
+          <Box
+            ref={tableRef}
+            bg="white"
+            p={2}
+            overflowX="auto"
+            style={{ touchAction: "auto" }}
+            >
             <Flex justify="space-between" align="center" w="100%" mb={4}>
               <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
               <Button
