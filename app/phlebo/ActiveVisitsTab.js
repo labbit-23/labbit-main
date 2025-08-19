@@ -15,10 +15,18 @@ import {
   Badge,
   IconButton,
   useToast,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  VStack as ModalVStack,
 } from "@chakra-ui/react";
 import { supabase } from "../../lib/supabaseClient";
 import { FiNavigation } from "react-icons/fi";
 import { FaMotorcycle } from "react-icons/fa";
+import { PhoneIcon, ChatIcon } from "@chakra-ui/icons";
 import { useUser } from "../context/UserContext";
 
 const STATUS_STYLES = {
@@ -52,12 +60,28 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedVisitId, setSelectedVisitId] = useState(null);
 
-  // Sync prop -> state
+  // Modal state for contact options
+  const [isContactModalOpen, setContactModalOpen] = useState(false);
+  const [contactNumber, setContactNumber] = useState(null);
+
+  const openContactModal = (phone) => {
+    if (!phone) {
+      toast({
+        title: "No phone number available",
+        status: "warning",
+        duration: 3000,
+      });
+      return;
+    }
+    setContactNumber(phone);
+    setContactModalOpen(true);
+  };
+  const closeContactModal = () => setContactModalOpen(false);
+
   useEffect(() => {
     setSelectedVisitId(selectedVisit?.id ?? null);
   }, [selectedVisit]);
 
-  // Fetch visits
   useEffect(() => {
     async function fetchVisits() {
       if (!hvExecutiveId || !selectedDate) {
@@ -77,7 +101,24 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
             address,
             status,
             executive_id,
-            patient:patient_id(name, phone),
+            patient:patient_id(
+              id,
+              name,
+              phone,
+              addresses:patient_addresses(
+                id,
+                label,
+                pincode,
+                address_line,
+                lat,
+                lng,
+                is_default,
+                city,
+                state,
+                country,
+                area
+              )
+            ),
             executive:executive_id(name)
           `)
           .eq("visit_date", selectedDate)
@@ -133,7 +174,24 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           address,
           status,
           executive_id,
-          patient:patient_id(name, phone),
+          patient:patient_id(
+            id,
+            name,
+            phone,
+            addresses:patient_addresses(
+              id,
+              label,
+              pincode,
+              address_line,
+              lat,
+              lng,
+              is_default,
+              city,
+              state,
+              country,
+              area
+            )
+          ),
           executive:executive_id(name)
         `)
         .eq("visit_date", selectedDate)
@@ -171,7 +229,24 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           address,
           status,
           executive_id,
-          patient:patient_id(name, phone),
+          patient:patient_id(
+            id,
+            name,
+            phone,
+            addresses:patient_addresses(
+              id,
+              label,
+              pincode,
+              address_line,
+              lat,
+              lng,
+              is_default,
+              city,
+              state,
+              country,
+              area
+            )
+          ),
           executive:executive_id(name)
         `)
         .eq("visit_date", selectedDate)
@@ -188,13 +263,25 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
     }
   };
 
-  const navigateToVisit = (address) => {
-    if (!address) {
-      toast({ title: "No address provided", status: "warning" });
+  const navigateToVisit = (visit) => {
+    let navUrl = null;
+    // Find default patient address
+    const defaultAddress = visit.patient?.addresses?.find(addr => addr.is_default);
+
+    if (defaultAddress?.lat && defaultAddress?.lng) {
+      navUrl = `https://www.google.com/maps/search/?api=1&query=${defaultAddress.lat},${defaultAddress.lng}`;
+    } else if (visit.address) {
+      navUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visit.address)}`;
+    } else if (visit.patient?.addresses?.length > 0) {
+      // fallback to area of first address
+      navUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visit.patient.addresses[0].area || "")}`;
+    }
+
+    if (!navUrl) {
+      toast({ title: "No valid address to navigate", status: "warning" });
       return;
     }
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-    window.open(url, "_blank");
+    window.open(navUrl, "_blank");
   };
 
   const handleRowClick = (visit) => {
@@ -236,11 +323,11 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                     <HStack justify="space-between" align="center" mb={2}>
                       <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
                       <Badge colorScheme="teal" textTransform="capitalize">
-                        {visit.status.replace(/_/g, " ")}
+                        {visit.status.replace(/\_/g, " ")}
                       </Badge>
                     </HStack>
-                    {/* New: Area / Address */}
-                    {/* Row 2: Date (left) + Area (right) */}
+
+                    {/* Address row */}
                     <HStack justify="space-between" align="center" mt={1}>
                       <Text fontSize="sm" color="gray.700">
                         {visit.visit_date}
@@ -250,11 +337,12 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                       </Text>
                     </HStack>
 
-                    {/* Row 3: Timeslot */}
+                    {/* Timeslot */}
                     <Text fontWeight="bold" mt={1}>
                       {visit.time_slot?.slot_name ?? "-"}
                     </Text>
 
+                    {/* Buttons: Navigate, Start, Call */}
                     <HStack mt={3} spacing={2}>
                       <Button
                         size="sm"
@@ -262,7 +350,7 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                         colorScheme="blue"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigateToVisit(visit.address);
+                          navigateToVisit(visit);
                         }}
                       >
                         Navigate
@@ -278,6 +366,17 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                       >
                         Start
                       </Button>
+                      {/* Call button with modal trigger */}
+                      <IconButton
+                        size="sm"
+                        aria-label="Contact patient"
+                        icon={<PhoneIcon />}
+                        colorScheme="green"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openContactModal(visit.patient?.phone || "");
+                        }}
+                      />
                     </HStack>
                   </Box>
                 );
@@ -303,7 +402,7 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                     style={getStatusStyle(visit.status)}
                   >
                     <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
-                    {/* New: Area/Address */}
+                    {/* Address */}
                     <Text fontSize="sm" color="gray.600">
                       {visit.address || "No Area"}
                     </Text>
@@ -339,6 +438,60 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
               </Stack>
             )}
           </Box>
+
+          {/* Contact Modal */}
+          <Modal isOpen={isContactModalOpen} onClose={closeContactModal} isCentered>
+            <ModalOverlay />
+            <ModalContent>
+              <ModalHeader>Contact Options</ModalHeader>
+              <ModalCloseButton />
+              <ModalBody>
+                <ModalVStack spacing={3}>
+                  <Button
+                    leftIcon={<PhoneIcon />}
+                    colorScheme="green"
+                    width="100%"
+                    onClick={() => {
+                      if (contactNumber) {
+                        window.open(`tel:${contactNumber}`, "_self");
+                        closeContactModal();
+                      }
+                    }}
+                  >
+                    Call Patient
+                  </Button>
+                  <Button
+                    leftIcon={<PhoneIcon />}
+                    colorScheme="green"
+                    width="100%"
+                    onClick={() => {
+                      if (contactNumber) {
+                        // WhatsApp Video call fallback to chat (WhatsApp doesn’t support direct call URI)
+                        window.open(`https://wa.me/91${contactNumber.replace(/\D/g, "")}`, "_blank");
+                        closeContactModal();
+                      }
+                    }}
+                  >
+                    WhatsApp Call (Chat)
+                  </Button>
+                  <Button
+                    leftIcon={<ChatIcon />}
+                    colorScheme="green"
+                    width="100%"
+                    onClick={() => {
+                      if (contactNumber) {
+                        // WhatsApp chat message
+                        window.open(`https://wa.me/91${contactNumber.replace(/\D/g, "")}`, "_blank");
+                        closeContactModal();
+                      }
+                    }}
+                  >
+                    WhatsApp Message
+                  </Button>
+                </ModalVStack>
+              </ModalBody>
+            </ModalContent>
+          </Modal>
         </>
       )}
     </Box>
