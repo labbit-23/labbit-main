@@ -21,6 +21,7 @@ import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
 import QuickBookTab from "./components/QuickBookTab";
+import html2canvas from "html2canvas";
 
 export default function AdminDashboard() {
   const toast = useToast();
@@ -44,6 +45,31 @@ export default function AdminDashboard() {
   const [loadingExecutiveModal, setLoadingExecutiveModal] = useState(false);
 
   const visitsTableRef = useRef();
+
+const exportVisitsImage = async () => {
+  if (!visitsTableRef.current) return;
+
+  // Hide all elements with .no-export class
+  const hiddenEls = visitsTableRef.current.querySelectorAll(".no-export");
+  hiddenEls.forEach(el => (el.style.visibility = "hidden"));
+
+  try {
+    const canvas = await html2canvas(visitsTableRef.current, {
+      backgroundColor: "#fff",
+      scale: 2,
+    });
+    const link = document.createElement("a");
+    link.download = `Labbit-visits-${selectedDate}.jpg`;
+    link.href = canvas.toDataURL("image/jpeg", 0.95);
+    link.click();
+  } catch (err) {
+    toast({ title: "Error generating image", description: err.message, status: "error" });
+  } finally {
+    // Restore visibility after capture
+    hiddenEls.forEach(el => (el.style.visibility = "visible"));
+  }
+};
+
 
   const activePhlebos = React.useMemo(() => {
     return executives.filter(
@@ -304,6 +330,7 @@ export default function AdminDashboard() {
                 icon={<DownloadIcon />}
                 aria-label="Download Visits Schedule"
                 size="md"
+                onClick={exportVisitsImage}
               />
             </Flex>
 

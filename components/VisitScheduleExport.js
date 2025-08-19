@@ -168,7 +168,7 @@ export default function VisitScheduleExport({ visits }) {
           JPG
         </Button>
         <Button
-          leftIcon={<FiFileExcel />}
+          leftIcon={<DownloadIcon />}
           colorScheme="green"
           onClick={exportToExcel}
         >
