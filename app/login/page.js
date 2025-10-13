@@ -553,11 +553,15 @@ export default function LoginPage() {
           position="relative"
           zIndex={1}
         >
-          <Center mb={5}>
-            <Image src="/logo.png" alt="Labbit Logo" boxSize="54px" borderRadius="lg" mr={3} />
-            <Heading color="teal.700" fontWeight="extrabold" fontSize="2xl" letterSpacing="wider">
-              Labbit Login
-            </Heading>
+          <Center mb={5} cursor="pointer">
+            <Link href="/" onClick={(e) => { e.preventDefault(); router.push('/'); }}>
+              <HStack spacing={3}>
+                <Image src="/logo.png" alt="Labbit Logo" boxSize="54px" borderRadius="lg" />
+                <Heading color="teal.700" fontWeight="extrabold" fontSize="2xl" letterSpacing="wider">
+                  Labbit Login
+                </Heading>
+              </HStack>
+            </Link>
           </Center>
 
           <Tabs

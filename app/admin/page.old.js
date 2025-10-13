@@ -493,7 +493,7 @@ export default function AdminDashboard() {
           isClosable: true,
         });
       } else {
-        const { error } = await supabase.from("visits").insert([visitPayload]);
+        //const { error } = await supabase.from("visits").insert([visitPayload]);
         if (error) throw error;
 
         toast({

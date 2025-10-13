@@ -95,13 +95,16 @@ export async function POST(req) {
     // Determine redirect URL based on normalized executive type
     const execType = (executive.type || '').trim().toLowerCase();
     const adminTypes = ['admin', 'manager', 'director'];
+    const collectionRoles = ['logistics', 'b2b', 'b2badmin'];
 
-    let redirectUrl = '/dashboard'; // fallback
+    let redirectUrl = '/'; // fallback
 
     if (adminTypes.includes(execType)) {
       redirectUrl = '/admin';
     } else if (execType === 'phlebo') {
       redirectUrl = '/phlebo';
+    } else if (collectionRoles.includes(execType)) {
+      redirectUrl = '/collection-centre';
     }
 
     // Prepare response with redirectUrl and executiveType info

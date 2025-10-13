@@ -1,13 +1,15 @@
-//app/api/pickups/route.js
+// /app/api/pickups/route.js
 
 import { NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabaseServer";
 import { getIronSession } from "iron-session";
-import { ironOptions as sessionOptions } from "@/lib/session"; // adjust path as needed
+import { ironOptions as sessionOptions } from "@/lib/session";
+import { cookies } from "next/headers";  // ← Add this import!
 
-// Helper to get session and executive ID
-async function getExecutiveId(request) {
-  const session = await getIronSession(request, undefined, sessionOptions);
+// Helper to get session and executive ID (App Router compatible)
+async function getExecutiveId() {
+  const cookieStore = cookies(); // ← Use Next.js cookies store!
+  const session = await getIronSession(cookieStore, sessionOptions);
   return session?.user?.id || null;
 }
 
@@ -17,7 +19,7 @@ async function getExecutiveId(request) {
  */
 export async function GET(request) {
   try {
-    const executiveId = await getExecutiveId(request);
+    const executiveId = await getExecutiveId();
     if (!executiveId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -25,7 +27,6 @@ export async function GET(request) {
     const url = new URL(request.url);
     const status = url.searchParams.get("status");
 
-    // Get collection centre IDs assigned to executive for roles requester, logistics or admin
     const { data: assignedCentres, error: centreError } = await supabase
       .from("executives_collection_centres")
       .select("collection_centre_id")
@@ -85,21 +86,14 @@ export async function GET(request) {
   }
 }
 
-/**
- * POST and PUT handlers follow unchanged from before, but should validate executive assignment where appropriate.
- * For brevity, they remain as they were but you should add server-side checks if needed.
- */
-
 export async function POST(request) {
   try {
-    const executiveId = await getExecutiveId(request);
+    const executiveId = await getExecutiveId();
     if (!executiveId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await request.json();
-
-    // Optional: check executive is assigned to collection_centre_id in body
 
     const insertData = {
       collection_centre_id: body.collection_centre_id,
@@ -128,7 +122,7 @@ export async function POST(request) {
 
 export async function PUT(request) {
   try {
-    const executiveId = await getExecutiveId(request);
+    const executiveId = await getExecutiveId();
     if (!executiveId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -138,8 +132,6 @@ export async function PUT(request) {
     if (!body.id) {
       return NextResponse.json({ error: "Missing pickup id" }, { status: 400 });
     }
-
-    // Optional: validate executive has rights to update this pickup
 
     const updates = {
       updated_at: new Date().toISOString(),

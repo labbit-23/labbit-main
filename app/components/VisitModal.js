@@ -25,7 +25,7 @@ export default function VisitModal({
   patientId,
   isLoading: modalLoading,
   defaultExecutiveId = "",      // <-- add this line
-
+  initialAddress = "",
 }) {
   const toast = useToast();
   const { user, isLoading: userLoading } = useUser();
@@ -120,7 +120,7 @@ export default function VisitModal({
           ? visitInitialData.time_slot.id
           : visitInitialData.time_slot || "",
         address_id: visitInitialData.address_id || "",
-        address: visitInitialData.address || "",
+        address: visitInitialData.address || initialAddress || "",
         status: visitInitialData.status || defaultValues.status || "unassigned",
         notes: visitInitialData?.tests?.length
           ? Array.isArray(visitInitialData.tests)
@@ -152,7 +152,7 @@ export default function VisitModal({
             : visitInitialData.time_slot
           : "",
         address_id: "",
-        address: "",
+        address: visitInitialData?.address || initialAddress || "",
         status: defaultValues.status || "unassigned",
         notes: visitInitialData?.tests?.length
           ? Array.isArray(visitInitialData.tests)
@@ -163,7 +163,7 @@ export default function VisitModal({
         ...defaultValues,
       });
     }
-  }, [visitInitialData, patientId, defaultValues]);
+  }, [visitInitialData, patientId, defaultValues, initialAddress]);
 
   useEffect(() => {
     if (!isOpen) { setDropdownsLoading(true); return; }
@@ -236,7 +236,7 @@ export default function VisitModal({
         if (cancelled) return;
         const addresses = Array.isArray(data) ? data : [];
         setPatientAddresses(addresses);
-        if (!formData.address_id) {
+        if (!formData.address_id && !formData.address) {
           const defAddr = addresses.find(a => a.is_default);
           if (defAddr) {
             setFormData(f => ({

@@ -1,3 +1,5 @@
+//api/visits/time_slots/route.js
+
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 

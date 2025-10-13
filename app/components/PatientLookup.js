@@ -45,7 +45,16 @@ export default function PatientLookup({
     if (patient.external_key) return `externalkey-${patient.external_key}`;
     return null;
   };
-  
+
+  // Normalise Phone number
+  function normalizePhone(phone) {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.length > 10 && digits.startsWith('91')) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
   const handlePhoneChange = (e) => {
     const val = e.target.value.replace(/\D/g, '');
     setPhone(val);
@@ -53,8 +62,10 @@ export default function PatientLookup({
   };
 
   async function handleLookup(phoneToLookup = phone) {
-    const cleanedPhone = phoneToLookup.trim().replace(/\D/g, '');
-
+    const cleanedPhone = normalizePhone(phoneToLookup);
+    setPhone(cleanedPhone); // <-- ensures field value updates to normalized 10-digit number
+    if (onPhoneChange) onPhoneChange(cleanedPhone);
+    
     if (cleanedPhone.length !== 10) {
       toast({ title: 'Please enter a valid 10-digit phone number.', status: 'warning' });
       return;
@@ -115,8 +126,9 @@ export default function PatientLookup({
   // Auto-lookup when initialPhone changes (and is not empty)
   useEffect(() => {
     if (initialPhone) {
-      setPhone(initialPhone);
-      handleLookup(initialPhone);
+    const normalizedInitialPhone = normalizePhone(initialPhone);
+    setPhone(normalizedInitialPhone);
+    handleLookup(normalizedInitialPhone);
     }
   }, [initialPhone]);
 
@@ -145,7 +157,6 @@ export default function PatientLookup({
             value={phone}
             placeholder="Enter patient phone"
             onChange={handlePhoneChange}
-            maxLength={10}
             autoFocus={!disablePhoneInput}
             disabled={disablePhoneInput}
             aria-label="Patient phone input"

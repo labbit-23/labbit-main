@@ -22,15 +22,7 @@ export default function RequireAuth({ children, roles = [] }) {
       const allowedRoles = roles.map((r) => r.toLowerCase().trim());
       const isAllowed = !!user && (allowedRoles.length === 0 || allowedRoles.includes(roleKey));
 
-      console.log("RequireAuth check", {
-        user,
-        isLoading,
-        roleKey,
-        roles,
-        allowedRoles,
-        isAllowed,
-        pathname,
-      });
+      //console.log("RequireAuth check", {user,isLoading,roleKey,roles,allowedRoles,isAllowed,pathname,});
 
       if (!isAllowed && pathname !== "/login") {
         router.replace("/login");

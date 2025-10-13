@@ -10,9 +10,7 @@ import {
   Textarea, Select, Link as ChakraLink, SimpleGrid
 } from "@chakra-ui/react";
 import { Global } from "@emotion/react";
-import { useState, useEffect } from "react";
-import MultiCarousel from "react-multi-carousel";
-import "react-multi-carousel/lib/styles.css";
+import { useState, useEffect, useLayoutEffect } from "react";
 
 import packages, { testCategoryMap, globalNotes } from "@/lib/packages";
 import CompareModal from "./components/CompareModal";
@@ -51,6 +49,7 @@ export default function LandingPage() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+
   useEffect(() => {
     fetch("/api/visits/time_slots")
       .then(res => res.json())
@@ -64,15 +63,41 @@ export default function LandingPage() {
     if (!isNaN(num) && num > 0) setForm((p) => ({ ...p, persons: num }));
   };
 
+  const handleQuickBookOpen = () => {
+    if (Object.keys(compareMap).length > 0) {
+      const combinedPackages = Object.values(compareMap)
+        .map(({ pkgName, variantName }) => `${pkgName} - ${variantName}`)
+        .join("\nand/or\n");
+      setForm(form => ({ ...form, packageName: combinedPackages }));
+    } else {
+      setForm(form => ({ ...form, packageName: "" }));
+    }
+    onOpen();
+  };
+
   const handleSubmit = async () => {
     if (!form.patientName || !form.phone || !form.date || !form.timeslot || !form.agree) {
       toast({ title: "Please fill all required fields and accept consent.", status: "warning" });
       return;
     }
+
+  // Validate mobile number digits
+  const phoneDigits = form.phone.replace(/\D/g, '');
+  let normalizedPhone = phoneDigits;
+
+  if (phoneDigits.length > 10 && phoneDigits.startsWith('91')) {
+    normalizedPhone = phoneDigits.slice(2);
+  }
+
+  if (normalizedPhone.length !== 10) {
+    toast({ title: "Please enter a valid 10-digit mobile number.", status: "warning" });
+    return;
+  }
+
     setLoading(true);
     try {
       const res = await fetch("/api/quickbook", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, phone: normalizedPhone })
       });
       if (!res.ok) throw new Error("Booking failed");
       toast({ title: "Booking submitted!", status: "success" });
@@ -82,6 +107,15 @@ export default function LandingPage() {
       toast({ title: "Error", description: err.message, status: "error" });
     } finally { setLoading(false); }
   };
+
+  useLayoutEffect(() => {
+    if (
+      window.location.search.includes('quickbook=true') ||
+      window.location.hash === '#quickbook'
+    ) {
+      onOpen();
+    }
+}, [onOpen]);
 
   const toggleCompareVariant = (pkgName, variantName, variant) => {
     const key = getVariantKey(pkgName, variantName);
@@ -150,7 +184,9 @@ export default function LandingPage() {
             <Image src={LABBIT_LOGO} alt="Labbit Logo" maxH={scrolled ? "40px" : "60px"} />
           </HStack>
           <HStack gap={3}>
-            <Button onClick={onOpen} colorScheme="teal" borderRadius="full">Quick Book</Button>
+            <Button onClick={handleQuickBookOpen} colorScheme="teal" borderRadius="full">
+              Quick Book
+            </Button>
             <Button as={ChakraLink} href="/login" variant="outline" colorScheme="teal" borderRadius="full">Login / Signup</Button>
           </HStack>
         </Flex>
@@ -158,9 +194,9 @@ export default function LandingPage() {
 
       {/* HERO */}
       <Box textAlign="center" mb={8}>
-        <Heading size="2xl" color="teal.600">Welcome to Labbit</Heading>
+        <Heading size="2xl" color="teal.600">Welcome to SDRC!</Heading>
         <Text fontSize="lg" mt={2} color="gray.700">
-          <b style={{ color: "#00b1b9" }}>Seamless Home Blood Collection</b> and health checkups, trusted by SDRC.
+          <b style={{ color: "#00b1b9" }}>Seamless Home Blood Collection</b> and health checkups, powered by Labbit.
         </Text>
       </Box>
 
@@ -170,18 +206,8 @@ export default function LandingPage() {
 
       {/* PACKAGES */}
       <Box maxW="1100px" mx="auto" mb={7} px={6} overflow="visible">
-        <MultiCarousel
-          responsive={responsive}
-          arrows
-          infinite
-          swipeable
-          draggable
-          keyBoardControl
-          showDots={true}
-          renderDotsOutside={true}
-          //removeArrowOnDeviceType={["mobile"]}
-          itemClass="px-6"
-        >
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+
           {packages.map(pkg => (
             <Box key={pkg.name} borderWidth="1px" borderRadius="2xl" bg="white" shadow="md"
               px={{ base: 2, md: 3 }} py={{ base: 4, md: 5 }}
@@ -211,7 +237,7 @@ export default function LandingPage() {
               })}
             </Box>
           ))}
-        </MultiCarousel>
+        </SimpleGrid>
       </Box>
 
       {/* STICKY COMPARE BAR */}
@@ -241,27 +267,36 @@ export default function LandingPage() {
       <Modal isOpen={isOpen} onClose={onClose} size="lg" isCentered scrollBehavior="inside">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Quick Book</ModalHeader>
+          <ModalHeader>
+            <Flex align="center" w="100%" position="relative" px={2}>
+              <Image src={SDRC_LOGO} alt="SDRC Logo" maxH="30px" />
+              <Text fontWeight="bold" fontSize="lg" color="teal.600" position="absolute" left="50%" transform="translateX(-50%)">
+                Quick Book
+              </Text>
+            </Flex>
+          </ModalHeader>
+
+
           <ModalCloseButton />
           <ModalBody px={{ base: 4, md: 6 }} py={4}>
-            <VStack spacing={4} align="stretch">
+            <VStack spacing={2} align="stretch">
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                <FormControl><FormLabel fontSize="sm">Patient Name</FormLabel>
-                  <Input value={form.patientName} onChange={handleChange("patientName")} size="sm" /></FormControl>
-                <FormControl><FormLabel fontSize="sm">Phone</FormLabel>
-                  <Input value={form.phone} onChange={handleChange("phone")} size="sm" /></FormControl>
+                <FormControl isRequired><FormLabel fontSize="sm">Patient Name</FormLabel>
+                  <Input autoComplete="name" value={form.patientName} onChange={handleChange("patientName")} size="sm" /></FormControl>
+                <FormControl isRequired><FormLabel fontSize="sm">Phone</FormLabel>
+                  <Input autoComplete="tel" value={form.phone} onChange={handleChange("phone")} size="sm" /></FormControl>
               </SimpleGrid>
               <FormControl><FormLabel fontSize="sm">Tests / Package</FormLabel>
-                <Textarea value={form.packageName} onChange={handleChange("packageName")} size="sm" /></FormControl>
+                <Textarea autoComplete="off" value={form.packageName} onChange={handleChange("packageName")} size="sm" /></FormControl>
               <Divider />
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                <FormControl><FormLabel fontSize="sm">Area / Pincode</FormLabel>
-                  <Input value={form.area} onChange={handleChange("area")} size="sm" /></FormControl>
-                <FormControl><FormLabel fontSize="sm">Date</FormLabel>
+                <FormControl isRequired><FormLabel fontSize="sm">Area / Pincode</FormLabel>
+                  <Input autoComplete="postal-code" value={form.area} onChange={handleChange("area")} size="sm" /></FormControl>
+                <FormControl isRequired><FormLabel fontSize="sm">Date</FormLabel>
                   <Input type="date" value={form.date} onChange={handleChange("date")} size="sm" /></FormControl>
               </SimpleGrid>
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                <FormControl><FormLabel fontSize="sm">Timeslot</FormLabel>
+                <FormControl isRequired><FormLabel fontSize="sm">Timeslot</FormLabel>
                   <Select value={form.timeslot} onChange={handleChange("timeslot")} size="sm"
                     placeholder={timeslots.length === 0 ? "Loading..." : "Select slot"}>
                     {timeslots.map(slot => <option key={slot.id} value={slot.id}>{slot.slot_name}</option>)}
@@ -274,12 +309,13 @@ export default function LandingPage() {
               </SimpleGrid>
               <Divider />
               <HStack spacing={6} flexWrap="wrap">
-                <Checkbox isChecked={form.whatsapp} onChange={(e) => setForm(p => ({ ...p, whatsapp: e.target.checked }))}>
-                  Contact me on WhatsApp</Checkbox>
-                <Checkbox isChecked={form.agree} onChange={(e) => setForm(p => ({ ...p, agree: e.target.checked }))}>
-                  I agree to be contacted</Checkbox>
+                <FormControl isRequired><Checkbox isChecked={form.whatsapp} onChange={(e) => setForm(p => ({ ...p, whatsapp: e.target.checked }))}>
+                  I agree to be contacted on SMS and WhatsApp</Checkbox></FormControl>
               </HStack>
-              <Flex justify={{ base: "center", md: "flex-end" }} pt={2}>
+              <Flex justify={{ base: "center", md: "flex-end" }} pt={2} gap={4}>
+                <Button variant="outline" colorScheme="teal" size="md" borderRadius="full" onClick={onClose}>
+                  ← Back to Packages
+                </Button>
                 <Button onClick={handleSubmit} isLoading={loading} colorScheme="teal" px={8} size="md" borderRadius="full">
                   Submit Booking
                 </Button>

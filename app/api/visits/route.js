@@ -14,7 +14,6 @@ export async function GET(request) {
     const patientId = url.searchParams.get("patient_id");
     const visitDate = url.searchParams.get("visit_date");
 
-    // Only respond if at least one filter is present
     if (!patientId && !visitDate) {
       return NextResponse.json([], { status: 200 });
     }
@@ -53,18 +52,16 @@ export async function GET(request) {
   }
 }
 
-// (POST and PUT remain unchanged except for included visit_code, patient, etc. in SELECT as above)
-
-
 /**
  * POST /api/visits
- * Create a new visit (sends patient SMS and phlebo SMS if assigned)
+ * Create a new visit (send patient SMS and phlebo SMS if assigned),
+ * log creation in visit_activity_log,
+ * update patient's area with new visit area
  */
 export async function POST(request) {
   try {
     const visitData = await request.json();
 
-    // Always ensure id and visit_code are not sent from client
     delete visitData.id;
     delete visitData.visit_code;
 
@@ -98,14 +95,28 @@ export async function POST(request) {
       );
     }
 
-    // Always send patient SMS for new visit
+    // Insert activity log for creation
+    try {
+      await supabase.from("visit_activity_log").insert([{
+        visit_id: data.id,
+        previous_status: null,
+        new_status: data.status || null,
+        changed_by: visitData.created_by || null,
+        notes: visitData.notes || null,
+      }]);
+    } catch (logError) {
+      console.error("Failed to add visit activity log:", logError?.message || logError);
+    }
+
+
+    // Send SMS to patient
     try {
       await sendPatientVisitSms(data.id);
     } catch (e) {
       console.error("Failed to send patient SMS:", e?.message || e);
     }
 
-    // If executive assigned at creation, send phlebo SMS
+    // Send SMS to phlebo if assigned
     if (data.executive_id && data.executive?.phone) {
       try {
         await sendPhleboVisitSms(data.id);
@@ -126,13 +137,14 @@ export async function POST(request) {
 
 /**
  * PUT /api/visits
- * Update a visit, send patient SMS on every update,
- * send phlebo SMS if a new executive is assigned,
- * OR if the assigned executive's timeslot is set/changed
+ * Update a visit, send patient SMS on update,
+ * send phlebo SMS if new executive assigned or timeslot changed,
+ * log activity in visit_activity_log
  */
 export async function PUT(request) {
   try {
     const visitData = await request.json();
+
     if (!visitData.id) {
       return NextResponse.json(
         { error: "Missing visit id for update" },
@@ -140,10 +152,10 @@ export async function PUT(request) {
       );
     }
 
-    // Fetch previous visit assignment to compare
+    // Fetch previous visit details including status
     const { data: prev, error: prevErr } = await supabase
       .from("visits")
-      .select("executive_id, time_slot")
+      .select("executive_id, time_slot, status")
       .eq("id", visitData.id)
       .single();
 
@@ -185,14 +197,27 @@ export async function PUT(request) {
       );
     }
 
-    // Always send SMS to patient for visit update
+    // Insert activity log for update
+    try {
+      await supabase.from("visit_activity_log").insert([{
+        visit_id: data.id,
+        previous_status: prev.status || null,
+        new_status: visitData.status || null,
+        changed_by: visitData.updated_by || null,
+        notes: visitData.notes || null,
+      }]);
+    } catch (logError) {
+      console.error("Failed to add visit activity log:", logError?.message || logError);
+    }
+
+    // Send SMS to patient
     try {
       await sendPatientVisitSms(data.id);
     } catch (e) {
       console.error("Failed to send patient update SMS:", e?.message || e);
     }
 
-    // Logic for when to send phlebo SMS:
+    // Determine if phlebo SMS is needed
     const isNewAssignment =
       !prev.executive_id && data.executive_id && data.executive?.phone;
     const isTimeslotChanged =

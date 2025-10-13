@@ -25,6 +25,7 @@ export default function PatientsTab({
   const toast = useToast();
   const { user, isLoading: isUserLoading } = useUser();
   const isPatientUser = user?.userType === 'patient';
+  const [lastVisitArea, setLastVisitArea] = useState("");
 
   const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
   const [initialPhone, setInitialPhone] = useState(
@@ -75,7 +76,11 @@ export default function PatientsTab({
   }, [user, isUserLoading, isPatientUser, onPatientSelected]);
 
   // Fetch visits for selected patient
+  console.log('selectedPatient in PatientsTab:', selectedPatient);
+
   useEffect(() => {
+    console.log("Visits fetch effect triggered for patient:", selectedPatient?.id);
+
     if (!selectedPatient?.id) {
       setVisits([]);
       setVisitsError(null);
@@ -89,7 +94,27 @@ export default function PatientsTab({
         const res = await fetch(`/api/visits?patient_id=${selectedPatient.id}`);
         if (!res.ok) throw new Error('Failed to fetch visits');
         const data = await res.json();
+        console.log("Fetched visits data:", data);  // Add this log
+
         setVisits(Array.isArray(data) ? data : []);
+
+        if (Array.isArray(data) && data.length > 0) {
+          const latest = data[0];
+          if (latest.address && !latest.address_id) {
+            setLastVisitArea(latest.address);
+            console.log("Setting lastVisitArea:", latest.address);
+
+          } else {
+            setLastVisitArea("");
+            console.log("lastVisitArea not set as not found", latest.address);
+
+          }
+        } else {
+          setLastVisitArea("");
+          console.log("No visits received, clearing lastVisitArea.");
+
+        }
+
       } catch (err) {
         setVisitsError(err.message || 'Error fetching visits');
         setVisits([]);
@@ -99,6 +124,8 @@ export default function PatientsTab({
     };
     fetchVisits();
   }, [selectedPatient]);
+
+  
 
   // Fetch address labels for patient
   useEffect(() => {
@@ -345,7 +372,7 @@ export default function PatientsTab({
 
       {!isUserLoading && user?.userType && visitModalOpen && (
         <VisitModal
-          key={editingVisit?.id || 'new'}
+          key={`${editingVisit?.id || 'new'}-${lastVisitArea}`} 
           isOpen={visitModalOpen}
           onClose={() => {
             setVisitModalOpen(false);
@@ -375,6 +402,7 @@ export default function PatientsTab({
               ? {
                   patient_id: selectedPatient.id,
                   patient: { name: selectedPatient.name },
+                  address: lastVisitArea || "",  // <--- Add this line
                   // ✅ Scrub any stale visit_code
                   visit_code: undefined
                 }

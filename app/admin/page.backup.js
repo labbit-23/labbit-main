@@ -159,7 +159,7 @@ export default function AdminDashboard() {
       } else {
         const visitCode = await generateNewVisitCode();
         visitPayload.visit_code = visitCode;
-        const { error } = await supabase.from("visits").insert([visitPayload]);
+        //const { error } = await supabase.from("visits").insert([visitPayload]);
         if (error) throw error;
         toast({ title: "Visit created", status: "success", duration: 3000, isClosable: true });
       }

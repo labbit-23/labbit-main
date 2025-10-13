@@ -8,7 +8,6 @@ export async function GET(request) {
   const response = NextResponse.next();
   
   try {
-    // Log incoming request headers for cookie presence
     const cookieHeader = request.headers.get('cookie') || '';
     console.log(`[api/me] Incoming request cookies: ${cookieHeader}`);
 
@@ -16,17 +15,12 @@ export async function GET(request) {
 
     if (!session.user) {
       console.log('[api/me] Unauthorized access - no user in session.');
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const { user } = session;
 
-    // Log successful retrieval of user session
     console.log(`[api/me] Authorized access - user ID: ${user.id}, userType: ${user.userType}, executiveType: ${user.executiveType || 'null'}`);
-
 
     return NextResponse.json(
       {
@@ -35,6 +29,7 @@ export async function GET(request) {
         phone: user.phone,
         executiveType: user.executiveType || null,
         name: user.name || null,
+        labIds: user.labIds || [],  // Return labIds array from session user or empty array
       },
       { status: 200 }
     );
