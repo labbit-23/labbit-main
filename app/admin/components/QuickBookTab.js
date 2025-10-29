@@ -57,12 +57,9 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
   if (!quickbookings) return <Spinner />;
   if (statusOptions.length === 0) return <Spinner />;
 
-  // Split quickbooks into pending and others
   const pendingQuickBooks = quickbookings.filter(qb => qb.status === "PENDING");
   const nonPendingQuickBooks = quickbookings.filter(qb => qb.status !== "PENDING");
-
-  // Find status codes marking "normal flow" (order >= 1)
-  const normalStatusCodes = statusOptions.filter(opt => opt.order >= 1).map(opt => opt.code);
+  const disabledVisits = quickbookings.filter(qb => qb.status !== "PENDING" && qb.status !== "REJECTED");
 
   const renderTable = (list, faded = false) => (
     <Table size="sm" bg={faded ? "gray.50" : "white"} opacity={faded ? 0.6 : 1} mb={faded ? 0 : 8}>
@@ -82,7 +79,8 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
         {list.map((qb) => {
           const qbDate = qb.date?.slice(0, 10) || "";
           const edit = editedQuickBook[qb.id] || {};
-          const statusValue = edit.status ?? qb.status ?? "";
+          const rawStatus = edit.status ?? qb.status ?? "";
+          const statusValue = (edit.status ?? qb.status ?? "").toLowerCase();
           const visitValue = edit.visit_id ?? qb.visit_id ?? "";
           const statusObj = statusOptions.find(opt => opt.code === statusValue);
           const visitsForDate = visitLists[qbDate] || [];
@@ -97,9 +95,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
               <Td fontSize="sm">{qb.phone}</Td>
               <Td fontSize="sm">{qb.package_name || "—"}</Td>
               <Td fontSize="sm">{qbDate}</Td>
-              <Td fontSize="sm">
-                {qb.time_slot?.slot_name || "—"}
-              </Td>
+              <Td fontSize="sm">{qb.time_slot?.slot_name || "—"}</Td>
               <Td>
                 <Select
                   size="sm"
@@ -117,9 +113,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                 >
                   <option value="">—</option>
                   {visitsForDate.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {(v.visit_code || v.id) + " — " + (v.patient?.name || "Unknown")}
-                    </option>
+                    <option key={v.id} value={v.id}>{(v.visit_code || v.id) + " — " + (v.patient?.name || "Unknown")}</option>
                   ))}
                 </Select>
                 {qb.visit_id && (
@@ -147,7 +141,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                       value={opt.code}
                       style={{
                         fontWeight: opt.order >= 1 ? "bold" : "normal",
-                        color: opt.order >= 1 ? "#228B22" : undefined // green for normal flow
+                        color: opt.order >= 1 ? "#228B22" : undefined
                       }}
                     >
                       {opt.label}{opt.order >= 1 ? " ★" : ""}
@@ -219,7 +213,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
       {/* Pending section */}
       {pendingQuickBooks.length > 0 && renderTable(pendingQuickBooks)}
 
-      {/* Non-pending section, muted */}
+      {/* Processed/Rejected, faded */}
       {nonPendingQuickBooks.length > 0 && (
         <Box mt={8}>
           <Text fontSize="md" mb={2} color="gray.400" textAlign="left" fontWeight="bold">
@@ -229,7 +223,18 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
         </Box>
       )}
 
-      {pendingQuickBooks.length === 0 && nonPendingQuickBooks.length === 0 && (
+      {/* Disabled Visits, new section */}
+      {disabledVisits.length > 0 && (
+        <Box mt={8}>
+          <Text fontSize="md" mb={2} color="gray.400" textAlign="left" fontWeight="bold">
+            Disabled Visits
+          </Text>
+          {renderTable(disabledVisits, true)}
+        </Box>
+      )}
+
+      {/* No data message */}
+      {quickbookings.length === 0 && (
         <Text>No quickbookings found 🎉</Text>
       )}
     </Box>

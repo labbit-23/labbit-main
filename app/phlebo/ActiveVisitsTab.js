@@ -101,6 +101,8 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
             address,
             status,
             executive_id,
+            notes,
+            prescription,
             patient:patient_id(
               id,
               name,

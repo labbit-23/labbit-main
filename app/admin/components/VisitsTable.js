@@ -149,7 +149,7 @@ export default function VisitsTable({
               <Thead bg="gray.100">
                 <Tr>
                   <Th>Patient</Th>
-                  <Th>Address / Code</Th>
+                  <Th>Address / Tests</Th>
                   <Th>Date</Th>
                   <Th>Slot</Th>
                   <Th>Status</Th>
@@ -174,7 +174,7 @@ export default function VisitsTable({
                           {visit.address || "No Area"}
                         </Box>
                         <Box fontSize="sm" color="gray.500">
-                          {visit.visit_code ?? "N/A"}
+                          {visit.notes ?? "N/A"}
                         </Box>
                       </Td>
                       {/* Date */}

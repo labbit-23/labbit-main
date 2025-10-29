@@ -7,7 +7,7 @@ import {
   Tr, Th, Td, Box, Flex, Heading, Text, Button, Image
 } from "@chakra-ui/react";
 import { CheckIcon, DownloadIcon } from "@chakra-ui/icons";
-import { testCategoryMap, categoryIconMap } from "@/lib/packages";
+import { testCategoryMap, categoryIconMap, globalNotes } from "@/lib/packages";
 import html2canvas from "html2canvas";
 
 const SDRC_LOGO = "/SDRC_logo.png";
@@ -175,6 +175,13 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
               </Tbody>
             </Table>
           </Box>
+                
+          console.log(globalNotes);  
+          <Box mt={6} p={4} bg="gray.50" borderRadius="md"> 
+          <Heading size="sm" mb={2}>Test inclusions:</Heading>
+          <Text whiteSpace="pre-wrap">{globalNotes}</Text>
+        </Box>
+
         </ModalBody>
       </ModalContent>
     </Modal>
