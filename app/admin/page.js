@@ -117,7 +117,6 @@ const exportVisitsImage = async () => {
             *,
             time_slot:timeslot(id, slot_name, start_time, end_time)
           `)
-          .eq("status", "PENDING")
           .order("created_at", { ascending: false }),
         supabase
           .from("visit_statuses")
@@ -252,7 +251,7 @@ const exportVisitsImage = async () => {
     acc[dateKey] = (acc[dateKey] || 0) + 1;
     return acc;
   }, {});
-  const pendingQuickbookCount = quickbookings.length;
+  const pendingQuickbookCount = quickbookings.filter(qb => qb.status?.toLowerCase() === "pending").length;
 
   const todaysVisits = visits.filter(
     (v) => v.visit_date?.slice(0, 10) === selectedDate
