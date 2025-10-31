@@ -12,9 +12,30 @@ import html2canvas from "html2canvas";
 
 const SDRC_LOGO = "/SDRC_logo.png";
 
+function getRelevantNotes(variantOrVariants, globalNotes) {
+  // Accepts a single "variant" array (for singleVariant) or array of arrays (for compare)
+  const tests = Array.isArray(variantOrVariants)
+    ? variantOrVariants.flatMap(v => v.tests)
+    : variantOrVariants.tests;
+
+  // Lowercase test names for matching
+  const testSet = new Set(tests.map(t => t.toLowerCase()));
+
+  // Return notes where a token (Lipid Profile, etc.) matches a test name
+  return globalNotes.filter(note =>
+    Array.from(testSet).some(test =>
+      note.toLowerCase().includes(test.split(' ')[0]) // match the first word like "lipid" in "lipid profile"
+    )
+  );
+}
+
+
 export default function CompareModal({ isOpen, onClose, compareMap = {}, singleVariant = null }) {
   const variants = singleVariant ? [singleVariant] : Object.values(compareMap);
   const tableRef = useRef(null);
+  const relevantNotes = singleVariant
+    ? getRelevantNotes(singleVariant.variant, globalNotes)
+    : getRelevantNotes(variants.map(v => v.variant), globalNotes);
 
   if (variants.length === 0) return null;
 
@@ -22,17 +43,42 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
   const downloadImage = async () => {
     if (!tableRef.current) return;
     const btn = tableRef.current.querySelector('.no-print');
+    const scrollBox = tableRef.current.querySelector('.scroll-capture'); // Add this CSS class to your scrollable Box
+
+      // Store old styles and remove height restriction and scrolling
+    const oldMaxH = scrollBox?.style.maxHeight;
+    const oldOverflowY = scrollBox?.style.overflowY;
+
+    if (scrollBox) {
+      scrollBox.style.maxHeight = "none";
+      scrollBox.style.overflowY = "visible";
+    }
+
     if (btn) btn.style.visibility = 'hidden';
     try {
       const canvas = await html2canvas(tableRef.current, { backgroundColor: "#fff", scale: 2 });
       const link = document.createElement("a");
-      link.download = `Labbit-comparison-${new Date().toISOString().slice(0,10)}.jpg`;
+      
+      // Prepare dynamic filename
+      let filename = `Labbit-comparison-${new Date().toISOString().slice(0,10)}.jpg`;
+
+      if (singleVariant) {
+        // sanitize package name to avoid problematic chars in filename
+        const sanitizedName = singleVariant.pkgName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        filename = `Labbit-package-${sanitizedName}-${new Date().toISOString().slice(0,10)}.jpg`;
+      }
+      
+      link.download = filename;
       link.href = canvas.toDataURL("image/jpeg", 0.95);
       link.click();
     } catch (err) {
       alert("Error generating image: " + err.message);
     } finally {
       if (btn) btn.style.visibility = 'visible';
+      if (scrollBox) {
+        scrollBox.style.maxHeight = oldMaxH;
+        scrollBox.style.overflowY = oldOverflowY;
+    }
     }
   };
 
@@ -42,35 +88,48 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
     return (
       <Modal isOpen={isOpen} onClose={onClose} size="lg" isCentered scrollBehavior="inside">
         <ModalOverlay />
-        <ModalContent>
-          <ModalCloseButton />
-          <ModalBody>
-            <Box ref={tableRef} bg="white" p={2}>
-              <Flex justify="space-between" align="center" w="100%" mb={4}>
-                <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
-                <Button
-                  className="no-print"
-                  leftIcon={<DownloadIcon />}
-                  size="sm"
-                  colorScheme="teal"
-                  onClick={downloadImage}
-                >
-                  Download JPG
-                </Button>
-              </Flex>
-              <Heading size="md" mb={1}>{pkgName} — {variantName}</Heading>
-              <Text color="#F46C3B" fontWeight="semibold" mb={2}>₹ {variant.price}</Text>
-              <Heading size="sm" mb={2} mt={4}>Included Tests</Heading>
-              <Box maxH="400px" overflowY="auto" px={2}>
-                <ul style={{ paddingLeft: 20 }}>
-                  {variant.tests.map((test, i) => (
-                    <li key={i}>{test}</li>
-                  ))}
-                </ul>
-              </Box>
+        <ModalContent maxH="80vh" overflowY="auto">  {/* Scroll on full modal content */}
+        <ModalBody>
+          <Box ref={tableRef} bg="white" p={4}>   {/* No scroll here */}
+            <Flex justify="space-between" align="center" w="100%" mb={4}>
+              <Image src={SDRC_LOGO} alt="SDRC Logo" height="40px" />
+              <Button
+                className="no-print"
+                leftIcon={<DownloadIcon />}
+                size="sm"
+                colorScheme="teal"
+                onClick={downloadImage}
+              >
+                Download JPG
+              </Button>
+            </Flex>
+            <Heading size="md" mb={1}>{pkgName} — {variantName}</Heading>
+            <Text color="#F46C3B" fontWeight="semibold" mb={2}>₹ {variant.price}</Text>
+            <Heading size="sm" mb={2} mt={4}>Included Tests</Heading>
+            <Box px={2}>  {/* remove scroll here */}
+              <ul style={{ paddingLeft: 20 }}>
+                {variant.tests.map((test, i) => (
+                  <li key={i}>{test}</li>
+                ))}
+              </ul>
             </Box>
-          </ModalBody>
-        </ModalContent>
+
+          <Box mt={4} p={2} bg="gray.50" borderRadius="md">
+            <Heading size="xs" mb={1}>Test inclusions:</Heading>
+            <Box as="ul" pl={4} sx={{ listStyleType: "disc" }} mb={1}>
+              {relevantNotes.length === 0
+                ? <Text as="li" fontSize="xs">No special inclusions</Text>
+                : relevantNotes.map((note, idx) => (
+                    <Text as="li" key={idx} fontSize="xs" mb={0.5}>
+                      {note}
+                    </Text>
+                  ))}
+            </Box>
+          </Box>
+          </Box>
+        </ModalBody>
+      </ModalContent>
+
       </Modal>
     );
   }
@@ -175,12 +234,19 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
               </Tbody>
             </Table>
           </Box>
-                
-          console.log(globalNotes);  
-          <Box mt={6} p={4} bg="gray.50" borderRadius="md"> 
-          <Heading size="sm" mb={2}>Test inclusions:</Heading>
-          <Text whiteSpace="pre-wrap">{globalNotes}</Text>
-        </Box>
+
+          <Box mt={4} p={2} bg="gray.50" borderRadius="md">
+            <Heading size="xs" mb={1}>Test inclusions:</Heading>
+            <Box as="ul" pl={4} sx={{ listStyleType: "disc" }} mb={1}>
+              {relevantNotes.length === 0
+                ? <Text as="li" fontSize="xs">No special inclusions</Text>
+                : relevantNotes.map((note, idx) => (
+                    <Text as="li" key={idx} fontSize="xs" mb={0.5}>
+                      {note}
+                    </Text>
+                  ))}
+            </Box>
+          </Box>
 
         </ModalBody>
       </ModalContent>

@@ -231,7 +231,6 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                       }
                     }}
                   >
-                    Update
                   </IconButton>
                   <Button
                     size="sm"
