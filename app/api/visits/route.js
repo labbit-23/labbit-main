@@ -6,6 +6,7 @@ import {
   sendPatientVisitSms,
   sendPhleboVisitSms,
 } from "@/lib/visitSms";
+import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
 
 // GET /api/visits?patient_id=...&visit_date=...
 export async function GET(request) {
@@ -109,14 +110,15 @@ export async function POST(request) {
     }
 
 
-    // Send SMS to patient
+    // Send SMS & Whatsapp  to patient
     try {
       await sendPatientVisitSms(data.id);
+      await sendPatientVisitWhatsapp(data.id);
     } catch (e) {
       console.error("Failed to send patient SMS:", e?.message || e);
     }
 
-    // Send SMS to phlebo if assigned
+    // Send SMS & Whatsapp to phlebo if assigned
     if (data.executive_id && data.executive?.phone) {
       try {
         await sendPhleboVisitSms(data.id);
@@ -213,6 +215,7 @@ export async function PUT(request) {
     // Send SMS to patient
     try {
       await sendPatientVisitSms(data.id);
+      await sendPatientVisitWhatsapp(data.id);
     } catch (e) {
       console.error("Failed to send patient update SMS:", e?.message || e);
     }

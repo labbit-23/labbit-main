@@ -64,6 +64,13 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
   const [isContactModalOpen, setContactModalOpen] = useState(false);
   const [contactNumber, setContactNumber] = useState(null);
 
+  function extractGoogleMapsUrl(text) {
+    if (!text) return null;
+    const regex = /(https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl|www\.google\.com\/maps)[^\s]*)/i;
+    const match = text.match(regex);
+    return match ? match[1] : null;
+  }
+  
   const openContactModal = (phone) => {
     if (!phone) {
       toast({

@@ -33,27 +33,43 @@ export async function POST(req) {
     }
 
     const apiKey = cfg.auth_details?.api_key;
-    const campaignName = cfg.templates?.default_campaign;
-    const source = cfg.templates?.default_source;
+    const campaignName = cfg.default_campaign;
+    const source = cfg.default_source;
 
     if (!apiKey || !campaignName) {
       return NextResponse.json({ error: "Incomplete outbound config" }, { status: 500 });
     }
 
     // Construct payload
+    // Build parameter objects
+    const parameters = (templateParams || []).map(p => ({
+      type: "text",
+      text: String(p)
+    }));
+
     const payload = {
-      apiKey: apiKey,
-      campaignName,
-      destination,
-      userName,
-      source,
-      templateParams: templateParams || [],
+      messaging_product: "whatsapp",
+      to: destination,
+      type: "template",
+      template: {
+        name: campaignName,
+        language: { code: "en" },
+        components: [
+          {
+            type: "body",
+            parameters
+          }
+        ]
+      }
     };
 
-    // Call Whitecoats API
+    // Call API
     const response = await fetch(cfg.base_url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-KEY": apiKey
+      },
       body: JSON.stringify(payload),
     });
 

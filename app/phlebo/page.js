@@ -17,6 +17,8 @@ import ActiveVisitsTab from "./ActiveVisitsTab";
 import PatientsTab from "../components/PatientsTab";  // Use PatientsTab here
 import VisitDetailTab from "./VisitDetailTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
+import NotificationsHelper from '../../lib/notificationsHelper';
+
 
 import { useUser } from "../context/UserContext";
 import RequireAuth from "../../components/RequireAuth";
@@ -75,6 +77,42 @@ function PhleboContent({ userRole = "executive" }) {
     const exec = executives.find((e) => e.id === selectedExecutiveId);
     if (exec) setSelectedExecutiveName(exec.name);
   }, [selectedExecutiveId, executives]);
+
+  useEffect(() => {
+  async function setupNotifications() {
+    try {
+      await NotificationsHelper.registerServiceWorker('/service-worker.js');
+      await NotificationsHelper.requestPermission();
+      // Optionally subscribe for push if backend push is implemented
+      // await NotificationsHelper.subscribeUserToPush();
+    } catch (error) {
+      console.error("Notification setup failed", error);
+    }
+  }
+  setupNotifications();
+}, []);
+
+  useEffect(() => {
+    if (!selectedExecutiveId) return;
+
+    const channel = supabase.channel('visit_notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visits' }, (payload) => {
+        const visit = payload.new;
+
+        if (payload.eventType === 'UPDATE' && visit.assigned_executive_id === selectedExecutiveId) {
+          NotificationsHelper.notify("visitAssigned", { details: `Visit #${visit.id}` });
+        }
+
+        if (payload.eventType === 'INSERT' && !visit.assigned_executive_id) {
+          NotificationsHelper.notify("newUnassignedVisit", { details: `Visit #${visit.id}` });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedExecutiveId]);
 
   const handleVisitSelect = (visit) => {
     setSelectedVisit(visit);
