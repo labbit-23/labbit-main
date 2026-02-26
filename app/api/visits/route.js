@@ -173,6 +173,7 @@ export async function PUT(request) {
       );
     }
 
+    // Update visit
     const { data, error } = await supabase
       .from("visits")
       .update(visitData)
@@ -204,12 +205,12 @@ export async function PUT(request) {
       );
     }
 
-    // Insert activity log for update
+    // Insert activity log
     try {
       await supabase.from("visit_activity_log").insert([{
         visit_id: data.id,
         previous_status: prev.status || null,
-        new_status: visitData.status || null,
+        new_status: data.status || null,
         changed_by: visitData.updated_by || null,
         notes: visitData.notes || null,
       }]);
@@ -217,22 +218,64 @@ export async function PUT(request) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
     }
 
-    // Send SMS to patient
+    // -----------------------------
+    // Controlled Patient Notifications
+    // -----------------------------
     try {
-      await sendPatientVisitSms(data.id);
-    } catch (e) {
-      console.error("Failed to send patient SMS:", e?.message || e);
+      const allowedStatusNotifications = [
+        "booked",
+        "assigned",
+        "cancelled",
+        "completed",
+        "disabled"
+      ];
+
+      const statusChanged = prev.status !== data.status;
+
+      if (statusChanged && allowedStatusNotifications.includes(data.status)) {
+        console.log(
+          `Visit ${data.id}: Status changed from ${prev.status} → ${data.status}. Sending notifications.`
+        );
+
+        // Send SMS
+        try {
+          await sendPatientVisitSms(data.id);
+        } catch (smsError) {
+          console.error(
+            `Visit ${data.id}: Patient SMS failed:`,
+            smsError?.message || smsError
+          );
+        }
+
+        // Send WhatsApp
+        try {
+          await sendPatientVisitWhatsapp(data.id);
+        } catch (waError) {
+          console.error(
+            `Visit ${data.id}: Patient WhatsApp failed:`,
+            waError?.message || waError
+          );
+        }
+      } else {
+        console.log(
+          `Visit ${data.id}: No patient notification triggered. StatusChanged=${statusChanged}`
+        );
+      }
+    } catch (notificationError) {
+      console.error(
+        `Visit ${data.id}: Unexpected error in notification block:`,
+        notificationError
+      );
     }
 
-    try {
-      await sendPatientVisitWhatsapp(data.id);
-    } catch (e) {
-      console.error("Failed to send patient WhatsApp:", e?.message || e);
-    }
-
-    // Determine if phlebo SMS is needed
+    // -----------------------------
+    // Phlebo Notification Logic
+    // -----------------------------
     const isNewAssignment =
-      !prev.executive_id && data.executive_id && data.executive?.phone;
+      !prev.executive_id &&
+      data.executive_id &&
+      data.executive?.phone;
+
     const isTimeslotChanged =
       prev.executive_id &&
       data.executive_id &&
@@ -244,11 +287,15 @@ export async function PUT(request) {
       try {
         await sendPhleboVisitSms(data.id);
       } catch (e) {
-        console.error("Failed to send phlebo visit update SMS:", e?.message || e);
+        console.error(
+          `Visit ${data.id}: Phlebo SMS failed:`,
+          e?.message || e
+        );
       }
     }
 
     return NextResponse.json(data, { status: 200 });
+
   } catch (err) {
     console.error("PUT /api/visits failed:", err);
     return NextResponse.json(
