@@ -113,9 +113,14 @@ export async function POST(request) {
     // Send SMS & Whatsapp  to patient
     try {
       await sendPatientVisitSms(data.id);
-      await sendPatientVisitWhatsapp(data.id);
     } catch (e) {
       console.error("Failed to send patient SMS:", e?.message || e);
+    }
+
+    try {
+      await sendPatientVisitWhatsapp(data.id);
+    } catch (e) {
+      console.error("Failed to send patient WhatsApp:", e?.message || e);
     }
 
     // Send SMS & Whatsapp to phlebo if assigned
@@ -215,9 +220,14 @@ export async function PUT(request) {
     // Send SMS to patient
     try {
       await sendPatientVisitSms(data.id);
+    } catch (e) {
+      console.error("Failed to send patient SMS:", e?.message || e);
+    }
+
+    try {
       await sendPatientVisitWhatsapp(data.id);
     } catch (e) {
-      console.error("Failed to send patient update SMS:", e?.message || e);
+      console.error("Failed to send patient WhatsApp:", e?.message || e);
     }
 
     // Determine if phlebo SMS is needed
