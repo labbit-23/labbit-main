@@ -25,12 +25,12 @@ export async function GET() {
 export async function POST(req) {
   try {
     // 🔐 Webhook Secret Validation
-    const secret = req.headers.get("x-webhook-secret");
+    //const secret = req.headers.get("x-webhook-secret");
 
-    if (secret !== process.env.WEBHOOK_SECRET) {
-      console.log("❌ Unauthorized webhook attempt");
-      return new Response("Unauthorized", { status: 401 });
-    }
+    //if (secret !== process.env.WEBHOOK_SECRET) {
+    //  console.log("❌ Unauthorized webhook attempt");
+    //  return new Response("Unauthorized", { status: 401 });
+    //}
     const body = await req.json();
     console.log("📩 RAW WEBHOOK:", JSON.stringify(body));
 
