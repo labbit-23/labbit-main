@@ -45,10 +45,14 @@ export async function POST(req) {
     message = {
         id: body.message.id,
         from: body.from,
-        text: body.message.type === "text"
-        ? { body: body.message.text }
-        : null,
-        interactive: null
+        text:
+        body.message.type === "text"
+            ? { body: body.message.text }
+            : null,
+        interactive:
+        body.message.type === "interactive"
+            ? body.message.interactive
+            : null
     };
     }
 
