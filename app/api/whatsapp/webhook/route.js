@@ -40,16 +40,31 @@ export async function POST(req) {
 
     let message = null;
 
-    if (body?.messages?.length) {
-      message = body.messages[0];
+    // Case 1: Mtalkz direct format (what you're receiving)
+    if (body?.message) {
+    message = {
+        id: body.message.id,
+        from: body.from,
+        text: body.message.type === "text"
+        ? { body: body.message.text }
+        : null,
+        interactive: null
+    };
     }
 
+    // Case 2: Standard Meta format
+    if (!message && body?.messages?.length) {
+    message = body.messages[0];
+    }
+
+    // Case 3: Meta entry format
     if (!message && body?.entry?.[0]?.changes?.[0]?.value?.messages?.length) {
-      message = body.entry[0].changes[0].value.messages[0];
+    message = body.entry[0].changes[0].value.messages[0];
     }
 
+    // Case 4: Wrapped value format
     if (!message && body?.value?.messages?.length) {
-      message = body.value.messages[0];
+    message = body.value.messages[0];
     }
 
     if (!message) {
