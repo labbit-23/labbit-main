@@ -3,6 +3,7 @@
 import { supabase } from "@/lib/supabaseServer";
 
 export default async function ChatPage({ params }) {
+
   const { phone } = params;
 
   const { data: messages } = await supabase
@@ -12,44 +13,74 @@ export default async function ChatPage({ params }) {
     .order("created_at", { ascending: true });
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="border-b p-4 font-bold">
-        Chat with {phone}
-      </div>
+    <div className="flex h-screen bg-gray-100">
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {messages?.map((msg) => (
-          <div
-            key={msg.id}
-            className={`max-w-xs p-2 rounded ${
-              msg.direction === "inbound"
-                ? "bg-gray-200 self-start"
-                : "bg-green-200 self-end"
-            }`}
-          >
-            {msg.message}
-          </div>
-        ))}
-      </div>
+      <div className="w-full flex flex-col">
 
-      <form
-        action={`/api/admin/reply`}
-        method="POST"
-        className="p-4 border-t flex"
-      >
-        <input type="hidden" name="phone" value={phone} />
-        <input
-          name="message"
-          className="flex-1 border p-2 rounded"
-          placeholder="Type message..."
-        />
-        <button
-          type="submit"
-          className="ml-2 bg-green-500 text-white px-4 rounded"
+        {/* Header */}
+        <div className="bg-white p-4 border-b flex justify-between items-center">
+          <div className="font-bold">{phone}</div>
+
+          <form action={`/api/admin/complete`} method="POST">
+            <input type="hidden" name="phone" value={phone} />
+            <button
+              className="text-sm bg-blue-500 text-white px-3 py-1 rounded"
+              type="submit"
+            >
+              Mark Completed
+            </button>
+          </form>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+
+          {messages?.map(msg => (
+            <div
+              key={msg.id}
+              className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-xs p-3 rounded-lg shadow ${
+                  msg.direction === "outbound"
+                    ? "bg-green-200"
+                    : "bg-white"
+                }`}
+              >
+                <div className="text-sm">{msg.message}</div>
+                <div className="text-[10px] text-gray-500 mt-1 text-right">
+                  {new Date(msg.created_at).toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
+          ))}
+
+        </div>
+
+        {/* Reply Box */}
+        <form
+          action={`/api/admin/reply`}
+          method="POST"
+          className="p-4 bg-white border-t flex gap-2"
         >
-          Send
-        </button>
-      </form>
+          <input type="hidden" name="phone" value={phone} />
+
+          <input
+            name="message"
+            required
+            placeholder="Type a message"
+            className="flex-1 border rounded px-3 py-2"
+          />
+
+          <button
+            type="submit"
+            className="bg-green-600 text-white px-4 rounded"
+          >
+            Send
+          </button>
+        </form>
+
+      </div>
     </div>
   );
 }

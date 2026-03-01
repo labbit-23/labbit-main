@@ -4,76 +4,88 @@ import { supabase } from "@/lib/supabaseServer";
 import Link from "next/link";
 
 export default async function WhatsAppAdminPage() {
-    
-  // Fetch sessions
+
   const { data: sessions } = await supabase
     .from("chat_sessions")
     .select("*")
     .order("last_message_at", { ascending: false });
 
-  const now = new Date();
+  const { data: lastMessages } = await supabase
+    .from("whatsapp_messages")
+    .select("phone, message, created_at")
+    .order("created_at", { ascending: false });
 
-  const active = [];
-  const dormant = [];
-  const completed = [];
-
-  sessions?.forEach((s) => {
-    if (s.status === "completed") {
-      completed.push(s);
-      return;
-    }
-
-    if (!s.last_user_message_at) {
-      dormant.push(s);
-      return;
-    }
-
-    const diff =
-      now.getTime() - new Date(s.last_user_message_at).getTime();
-
-    if (diff < 24 * 60 * 60 * 1000) {
-      active.push(s);
-    } else {
-      dormant.push(s);
+  const lastMap = {};
+  lastMessages?.forEach(m => {
+    if (!lastMap[m.phone]) {
+      lastMap[m.phone] = m;
     }
   });
 
+  const now = new Date();
+
+  const group = (session) => {
+    if (session.status === "completed") return "completed";
+    if (!session.last_user_message_at) return "dormant";
+
+    const diff = now - new Date(session.last_user_message_at);
+    return diff < 24 * 60 * 60 * 1000 ? "active" : "dormant";
+  };
+
   return (
-    <div className="flex h-screen">
-      {/* LEFT PANEL */}
-      <div className="w-1/3 border-r overflow-y-auto p-4">
-        <h2 className="font-bold mb-2">🟢 Active</h2>
-        {active.map((s) => (
-          <Link key={s.id} href={`/admin/whatsapp/${s.phone}`}>
-            <div className="p-2 hover:bg-gray-100 cursor-pointer">
-              {s.phone}
-            </div>
-          </Link>
-        ))}
+    <div className="flex h-screen bg-gray-100">
 
-        <h2 className="font-bold mt-6 mb-2">⚪ Dormant</h2>
-        {dormant.map((s) => (
-          <Link key={s.id} href={`/admin/whatsapp/${s.phone}`}>
-            <div className="p-2 hover:bg-gray-100 cursor-pointer">
-              {s.phone}
-            </div>
-          </Link>
-        ))}
+      {/* Sidebar */}
+      <div className="w-1/3 bg-white border-r flex flex-col">
 
-        <h2 className="font-bold mt-6 mb-2">✅ Completed</h2>
-        {completed.map((s) => (
-          <Link key={s.id} href={`/admin/whatsapp/${s.phone}`}>
-            <div className="p-2 hover:bg-gray-100 cursor-pointer">
-              {s.phone}
-            </div>
-          </Link>
-        ))}
+        <div className="p-4 font-bold text-lg border-b">
+          WhatsApp Dashboard
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+
+          {sessions?.map(session => {
+            const status = group(session);
+            const last = lastMap[session.phone];
+
+            return (
+              <Link key={session.id} href={`/admin/whatsapp/${session.phone}`}>
+                <div className="p-4 border-b hover:bg-gray-50 cursor-pointer">
+                  <div className="flex justify-between">
+                    <div className="font-semibold">
+                      {session.phone}
+                    </div>
+                    {last && (
+                      <div className="text-xs text-gray-500">
+                        {new Date(last.created_at).toLocaleTimeString()}
+                      </div>
+                    )}
+                  </div>
+
+                  {last && (
+                    <div className="text-sm text-gray-600 truncate">
+                      {last.message}
+                    </div>
+                  )}
+
+                  <div className="text-xs mt-1">
+                    {status === "active" && <span className="text-green-600">● Active</span>}
+                    {status === "dormant" && <span className="text-gray-500">Dormant</span>}
+                    {status === "completed" && <span className="text-blue-500">Completed</span>}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+
+        </div>
       </div>
 
-      {/* RIGHT PANEL */}
-      <div className="w-2/3 flex items-center justify-center">
-        <div>Select a conversation</div>
+      {/* Empty State */}
+      <div className="w-2/3 flex items-center justify-center text-gray-400">
+        Select a conversation
       </div>
+
     </div>
   );
 }
