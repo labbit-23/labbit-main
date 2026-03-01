@@ -1,39 +1,48 @@
-//app/api/admin/reply/route.js
-
+import { supabase } from "@/lib/supabaseServer";
 import { sendTextMessage } from "@/lib/whatsapp/sender";
-import { createClient } from "@/lib/supabaseServer";
 
 export async function POST(req) {
-  const formData = await req.formData();
+  try {
+    const formData = await req.formData();
 
-  const phone = formData.get("phone");
-  const message = formData.get("message");
+    const phone = formData.get("phone");
+    const message = formData.get("message");
 
-  const supabase = createClient();
+    if (!phone || !message) {
+      return new Response("Missing phone or message", { status: 400 });
+    }
 
-  const { data: session } = await supabase
-    .from("chat_sessions")
-    .select("*")
-    .eq("phone", phone)
-    .single();
+    // Fetch session
+    const { data: session, error } = await supabase
+      .from("chat_sessions")
+      .select("*")
+      .eq("phone", phone)
+      .single();
 
-  if (!session) {
-    return new Response("Session not found", { status: 404 });
+    if (error || !session) {
+      return new Response("Session not found", { status: 404 });
+    }
+
+    // Send via Mtalkz API
+    await sendTextMessage({
+      labId: session.lab_id,
+      phone,
+      text: message
+    });
+
+    // Update session timestamps
+    await supabase
+      .from("chat_sessions")
+      .update({
+        last_message_at: new Date(),
+        updated_at: new Date()
+      })
+      .eq("id", session.id);
+
+    return Response.redirect(`/admin/whatsapp/${phone}`);
+
+  } catch (err) {
+    console.error("Admin reply error:", err);
+    return new Response("Internal error", { status: 500 });
   }
-
-  await sendTextMessage({
-    labId: session.lab_id,
-    phone,
-    text: message
-  });
-
-  await supabase
-    .from("chat_sessions")
-    .update({
-      last_message_at: new Date(),
-      updated_at: new Date()
-    })
-    .eq("id", session.id);
-
-  return Response.redirect(`/admin/whatsapp/${phone}`);
 }
