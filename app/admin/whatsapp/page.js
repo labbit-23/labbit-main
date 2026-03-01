@@ -1,11 +1,10 @@
 //app/admin/whatsapp/page.js
 
-import { createClient } from "@/lib/supabaseServer";
+import { supabase } from "@/lib/supabaseServer";
 import Link from "next/link";
 
 export default async function WhatsAppAdminPage() {
-  const supabase = createClient();
-
+    
   // Fetch sessions
   const { data: sessions } = await supabase
     .from("chat_sessions")

@@ -1,10 +1,9 @@
 //app/admin/whatsapp/[phone]/page.js
 
-import { createClient } from "@/lib/supabaseServer";
+import { supabase } from "@/lib/supabaseServer";
 
 export default async function ChatPage({ params }) {
   const { phone } = params;
-  const supabase = createClient();
 
   const { data: messages } = await supabase
     .from("whatsapp_messages")
