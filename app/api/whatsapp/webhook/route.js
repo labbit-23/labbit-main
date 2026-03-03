@@ -24,51 +24,41 @@ export async function GET() {
 // --------------------------------------------------
 export async function POST(req) {
   try {
-    // 🔐 Webhook Secret Validation
-    //const secret = req.headers.get("x-webhook-secret");
 
-    //if (secret !== process.env.WEBHOOK_SECRET) {
-    //  console.log("❌ Unauthorized webhook attempt");
-    //  return new Response("Unauthorized", { status: 401 });
-    //}
     const body = await req.json();
     console.log("📩 RAW WEBHOOK:", JSON.stringify(body));
 
     // --------------------------------------------------
-    // 1️⃣ Extract Message Safely (All Possible Structures)
+    // 1️⃣ Extract Message Safely
     // --------------------------------------------------
 
     let message = null;
 
-    // Case 1: Mtalkz direct format (what you're receiving)
     if (body?.message) {
-    message = {
+      message = {
         id: body.message.id,
         from: body.from,
         text:
-        body.message.type === "text"
+          body.message.type === "text"
             ? { body: body.message.text }
             : null,
         interactive:
-        body.message.type === "interactive"
+          body.message.type === "interactive"
             ? body.message.interactive
             : null
-    };
+      };
     }
 
-    // Case 2: Standard Meta format
     if (!message && body?.messages?.length) {
-    message = body.messages[0];
+      message = body.messages[0];
     }
 
-    // Case 3: Meta entry format
     if (!message && body?.entry?.[0]?.changes?.[0]?.value?.messages?.length) {
-    message = body.entry[0].changes[0].value.messages[0];
+      message = body.entry[0].changes[0].value.messages[0];
     }
 
-    // Case 4: Wrapped value format
     if (!message && body?.value?.messages?.length) {
-    message = body.value.messages[0];
+      message = body.value.messages[0];
     }
 
     if (!message) {
@@ -77,9 +67,9 @@ export async function POST(req) {
     }
 
     const messageId = message?.id;
-    const phone = message?.from;
+    const rawPhone = message?.from;
 
-    if (!messageId || !phone) {
+    if (!messageId || !rawPhone) {
       console.log("⚠️ Missing messageId or phone.");
       return Response.json({ success: true });
     }
@@ -123,13 +113,29 @@ export async function POST(req) {
     }
 
     // --------------------------------------------------
-    // 4️⃣ Get/Create Session
+    // 4️⃣ Extract Country Code
+    // --------------------------------------------------
+
+    const match = rawPhone.match(/^\+(\d{1,3})/);
+    const countryCode = match ? match[1] : null;
+
+    const phone = rawPhone; // store full E.164
+
+    // --------------------------------------------------
+    // 5️⃣ Get/Create Session
     // --------------------------------------------------
 
     const session = await getOrCreateSession(phone);
 
+    if (!session.country_code) {
+      await supabase
+        .from("chat_sessions")
+        .update({ country_code: countryCode })
+        .eq("id", session.id);
+    }
+
     // --------------------------------------------------
-    // 5️⃣ Get Lab
+    // 6️⃣ Get Lab
     // --------------------------------------------------
 
     const { data: lab } = await supabase
@@ -144,20 +150,62 @@ export async function POST(req) {
     }
 
     // --------------------------------------------------
-    // 6️⃣ Log Inbound
+    // 7️⃣ Patient Linking / Lead Creation
+    // --------------------------------------------------
+
+    let patientId = session.patient_id;
+
+    if (!patientId) {
+
+      const { data: existingPatient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (existingPatient) {
+        patientId = existingPatient.id;
+      } else {
+
+        const whatsappName = body?.profile?.name || "WhatsApp Lead";
+
+        const { data: newPatient } = await supabase
+          .from("patients")
+          .insert({
+            name: whatsappName,
+            phone: phone,
+            is_lead: true
+          })
+          .select()
+          .single();
+
+        patientId = newPatient.id;
+      }
+
+      await supabase
+        .from("chat_sessions")
+        .update({
+          patient_id: patientId,
+          patient_name: body?.profile?.name || null
+        })
+        .eq("id", session.id);
+    }
+
+    // --------------------------------------------------
+    // 8️⃣ Log Inbound (Minimal Storage)
     // --------------------------------------------------
 
     await supabase.from("whatsapp_messages").insert({
       message_id: messageId,
       lab_id: session.lab_id,
-      phone,
+      phone: phone,
       message: userInput,
       direction: "inbound",
-      payload: body
+      payload: null
     });
 
     // --------------------------------------------------
-    // 7️⃣ If Human Handover Active → Stop Bot
+    // 9️⃣ Human Handoff Mode
     // --------------------------------------------------
 
     if (session.status === "handoff") {
@@ -166,13 +214,13 @@ export async function POST(req) {
     }
 
     // --------------------------------------------------
-    // 8️⃣ Process Message
+    // 🔟 Process Bot Message
     // --------------------------------------------------
 
     const result = await processMessage(session, userInput, phone);
 
     // --------------------------------------------------
-    // 9️⃣ Internal Notify
+    // 1️⃣1️⃣ Internal Notify
     // --------------------------------------------------
 
     if (result.replyType === "INTERNAL_NOTIFY") {
@@ -184,13 +232,13 @@ export async function POST(req) {
     }
 
     // --------------------------------------------------
-    // 🔟 Update Session
+    // 1️⃣2️⃣ Update Session
     // --------------------------------------------------
 
     await updateSession(session.id, result.newState, result.context);
 
     // --------------------------------------------------
-    // 1️⃣1️⃣ Send Reply
+    // 1️⃣3️⃣ Send Reply
     // --------------------------------------------------
 
     switch (result.replyType) {
@@ -219,7 +267,7 @@ export async function POST(req) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            patientName: "WhatsApp User",
+            patientName: body?.profile?.name || "WhatsApp User",
             phone,
             packageName: result.context.tests,
             area: result.context.area,
