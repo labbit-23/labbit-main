@@ -20,6 +20,10 @@ import {
   Switch,
   HStack,
   useToast,
+  Checkbox,
+  CheckboxGroup,
+  Stack,
+  Text,
 } from "@chakra-ui/react";
 
 export default function ExecutiveModal({
@@ -29,21 +33,34 @@ export default function ExecutiveModal({
   initialData = null,
 }) {
   const toast = useToast();
-  const roles = ["Phlebo", "Admin", "Courier", "Management"];
+  const roles = [
+    { value: "Phlebo", label: "Phlebo" },
+    { value: "Admin", label: "Admin" },
+    { value: "Manager", label: "Manager" },
+    { value: "Director", label: "Director" },
+    { value: "logistics", label: "Logistics" },
+    { value: "b2b", label: "Collection Centre" },
+  ];
 
   const defaultForm = {
     id: null,
     name: "",
     phone: "",
     email: "",
-    type: roles[0],
+    type: roles[0].value,
     active: true,
     lab_id: "",
+    collection_centre_ids: [],
   };
 
   const [formData, setFormData] = useState(defaultForm);
   const [loading, setLoading] = useState(false);
   const [labs, setLabs] = useState([]);
+  const [collectionCentres, setCollectionCentres] = useState([]);
+
+  const isCollectionRole = ["logistics", "b2b"].includes(
+    (formData.type || "").toLowerCase()
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -53,18 +70,28 @@ export default function ExecutiveModal({
         .then((data) => setLabs(Array.isArray(data) ? data : []))
         .catch(() => setLabs([]));
 
+      fetch("/api/collection-centres?my_labs=true")
+        .then((r) => r.json())
+        .then((data) => setCollectionCentres(Array.isArray(data) ? data : []))
+        .catch(() => setCollectionCentres([]));
+
       if (initialData && initialData.id != null) {
         setFormData({
           id: initialData.id,
           name: initialData.name || "",
           phone: initialData.phone || "",
           email: initialData.email || "",
-          type: roles.includes(initialData.type) ? initialData.type : roles[0],
+          type: roles.some((role) => role.value === initialData.type)
+            ? initialData.type
+            : roles[0].value,
           active:
             typeof initialData.active === "boolean"
               ? initialData.active
               : true,
           lab_id: initialData.lab_id || "",
+          collection_centre_ids: Array.isArray(initialData.collection_centre_ids)
+            ? initialData.collection_centre_ids.map((v) => String(v))
+            : [],
         });
       } else {
         setFormData(defaultForm);
@@ -101,16 +128,23 @@ export default function ExecutiveModal({
       });
       return false;
     }
-    if (!formData.email.trim() || !validateEmail(formData.email.trim())) {
-      toast({ title: "Valid email is required", status: "warning" });
+    if (formData.email.trim() && !validateEmail(formData.email.trim())) {
+      toast({ title: "Please enter a valid email", status: "warning" });
       return false;
     }
-    if (!formData.type || !roles.includes(formData.type)) {
+    if (!formData.type || !roles.some((role) => role.value === formData.type)) {
       toast({ title: "Role selection is required", status: "warning" });
       return false;
     }
     if (!formData.lab_id) {
       toast({ title: "Lab assignment is required", status: "warning" });
+      return false;
+    }
+    if (isCollectionRole && (formData.collection_centre_ids || []).length === 0) {
+      toast({
+        title: "At least one collection centre is required for this role",
+        status: "warning",
+      });
       return false;
     }
     return true;
@@ -127,7 +161,10 @@ export default function ExecutiveModal({
       const res = await fetch("/api/executives", {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          collection_centre_ids: (formData.collection_centre_ids || []).map((v) => String(v)),
+        }),
       });
 
       if (!res.ok) {
@@ -205,7 +242,7 @@ export default function ExecutiveModal({
               />
             </FormControl>
 
-            <FormControl id="email" isRequired>
+            <FormControl id="email">
               <FormLabel>Email Address</FormLabel>
               <Input
                 placeholder="Email"
@@ -225,8 +262,8 @@ export default function ExecutiveModal({
                 disabled={loading}
               >
                 {roles.map((role) => (
-                  <option key={role} value={role}>
-                    {role}
+                  <option key={role.value} value={role.value}>
+                    {role.label}
                   </option>
                 ))}
               </Select>
@@ -261,6 +298,35 @@ export default function ExecutiveModal({
                 />
               </HStack>
             </FormControl>
+
+            {isCollectionRole && (
+              <FormControl id="collection_centres">
+                <FormLabel>Collection Centres</FormLabel>
+                {collectionCentres.length === 0 ? (
+                  <Text fontSize="sm" color="orange.500">
+                    No collection centres found. Add centres first.
+                  </Text>
+                ) : (
+                  <CheckboxGroup
+                    value={(formData.collection_centre_ids || []).map((v) => String(v))}
+                    onChange={(values) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        collection_centre_ids: values,
+                      }))
+                    }
+                  >
+                    <Stack spacing={2} maxH="160px" overflowY="auto" p={2} borderWidth="1px" borderRadius="md">
+                      {collectionCentres.map((centre) => (
+                        <Checkbox key={centre.id} value={String(centre.id)}>
+                          {centre.centre_name}
+                        </Checkbox>
+                      ))}
+                    </Stack>
+                  </CheckboxGroup>
+                )}
+              </FormControl>
+            )}
           </VStack>
         </ModalBody>
 

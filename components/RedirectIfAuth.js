@@ -22,7 +22,7 @@ export default function RedirectIfAuth({ children }) {
       else if (user.userType === "executive") {
         if (["admin", "manager", "director"].includes(execType)) target = "/admin";
         else if (execType === "phlebo") target = "/phlebo";
-        else if (["logistics", "b2b", "b2badmin"].includes(execType)) target = "/collection-centre";
+        else if (["logistics", "b2b"].includes(execType)) target = "/collection-centre";
         else target = "/";
       }
 

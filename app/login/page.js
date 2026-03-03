@@ -129,7 +129,7 @@ export default function LoginPage() {
           const user = await res.json();
           const execType = (user.executiveType || '').toLowerCase();
           const adminRoles = ['admin', 'manager', 'director'];
-          const collectionRoles = ['logistics', 'b2b', 'b2badmin'];
+          const collectionRoles = ['logistics', 'b2b'];
           if (user.userType === 'patient' && user.phone) {
             router.replace('/patient');
             return;
@@ -451,6 +451,10 @@ export default function LoginPage() {
           }),
         });
         const lookupData = await resLookup.json();
+
+        if (!resLookup.ok && lookupData?.error) {
+          throw new Error(lookupData.error);
+        }
 
         if (lookupData.labIds && Array.isArray(lookupData.labIds) && lookupData.labIds.length > 0) {
           labIdToSend = lookupData.labIds[0];

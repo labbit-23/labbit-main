@@ -17,8 +17,11 @@ export async function POST(req) {
       );
     }
 
-    const isPhone = /^\d{10}$/.test(identifier);
-    const normalizedIdentifier = isPhone ? identifier.replace(/\D/g, '') : identifier;
+    const rawIdentifier = String(identifier || "").trim();
+    const isPhone = /^\d{10}$/.test(rawIdentifier);
+    const normalizedIdentifier = isPhone
+      ? rawIdentifier.replace(/\D/g, "")
+      : rawIdentifier.toLowerCase();
 
     // Lookup executive by phone or email
     let executive;
@@ -27,29 +30,43 @@ export async function POST(req) {
         .from("executives")
         .select("*")
         .eq("phone", normalizedIdentifier)
-        .limit(1)
-        .single();
-      if (error || !data) {
+        .limit(2);
+      if (error || !Array.isArray(data) || data.length === 0) {
         return NextResponse.json(
           { error: "Invalid email/phone or password.", exists: false },
           { status: 401 }
         );
       }
-      executive = data;
+      if (data.length > 1) {
+        return NextResponse.json(
+          { error: "Multiple accounts found for this phone. Please contact admin immediately.", exists: true },
+          { status: 409 }
+        );
+      }
+      executive = data[0];
     } else {
       const { data, error } = await supabase
         .from("executives")
         .select("*")
         .ilike("email", normalizedIdentifier)
-        .limit(1)
-        .single();
-      if (error || !data) {
+        .limit(2);
+      if (error || !Array.isArray(data) || data.length === 0) {
         return NextResponse.json(
           { error: "Invalid email/phone or password.", exists: false },
           { status: 401 }
         );
       }
-      executive = data;
+      if (data.length > 1) {
+        return NextResponse.json(
+          {
+            error:
+              "This email is linked to multiple accounts. Use unique mobile number login for security.",
+            exists: true,
+          },
+          { status: 409 }
+        );
+      }
+      executive = data[0];
     }
 
     // Fetch assigned labs for executive (always, even if password is invalid)
@@ -95,7 +112,7 @@ export async function POST(req) {
     // Determine redirect URL based on normalized executive type
     const execType = (executive.type || '').trim().toLowerCase();
     const adminTypes = ['admin', 'manager', 'director'];
-    const collectionRoles = ['logistics', 'b2b', 'b2badmin'];
+    const collectionRoles = ['logistics', 'b2b'];
 
     let redirectUrl = '/'; // fallback
 

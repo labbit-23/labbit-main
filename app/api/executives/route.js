@@ -7,6 +7,61 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const COLLECTION_ROLES = new Set(["logistics", "b2b"]);
+
+function normalizeExecutiveType(type) {
+  const value = (type || "").toString().trim();
+  if (!value) return "Unknown";
+  if (COLLECTION_ROLES.has(value.toLowerCase())) return value.toLowerCase();
+  return value;
+}
+
+function getCollectionAssignmentRole(type) {
+  const key = (type || "").toString().trim().toLowerCase();
+  if (key === "logistics") return "logistics";
+  return "requester";
+}
+
+async function syncCollectionCentreAssignments(executiveId, type, centreIds) {
+  const roleKey = (type || "").toString().trim().toLowerCase();
+  if (!COLLECTION_ROLES.has(roleKey)) return;
+
+  const assignmentRole = getCollectionAssignmentRole(roleKey);
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const ids = Array.isArray(centreIds)
+    ? [
+        ...new Set(
+          centreIds
+            .map((v) => (v == null ? "" : String(v).trim()))
+            .filter((v) => uuidRegex.test(v))
+        ),
+      ]
+    : [];
+  if (Array.isArray(centreIds) && centreIds.length > 0 && ids.length === 0) {
+    throw new Error("Invalid collection centre IDs");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("executives_collection_centres")
+    .delete()
+    .eq("executive_id", executiveId);
+  if (deleteError) throw deleteError;
+
+  if (ids.length === 0) return;
+
+  const rows = ids.map((collectionCentreId) => ({
+    executive_id: executiveId,
+    collection_centre_id: collectionCentreId,
+    role: assignmentRole,
+  }));
+
+  const { error: insertError } = await supabase
+    .from("executives_collection_centres")
+    .insert(rows);
+  if (insertError) throw insertError;
+}
+
 export async function POST(request) {
   const data = await request.json();
   if (!data.name || !data.phone) {
@@ -19,7 +74,7 @@ export async function POST(request) {
       name: data.name,
       phone: data.phone,
       email: data.email ?? null,
-      type: data.type ?? "Unknown",
+      type: normalizeExecutiveType(data.type),
       active: data.active ?? true,
       status: data.status ?? "active",
       password_hash: " ",
@@ -45,6 +100,19 @@ export async function POST(request) {
     }
   }
 
+  try {
+    await syncCollectionCentreAssignments(
+      insertedExec.id,
+      data.type,
+      data.collection_centre_ids
+    );
+  } catch (assignmentError) {
+    return NextResponse.json(
+      { error: assignmentError.message || "Failed to save collection centre assignment" },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json(insertedExec, { status: 201 });
 }
 
@@ -60,7 +128,7 @@ export async function PUT(request) {
       name: data.name,
       phone: data.phone,
       email: data.email ?? null,
-      type: data.type ?? "Unknown",
+      type: normalizeExecutiveType(data.type),
       active: data.active ?? true,
       status:
         data.status ??
@@ -88,6 +156,19 @@ export async function PUT(request) {
     }
   }
 
+  try {
+    await syncCollectionCentreAssignments(
+      data.id,
+      data.type,
+      data.collection_centre_ids
+    );
+  } catch (assignmentError) {
+    return NextResponse.json(
+      { error: assignmentError.message || "Failed to save collection centre assignment" },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json(updatedExec, { status: 200 });
 }
 
@@ -108,7 +189,8 @@ export async function GET(request) {
         type,
         status,
         active,
-        executives_labs(lab_id)
+        executives_labs(lab_id),
+        executives_collection_centres(collection_centre_id, role)
       `)
       .order("created_at", { ascending: false });
 
@@ -136,6 +218,15 @@ export async function GET(request) {
       lab_id: Array.isArray(exec.executives_labs) && exec.executives_labs.length > 0
         ? exec.executives_labs[0].lab_id
         : "",
+      collection_centre_ids: Array.isArray(exec.executives_collection_centres)
+        ? [
+            ...new Set(
+              exec.executives_collection_centres
+                .map((row) => row.collection_centre_id)
+                .filter((v) => v != null)
+            ),
+          ]
+        : [],
     });
 
     // Map for array or normalize single

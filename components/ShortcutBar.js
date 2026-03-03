@@ -18,6 +18,7 @@ import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 import { useUser } from "../app/context/UserContext";
+import AppNotifications from "./AppNotifications";
 
 // Map roles to display label and color scheme
 const ROLE_MARKERS = {
@@ -27,7 +28,6 @@ const ROLE_MARKERS = {
   phlebo:   { label: "Phlebo",   color: "green"  },
   logistics:  { label: "Logistics",  color: "yellow" },
   b2b:  { label: "B2B Client",  color: "teal" },
-  b2badmin:  { label: "Admin - B2B",  color: "blue" },
   patient:  { label: "Patient",  color: "orange" },
   guest:    { label: "Guest",    color: "gray"   },
   unknown:  { label: "User",     color: "gray"   },
@@ -119,6 +119,7 @@ export default function ShortcutBar({
       boxShadow="sm"
       zIndex={1000}
     >
+      <AppNotifications />
       {/* First row: logo + info + home/role/logout all fit here */}
       <Flex
         height="56px"

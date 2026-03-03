@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
 import { sendQuickbookPatientSms } from "@/lib/visitSms";
+import { createQuickbookClickupTask } from "@/lib/clickup";
 
 export const runtime = "nodejs";
 
@@ -61,6 +62,19 @@ export async function POST(req) {
       console.log("Quick Book PENDING SMS sent to patient:", booking.phone);
     } catch (smsErr) {
       console.error("Failed to send Quick Book SMS:", smsErr);
+    }
+
+    // 3️⃣ Create ClickUp task (best-effort, non-blocking failure)
+    try {
+      const clickupResult = await createQuickbookClickupTask({
+        booking,
+        source: "quickbook_api"
+      });
+      if (!clickupResult.ok && !clickupResult.skipped) {
+        console.error("ClickUp quickbook task failed:", clickupResult.error);
+      }
+    } catch (clickupErr) {
+      console.error("Unexpected ClickUp quickbook task error:", clickupErr);
     }
 
     return NextResponse.json({ success: true, booking }, { status: 200 });

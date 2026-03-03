@@ -165,11 +165,33 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
       return;
     }
     try {
-      const { error } = await supabase
-        .from("visits")
-        .update({ executive_id: hvExecutiveId, status: "assigned" })
-        .eq("id", visitId);
-      if (error) throw error;
+      let res = await fetch("/api/visits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: visitId, executive_id: hvExecutiveId, status: "assigned" })
+      });
+
+      if (res.status === 409) {
+        const conflictData = await res.json().catch(() => ({}));
+        const conflictText = (conflictData?.conflicts || [])
+          .map((c) => `${c.patient_name} (${c.address || "No area"})`)
+          .join("\n");
+        const confirmed = window.confirm(
+          `You already have visit(s) in this timeslot.\n\n${conflictText || "Conflict found"}\n\nAssign anyway?`
+        );
+        if (!confirmed) return;
+
+        res = await fetch("/api/visits", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: visitId, executive_id: hvExecutiveId, status: "assigned", force_assign: true })
+        });
+      }
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Assignment failed");
+      }
 
       toast({ title: "Visit assigned", status: "success", duration: 3000 });
       // Refresh visits

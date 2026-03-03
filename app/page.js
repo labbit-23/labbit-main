@@ -16,7 +16,7 @@ import packages, { testCategoryMap, globalNotes } from "@/lib/packages";
 import CompareModal from "./components/CompareModal";
 
 const SDRC_LOGO = "https://sdrc.in/assets/sdrc-logo.png";
-const LABBIT_LOGO = "/logo.png";
+const LABBIT_LOGO = process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png";
 
 function getVariantKey(pkgName, variantName) {
   return `${pkgName}::${variantName}`;

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Box, Flex, Stat, StatLabel, StatNumber, useToast } from "@chakra-ui/react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function DashboardMetrics({ hvExecutiveId, date, collectionCentreId }) {
+export default function DashboardMetrics({ hvExecutiveId, date, collectionCentreId, pickupMode = false }) {
   const [metrics, setMetrics] = useState({
     total: 0,
     assigned: 0,
@@ -26,19 +26,20 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
         // Build base query date boundaries
         const queryDate = date;
 
-        // If collectionCentreId is provided, show sample_pickups KPIs instead of visits
-        if (collectionCentreId) {
+        // If pickupMode is enabled, show sample_pickups KPIs
+        if (pickupMode) {
           // Filter pickups by collection centre and requested_at date
           const pickupsRes = await supabase
             .from("sample_pickups")
-            .select("status, requested_at");
+            .select("status, requested_at, collection_centre_id");
 
           if (pickupsRes.error) throw pickupsRes.error;
 
           const filtered = (pickupsRes.data || []).filter((p) => {
             const dt = new Date(p.requested_at);
             const dtDateStr = dt.toISOString().slice(0, 10);
-            return dtDateStr === queryDate && p.collection_centre_id === collectionCentreId;
+            const matchesCentre = collectionCentreId ? p.collection_centre_id === collectionCentreId : true;
+            return dtDateStr === queryDate && matchesCentre;
           });
 
           if (!cancelled) {
@@ -151,7 +152,7 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
     return () => {
       cancelled = true;
     };
-  }, [hvExecutiveId, date, collectionCentreId, toast]);
+  }, [hvExecutiveId, date, collectionCentreId, pickupMode, toast]);
 
   if (loading) {
     return (
@@ -172,11 +173,11 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
           minW={140}
           flex="none"
         >
-          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total {collectionCentreId ? "Pickups" : "Visits"}</StatLabel>
+          <StatLabel fontSize={{ base: "sm", md: "md" }}>Total {pickupMode ? "Pickups" : "Visits"}</StatLabel>
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.total}</StatNumber>
         </Stat>
 
-        {!collectionCentreId && hvExecutiveId && (
+        {!pickupMode && hvExecutiveId && (
           <Stat
             bg="teal.50"
             p={4}
@@ -214,7 +215,7 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
           <StatNumber fontSize={{ base: "lg", md: "2xl" }}>{metrics.pending}</StatNumber>
         </Stat>
 
-        {!collectionCentreId && (
+        {!pickupMode && (
           <Stat
             bg="red.50"
             p={4}

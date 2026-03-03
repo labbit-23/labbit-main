@@ -23,30 +23,43 @@ export async function POST(req) {
     }
 
     // Normalize phone if identifier looks like phone number
-    const isPhone = /^\d{10}$/.test(identifier);
-    const normalizedIdentifier = isPhone ? identifier.replace(/\D/g, "") : identifier.trim();
+    const rawIdentifier = String(identifier || "").trim();
+    const isPhone = /^\d{10}$/.test(rawIdentifier);
+    const normalizedIdentifier = isPhone
+      ? rawIdentifier.replace(/\D/g, "")
+      : rawIdentifier.toLowerCase();
 
     // Lookup executive by phone or email
-    let { data: executive, error } = isPhone
+    const { data: matches, error } = isPhone
       ? await supabase
           .from("executives")
           .select("id")
           .eq("phone", normalizedIdentifier)
-          .limit(1)
-          .single()
+          .limit(2)
       : await supabase
           .from("executives")
           .select("id")
           .ilike("email", normalizedIdentifier)
-          .limit(1)
-          .single();
+          .limit(2);
 
-    if (error || !executive) {
+    if (error || !Array.isArray(matches) || matches.length === 0) {
       return NextResponse.json(
         { error: "No executive found with provided identifier." },
         { status: 404 }
       );
     }
+    if (matches.length > 1) {
+      return NextResponse.json(
+        {
+          error: isPhone
+            ? "Multiple accounts found for this phone. Contact admin."
+            : "This email is linked to multiple accounts. Reset using unique mobile number.",
+        },
+        { status: 409 }
+      );
+    }
+
+    const executive = matches[0];
 
     // Hash the new password using bcryptjs
     const salt = await bcrypt.genSalt(10);

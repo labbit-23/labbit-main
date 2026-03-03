@@ -81,7 +81,7 @@ export async function POST(request) {
 
       const { data, error: insertError } = await supabase
         .from('patients')
-        .insert([{ phone, name, dob, gender, email, mrn: newMrn }])
+        .insert([{ phone, name, dob, gender, email, mrn: newMrn, is_lead: false }])
         .select()
         .single();
 

@@ -8,6 +8,46 @@ import {
 } from "@/lib/visitSms";
 import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
 
+const CONFLICT_EXCLUDED_STATUSES = ["disabled", "cancelled", "canceled", "completed"];
+
+function formatConflict(visit) {
+  return {
+    id: visit.id,
+    status: visit.status || null,
+    patient_name: visit.patient?.name || "Unknown",
+    patient_phone: visit.patient?.phone || null,
+    address: visit.address || null,
+  };
+}
+
+async function findTimeslotConflicts({
+  executiveId,
+  visitDate,
+  timeSlotId,
+  excludeVisitId = null,
+}) {
+  if (!executiveId || !visitDate || !timeSlotId) return [];
+
+  let query = supabase
+    .from("visits")
+    .select(`
+      id,
+      status,
+      address,
+      patient:patient_id(name, phone)
+    `)
+    .eq("executive_id", executiveId)
+    .eq("visit_date", visitDate)
+    .eq("time_slot", timeSlotId)
+    .not("status", "in", `(${CONFLICT_EXCLUDED_STATUSES.join(",")})`);
+
+  if (excludeVisitId) query = query.neq("id", excludeVisitId);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message || "Failed to check timeslot conflicts");
+  return data || [];
+}
+
 // GET /api/visits?patient_id=...&visit_date=...
 export async function GET(request) {
   try {
@@ -62,9 +102,28 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const visitData = await request.json();
+    const forceAssign = Boolean(visitData.force_assign);
 
     delete visitData.id;
     delete visitData.visit_code;
+    delete visitData.force_assign;
+
+    const conflicts = await findTimeslotConflicts({
+      executiveId: visitData.executive_id,
+      visitDate: visitData.visit_date,
+      timeSlotId: visitData.time_slot,
+    });
+    if (conflicts.length > 0 && !forceAssign) {
+      return NextResponse.json(
+        {
+          error: "Timeslot conflict for selected executive.",
+          code: "VISIT_SLOT_CONFLICT",
+          can_override: true,
+          conflicts: conflicts.map(formatConflict),
+        },
+        { status: 409 }
+      );
+    }
 
     const { data, error } = await supabase
       .from("visits")
@@ -151,6 +210,7 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const visitData = await request.json();
+    const forceAssign = Boolean(visitData.force_assign);
 
     if (!visitData.id) {
       return NextResponse.json(
@@ -173,7 +233,26 @@ export async function PUT(request) {
       );
     }
 
+    const conflicts = await findTimeslotConflicts({
+      executiveId: visitData.executive_id ?? prev.executive_id,
+      visitDate: visitData.visit_date ?? prev.visit_date,
+      timeSlotId: visitData.time_slot ?? prev.time_slot,
+      excludeVisitId: visitData.id,
+    });
+    if (conflicts.length > 0 && !forceAssign) {
+      return NextResponse.json(
+        {
+          error: "Timeslot conflict for selected executive.",
+          code: "VISIT_SLOT_CONFLICT",
+          can_override: true,
+          conflicts: conflicts.map(formatConflict),
+        },
+        { status: 409 }
+      );
+    }
+
     // Update visit
+    delete visitData.force_assign;
     const { data, error } = await supabase
       .from("visits")
       .update(visitData)

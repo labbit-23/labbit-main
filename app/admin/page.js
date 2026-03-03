@@ -17,11 +17,19 @@ import VisitsTable from "./components/VisitsTable";
 import VisitModal from "../components/VisitModal";
 import ExecutiveList from "./components/ExecutiveList";
 import ExecutiveModal from "./components/ExecutiveModal";
+import CollectionCentresTab from "./components/CollectionCentresTab";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
 import QuickBookTab from "./components/QuickBookTab";
 import html2canvas from "html2canvas";
+
+const CLICKUP_DASHBOARD_URL =
+  process.env.NEXT_PUBLIC_CLICKUP_URL || "https://app.clickup.com/";
+const WHATSAPP_ICON_URL =
+  "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/whatsapp.svg";
+const CLICKUP_ICON_URL =
+  "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/clickup.svg";
 
 export default function AdminDashboard() {
   const toast = useToast();
@@ -36,6 +44,7 @@ export default function AdminDashboard() {
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [statusOptions, setStatusOptions] = useState([]);
+  const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
@@ -93,7 +102,8 @@ const exportVisitsImage = async () => {
         { data: labsData, error: labsError },
         { data: timeSlotsData, error: timeSlotsError },
         { data: quickbookData, error: quickbookError },
-        { data: statusOptionsData, error: statusOptionsError }
+        { data: statusOptionsData, error: statusOptionsError },
+        { data: chatSessionsData, error: chatSessionsError }
       ] = await Promise.all([
         supabase
           .from("visits")
@@ -121,7 +131,10 @@ const exportVisitsImage = async () => {
         supabase
           .from("visit_statuses")
           .select("code, label, color, order")
-          .order("order")
+          .order("order"),
+        supabase
+          .from("chat_sessions")
+          .select("id, unread_count, status")
       ]);
 
       if (visitsError) throw visitsError;
@@ -130,6 +143,7 @@ const exportVisitsImage = async () => {
       if (timeSlotsError) throw timeSlotsError;
       if (quickbookError) throw quickbookError;
       if (statusOptionsError) throw statusOptionsError;
+      if (chatSessionsError) throw chatSessionsError;
 
       setVisits(visitsData || []);
       setExecutives(executivesData || []);
@@ -137,6 +151,11 @@ const exportVisitsImage = async () => {
       setTimeSlots(timeSlotsData || []);
       setQuickbookings(quickbookData || []);
       setStatusOptions(statusOptionsData || []);
+
+      const unreadCount = (chatSessionsData || [])
+        .filter((session) => session.status !== "closed")
+        .reduce((acc, session) => acc + (session.unread_count || 0), 0);
+      setUnreadWhatsAppCount(unreadCount);
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");
       toast({
@@ -191,11 +210,31 @@ const exportVisitsImage = async () => {
         method = "PUT";
       }
 
-      const res = await fetch("/api/visits", {
+      let res = await fetch("/api/visits", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
+      if (res.status === 409) {
+        const conflictData = await res.json().catch(() => ({}));
+        const conflictText = (conflictData?.conflicts || [])
+          .map((c) => `${c.patient_name} (${c.address || "No area"})`)
+          .join("\n");
+        const confirmed = window.confirm(
+          `This executive already has visit(s) in this timeslot.\n\n${conflictText || "Conflict found"}\n\nAssign anyway?`
+        );
+        if (!confirmed) {
+          setLoadingVisitModal(false);
+          return;
+        }
+
+        res = await fetch("/api/visits", {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, force_assign: true })
+        });
+      }
 
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
@@ -219,11 +258,29 @@ const exportVisitsImage = async () => {
 
   async function handleAssignToExec(visitId, execId) {
     try {
-      const res = await fetch("/api/visits", {
+      let res = await fetch("/api/visits", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: visitId, executive_id: execId, status: "booked" })
       });
+
+      if (res.status === 409) {
+        const conflictData = await res.json().catch(() => ({}));
+        const conflictText = (conflictData?.conflicts || [])
+          .map((c) => `${c.patient_name} (${c.address || "No area"})`)
+          .join("\n");
+        const confirmed = window.confirm(
+          `Timeslot conflict found for selected executive.\n\n${conflictText || "Conflict found"}\n\nAssign anyway?`
+        );
+        if (!confirmed) return;
+
+        res = await fetch("/api/visits", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: visitId, executive_id: execId, status: "booked", force_assign: true })
+        });
+      }
+
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.error || "Assignment failed");
@@ -325,6 +382,48 @@ const exportVisitsImage = async () => {
               <Heading color="green.600" size="xl" flex="1 1 auto">
                 Labbit Admin Dashboard
               </Heading>
+              <Button
+                as="a"
+                href="/admin/whatsapp"
+                colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
+                variant={unreadWhatsAppCount > 0 ? "solid" : "outline"}
+                px={3}
+              >
+                <img
+                  src={WHATSAPP_ICON_URL}
+                  alt="WhatsApp"
+                  style={{ width: 18, height: 18 }}
+                />
+                {unreadWhatsAppCount > 0 && (
+                  <Badge ml={2} colorScheme="whiteAlpha" borderRadius="full">
+                    {unreadWhatsAppCount}
+                  </Badge>
+                )}
+              </Button>
+              <Button
+                as="a"
+                href={CLICKUP_DASHBOARD_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                colorScheme="blue"
+                variant="outline"
+                px={3}
+              >
+                <img
+                  src={CLICKUP_ICON_URL}
+                  alt="ClickUp"
+                  style={{ width: 18, height: 18 }}
+                />
+              </Button>
+              <Button
+                as="a"
+                href="/collection-centre"
+                colorScheme="teal"
+                variant="outline"
+                size="sm"
+              >
+                Logistics
+              </Button>
               <IconButton
                 icon={<DownloadIcon />}
                 aria-label="Download Visits Schedule"
@@ -393,6 +492,7 @@ const exportVisitsImage = async () => {
                   )}
                 </Tab>
                 <Tab>Executives</Tab>
+                <Tab>Collection Centres</Tab>
               </TabList>
 
               <TabPanels>
@@ -482,12 +582,15 @@ const exportVisitsImage = async () => {
                     isOpen={executiveModal.isOpen}
                     onClose={executiveModal.onClose}
                     onSaveSuccess={async (data) => {
-                      await supabase.from("executives").insert([data]);
                       fetchAll();
                     }}
                     isLoading={loadingExecutiveModal}
                     labs={labs}
                   />
+                </TabPanel>
+
+                <TabPanel>
+                  <CollectionCentresTab labs={labs} />
                 </TabPanel>
               </TabPanels>
             </Tabs>
