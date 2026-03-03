@@ -239,7 +239,13 @@ export async function GET(request) {
       })
     );
 
-    return NextResponse.json({ sessions: sessionsWithLatestName }, { status: 200 });
+    const sortedSessions = [...sessionsWithLatestName].sort(
+      (a, b) =>
+        new Date(b.last_message_at || b.created_at || 0).getTime() -
+        new Date(a.last_message_at || a.created_at || 0).getTime()
+    );
+
+    return NextResponse.json({ sessions: sortedSessions }, { status: 200 });
   } catch (err) {
     console.error("[whatsapp/sessions] unexpected error", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

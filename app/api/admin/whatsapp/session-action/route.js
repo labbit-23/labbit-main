@@ -64,7 +64,7 @@ export async function POST(request) {
     const status = ACTION_TO_STATUS[action];
     const { error: updateError } = await supabase
       .from("chat_sessions")
-      .update({ status, updated_at: new Date() })
+      .update({ status, unread_count: 0, updated_at: new Date() })
       .eq("id", sessionId);
 
     if (updateError) {

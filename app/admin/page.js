@@ -153,7 +153,7 @@ const exportVisitsImage = async () => {
       setStatusOptions(statusOptionsData || []);
 
       const unreadCount = (chatSessionsData || [])
-        .filter((session) => session.status !== "closed")
+        .filter((session) => session.status === "handoff")
         .reduce((acc, session) => acc + (session.unread_count || 0), 0);
       setUnreadWhatsAppCount(unreadCount);
     } catch (error) {

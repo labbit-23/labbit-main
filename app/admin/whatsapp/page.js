@@ -204,6 +204,7 @@ export default function WhatsAppDashboard() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
   const [senderFilter, setSenderFilter] = useState("all");
+  const [showBotMessages, setShowBotMessages] = useState(true);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -223,6 +224,12 @@ export default function WhatsAppDashboard() {
   const isPrependingRef = useRef(false);
   const attachInputRef = useRef(null);
   const initialBottomReadyRef = useRef(false);
+  const autoRefreshInFlightRef = useRef(false);
+
+  const isBotOutboundMessage = (msg) =>
+    msg?.direction === "outbound" &&
+    !msg?.payload?.sender?.id &&
+    !msg?.payload?.sender?.name;
 
   useEffect(() => {
     if (isUserLoading || !user) return;
@@ -257,12 +264,16 @@ export default function WhatsAppDashboard() {
     setTimeout(doScroll, 120);
   };
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (options = {}) => {
+    const { silent = false } = options;
     setError("");
-    setIsLoadingSessions(true);
+    if (!silent) setIsLoadingSessions(true);
 
     try {
-      const response = await fetch("/api/admin/whatsapp/sessions", { credentials: "include" });
+      const response = await fetch("/api/admin/whatsapp/sessions", {
+        credentials: "include",
+        cache: "no-store"
+      });
       if (!response.ok) throw new Error("Failed to load sessions");
 
       const body = await response.json();
@@ -303,18 +314,18 @@ export default function WhatsAppDashboard() {
     } catch {
       setError("Failed to load conversations.");
     } finally {
-      setIsLoadingSessions(false);
+      if (!silent) setIsLoadingSessions(false);
     }
   };
 
   const fetchMessages = async (phone, options = {}) => {
     if (!phone) return;
-    const { before = null, appendOlder = false } = options;
+    const { before = null, appendOlder = false, silent = false } = options;
 
     setError("");
-    if (appendOlder) {
+    if (appendOlder && !silent) {
       setIsLoadingOlder(true);
-    } else {
+    } else if (!silent) {
       setIsLoadingMessages(true);
     }
 
@@ -322,7 +333,8 @@ export default function WhatsAppDashboard() {
       const query = new URLSearchParams({ phone });
       if (before) query.set("before", before);
       const response = await fetch(`/api/admin/whatsapp/messages?${query.toString()}`, {
-        credentials: "include"
+        credentials: "include",
+        cache: "no-store"
       });
 
       if (!response.ok) throw new Error("Failed to load messages");
@@ -362,15 +374,45 @@ export default function WhatsAppDashboard() {
     } catch {
       setError("Failed to load messages.");
     } finally {
-      if (appendOlder) {
+      if (appendOlder && !silent) {
         setIsLoadingOlder(false);
-      } else {
+      } else if (!silent) {
         setIsLoadingMessages(false);
       }
     }
   };
 
+  useEffect(() => {
+    if (isUserLoading || !user) return undefined;
+
+    const refreshTick = async () => {
+      if (document.visibilityState !== "visible") return;
+      if (autoRefreshInFlightRef.current) return;
+      autoRefreshInFlightRef.current = true;
+      try {
+        await fetchSessions({ silent: true });
+        if (selectedSession?.phone) {
+          await fetchMessages(selectedSession.phone, { silent: true });
+        }
+      } finally {
+        autoRefreshInFlightRef.current = false;
+      }
+    };
+
+    refreshTick();
+    const interval = setInterval(refreshTick, 8000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshTick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isUserLoading, user, selectedSession?.phone]);
+
   const handleSelect = async (session) => {
+    setShowBotMessages(true);
     setSelectedSession(session);
     setMessages([]);
     setHasOlderMessages(false);
@@ -543,17 +585,24 @@ export default function WhatsAppDashboard() {
   }, [search, sessions, tab]);
 
   const filteredMessages = useMemo(() => {
-    if (senderFilter === "all") return messages;
+    let filtered = messages;
 
-    return messages.filter((msg) => {
-      if (msg.direction !== "outbound") return false;
+    if (!showBotMessages) {
+      filtered = filtered.filter((msg) => !isBotOutboundMessage(msg));
+    }
+
+    if (senderFilter === "all") return filtered;
+
+    return filtered.filter((msg) => {
+      // Always keep inbound (patient/user) messages visible for context.
+      if (msg.direction !== "outbound") return true;
 
       const hasAgent = Boolean(msg?.payload?.sender?.id || msg?.payload?.sender?.name);
       if (senderFilter === "agent") return hasAgent;
       if (senderFilter === "bot") return !hasAgent;
       return true;
     });
-  }, [messages, senderFilter]);
+  }, [messages, senderFilter, showBotMessages]);
 
   const canReply = Boolean(
     selectedSession &&
@@ -676,7 +725,7 @@ export default function WhatsAppDashboard() {
                       info={`${session.phone}${suffix ? ` • ${suffix}` : ""}`}
                       onClick={() => handleSelect(session)}
                       active={selectedSession?.id === session.id}
-                      unreadCnt={session.unread_count || 0}
+                      unreadCnt={session.status === "handoff" ? (session.unread_count || 0) : 0}
                     >
                       <div className="wa-conversationMeta">
                         <span className={`wa-status ${live ? "is-live" : "is-expired"}`}>
@@ -713,6 +762,14 @@ export default function WhatsAppDashboard() {
                   {item.label}
                 </button>
               ))}
+              <label className="wa-botToggle">
+                <input
+                  type="checkbox"
+                  checked={showBotMessages}
+                  onChange={(e) => setShowBotMessages(e.target.checked)}
+                />
+                Show BOT Messages
+              </label>
             </div>
 
             {selectedSession && (
@@ -875,6 +932,7 @@ export default function WhatsAppDashboard() {
                     {filteredMessages.map((msg) => {
                       const outgoing = msg.direction === "outbound";
                       const senderLabel = getSenderLabel(msg, user?.id);
+                      const isBotMessage = isBotOutboundMessage(msg);
                       const media = getMessageMedia(msg);
                       const msgWithContext = {
                         ...msg,
@@ -889,7 +947,7 @@ export default function WhatsAppDashboard() {
                             </div>
                           )}
 
-                          <div className={`wa-msgBubble ${outgoing ? "is-out" : "is-in"}`}>
+                          <div className={`wa-msgBubble ${outgoing ? "is-out" : "is-in"} ${isBotMessage ? "is-bot" : ""}`}>
                             <div className="wa-msgMeta">
                               <span className="wa-msgSender">{senderLabel}</span>
                               <span className="wa-msgTime">{formatMessageTime(msg.created_at)} IST</span>
@@ -1102,11 +1160,28 @@ export default function WhatsAppDashboard() {
           display: flex;
           align-items: center;
           gap: 8px;
+          flex-wrap: wrap;
           padding: 8px 12px;
           border-bottom: 1px solid #e0e7f0;
           background: #fff;
           font-size: 12px;
           color: #607087;
+        }
+
+        .wa-botToggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #42546d;
+          user-select: none;
+          cursor: pointer;
+        }
+
+        .wa-botToggle input {
+          accent-color: #0f7f85;
         }
 
         .wa-conversationMeta {
@@ -1446,6 +1521,12 @@ export default function WhatsAppDashboard() {
           border-bottom-right-radius: 4px;
         }
 
+        .wa-msgBubble.is-out.is-bot {
+          background: #f6f8fb;
+          border-color: #dde4ef;
+          color: #42536b;
+        }
+
         .wa-msgMeta {
           display: flex;
           align-items: center;
@@ -1475,6 +1556,10 @@ export default function WhatsAppDashboard() {
           white-space: pre-wrap;
           word-break: break-word;
           font-size: 14px;
+        }
+
+        .wa-msgBubble.is-out.is-bot .wa-msgText {
+          font-size: 13px;
         }
 
         .wa-msgAttachment {

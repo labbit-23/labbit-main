@@ -258,6 +258,13 @@ function getPackageCatalog() {
     packageIndex,
     name: pkg?.name || "Package",
     description: pkg?.description || "",
+    minPrice: (() => {
+      const variantPrices = (Array.isArray(pkg?.variants) ? pkg.variants : [])
+        .map((v) => Number(v?.price))
+        .filter((v) => Number.isFinite(v) && v > 0);
+      if (variantPrices.length === 0) return null;
+      return Math.min(...variantPrices);
+    })(),
     variants: Array.isArray(pkg?.variants) ? pkg.variants : []
   }));
 }
@@ -273,7 +280,9 @@ function buildPackageMenuPage(packages, page = 1, pageSize = 9) {
     rows: slice.map((pkg) => ({
       id: `PKG_${pkg.packageIndex}`,
       title: pkg.name,
-      description: pkg.description
+      description: pkg.minPrice
+        ? `Starts INR ${pkg.minPrice}`
+        : (pkg.description || "View package details")
     }))
   };
 }
@@ -293,6 +302,48 @@ function buildPackageVariantRows(selectedPackage) {
   });
 
   return rows.slice(0, 10);
+}
+
+async function ensureChatSessionForPhone({ labId, phone }) {
+  const canonical = toCanonicalIndiaPhone(phone) || phone;
+  const variants = phoneVariantsIndia(canonical);
+
+  const { data: existingRows } = await supabase
+    .from("chat_sessions")
+    .select("id")
+    .in("phone", variants)
+    .eq("lab_id", labId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const existing = existingRows?.[0];
+  if (existing?.id) {
+    await supabase
+      .from("chat_sessions")
+      .update({
+        phone: canonical,
+        last_message_at: new Date(),
+        updated_at: new Date()
+      })
+      .eq("id", existing.id);
+    return existing.id;
+  }
+
+  const { data: created } = await supabase
+    .from("chat_sessions")
+    .insert({
+      phone: canonical,
+      lab_id: labId,
+      current_state: "HUMAN_HANDOVER",
+      status: "active",
+      last_message_at: new Date(),
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+    .select("id")
+    .single();
+
+  return created?.id || null;
 }
 
 function formatPackageVariantMessage(selectedPackage, selectedVariant) {
@@ -318,7 +369,8 @@ function formatPackageVariantMessage(selectedPackage, selectedVariant) {
     "Includes:",
     `${testsText}${extraText}`,
     "",
-    "Reply *BOOK_HOME_VISIT* to book this package."
+    "Reply *BOOK_HOME_VISIT* to book this package.",
+    "See all packages: https://sdrc.in/packages.php"
   ].join("\n");
 }
 
@@ -640,12 +692,13 @@ export async function POST(req) {
       }
     });
 
+    const shouldIncrementUnread = session.status === "handoff";
     await supabase
       .from("chat_sessions")
       .update({
         last_message_at: new Date(),
         last_user_message_at: new Date(),
-        unread_count: (session.unread_count || 0) + 1,
+        unread_count: shouldIncrementUnread ? (session.unread_count || 0) + 1 : (session.unread_count || 0),
         updated_at: new Date()
       })
       .eq("id", session.id);
@@ -672,6 +725,7 @@ export async function POST(req) {
 
     const templates = parseTemplates(waApiConfig?.templates);
     const botFlowConfig = templates?.bot_flow || {};
+    const packageCatalog = getPackageCatalog();
     const feedbackUrl =
       botFlowConfig?.links?.feedback_url ||
       templates?.feedback_url ||
@@ -705,7 +759,8 @@ export async function POST(req) {
     const result = await processMessage(session, userInput, phone, {
       botFlowConfig,
       inboundLocation,
-      inboundMedia
+      inboundMedia,
+      packageCatalog
     });
 
     // --------------------------------------------------
@@ -714,6 +769,10 @@ export async function POST(req) {
 
     if (result.replyType === "INTERNAL_NOTIFY") {
       if (reportNotifyNumber) {
+        await ensureChatSessionForPhone({
+          labId: session.lab_id,
+          phone: reportNotifyNumber
+        });
         await sendTextMessage({
           labId: session.lab_id,
           phone: reportNotifyNumber,
@@ -776,6 +835,20 @@ export async function POST(req) {
         }
       } catch (slotError) {
         console.error("❌ Time slot load failed:", slotError);
+      }
+    }
+
+    if (result.replyType === "PACKAGE_DETAILS_TEXT") {
+      const catalog = getPackageCatalog();
+      const selectedPackage = catalog.find(
+        (pkg) => pkg.packageIndex === Number(nextContext.selected_package_index)
+      );
+      const selectedVariant =
+        selectedPackage?.variants?.[Number(nextContext.selected_variant_index)] || null;
+
+      if (selectedPackage && selectedVariant) {
+        nextContext.last_explored_package_name = `${selectedPackage.name} - ${selectedVariant.name}`;
+        nextContext.tests = nextContext.last_explored_package_name;
       }
     }
 
@@ -1008,14 +1081,24 @@ export async function POST(req) {
 
       case "CALL_QUICKBOOK":
         {
+        const inferredPackageName =
+          nextContext.tests ||
+          nextContext.last_explored_package_name ||
+          null;
+        const inferredArea =
+          nextContext.area ||
+          nextContext.location_text ||
+          nextContext.location_address ||
+          "Not provided";
+
         const quickbookResponse = await fetch("https://lab.sdrc.in/api/quickbook", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             patientName: profileName || "WhatsApp User",
             phone,
-            packageName: nextContext.tests,
-            area: nextContext.area,
+            packageName: inferredPackageName,
+            area: inferredArea,
             date: nextContext.selected_date,
             timeslot: nextContext.selected_slot,
             persons: 1,
