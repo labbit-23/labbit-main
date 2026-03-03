@@ -390,6 +390,13 @@ export default function PatientsTab({
                   patient: { name: selectedPatient?.name },
                   visit_date: quickbookContext.booking?.date || '',
                   time_slot: quickbookContext.booking?.time_slot?.id || '',
+                  lat: quickbookContext.booking?.location_lat || null,
+                  lng: quickbookContext.booking?.location_lng || null,
+                  address:
+                    quickbookContext.booking?.location_text ||
+                    quickbookContext.booking?.location_address ||
+                    quickbookContext.booking?.area ||
+                    "",
                   notes: quickbookContext.booking?.tests?.length
                     ? Array.isArray(quickbookContext.booking.tests)
                       ? quickbookContext.booking.tests.join(', ')

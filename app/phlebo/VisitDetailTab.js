@@ -25,6 +25,14 @@ import { supabase } from "../../lib/supabaseClient";
 import TestPackageSelector from "../../components/TestPackageSelector";
 import { useUser } from "../context/UserContext";
 
+function extractGoogleMapsUrl(text) {
+  if (!text) return null;
+  const match = String(text).match(
+    /(https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl|www\.google\.com\/maps)[^\s]*)/i
+  );
+  return match ? match[1] : null;
+}
+
 export default function VisitDetailTab({ visit, onBack }) {
   const toast = useToast();
   const { user, isLoading: userLoading } = useUser();
@@ -233,10 +241,13 @@ export default function VisitDetailTab({ visit, onBack }) {
   const normalOptions = statusOptions.filter(s => s.order > 0);
   const abnormalOptions = statusOptions.filter(s => s.order <= 0);
 
-  const mapsUrl =
-    visit.lat && visit.lng
-      ? `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`
-      : null;
+  const embeddedMapsUrl = extractGoogleMapsUrl(visit.address);
+  const mapsUrl = visit.lat && visit.lng
+    ? `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`
+    : (embeddedMapsUrl ||
+      (visit.address
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visit.address)}`
+        : null));
 
   if (userLoading) {
     return (
@@ -393,6 +404,13 @@ export default function VisitDetailTab({ visit, onBack }) {
               Navigate to Address
             </Button>
           </Link>
+          {embeddedMapsUrl && (
+            <Link href={embeddedMapsUrl} isExternal>
+              <Button variant="outline" leftIcon={<ExternalLinkIcon />}>
+                Open Shared Map Link
+              </Button>
+            </Link>
+          )}
           <Text>{visit.address ?? "No Address Available"}</Text>
         </HStack>
       )}

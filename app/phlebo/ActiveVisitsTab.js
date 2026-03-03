@@ -106,6 +106,8 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
             visit_date,
             time_slot (slot_name),
             address,
+            lat,
+            lng,
             status,
             executive_id,
             notes,
@@ -203,6 +205,8 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           visit_date,
           time_slot (slot_name),
           address,
+          lat,
+          lng,
           status,
           executive_id,
           patient:patient_id(
@@ -258,6 +262,8 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           visit_date,
           time_slot (slot_name),
           address,
+          lat,
+          lng,
           status,
           executive_id,
           patient:patient_id(
@@ -296,14 +302,17 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
 
   const navigateToVisit = (visit) => {
     let navUrl = null;
+    if (visit?.lat && visit?.lng) {
+      navUrl = `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`;
+    }
     // Find default patient address
     const defaultAddress = visit.patient?.addresses?.find(addr => addr.is_default);
 
-    if (defaultAddress?.lat && defaultAddress?.lng) {
+    if (!navUrl && defaultAddress?.lat && defaultAddress?.lng) {
       navUrl = `https://www.google.com/maps/search/?api=1&query=${defaultAddress.lat},${defaultAddress.lng}`;
-    } else if (visit.address) {
+    } else if (!navUrl && visit.address) {
       navUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visit.address)}`;
-    } else if (visit.patient?.addresses?.length > 0) {
+    } else if (!navUrl && visit.patient?.addresses?.length > 0) {
       // fallback to area of first address
       navUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visit.patient.addresses[0].area || "")}`;
     }

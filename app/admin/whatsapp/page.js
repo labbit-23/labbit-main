@@ -10,6 +10,7 @@ import {
   MessageList,
   MessageInput
 } from "@chatscope/chat-ui-kit-react";
+import { useSearchParams } from "next/navigation";
 import { useUser } from "@/app/context/UserContext";
 
 const APP_LOGO = process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png";
@@ -77,6 +78,15 @@ function getInitial(text) {
   return (text || "?").trim().charAt(0).toUpperCase() || "?";
 }
 
+function digitsOnly(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function canonicalPhone(value) {
+  const digits = digitsOnly(value);
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 function getDisplayMessageText(msg, botLabelMap) {
   if (!msg) return "";
 
@@ -85,6 +95,13 @@ function getDisplayMessageText(msg, botLabelMap) {
   const rawMessage = msg.message || "";
 
   if (msg.direction === "inbound") {
+    if (rawMessage === "__MEDIA__") {
+      const mediaType = msg?.payload?.media?.type;
+      if (mediaType === "image") return "Shared image";
+      if (mediaType === "document") return "Shared document";
+      return "Shared attachment";
+    }
+
     if (rawMessage.startsWith("SLOT_PAGE_")) {
       const pageNo = rawMessage.replace("SLOT_PAGE_", "").trim();
       return `Viewed more time slots${pageNo ? ` (page ${pageNo})` : ""}`;
@@ -153,8 +170,31 @@ function getDisplayMessageText(msg, botLabelMap) {
   return botLabelMap?.[rawMessage] || rawMessage;
 }
 
+function getMessageMedia(msg) {
+  const media = msg?.payload?.media;
+  if (media?.url) {
+    return {
+      type: media.type || "file",
+      url: media.url,
+      filename: media.filename || null
+    };
+  }
+
+  const doc = msg?.payload?.request?.document;
+  if (doc?.link) {
+    return {
+      type: "document",
+      url: doc.link,
+      filename: doc.filename || null
+    };
+  }
+
+  return null;
+}
+
 export default function WhatsAppDashboard() {
   const { user, isLoading: isUserLoading } = useUser();
+  const searchParams = useSearchParams();
 
   const [sessions, setSessions] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -166,11 +206,23 @@ export default function WhatsAppDashboard() {
   const [senderFilter, setSenderFilter] = useState("all");
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [oldestCursor, setOldestCursor] = useState(null);
+  const [historyWindowDays, setHistoryWindowDays] = useState(2);
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [clickupAction, setClickupAction] = useState("followup");
+  const [isSendingAttachment, setIsSendingAttachment] = useState(false);
+  const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
 
   const messageEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const isPrependingRef = useRef(false);
+  const attachInputRef = useRef(null);
+  const initialBottomReadyRef = useRef(false);
 
   useEffect(() => {
     if (isUserLoading || !user) return;
@@ -178,9 +230,32 @@ export default function WhatsAppDashboard() {
   }, [isUserLoading, user]);
 
   useEffect(() => {
-    if (!messageEndRef.current) return;
-    messageEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    if (isPrependingRef.current) {
+      isPrependingRef.current = false;
+      return;
+    }
+    if (!selectedSession || messages.length === 0) return;
+    scrollToBottom();
+  }, [messages, selectedSession]);
+
+  useEffect(() => {
+    setOpenInfoSessionId(null);
+  }, [selectedSession?.id]);
+
+  const getMessageScrollElement = () =>
+    chatContainerRef.current?.querySelector(".cs-message-list__scroll-wrapper") || null;
+
+  const scrollToBottom = () => {
+    const doScroll = () => {
+      const scrollEl = getMessageScrollElement();
+      if (scrollEl) {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      }
+    };
+    requestAnimationFrame(doScroll);
+    setTimeout(doScroll, 40);
+    setTimeout(doScroll, 120);
+  };
 
   const fetchSessions = async () => {
     setError("");
@@ -196,7 +271,34 @@ export default function WhatsAppDashboard() {
 
       if (selectedSession) {
         const freshSelected = nextSessions.find((s) => s.id === selectedSession.id);
-        setSelectedSession(freshSelected || null);
+        if (freshSelected) {
+          const mergedSelected = {
+            ...freshSelected,
+            patient_name:
+              freshSelected.patient_name ||
+              selectedSession.patient_name ||
+              freshSelected.phone ||
+              "Unknown"
+          };
+          setSelectedSession(mergedSelected);
+          setSessions((prev) =>
+            prev.map((row) => (row.id === mergedSelected.id ? { ...row, patient_name: mergedSelected.patient_name } : row))
+          );
+        } else if (nextSessions.length > 0) {
+          const first = nextSessions[0];
+          setSelectedSession(first);
+          await fetchMessages(first.phone);
+        } else {
+          setSelectedSession(null);
+        }
+      } else if (nextSessions.length > 0) {
+        const requestedPhone = searchParams.get("phone");
+        const matchedByPhone = requestedPhone
+          ? nextSessions.find((s) => String(s.phone || "").includes(String(requestedPhone)))
+          : null;
+        const first = matchedByPhone || nextSessions[0];
+        setSelectedSession(first);
+        await fetchMessages(first.phone);
       }
     } catch {
       setError("Failed to load conversations.");
@@ -205,34 +307,159 @@ export default function WhatsAppDashboard() {
     }
   };
 
-  const fetchMessages = async (phone) => {
+  const fetchMessages = async (phone, options = {}) => {
     if (!phone) return;
+    const { before = null, appendOlder = false } = options;
 
     setError("");
-    setIsLoadingMessages(true);
+    if (appendOlder) {
+      setIsLoadingOlder(true);
+    } else {
+      setIsLoadingMessages(true);
+    }
 
     try {
-      const response = await fetch(`/api/admin/whatsapp/messages?phone=${encodeURIComponent(phone)}`, {
+      const query = new URLSearchParams({ phone });
+      if (before) query.set("before", before);
+      const response = await fetch(`/api/admin/whatsapp/messages?${query.toString()}`, {
         credentials: "include"
       });
 
       if (!response.ok) throw new Error("Failed to load messages");
 
       const body = await response.json();
-      setMessages(body.messages || []);
-      if (body.session) setSelectedSession(body.session);
+      const incoming = body.messages || [];
+      if (appendOlder) {
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const dedupedOlder = incoming.filter((m) => !existingIds.has(m.id));
+          return [...dedupedOlder, ...prev];
+        });
+      } else {
+        setMessages(incoming);
+      }
+      if (body.session) {
+        setSelectedSession(body.session);
+        setSessions((prev) =>
+          prev.map((row) => {
+            if (canonicalPhone(row.phone) !== canonicalPhone(body.session.phone)) return row;
+            return {
+              ...row,
+              patient_name: body.session.patient_name || row.patient_name || row.phone || "Unknown"
+            };
+          })
+        );
+      }
       setLabMeta(body.lab || null);
       setBotLabelMap(body.botLabelMap || {});
+      setHasOlderMessages(Boolean(body.pagination?.has_older));
+      setOldestCursor(body.pagination?.next_before || null);
+      setHistoryWindowDays(body.pagination?.initial_window_days || 2);
+      if (!appendOlder) {
+        scrollToBottom();
+        initialBottomReadyRef.current = true;
+      }
     } catch {
       setError("Failed to load messages.");
     } finally {
-      setIsLoadingMessages(false);
+      if (appendOlder) {
+        setIsLoadingOlder(false);
+      } else {
+        setIsLoadingMessages(false);
+      }
     }
   };
 
   const handleSelect = async (session) => {
     setSelectedSession(session);
+    setMessages([]);
+    setHasOlderMessages(false);
+    setOldestCursor(null);
+    initialBottomReadyRef.current = false;
     await fetchMessages(session.phone);
+  };
+
+  const handleLoadOlder = async () => {
+    if (!initialBottomReadyRef.current) return;
+    if (!selectedSession?.phone || !oldestCursor || !hasOlderMessages || isLoadingOlder || isLoadingMessages) {
+      return;
+    }
+
+    const scrollEl = getMessageScrollElement();
+    const previousHeight = scrollEl?.scrollHeight || 0;
+    const previousTop = scrollEl?.scrollTop || 0;
+    isPrependingRef.current = true;
+    await fetchMessages(selectedSession.phone, { before: oldestCursor, appendOlder: true });
+    requestAnimationFrame(() => {
+      const nextEl = getMessageScrollElement();
+      if (!nextEl) return;
+      const delta = (nextEl.scrollHeight || 0) - previousHeight;
+      nextEl.scrollTop = previousTop + Math.max(delta, 0);
+    });
+  };
+
+  const handleCreateClickupTask = async () => {
+    if (!selectedSession?.phone || isCreatingTask) return;
+    const notes = window.prompt("Add notes for this task (optional):", "") || "";
+    setIsCreatingTask(true);
+    try {
+      const response = await fetch("/api/admin/whatsapp/clickup-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          phone: selectedSession.phone,
+          action: clickupAction,
+          notes
+        })
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to create ClickUp task");
+      }
+    } catch (err) {
+      setError(err?.message || "Failed to create ClickUp task.");
+    } finally {
+      setIsCreatingTask(false);
+    }
+  };
+
+  const handleAttachmentChoose = () => {
+    if (attachInputRef.current) attachInputRef.current.click();
+  };
+
+  const handleAttachmentUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!selectedSession?.phone || !file) return;
+    if (!isWithin24(selectedSession)) {
+      setError("Cannot send attachments after the 24-hour window has expired.");
+      return;
+    }
+
+    const caption = window.prompt("Add caption (optional):", "") || "";
+    const form = new FormData();
+    form.append("phone", selectedSession.phone);
+    form.append("file", file);
+    form.append("caption", caption);
+
+    setIsSendingAttachment(true);
+    try {
+      const response = await fetch("/api/admin/whatsapp/reply-attachment", {
+        method: "POST",
+        credentials: "include",
+        body: form
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to send attachment");
+      }
+      await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+    } catch (err) {
+      setError(err?.message || "Failed to send attachment.");
+    } finally {
+      setIsSendingAttachment(false);
+      if (attachInputRef.current) attachInputRef.current.value = "";
+    }
   };
 
   const handleSend = async (text) => {
@@ -338,6 +565,43 @@ export default function WhatsAppDashboard() {
   const isExpiredWindow = Boolean(selectedSession && !isWithin24(selectedSession));
   const shouldRecommendClose = Boolean(selectedSession && isExpiredWindow && selectedSession.status !== "closed");
 
+  const hasManyPatients = (session) => Number(session?.matched_patient_count || 0) > 1;
+
+  const renderDbNamesPopover = (session, compact = false) => {
+    if (!hasManyPatients(session)) return null;
+    const rows = Array.isArray(session?.matched_patients) ? session.matched_patients : [];
+    const isOpen = openInfoSessionId === session?.id;
+
+    return (
+      <span className="wa-identityWrap">
+        <button
+          type="button"
+          className="wa-identityIcon"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpenInfoSessionId((prev) => (prev === session?.id ? null : session?.id));
+          }}
+          aria-label="Show matching DB patient names"
+          title="Show matching DB patient names"
+        >
+          i
+        </button>
+        <span className={`wa-namePopover ${isOpen ? "is-open" : ""} ${compact ? "is-compact" : ""}`}>
+          <strong>Patient DB names</strong>
+          {rows.map((row) => (
+            <span
+              key={`${row.id || row.name}-${row.name}`}
+              className={`wa-nameRow ${row.is_lead ? "is-lead" : "is-patient"}`}
+            >
+              {row.name}
+            </span>
+          ))}
+        </span>
+      </span>
+    );
+  };
+
   if (isUserLoading) {
     return <div className="wa-loading">Loading...</div>;
   }
@@ -396,11 +660,19 @@ export default function WhatsAppDashboard() {
                   const live = isWithin24(session);
                   const suffix = formatDateTime(session.last_message_at);
                   const contactType = session.contact_type === "lead" ? "Lead" : "Patient";
+                  const isActivePhoneMatch =
+                    selectedSession &&
+                    canonicalPhone(selectedSession.phone) === canonicalPhone(session.phone);
+                  const displayName =
+                    (isActivePhoneMatch ? selectedSession?.patient_name : null) ||
+                    session.patient_name ||
+                    session.phone ||
+                    "Unknown";
 
                   return (
                     <Conversation
                       key={session.id}
-                      name={`${session.patient_name || "Unknown Patient"} (${contactType})`}
+                      name={`${displayName} (${contactType})`}
                       info={`${session.phone}${suffix ? ` • ${suffix}` : ""}`}
                       onClick={() => handleSelect(session)}
                       active={selectedSession?.id === session.id}
@@ -416,10 +688,15 @@ export default function WhatsAppDashboard() {
                 })
               )}
             </ConversationList>
+            <div className="wa-sidebarLegend">
+              <span className="wa-legendTitle">Legend</span>
+              <span className="wa-legendItem is-lead">Blue: Lead</span>
+              <span className="wa-legendItem is-patient">Green: Existing Patient</span>
+            </div>
           </Sidebar>
 
-          <ChatContainer>
-
+          <div className="wa-chatCol">
+            <div className="wa-chatTop">
             <div className="wa-messageFilterBar">
               <span>History:</span>
               {[
@@ -444,8 +721,17 @@ export default function WhatsAppDashboard() {
                   <span className="wa-sessionName">
                     {selectedSession.patient_name || selectedSession.phone}
                   </span>
-                  <span className={`wa-status ${selectedSession.contact_type === "lead" ? "is-lead" : "is-patient"}`}>
-                    {selectedSession.contact_type === "lead" ? "Lead" : "Patient"}
+                  {renderDbNamesPopover(selectedSession, true)}
+                  <span
+                    className={`wa-status ${
+                      selectedSession.contact_type === "lead"
+                        ? "is-lead"
+                        : "is-patient"
+                    }`}
+                  >
+                    {selectedSession.contact_type === "lead"
+                      ? "Lead"
+                      : "Patient"}
                   </span>
                   <span className={`wa-status ${isWithin24(selectedSession) ? "is-live" : "is-expired"}`}>
                     {isWithin24(selectedSession) ? "24h live" : "24h expired"}
@@ -524,69 +810,138 @@ export default function WhatsAppDashboard() {
               </div>
             )}
 
-            <MessageList>
-              {!selectedSession ? (
-                <div className="wa-empty">Select a conversation to view messages.</div>
-              ) : isLoadingMessages ? (
-                <div className="wa-empty">Loading messages...</div>
-              ) : filteredMessages.length === 0 ? (
-                <div className="wa-empty">No messages for this filter.</div>
-              ) : (
-                filteredMessages.map((msg) => {
-                  const outgoing = msg.direction === "outbound";
-                  const senderLabel = getSenderLabel(msg, user?.id);
-                  const msgWithContext = {
-                    ...msg,
-                    sessionContext: selectedSession?.context || {}
-                  };
-
-                  return (
-                    <div key={msg.id} className={`wa-msgRow ${outgoing ? "is-out" : "is-in"}`}>
-                      {!outgoing && (
-                        <div className="wa-avatar wa-avatarPatient">
-                          {getInitial(selectedSession?.patient_name || "P")}
-                        </div>
-                      )}
-
-                      <div className={`wa-msgBubble ${outgoing ? "is-out" : "is-in"}`}>
-                        <div className="wa-msgMeta">
-                          <span className="wa-msgSender">{senderLabel}</span>
-                          <span className="wa-msgTime">{formatMessageTime(msg.created_at)} IST</span>
-                        </div>
-                        <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
-                      </div>
-
-                      {outgoing && (
-                        <div className="wa-avatar wa-avatarLab">
-                          <img src={labMeta?.logo_url || APP_LOGO} alt="Lab logo" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-              <div ref={messageEndRef} />
-            </MessageList>
-
             {error && <div className="wa-error">{error}</div>}
 
             {selectedSession && (
-              <MessageInput
-                placeholder={
-                  !isWithin24(selectedSession)
-                    ? "Reply window expired. Use a template message to reopen."
-                    : selectedSession.status === "closed"
-                      ? "Chat is closed. Mark pending/resolved to continue."
-                    : isSending
-                      ? "Sending..."
-                      : "Type a message"
-                }
-                onSend={handleSend}
-                disabled={!canReply}
-                attachButton={false}
-              />
+              <div className="wa-composerActions">
+                <div className="wa-composerActionGroup">
+                  <select
+                    value={clickupAction}
+                    onChange={(e) => setClickupAction(e.target.value)}
+                    className="wa-inlineSelect"
+                  >
+                    <option value="followup">Create Follow-up Task</option>
+                    <option value="report_request">Create Report Task</option>
+                    <option value="doctors_connect">Create Doctor Connect Task</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleCreateClickupTask}
+                    disabled={isCreatingTask}
+                    className="wa-inlineBtn"
+                  >
+                    {isCreatingTask ? "Creating..." : "Create ClickUp"}
+                  </button>
+                </div>
+                <div className="wa-composerActionGroup">
+                  <input
+                    ref={attachInputRef}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                    className="wa-hiddenFileInput"
+                    onChange={handleAttachmentUpload}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAttachmentChoose}
+                    disabled={!isWithin24(selectedSession) || isSendingAttachment}
+                    className="wa-inlineBtn"
+                  >
+                    {isSendingAttachment ? "Sending..." : "Attach File"}
+                  </button>
+                </div>
+              </div>
             )}
-          </ChatContainer>
+            </div>
+
+            <div className="wa-chatBody">
+              <ChatContainer ref={chatContainerRef}>
+              <MessageList onYReachStart={handleLoadOlder}>
+                {!selectedSession ? (
+                  <div className="wa-empty">Select a conversation to view messages.</div>
+                ) : isLoadingMessages ? (
+                  <div className="wa-empty">Loading messages...</div>
+                ) : filteredMessages.length === 0 ? (
+                  <div className="wa-empty">No messages for this filter.</div>
+                ) : (
+                  <>
+                    {hasOlderMessages && (
+                      <div className="wa-historyHint">
+                        {isLoadingOlder
+                          ? "Loading older messages..."
+                          : `Showing last ${historyWindowDays} days. Scroll up to load older history.`}
+                      </div>
+                    )}
+                    {filteredMessages.map((msg) => {
+                      const outgoing = msg.direction === "outbound";
+                      const senderLabel = getSenderLabel(msg, user?.id);
+                      const media = getMessageMedia(msg);
+                      const msgWithContext = {
+                        ...msg,
+                        sessionContext: selectedSession?.context || {}
+                      };
+
+                      return (
+                        <div key={msg.id} className={`wa-msgRow ${outgoing ? "is-out" : "is-in"}`}>
+                          {!outgoing && (
+                            <div className="wa-avatar wa-avatarPatient">
+                              {getInitial(selectedSession?.patient_name || "P")}
+                            </div>
+                          )}
+
+                          <div className={`wa-msgBubble ${outgoing ? "is-out" : "is-in"}`}>
+                            <div className="wa-msgMeta">
+                              <span className="wa-msgSender">{senderLabel}</span>
+                              <span className="wa-msgTime">{formatMessageTime(msg.created_at)} IST</span>
+                            </div>
+                            <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
+                            {media?.url && (
+                              <div className="wa-msgAttachment">
+                                {media.type === "image" ? (
+                                  <a href={media.url} target="_blank" rel="noreferrer">
+                                    <img src={media.url} alt="Attachment" className="wa-msgAttachmentImage" />
+                                  </a>
+                                ) : (
+                                  <a href={media.url} target="_blank" rel="noreferrer" className="wa-msgAttachmentLink">
+                                    {media.filename || "Open attachment"}
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {outgoing && (
+                            <div className="wa-avatar wa-avatarLab">
+                              <img src={labMeta?.logo_url || APP_LOGO} alt="Lab logo" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                <div ref={messageEndRef} />
+              </MessageList>
+
+              {selectedSession && (
+                <MessageInput
+                  placeholder={
+                    !isWithin24(selectedSession)
+                      ? "Reply window expired. Use a template message to reopen."
+                      : selectedSession.status === "closed"
+                        ? "Chat is closed. Mark pending/resolved to continue."
+                        : isSending
+                          ? "Sending..."
+                          : "Type a message"
+                  }
+                  onSend={handleSend}
+                  disabled={!canReply}
+                  attachButton={false}
+                />
+              )}
+              </ChatContainer>
+            </div>
+          </div>
         </MainContainer>
       </div>
 
@@ -673,7 +1028,7 @@ export default function WhatsAppDashboard() {
         .wa-sidebarHeader h1 {
           margin: 0;
           font-size: 20px;
-          color: #122033;
+          color: #0c3f47;
         }
 
         .wa-sidebarHeader p {
@@ -722,8 +1077,8 @@ export default function WhatsAppDashboard() {
 
         .wa-tabs button.is-active,
         .wa-messageFilterBar button.is-active {
-          background: #1c2a3d;
-          border-color: #1c2a3d;
+          background: #0f7f85;
+          border-color: #0f7f85;
           color: #fff;
         }
 
@@ -778,13 +1133,13 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-status.is-patient {
-          background: #e7f0ff;
-          color: #1f4e8a;
+          background: #e6f8ef;
+          color: #1f7a4d;
         }
 
         .wa-status.is-lead {
-          background: #fce8ef;
-          color: #9b1d4a;
+          background: #e7efff;
+          color: #1f5fbf;
         }
 
         .wa-status.is-pending {
@@ -829,6 +1184,101 @@ export default function WhatsAppDashboard() {
           color: #162437;
         }
 
+        .wa-identityWrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+        }
+
+        .wa-identityIcon {
+          width: 18px;
+          height: 18px;
+          border-radius: 999px;
+          border: 1px solid #b7c6db;
+          color: #3f5677;
+          background: #f7faff;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: help;
+        }
+
+        .wa-namePopover {
+          position: absolute;
+          top: 24px;
+          left: 0;
+          min-width: 180px;
+          background: #fff;
+          border: 1px solid #d5deeb;
+          border-radius: 8px;
+          box-shadow: 0 8px 18px rgba(20, 32, 52, 0.14);
+          padding: 8px;
+          display: none;
+          z-index: 1200;
+          font-size: 12px;
+          color: #2a3e59;
+          white-space: normal;
+        }
+
+        .wa-namePopover.is-open {
+          display: block;
+        }
+
+        .wa-namePopover.is-compact {
+          left: auto;
+          right: 0;
+        }
+
+        .wa-namePopover strong {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 11px;
+          color: #516680;
+        }
+
+        .wa-nameRow {
+          display: block;
+          margin: 2px 0;
+          font-weight: 600;
+        }
+
+        .wa-nameRow.is-lead {
+          color: #1f5fbf;
+        }
+
+        .wa-nameRow.is-patient {
+          color: #1f7a4d;
+        }
+
+        .wa-sidebarLegend {
+          border-top: 1px solid #e1e7f1;
+          padding: 8px 10px;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          align-items: center;
+          font-size: 11px;
+        }
+
+        .wa-legendTitle {
+          color: #5e7087;
+          font-weight: 700;
+        }
+
+        .wa-legendItem {
+          font-weight: 700;
+        }
+
+        .wa-legendItem.is-lead {
+          color: #1f5fbf;
+        }
+
+        .wa-legendItem.is-patient {
+          color: #1f7a4d;
+        }
+
         .wa-actionBtns {
           display: flex;
           gap: 6px;
@@ -847,9 +1297,9 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-actionBtns button.is-active {
-          background: #1c2a3d;
+          background: #0f7f85;
           color: #fff;
-          border-color: #1c2a3d;
+          border-color: #0f7f85;
         }
 
         .wa-actionBtns button.danger {
@@ -925,6 +1375,17 @@ export default function WhatsAppDashboard() {
           align-items: flex-end;
           gap: 8px;
           margin: 8px 0;
+        }
+
+        .wa-historyHint {
+          margin: 4px auto 8px;
+          padding: 6px 10px;
+          border: 1px solid #dbe5f2;
+          border-radius: 999px;
+          font-size: 11px;
+          color: #51657f;
+          background: #f7faff;
+          width: fit-content;
         }
 
         .wa-msgRow.is-out {
@@ -1016,6 +1477,29 @@ export default function WhatsAppDashboard() {
           font-size: 14px;
         }
 
+        .wa-msgAttachment {
+          margin-top: 8px;
+        }
+
+        .wa-msgAttachmentImage {
+          max-width: 220px;
+          max-height: 220px;
+          border-radius: 8px;
+          border: 1px solid #d0d9e6;
+          display: block;
+          object-fit: cover;
+          background: #ffffff;
+        }
+
+        .wa-msgAttachmentLink {
+          display: inline-block;
+          font-size: 12px;
+          font-weight: 700;
+          color: #0f7f85;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+
         .wa-error {
           border-top: 1px solid #f0d4d4;
           background: #fff5f5;
@@ -1025,9 +1509,93 @@ export default function WhatsAppDashboard() {
           padding: 8px 12px;
         }
 
+        .wa-composerActions {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          flex-wrap: wrap;
+          padding: 8px 10px;
+          border-top: 1px solid #e0e7f0;
+          border-bottom: 1px solid #e0e7f0;
+          background: #f7fbff;
+        }
+
+        .wa-composerActionGroup {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .wa-inlineSelect {
+          height: 30px;
+          border-radius: 8px;
+          border: 1px solid #c8d6ea;
+          background: #fff;
+          color: #294365;
+          font-size: 12px;
+          padding: 0 10px;
+        }
+
+        .wa-inlineBtn {
+          height: 30px;
+          border-radius: 8px;
+          border: 1px solid #0f7f85;
+          background: #0f7f85;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 700;
+          padding: 0 12px;
+          cursor: pointer;
+        }
+
+        .wa-inlineBtn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+
+        .wa-hiddenFileInput {
+          display: none;
+        }
+
         .cs-main-container {
           border-radius: 0;
           border: 0;
+          height: 100%;
+        }
+
+        .wa-chatCol {
+          position: relative;
+          z-index: 20;
+          flex: 1 1 auto;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 0;
+          min-width: 0;
+          overflow: visible;
+        }
+
+        .wa-chatTop {
+          flex: 0 0 auto;
+          position: relative;
+          z-index: 2;
+          background: #ffffff;
+          border-bottom: 1px solid #e0e7f0;
+        }
+
+        .wa-chatBody {
+          flex: 1;
+          min-height: 0;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .wa-chatBody .cs-chat-container {
+          flex: 1;
+          min-height: 0;
+          width: 100%;
           height: 100%;
         }
 
@@ -1042,6 +1610,12 @@ export default function WhatsAppDashboard() {
           border-radius: 10px;
           margin: 6px 8px;
           border: 1px solid transparent;
+        }
+
+        .cs-conversation.cs-conversation--unread .cs-conversation__name,
+        .cs-conversation.cs-conversation--unread .cs-conversation__info {
+          font-weight: 800;
+          color: #0f7f85;
         }
 
         .cs-conversation:hover {

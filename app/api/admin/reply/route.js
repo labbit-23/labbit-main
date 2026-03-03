@@ -5,6 +5,7 @@ import { getIronSession } from "iron-session";
 import { supabase } from "@/lib/supabaseServer";
 import { ironOptions } from "@/lib/session";
 import { sendTextMessage } from "@/lib/whatsapp/sender";
+import { phoneVariantsIndia } from "@/lib/phone";
 
 const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
 
@@ -18,15 +19,8 @@ function canUseWhatsappInbox(user) {
   return ALLOWED_EXEC_TYPES.includes(getRoleKey(user));
 }
 
-function digitsOnly(value) {
-  return String(value || "").replace(/\D/g, "");
-}
-
 function phoneCandidates(value) {
-  const digits = digitsOnly(value);
-  const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
-  const canonical = last10?.length === 10 ? `91${last10}` : digits;
-  return Array.from(new Set([value, digits, last10, canonical].filter(Boolean)));
+  return phoneVariantsIndia(value);
 }
 
 export async function POST(req) {

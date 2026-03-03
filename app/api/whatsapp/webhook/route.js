@@ -15,10 +15,26 @@ import {
   sendBranchLocationsMenu,
   sendBookingDateMenu,
   sendBookingSlotMenu,
+  sendBookingLocationMenu,
   sendPackageMenu,
   sendPackageVariantMenu
 } from "@/lib/whatsapp/sender";
 import healthPackagesData from "@/lib/data/health-packages.json";
+import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
+
+const BOT_START_KEYWORDS = new Set([
+  "HI",
+  "HELLO",
+  "HEY",
+  "HII",
+  "HLO",
+  "MAIN_MENU",
+  "MAIN MENU",
+  "MENU",
+  "REQUEST_REPORTS",
+  "BOOK_HOME_VISIT",
+  "MORE_SERVICES"
+]);
 
 function parseTemplates(templates) {
   if (!templates) return {};
@@ -32,30 +48,103 @@ function parseTemplates(templates) {
   return typeof templates === "object" ? templates : {};
 }
 
-function digitsOnly(value) {
-  return String(value || "").replace(/\D/g, "");
-}
-
-function toCanonicalPhone(value) {
-  const digits = digitsOnly(value);
-  if (!digits) return "";
-  if (digits.length === 11 && digits.startsWith("0")) {
-    return `91${digits.slice(1)}`;
-  }
-  if (digits.length === 10) {
-    return `91${digits}`;
-  }
-  if (digits.length > 12) {
-    return `91${digits.slice(-10)}`;
-  }
-  return digits;
+function getIncomingProfileName(body) {
+  const candidates = [
+    body?.profile?.name,
+    body?.contacts?.[0]?.profile?.name,
+    body?.value?.contacts?.[0]?.profile?.name,
+    body?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name
+  ];
+  return candidates.find((name) => typeof name === "string" && name.trim())?.trim() || null;
 }
 
 function normalizePhoneVariants(rawPhone) {
-  const digits = digitsOnly(rawPhone);
-  const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
-  const canonical = toCanonicalPhone(rawPhone);
-  return Array.from(new Set([rawPhone, canonical, digits, last10, last10 ? `91${last10}` : ""].filter(Boolean)));
+  return phoneVariantsIndia(rawPhone);
+}
+
+function getInboundMedia(message) {
+  if (message?.image) {
+    return {
+      type: "image",
+      url: message.image.link || message.image.url || message.image.image_url || null,
+      mimeType: message.image.mime_type || "image/jpeg",
+      id: message.image.id || null,
+      filename: null
+    };
+  }
+
+  if (message?.document) {
+    return {
+      type: "document",
+      url: message.document.link || message.document.url || message.document.document_url || null,
+      mimeType: message.document.mime_type || "application/octet-stream",
+      id: message.document.id || null,
+      filename: message.document.filename || "prescription"
+    };
+  }
+
+  return null;
+}
+
+function fileExtFromMime(mime = "", fallback = "bin") {
+  const map = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "application/pdf": "pdf"
+  };
+  return map[String(mime).toLowerCase()] || fallback;
+}
+
+async function persistPrescriptionMedia({ inboundMedia, labId, phone }) {
+  if (!inboundMedia?.url) return null;
+
+  try {
+    const response = await fetch(inboundMedia.url);
+    if (!response.ok) return inboundMedia.url;
+
+    const fileBuffer = await response.arrayBuffer();
+    const ext =
+      (inboundMedia.filename && String(inboundMedia.filename).split(".").pop()) ||
+      fileExtFromMime(inboundMedia.mimeType, "bin");
+    const safePhone = digitsOnly(phone).slice(-10) || "unknown";
+    const filePath = `prescriptions/whatsapp/${labId}/${safePhone}_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("uploads")
+      .upload(filePath, fileBuffer, {
+        contentType: inboundMedia.mimeType || "application/octet-stream",
+        upsert: false
+      });
+
+    if (uploadError) return inboundMedia.url;
+    return `uploads/${filePath}`;
+  } catch {
+    return inboundMedia.url;
+  }
+}
+
+function shouldActivateBotFromStart({ session, message, userInput }) {
+  const state = session?.current_state || "START";
+  if (state !== "START") return true;
+
+  // Interactive replies are deliberate bot interactions and should always continue.
+  if (message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id) {
+    return true;
+  }
+
+  // Location pin flow should always continue.
+  if (message?.location?.latitude && message?.location?.longitude) {
+    return true;
+  }
+
+  const normalized = String(userInput || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+
+  return BOT_START_KEYWORDS.has(normalized);
 }
 
 function preferPatient(primary, secondary) {
@@ -70,11 +159,13 @@ async function findLocalPatientByPhone(rawPhone) {
 
   const { data: rows } = await supabase
     .from("patients")
-    .select("id, name, phone, email, dob, gender, mrn, is_lead")
+    .select("id, name, phone, email, dob, gender, mrn, is_lead, created_at")
     .in("phone", variants)
     .limit(10);
 
-  const patients = rows || [];
+  const patients = [...(rows || [])].sort(
+    (a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+  );
   const nonLead = patients.find((p) => !p?.is_lead);
   return nonLead || patients[0] || null;
 }
@@ -286,6 +377,7 @@ export async function POST(req) {
   try {
 
     const body = await req.json();
+    const profileName = getIncomingProfileName(body);
     console.log("📩 RAW WEBHOOK:", JSON.stringify(body));
 
     // --------------------------------------------------
@@ -354,6 +446,8 @@ export async function POST(req) {
     // --------------------------------------------------
 
     let userInput = null;
+    let inboundLocation = null;
+    let inboundMedia = getInboundMedia(message);
 
     if (message.text?.body) {
       userInput = message.text.body.trim();
@@ -365,6 +459,20 @@ export async function POST(req) {
 
     if (message.interactive?.list_reply?.id) {
       userInput = message.interactive.list_reply.id;
+    }
+
+    if (message.location?.latitude && message.location?.longitude) {
+      userInput = "__LOCATION_PIN__";
+      inboundLocation = {
+        latitude: message.location.latitude,
+        longitude: message.location.longitude,
+        name: message.location.name || null,
+        address: message.location.address || null
+      };
+    }
+
+    if (!userInput && inboundMedia) {
+      userInput = "__MEDIA__";
     }
 
     if (!userInput) {
@@ -379,7 +487,7 @@ export async function POST(req) {
     const match = rawPhone.match(/^\+(\d{1,3})/);
     const countryCode = match ? match[1] : null;
 
-    const phone = toCanonicalPhone(rawPhone) || rawPhone;
+    const phone = toCanonicalIndiaPhone(rawPhone) || rawPhone;
 
     // --------------------------------------------------
     // 5️⃣ Get/Create Session
@@ -437,7 +545,7 @@ export async function POST(req) {
           const { data: upgradedPatient } = await supabase
             .from("patients")
             .update({
-              name: externalPatient.name || linkedPatient.name || body?.profile?.name || "Patient",
+              name: externalPatient.name || linkedPatient.name || profileName || "Patient",
               dob: externalPatient.dob,
               gender: externalPatient.gender,
               email: externalPatient.email,
@@ -452,7 +560,7 @@ export async function POST(req) {
           const { data: createdPatient } = await supabase
             .from("patients")
             .insert({
-              name: externalPatient.name || body?.profile?.name || "Patient",
+              name: externalPatient.name || profileName || "Patient",
               phone: digitsOnly(phone).slice(-10) || phone,
               dob: externalPatient.dob,
               gender: externalPatient.gender,
@@ -484,7 +592,7 @@ export async function POST(req) {
       const { data: leadPatient } = await supabase
         .from("patients")
         .insert({
-          name: body?.profile?.name || "WhatsApp Lead",
+          name: profileName || "WhatsApp Lead",
           phone: digitsOnly(phone).slice(-10) || phone,
           is_lead: true
         })
@@ -498,7 +606,8 @@ export async function POST(req) {
         .from("chat_sessions")
         .update({
           patient_id: linkedPatient.id,
-          patient_name: linkedPatient.name || body?.profile?.name || null
+          // Keep UI display aligned with latest WhatsApp identity when available.
+          patient_name: profileName || session.patient_name || null
         })
         .eq("id", session.id);
     }
@@ -511,10 +620,35 @@ export async function POST(req) {
       message_id: messageId,
       lab_id: session.lab_id,
       phone: phone,
+      name: profileName || null,
       message: userInput,
       direction: "inbound",
-      payload: null
+      payload: {
+        raw_message: message,
+        raw_body: body,
+        ...(profileName ? { profile_name: profileName } : {}),
+        ...(inboundMedia
+          ? {
+              media: {
+                type: inboundMedia.type,
+                id: inboundMedia.id || null,
+                url: inboundMedia.url || null,
+                filename: inboundMedia.filename || null
+              }
+            }
+          : {})
+      }
     });
+
+    await supabase
+      .from("chat_sessions")
+      .update({
+        last_message_at: new Date(),
+        last_user_message_at: new Date(),
+        unread_count: (session.unread_count || 0) + 1,
+        updated_at: new Date()
+      })
+      .eq("id", session.id);
 
     // --------------------------------------------------
     // 9️⃣ Human Handoff Mode
@@ -548,7 +682,31 @@ export async function POST(req) {
       lab.alternate_whatsapp_number ||
       lab.internal_whatsapp_number;
 
-    const result = await processMessage(session, userInput, phone, { botFlowConfig });
+    if (inboundMedia) {
+      const persistedUrl = await persistPrescriptionMedia({
+        inboundMedia,
+        labId: session.lab_id,
+        phone
+      });
+      inboundMedia = { ...inboundMedia, url: persistedUrl || inboundMedia.url || null };
+    }
+
+    if (!shouldActivateBotFromStart({ session, message, userInput })) {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text:
+          botFlowConfig?.texts?.wait_for_executive_text ||
+          "Thanks for your message. Please wait, our executive will reach out to help you shortly."
+      });
+      return Response.json({ success: true });
+    }
+
+    const result = await processMessage(session, userInput, phone, {
+      botFlowConfig,
+      inboundLocation,
+      inboundMedia
+    });
 
     // --------------------------------------------------
     // 1️⃣1️⃣ Internal Notify
@@ -841,13 +999,20 @@ export async function POST(req) {
         break;
       }
 
+      case "BOOKING_LOCATION_MENU":
+        await sendBookingLocationMenu({
+          labId: session.lab_id,
+          phone
+        });
+        break;
+
       case "CALL_QUICKBOOK":
         {
         const quickbookResponse = await fetch("https://lab.sdrc.in/api/quickbook", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            patientName: body?.profile?.name || "WhatsApp User",
+            patientName: profileName || "WhatsApp User",
             phone,
             packageName: nextContext.tests,
             area: nextContext.area,
@@ -855,7 +1020,14 @@ export async function POST(req) {
             timeslot: nextContext.selected_slot,
             persons: 1,
             whatsapp: true,
-            agree: true
+            agree: true,
+            location_source: nextContext.location_source || null,
+            location_text: nextContext.location_text || null,
+            location_name: nextContext.location_name || null,
+            location_address: nextContext.location_address || null,
+            location_lat: nextContext.location_lat || null,
+            location_lng: nextContext.location_lng || null,
+            prescription: nextContext.prescription || null
           })
         });
 
@@ -897,6 +1069,17 @@ export async function POST(req) {
           labId: session.lab_id,
           phone,
           text: result.replyText
+        });
+        break;
+
+      case "INTERNAL_NOTIFY":
+        await sendTextMessage({
+          labId: session.lab_id,
+          phone,
+          text:
+            result.replyText ||
+            botFlowConfig?.texts?.report_request_ack ||
+            "Thank you. Our team will verify and send your report shortly."
         });
         break;
 

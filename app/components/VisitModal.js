@@ -54,6 +54,9 @@ export default function VisitModal({
     time_slot: "",
     address_id: "",
     address: "",
+    lat: null,
+    lng: null,
+    location_text: "",
     status: defaultValues.status || "unassigned",
     notes: visitInitialData?.tests?.length
       ? Array.isArray(visitInitialData.tests)
@@ -121,6 +124,9 @@ export default function VisitModal({
           : visitInitialData.time_slot || "",
         address_id: visitInitialData.address_id || "",
         address: visitInitialData.address || initialAddress || "",
+        lat: visitInitialData.lat || null,
+        lng: visitInitialData.lng || null,
+        location_text: visitInitialData.location_text || "",
         status: visitInitialData.status || defaultValues.status || "unassigned",
         notes: visitInitialData?.tests?.length
           ? Array.isArray(visitInitialData.tests)
@@ -153,6 +159,9 @@ export default function VisitModal({
           : "",
         address_id: "",
         address: visitInitialData?.address || initialAddress || "",
+        lat: visitInitialData?.lat || null,
+        lng: visitInitialData?.lng || null,
+        location_text: visitInitialData?.location_text || "",
         status: defaultValues.status || "unassigned",
         notes: visitInitialData?.tests?.length
           ? Array.isArray(visitInitialData.tests)
@@ -270,6 +279,38 @@ export default function VisitModal({
     } else {
       setFormData(f => ({ ...f, [field]: val }));
     }
+  };
+
+  const parseLocationInput = (value) => {
+    const text = String(value || "").trim();
+    if (!text) {
+      setFormData((f) => ({ ...f, location_text: "", lat: null, lng: null }));
+      return;
+    }
+
+    const latLngMatch = text.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (latLngMatch) {
+      setFormData((f) => ({
+        ...f,
+        location_text: text,
+        lat: Number(latLngMatch[1]),
+        lng: Number(latLngMatch[2])
+      }));
+      return;
+    }
+
+    const mapsQueryMatch = text.match(/[?&]query=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
+    if (mapsQueryMatch) {
+      setFormData((f) => ({
+        ...f,
+        location_text: text,
+        lat: Number(mapsQueryMatch[1]),
+        lng: Number(mapsQueryMatch[2])
+      }));
+      return;
+    }
+
+    setFormData((f) => ({ ...f, location_text: text }));
   };
 
   const isValid =
@@ -440,6 +481,42 @@ export default function VisitModal({
                     </Select>
                   ))
                 }
+
+                {renderRow("Location (optional)", (
+                  <VStack align="stretch" spacing={2}>
+                    <Input
+                      placeholder="Paste maps link, or lat,lng, or custom location text"
+                      value={formData.location_text || ""}
+                      onChange={(e) => parseLocationInput(e.target.value)}
+                    />
+                    <Flex gap={2}>
+                      <Input
+                        placeholder="Latitude"
+                        type="number"
+                        step="any"
+                        value={formData.lat ?? ""}
+                        onChange={(e) =>
+                          setFormData((f) => ({
+                            ...f,
+                            lat: e.target.value === "" ? null : Number(e.target.value)
+                          }))
+                        }
+                      />
+                      <Input
+                        placeholder="Longitude"
+                        type="number"
+                        step="any"
+                        value={formData.lng ?? ""}
+                        onChange={(e) =>
+                          setFormData((f) => ({
+                            ...f,
+                            lng: e.target.value === "" ? null : Number(e.target.value)
+                          }))
+                        }
+                      />
+                    </Flex>
+                  </VStack>
+                ), false)}
 
                 {/* Test List */}
                 {renderRow("Test List", (

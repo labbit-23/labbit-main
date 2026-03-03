@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
+import { phoneVariantsIndia } from "@/lib/phone";
 
 const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
 
@@ -15,33 +16,48 @@ function canUseWhatsappInbox(user) {
   return ALLOWED_EXEC_TYPES.includes(getRoleKey(user));
 }
 
-function digitsOnly(value) {
-  return String(value || "").replace(/\D/g, "");
-}
-
-function toCanonicalPhone(value) {
-  const digits = digitsOnly(value);
-  if (!digits) return "";
-  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length > 12) return `91${digits.slice(-10)}`;
-  return digits;
-}
-
 function phoneCandidates(phone) {
-  const digits = digitsOnly(phone);
-  if (!digits) return [];
-  const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
-  const canonical = toCanonicalPhone(phone);
-  return Array.from(new Set([phone, canonical, digits, last10, last10 ? `91${last10}` : ""].filter(Boolean)));
+  return phoneVariantsIndia(phone);
 }
 
 function pickBestPatient({ byPhone = [], byId = null }) {
-  const phoneNonLead = byPhone.find((p) => !p?.is_lead);
+  const sorted = [...byPhone].sort((a, b) => {
+    const at = new Date(a?.created_at || 0).getTime();
+    const bt = new Date(b?.created_at || 0).getTime();
+    return bt - at;
+  });
+  const phoneNonLead = sorted.find((p) => !p?.is_lead);
   if (phoneNonLead) return phoneNonLead;
   if (byId && !byId.is_lead) return byId;
-  if (byPhone[0]) return byPhone[0];
+  if (sorted[0]) return sorted[0];
   return byId || null;
+}
+
+function uniquePatients(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    if (!row?.id || map.has(row.id)) continue;
+    map.set(row.id, row);
+  }
+  return [...map.values()];
+}
+
+function uniqueNames(values = []) {
+  return Array.from(
+    new Set(
+      values
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function pickLatestProfileName(messageRows = []) {
+  return (
+    (messageRows || [])
+      .map((row) => row?.name || row?.payload?.profile_name)
+      .find((value) => typeof value === "string" && value.trim()) || null
+  );
 }
 
 export async function GET(request) {
@@ -56,6 +72,9 @@ export async function GET(request) {
     }
 
     const phone = request.nextUrl.searchParams.get("phone");
+    const before = request.nextUrl.searchParams.get("before");
+    const limitParam = Number(request.nextUrl.searchParams.get("limit") || 80);
+    const pageLimit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 20), 200) : 80;
     if (!phone) {
       return NextResponse.json({ error: "Missing phone" }, { status: 400 });
     }
@@ -85,12 +104,45 @@ export async function GET(request) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const { data: messages, error: messagesError } = await supabase
+    let allSessionNamesQuery = supabase
+      .from("chat_sessions")
+      .select("patient_name,last_message_at,created_at")
+      .in("phone", phoneCandidates(phone))
+      .order("last_message_at", { ascending: false })
+      .limit(100);
+
+    if (labIds.length > 0) {
+      allSessionNamesQuery = allSessionNamesQuery.in("lab_id", labIds);
+    } else if (chatSession.lab_id) {
+      allSessionNamesQuery = allSessionNamesQuery.eq("lab_id", chatSession.lab_id);
+    }
+
+    const { data: allSessionNames } = await allSessionNamesQuery;
+
+    let messagesQuery = supabase
       .from("whatsapp_messages")
       .select("*")
-      .in("phone", phoneCandidates(phone))
-      .eq("lab_id", chatSession.lab_id)
-      .order("created_at", { ascending: true });
+      .in("phone", phoneCandidates(phone));
+
+    if (labIds.length > 0) {
+      messagesQuery = messagesQuery.in("lab_id", labIds);
+    } else if (chatSession.lab_id) {
+      messagesQuery = messagesQuery.eq("lab_id", chatSession.lab_id);
+    }
+
+    if (before) {
+      messagesQuery = messagesQuery
+        .lt("created_at", before)
+        .order("created_at", { ascending: false })
+        .limit(pageLimit);
+    } else {
+      const cutoffDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      messagesQuery = messagesQuery
+        .gte("created_at", cutoffDate)
+        .order("created_at", { ascending: true });
+    }
+
+    const { data: messages, error: messagesError } = await messagesQuery;
 
     if (messagesError) {
       console.error("[whatsapp/messages] message fetch error", messagesError);
@@ -144,7 +196,7 @@ export async function GET(request) {
     if (chatSession.patient_id) {
       const { data: byId } = await supabase
         .from("patients")
-        .select("id, name, is_lead, phone")
+        .select("id, name, is_lead, phone, created_at")
         .eq("id", chatSession.patient_id)
         .maybeSingle();
       linkedById = byId || null;
@@ -152,7 +204,7 @@ export async function GET(request) {
 
     const { data: byPhoneRows } = await supabase
       .from("patients")
-      .select("id, name, is_lead, phone")
+      .select("id, name, is_lead, phone, created_at")
       .in("phone", phoneCandidates(chatSession.phone))
       .limit(10);
 
@@ -160,17 +212,110 @@ export async function GET(request) {
       byPhone: byPhoneRows || [],
       byId: linkedById
     });
+    const matchedPatients = uniquePatients(byPhoneRows || []).sort(
+      (a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+    );
+    const matchedPatientCount = matchedPatients.length;
+    let latestProfileNameQuery = supabase
+      .from("whatsapp_messages")
+      .select("name,payload,created_at")
+      .in("phone", phoneCandidates(phone))
+      .eq("direction", "inbound")
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (labIds.length > 0) {
+      latestProfileNameQuery = latestProfileNameQuery.in("lab_id", labIds);
+    } else if (chatSession.lab_id) {
+      latestProfileNameQuery = latestProfileNameQuery.eq("lab_id", chatSession.lab_id);
+    }
+
+    const { data: latestInboundRows } = await latestProfileNameQuery;
+    const latestInboundProfileName = pickLatestProfileName(latestInboundRows);
+    const latestChatName = latestInboundProfileName || null;
+    const patientNameCandidates = uniqueNames(
+      [...(byPhoneRows || [])]
+        .sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime())
+        .map((row) => row?.name)
+    );
+    const displayName = latestChatName || chatSession.phone || "Unknown";
+    const hasNonLead = matchedPatients.some((p) => !p?.is_lead);
 
     const enrichedSession = {
       ...chatSession,
-      patient_name: linkedPatient?.name || chatSession.patient_name || "Unknown Patient",
-      contact_type: linkedPatient
-        ? (linkedPatient.is_lead ? "lead" : "patient")
-        : "lead"
+      patient_name: displayName,
+      contact_type: hasNonLead ? "patient" : "lead",
+      chat_name: latestChatName,
+      resolved_patient_name: linkedPatient?.name || null,
+      name_candidates: patientNameCandidates,
+      has_multiple_names: patientNameCandidates.length > 1,
+      matched_patient_count: matchedPatientCount,
+      matched_patients: matchedPatients.map((p) => ({
+        id: p.id,
+        name: p.name || "Unknown",
+        is_lead: Boolean(p.is_lead)
+      }))
     };
 
+    await supabase
+      .from("chat_sessions")
+      .update({ unread_count: 0, updated_at: new Date() })
+      .eq("id", chatSession.id);
+
+    const normalizedMessages = before ? [...(messages || [])].reverse() : (messages || []);
+    const oldestLoadedAt = normalizedMessages[0]?.created_at || null;
+
+    let hasOlder = false;
+    let nextBeforeCursor = oldestLoadedAt;
+    if (oldestLoadedAt) {
+      let olderQuery = supabase
+        .from("whatsapp_messages")
+        .select("id")
+        .in("phone", phoneCandidates(phone))
+        .lt("created_at", oldestLoadedAt)
+        .limit(1);
+
+      if (labIds.length > 0) {
+        olderQuery = olderQuery.in("lab_id", labIds);
+      } else if (chatSession.lab_id) {
+        olderQuery = olderQuery.eq("lab_id", chatSession.lab_id);
+      }
+
+      const { data: olderRows } = await olderQuery;
+      hasOlder = Boolean(olderRows?.length);
+    } else if (!before) {
+      let anyHistoryQuery = supabase
+        .from("whatsapp_messages")
+        .select("id")
+        .in("phone", phoneCandidates(phone))
+        .limit(1);
+
+      if (labIds.length > 0) {
+        anyHistoryQuery = anyHistoryQuery.in("lab_id", labIds);
+      } else if (chatSession.lab_id) {
+        anyHistoryQuery = anyHistoryQuery.eq("lab_id", chatSession.lab_id);
+      }
+
+      const { data: anyRows } = await anyHistoryQuery;
+      hasOlder = Boolean(anyRows?.length);
+      if (hasOlder) {
+        nextBeforeCursor = new Date().toISOString();
+      }
+    }
+
     return NextResponse.json(
-      { messages: messages || [], session: enrichedSession, lab, botLabelMap },
+      {
+        messages: normalizedMessages,
+        session: enrichedSession,
+        lab,
+        botLabelMap,
+        pagination: {
+          has_older: hasOlder,
+          next_before: nextBeforeCursor,
+          page_size: before ? pageLimit : normalizedMessages.length,
+          initial_window_days: 2
+        }
+      },
       { status: 200 }
     );
   } catch (err) {

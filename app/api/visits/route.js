@@ -20,6 +20,148 @@ function formatConflict(visit) {
   };
 }
 
+function normalizeNumber(value) {
+  if (value === null || typeof value === "undefined" || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveOrCreatePatientAddress(visitData, locationText = "") {
+  const patientId = visitData?.patient_id;
+  if (!patientId) return visitData;
+
+  const incomingAddressId = visitData?.address_id || null;
+  const lat = normalizeNumber(visitData?.lat);
+  const lng = normalizeNumber(visitData?.lng);
+  const areaText = String(visitData?.address || locationText || "").trim();
+  const lineText = String(locationText || areaText || "").trim();
+
+  if (incomingAddressId) {
+    const { data: existingById } = await supabase
+      .from("patient_addresses")
+      .select("id, area, address_line, lat, lng")
+      .eq("id", incomingAddressId)
+      .eq("patient_id", patientId)
+      .maybeSingle();
+
+    if (existingById) {
+      return {
+        ...visitData,
+        address_id: existingById.id,
+        address: areaText || existingById.area || existingById.address_line || visitData.address || "",
+        lat: lat ?? existingById.lat ?? visitData.lat ?? null,
+        lng: lng ?? existingById.lng ?? visitData.lng ?? null
+      };
+    }
+  }
+
+  if (!areaText && !(lat && lng)) return visitData;
+
+  const { data: patientAddressRows } = await supabase
+    .from("patient_addresses")
+    .select("id, address_index, area, address_line, lat, lng, is_default")
+    .eq("patient_id", patientId)
+    .limit(500);
+
+  const rows = patientAddressRows || [];
+
+  const coordMatch =
+    lat && lng
+      ? rows.find((row) => Number(row.lat) === lat && Number(row.lng) === lng)
+      : null;
+
+  const textMatch =
+    !coordMatch && areaText
+      ? rows.find((row) => {
+          const area = String(row?.area || "").trim().toLowerCase();
+          const line = String(row?.address_line || "").trim().toLowerCase();
+          const lookup = areaText.toLowerCase();
+          return area === lookup || line === lookup;
+        })
+      : null;
+
+  const matched = coordMatch || textMatch;
+  if (matched) {
+    return {
+      ...visitData,
+      address_id: matched.id,
+      address: areaText || matched.area || matched.address_line || visitData.address || "",
+      lat: lat ?? matched.lat ?? visitData.lat ?? null,
+      lng: lng ?? matched.lng ?? visitData.lng ?? null
+    };
+  }
+
+  const hasDefault = rows.some((row) => Boolean(row?.is_default));
+  const maxIndex = rows.reduce((max, row) => {
+    const idx = Number(row?.address_index || 0);
+    return Number.isFinite(idx) ? Math.max(max, idx) : max;
+  }, 0);
+
+  let addressIndex = maxIndex + 1;
+  let inserted = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { data: insertedRow, error: insertError } = await supabase
+      .from("patient_addresses")
+      .insert({
+        patient_id: patientId,
+        label: "Saved from Visit",
+        area: areaText || null,
+        address_line: lineText || null,
+        lat,
+        lng,
+        is_default: !hasDefault && attempt === 0,
+        address_index: addressIndex
+      })
+      .select("id, area, address_line, lat, lng")
+      .single();
+
+    if (!insertError && insertedRow) {
+      inserted = insertedRow;
+      break;
+    }
+
+    if (!insertError) break;
+
+    const message = String(insertError.message || "").toLowerCase();
+    if (message.includes("unique_patient_location") && lat && lng) {
+      const { data: byCoord } = await supabase
+        .from("patient_addresses")
+        .select("id, area, address_line, lat, lng")
+        .eq("patient_id", patientId)
+        .eq("lat", lat)
+        .eq("lng", lng)
+        .maybeSingle();
+      if (byCoord) {
+        inserted = byCoord;
+        break;
+      }
+    }
+
+    if (message.includes("unique_patient_address_index")) {
+      const { data: latestRows } = await supabase
+        .from("patient_addresses")
+        .select("address_index")
+        .eq("patient_id", patientId)
+        .order("address_index", { ascending: false })
+        .limit(1);
+      addressIndex = Number(latestRows?.[0]?.address_index || addressIndex) + 1;
+      continue;
+    }
+
+    break;
+  }
+
+  if (!inserted) return visitData;
+
+  return {
+    ...visitData,
+    address_id: inserted.id,
+    address: areaText || inserted.area || inserted.address_line || visitData.address || "",
+    lat: lat ?? inserted.lat ?? visitData.lat ?? null,
+    lng: lng ?? inserted.lng ?? visitData.lng ?? null
+  };
+}
+
 async function findTimeslotConflicts({
   executiveId,
   visitDate,
@@ -71,6 +213,8 @@ export async function GET(request) {
         visit_date,
         time_slot,
         address,
+        lat,
+        lng,
         status,
         notes,
         prescription,
@@ -103,15 +247,19 @@ export async function POST(request) {
   try {
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
+    const locationText = visitData.location_text || "";
 
     delete visitData.id;
     delete visitData.visit_code;
     delete visitData.force_assign;
+    delete visitData.location_text;
+
+    const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
 
     const conflicts = await findTimeslotConflicts({
-      executiveId: visitData.executive_id,
-      visitDate: visitData.visit_date,
-      timeSlotId: visitData.time_slot,
+      executiveId: normalizedVisitData.executive_id,
+      visitDate: normalizedVisitData.visit_date,
+      timeSlotId: normalizedVisitData.time_slot,
     });
     if (conflicts.length > 0 && !forceAssign) {
       return NextResponse.json(
@@ -127,7 +275,7 @@ export async function POST(request) {
 
     const { data, error } = await supabase
       .from("visits")
-      .insert([visitData])
+      .insert([normalizedVisitData])
       .select(`
         id,
         lab_id,
@@ -139,6 +287,9 @@ export async function POST(request) {
           phone
         ),
         visit_date,
+        address,
+        lat,
+        lng,
         time_slot:time_slot (
           slot_name
         ),
@@ -162,7 +313,7 @@ export async function POST(request) {
         previous_status: null,
         new_status: data.status || null,
         changed_by: visitData.created_by || null,
-        notes: visitData.notes || null,
+        notes: normalizedVisitData.notes || null,
       }]);
     } catch (logError) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
@@ -211,6 +362,7 @@ export async function PUT(request) {
   try {
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
+    const locationText = visitData.location_text || "";
 
     if (!visitData.id) {
       return NextResponse.json(
@@ -253,10 +405,12 @@ export async function PUT(request) {
 
     // Update visit
     delete visitData.force_assign;
+    delete visitData.location_text;
+    const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
     const { data, error } = await supabase
       .from("visits")
-      .update(visitData)
-      .eq("id", visitData.id)
+      .update(normalizedVisitData)
+      .eq("id", normalizedVisitData.id)
       .select(`
         id,
         lab_id,
@@ -268,6 +422,9 @@ export async function PUT(request) {
           phone
         ),
         visit_date,
+        address,
+        lat,
+        lng,
         time_slot:time_slot (
           slot_name
         ),
@@ -290,8 +447,8 @@ export async function PUT(request) {
         visit_id: data.id,
         previous_status: prev.status || null,
         new_status: data.status || null,
-        changed_by: visitData.updated_by || null,
-        notes: visitData.notes || null,
+        changed_by: normalizedVisitData.updated_by || null,
+        notes: normalizedVisitData.notes || null,
       }]);
     } catch (logError) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
@@ -359,7 +516,7 @@ export async function PUT(request) {
       prev.executive_id &&
       data.executive_id &&
       prev.executive_id === data.executive_id &&
-      prev.time_slot !== visitData.time_slot &&
+      prev.time_slot !== normalizedVisitData.time_slot &&
       data.executive?.phone;
 
     if (isNewAssignment || isTimeslotChanged) {

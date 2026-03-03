@@ -13,6 +13,7 @@ import { EditIcon } from "@chakra-ui/icons"; // add at top of file
 import { CheckIcon } from "@chakra-ui/icons"; // add at top of file
 import { Icon } from "@chakra-ui/react";
 import { FiSave } from "react-icons/fi";
+import { FiNavigation } from "react-icons/fi";
 
 export default function QuickBookTab({ quickbookings = [], onRefresh }) {
   const [processingQuickBook, setProcessingQuickBook] = useState(null);
@@ -22,6 +23,28 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
   const [statusOptions, setStatusOptions] = useState([]);
   const [linkingVisitId, setLinkingVisitId] = useState(null);
   const [editingStatusId, setEditingStatusId] = useState(null);
+
+  const getQuickbookNavUrl = (qb) => {
+    if (qb?.location_lat && qb?.location_lng) {
+      return `https://www.google.com/maps/search/?api=1&query=${qb.location_lat},${qb.location_lng}`;
+    }
+
+    if (qb?.location_text && /^https?:\/\//i.test(qb.location_text)) {
+      return qb.location_text;
+    }
+
+    const query = qb?.location_text || qb?.location_address || qb?.area || "";
+    if (!query) return null;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  };
+
+  const getQuickbookLocationLabel = (qb) => {
+    if (qb?.location_lat && qb?.location_lng) return "Pin shared";
+    if (qb?.location_text) return qb.location_text;
+    if (qb?.location_address) return qb.location_address;
+    if (qb?.area) return qb.area;
+    return "No location";
+  };
 
 
   // Fetch status options (with color, label, code, order)
@@ -76,6 +99,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
         <Th>Package</Th>
         <Th>Date</Th>
         <Th>Slot</Th>
+        <Th>Location</Th>
         <Th>Assign Visit</Th>
         <Th>Status</Th>
         <Th>Actions</Th>
@@ -102,6 +126,9 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
             <Td fontSize="sm">{qb.package_name || "—"}</Td>
             <Td fontSize="sm">{qbDate}</Td>
             <Td fontSize="sm">{qb.time_slot?.slot_name || "—"}</Td>
+            <Td fontSize="sm" maxW="280px">
+              {getQuickbookLocationLabel(qb)}
+            </Td>
             <Td>
               {visitValue && !linkingVisitId ? (
                 <Badge mt={1} colorScheme="green">
@@ -200,6 +227,66 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
             <Td>
               {!faded && (
                 <>
+                  <IconButton
+                    size="sm"
+                    icon={<FiNavigation />}
+                    mr={2}
+                    onClick={() => {
+                      const url = getQuickbookNavUrl(qb);
+                      if (!url) {
+                        alert("No location available for navigation.");
+                        return;
+                      }
+                      window.open(url, "_blank");
+                    }}
+                    aria-label="Navigate"
+                    title="Navigate"
+                  />
+                  <Button
+                    size="sm"
+                    mr={2}
+                    leftIcon={<EditIcon />}
+                    onClick={async () => {
+                      const current = qb.location_lat && qb.location_lng
+                        ? `${qb.location_lat},${qb.location_lng}`
+                        : qb.location_text || qb.location_address || "";
+                      const input = window.prompt(
+                        "Set location (paste Google Maps link OR type 'lat,lng' OR plain address):",
+                        current
+                      );
+                      if (input === null) return;
+
+                      const trimmed = input.trim();
+                      if (!trimmed) return;
+
+                      const latLngMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+                      const payload = latLngMatch
+                        ? {
+                            location_source: "manual_admin",
+                            location_lat: Number(latLngMatch[1]),
+                            location_lng: Number(latLngMatch[2]),
+                            location_text: null
+                          }
+                        : {
+                            location_source: "manual_admin",
+                            location_text: trimmed
+                          };
+
+                      try {
+                        const res = await fetch(`/api/quickbook/${qb.id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(payload)
+                        });
+                        if (!res.ok) throw new Error("Failed to update location");
+                        onRefresh && onRefresh();
+                      } catch (err) {
+                        alert(err.message || "Failed to update location");
+                      }
+                    }}
+                  >
+                    Location
+                  </Button>
                   <IconButton
                     size="sm"
                     icon={<FiSave />}
