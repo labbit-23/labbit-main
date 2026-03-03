@@ -85,6 +85,7 @@ async function ingestOne({ labId, item }) {
   const payload = (item?.payload && typeof item.payload === "object")
     ? item.payload
     : {};
+  const sourceApp = String(item?.source_app || payload?.source_app || "external_whatsapp_history");
 
   const { error: insertError } = await supabase.from("whatsapp_messages").insert({
     message_id: externalMessageId,
@@ -95,7 +96,7 @@ async function ingestOne({ labId, item }) {
     direction,
     created_at: safeCreatedAt.toISOString(),
     payload: {
-      source: "mirth_external_history",
+      source: sourceApp,
       ...payload
     }
   });

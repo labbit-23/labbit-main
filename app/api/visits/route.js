@@ -9,6 +9,59 @@ import {
 import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
 
 const CONFLICT_EXCLUDED_STATUSES = ["disabled", "cancelled", "canceled", "completed"];
+const VISIT_SELECT_WITH_GEO = `
+  id,
+  lab_id,
+  patient_id,
+  executive_id,
+  executive:executive_id (
+    id,
+    name,
+    phone
+  ),
+  visit_date,
+  address,
+  lat,
+  lng,
+  time_slot:time_slot (
+    slot_name
+  ),
+  status,
+  notes,
+  prescription
+`;
+const VISIT_SELECT_NO_GEO = `
+  id,
+  lab_id,
+  patient_id,
+  executive_id,
+  executive:executive_id (
+    id,
+    name,
+    phone
+  ),
+  visit_date,
+  address,
+  time_slot:time_slot (
+    slot_name
+  ),
+  status,
+  notes,
+  prescription
+`;
+
+function isMissingVisitsGeoColumnError(error) {
+  const text = String(error?.message || error || "").toLowerCase();
+  return text.includes("column") && text.includes("visits") && (text.includes("lat") || text.includes("lng"));
+}
+
+function stripVisitGeoFields(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const next = { ...payload };
+  delete next.lat;
+  delete next.lng;
+  return next;
+}
 
 function formatConflict(visit) {
   return {
@@ -225,7 +278,34 @@ export async function GET(request) {
     if (patientId) query = query.eq("patient_id", patientId);
     if (visitDate) query = query.eq("visit_date", visitDate);
 
-    const { data, error } = await query.order("visit_date", { ascending: false });
+    let { data, error } = await query.order("visit_date", { ascending: false });
+
+    if (error && isMissingVisitsGeoColumnError(error)) {
+      let fallbackQuery = supabase
+        .from("visits")
+        .select(`
+          id,
+          visit_code,
+          patient:patient_id(id, name, phone),
+          executive_id,
+          executive:executive_id(id, name, phone),
+          lab_id,
+          visit_date,
+          time_slot,
+          address,
+          status,
+          notes,
+          prescription,
+          address_id,
+          time_slot:time_slot(id, slot_name, start_time, end_time)
+        `);
+
+      if (patientId) fallbackQuery = fallbackQuery.eq("patient_id", patientId);
+      if (visitDate) fallbackQuery = fallbackQuery.eq("visit_date", visitDate);
+      const fallbackResp = await fallbackQuery.order("visit_date", { ascending: false });
+      data = fallbackResp.data || [];
+      error = fallbackResp.error || null;
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -273,31 +353,22 @@ export async function POST(request) {
       );
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("visits")
       .insert([normalizedVisitData])
-      .select(`
-        id,
-        lab_id,
-        patient_id,
-        executive_id,
-        executive:executive_id (
-          id,
-          name,
-          phone
-        ),
-        visit_date,
-        address,
-        lat,
-        lng,
-        time_slot:time_slot (
-          slot_name
-        ),
-        status,
-        notes,
-        prescription
-      `)
+      .select(VISIT_SELECT_WITH_GEO)
       .single();
+
+    if (error && isMissingVisitsGeoColumnError(error)) {
+      const strippedVisitData = stripVisitGeoFields(normalizedVisitData);
+      const fallbackResp = await supabase
+        .from("visits")
+        .insert([strippedVisitData])
+        .select(VISIT_SELECT_NO_GEO)
+        .single();
+      data = fallbackResp.data || null;
+      error = fallbackResp.error || null;
+    }
 
     if (error || !data) {
       return NextResponse.json(
@@ -407,32 +478,24 @@ export async function PUT(request) {
     delete visitData.force_assign;
     delete visitData.location_text;
     const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("visits")
       .update(normalizedVisitData)
       .eq("id", normalizedVisitData.id)
-      .select(`
-        id,
-        lab_id,
-        patient_id,
-        executive_id,
-        executive:executive_id (
-          id,
-          name,
-          phone
-        ),
-        visit_date,
-        address,
-        lat,
-        lng,
-        time_slot:time_slot (
-          slot_name
-        ),
-        status,
-        notes,
-        prescription
-      `)
+      .select(VISIT_SELECT_WITH_GEO)
       .single();
+
+    if (error && isMissingVisitsGeoColumnError(error)) {
+      const strippedVisitData = stripVisitGeoFields(normalizedVisitData);
+      const fallbackResp = await supabase
+        .from("visits")
+        .update(strippedVisitData)
+        .eq("id", normalizedVisitData.id)
+        .select(VISIT_SELECT_NO_GEO)
+        .single();
+      data = fallbackResp.data || null;
+      error = fallbackResp.error || null;
+    }
 
     if (error || !data) {
       return NextResponse.json(
