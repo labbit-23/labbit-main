@@ -105,7 +105,7 @@ async function ingestOne({ labId, item }) {
     return { ok: false, reason: insertError.message };
   }
 
-  const shouldIncrementUnread = direction === "inbound" && session?.status === "handoff";
+  const shouldIncrementUnread = direction === "inbound" && session?.status !== "closed";
   await supabase
     .from("chat_sessions")
     .update({

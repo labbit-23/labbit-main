@@ -13,6 +13,7 @@ import {
   sendTextMessage,
   sendMainMenu,
   sendMoreServicesMenu,
+  sendReportInputPrompt,
   sendLocationMessage,
   sendLocationOptionsMenu,
   sendBranchLocationsMenu,
@@ -128,7 +129,7 @@ async function persistPrescriptionMedia({ inboundMedia, labId, phone }) {
   }
 }
 
-function shouldActivateBotFromStart({ session, message, userInput }) {
+function shouldActivateBotFromStart({ session, message, userInput, inboundMedia }) {
   const state = session?.current_state || "START";
   if (state !== "START") return true;
 
@@ -139,6 +140,11 @@ function shouldActivateBotFromStart({ session, message, userInput }) {
 
   // Location pin flow should always continue.
   if (message?.location?.latitude && message?.location?.longitude) {
+    return true;
+  }
+
+  // Media-first user messages should also enter bot flow.
+  if (inboundMedia?.url) {
     return true;
   }
 
@@ -667,6 +673,16 @@ export async function POST(req) {
         .eq("id", session.id);
     }
 
+    // Persist inbound media before message logging so chat history keeps stable storage links.
+    if (inboundMedia) {
+      const persistedUrl = await persistPrescriptionMedia({
+        inboundMedia,
+        labId: session.lab_id,
+        phone
+      });
+      inboundMedia = { ...inboundMedia, url: persistedUrl || inboundMedia.url || null };
+    }
+
     // --------------------------------------------------
     // 8️⃣ Log Inbound (Minimal Storage)
     // --------------------------------------------------
@@ -695,7 +711,7 @@ export async function POST(req) {
       }
     });
 
-    const shouldIncrementUnread = session.status === "handoff";
+    const shouldIncrementUnread = session.status !== "closed";
     await supabase
       .from("chat_sessions")
       .update({
@@ -739,16 +755,11 @@ export async function POST(req) {
       lab.alternate_whatsapp_number ||
       lab.internal_whatsapp_number;
 
-    if (inboundMedia) {
-      const persistedUrl = await persistPrescriptionMedia({
-        inboundMedia,
-        labId: session.lab_id,
-        phone
-      });
-      inboundMedia = { ...inboundMedia, url: persistedUrl || inboundMedia.url || null };
-    }
-
-    if (!shouldActivateBotFromStart({ session, message, userInput })) {
+    if (!shouldActivateBotFromStart({ session, message, userInput, inboundMedia })) {
+      // Route non-menu free-form messages to executive attention queue.
+      if (session.status !== "handoff") {
+        await handoffToHuman(session.id);
+      }
       await sendTextMessage({
         labId: session.lab_id,
         phone,
@@ -894,6 +905,10 @@ export async function POST(req) {
 
       case "MORE_SERVICES_MENU":
         await sendMoreServicesMenu({ labId: session.lab_id, phone });
+        break;
+
+      case "REPORT_INPUT_PROMPT":
+        await sendReportInputPrompt({ labId: session.lab_id, phone });
         break;
 
       case "PACKAGE_MENU": {

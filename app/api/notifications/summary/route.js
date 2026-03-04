@@ -91,7 +91,6 @@ export async function GET() {
 
       counts.quickbook_pending = qbCount || 0;
       counts.whatsapp_unread = (sessions || [])
-        .filter((s) => s.status === "handoff")
         .reduce((sum, s) => sum + (s.unread_count || 0), 0);
 
       const adminLabIds = await getLabIds(user.id);

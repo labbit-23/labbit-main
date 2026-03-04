@@ -20,6 +20,7 @@ const HEADER_WHATSAPP_NUMBER =
   process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ||
   process.env.NEXT_PUBLIC_BUSINESS_WHATSAPP_NUMBER ||
   "";
+const SHORTCUT_HELP = "/r report reply, /hv home visit bot flow, /menu main menu";
 
 function parseServerDate(value) {
   if (!value) return null;
@@ -66,6 +67,59 @@ function isWithin24(session) {
   return diff < 24 * 60 * 60 * 1000;
 }
 
+function isPendingSession(session) {
+  const status = String(session?.status || "").toLowerCase();
+  return status === "pending" || status === "handoff";
+}
+
+function getSessionSignals(session) {
+  const status = String(session?.status || "").toLowerCase();
+  const items = [];
+  if ((session?.unread_count || 0) > 0) {
+    items.push({
+      key: "unread",
+      label: `${session.unread_count} unread`,
+      className: "is-unread"
+    });
+  }
+  if (isPendingSession(session)) {
+    items.push({
+      key: "pending",
+      label: "Pending",
+      className: "is-pending"
+    });
+  }
+  if (status === "resolved") {
+    items.push({
+      key: "resolved",
+      label: "Resolved",
+      className: "is-resolved"
+    });
+  }
+  if (status === "closed") {
+    items.push({
+      key: "closed",
+      label: "Closed",
+      className: "is-closed"
+    });
+  }
+  if (status === "active" && items.length === 0) {
+    items.push({
+      key: "active",
+      label: "Active",
+      className: "is-active"
+    });
+  }
+  if (!isWithin24(session)) {
+    items.push({
+      key: "expired",
+      label: "24h expired",
+      className: "is-expired"
+    });
+  }
+  return items;
+}
+
 function getSenderLabel(msg, currentUserId) {
   if (msg.direction !== "outbound") return "User";
 
@@ -99,6 +153,16 @@ function formatWhatsappNumberDisplay(value) {
   return raw.startsWith("+") ? `+${digits}` : `+${digits}`;
 }
 
+function decodeMessageEntities(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'");
+}
+
 function extractBusinessNumberFromPayload(payload) {
   const candidates = [
     payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.metadata?.display_phone_number,
@@ -126,14 +190,14 @@ function getDisplayMessageText(msg, botLabelMap) {
 
     if (rawMessage.startsWith("SLOT_PAGE_")) {
       const pageNo = rawMessage.replace("SLOT_PAGE_", "").trim();
-      return `Viewed more time slots${pageNo ? ` (page ${pageNo})` : ""}`;
+      return decodeMessageEntities(`Viewed more time slots${pageNo ? ` (page ${pageNo})` : ""}`);
     }
 
     if (rawMessage.startsWith("DATE_")) {
       const iso = rawMessage.replace("DATE_", "").trim();
       if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
         const [year, month, day] = iso.split("-");
-        return `Selected date: ${day}-${month}-${year}`;
+        return decodeMessageEntities(`Selected date: ${day}-${month}-${year}`);
       }
     }
 
@@ -141,18 +205,18 @@ function getDisplayMessageText(msg, botLabelMap) {
       const slotId = rawMessage.replace("SLOT_", "").trim();
       const slotMap = msg?.sessionContext?.available_slots || {};
       const slotName = slotMap?.[slotId];
-      return slotName ? `Selected time slot: ${slotName}` : `Selected slot`;
+      return decodeMessageEntities(slotName ? `Selected time slot: ${slotName}` : "Selected slot");
     }
 
     const slotMap = msg?.sessionContext?.available_slots || {};
     if (slotMap?.[rawMessage]) {
-      return `Selected time slot: ${slotMap[rawMessage]}`;
+      return decodeMessageEntities(`Selected time slot: ${slotMap[rawMessage]}`);
     }
 
-    return rawMessage;
+    return decodeMessageEntities(rawMessage);
   }
 
-  if (!isBotOutbound) return rawMessage;
+  if (!isBotOutbound) return decodeMessageEntities(rawMessage);
 
   const requestPayload = msg?.payload?.request;
   if (requestPayload && typeof requestPayload === "object") {
@@ -165,9 +229,9 @@ function getDisplayMessageText(msg, botLabelMap) {
           .map((b) => b?.reply?.title)
           .filter(Boolean);
         if (options.length > 0) {
-          return `${baseText}\n\nOptions:\n${options.map((o) => `- ${o}`).join("\n")}`.trim();
+          return decodeMessageEntities(`${baseText}\n\nOptions:\n${options.map((o) => `- ${o}`).join("\n")}`.trim());
         }
-        return baseText || msg.message;
+        return decodeMessageEntities(baseText || msg.message);
       }
 
       if (interactive.type === "list") {
@@ -176,20 +240,20 @@ function getDisplayMessageText(msg, botLabelMap) {
           .map((row) => row?.title)
           .filter(Boolean);
         if (rows.length > 0) {
-          return `${baseText}\n\nOptions:\n${rows.map((r) => `- ${r}`).join("\n")}`.trim();
+          return decodeMessageEntities(`${baseText}\n\nOptions:\n${rows.map((r) => `- ${r}`).join("\n")}`.trim());
         }
-        return baseText || msg.message;
+        return decodeMessageEntities(baseText || msg.message);
       }
     }
 
     if (requestPayload.type === "location" && requestPayload.location) {
       const loc = requestPayload.location;
       const parts = [loc.name, loc.address].filter(Boolean);
-      return parts.length ? `Shared location:\n${parts.join("\n")}` : "Shared location";
+      return decodeMessageEntities(parts.length ? `Shared location:\n${parts.join("\n")}` : "Shared location");
     }
   }
 
-  return botLabelMap?.[rawMessage] || rawMessage;
+  return decodeMessageEntities(botLabelMap?.[rawMessage] || rawMessage);
 }
 
 function getMessageMedia(msg) {
@@ -212,6 +276,60 @@ function getMessageMedia(msg) {
   }
 
   return null;
+}
+
+async function fetchJsonWithRetry(url, options = {}, retries = 1) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed (${response.status})`);
+      }
+      return await response.json();
+    } catch (err) {
+      lastError = err;
+      if (attempt >= retries) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error("Request failed");
+}
+
+function parseShortcutCommand(text) {
+  const value = String(text || "").trim();
+  if (!value.startsWith("/")) return null;
+
+  const [rawCmd, ...rest] = value.split(/\s+/);
+  const command = rawCmd.toLowerCase();
+  const notes = rest.join(" ").trim();
+
+  if (command === "/r") {
+    return { type: "template", template: "reports_reply", notes };
+  }
+
+  if (command === "/rbot" || command === "/reports") {
+    return { type: "handover", flow: "reports", notes };
+  }
+
+  if (command === "/hv" || command === "/homevisit") {
+    return { type: "handover", flow: "home_visit", notes };
+  }
+
+  if (command === "/menu") {
+    return { type: "handover", flow: "main_menu", notes };
+  }
+
+  return { type: "unknown", command };
+}
+
+function buildTemplateMessage(template, notes) {
+  const extra = notes ? `\n${notes}` : "";
+  if (template === "reports_reply") {
+    return `Please find your report attached. If you need any clarification, reply here and our team will help you.${extra}`;
+  }
+  return notes || "";
 }
 
 export default function WhatsAppDashboard() {
@@ -240,6 +358,7 @@ export default function WhatsAppDashboard() {
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
+  const [agentPresence, setAgentPresence] = useState([]);
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -258,14 +377,21 @@ export default function WhatsAppDashboard() {
   const initialBottomReadyRef = useRef(false);
   const autoRefreshInFlightRef = useRef(false);
 
+  const isExecutiveAttentionAutoReply = (msg) => {
+    const text = String(msg?.message || "").toLowerCase();
+    return text.includes("please wait, our executive will reach out");
+  };
+
   const isBotOutboundMessage = (msg) =>
     msg?.direction === "outbound" &&
     !msg?.payload?.sender?.id &&
-    !msg?.payload?.sender?.name;
+    !msg?.payload?.sender?.name &&
+    !isExecutiveAttentionAutoReply(msg);
 
   useEffect(() => {
     if (isUserLoading || !user) return;
     fetchSessions();
+    fetchAgentPresence();
   }, [isUserLoading, user]);
 
   useEffect(() => {
@@ -302,13 +428,10 @@ export default function WhatsAppDashboard() {
     if (!silent) setIsLoadingSessions(true);
 
     try {
-      const response = await fetch("/api/admin/whatsapp/sessions", {
+      const body = await fetchJsonWithRetry("/api/admin/whatsapp/sessions", {
         credentials: "include",
         cache: "no-store"
-      });
-      if (!response.ok) throw new Error("Failed to load sessions");
-
-      const body = await response.json();
+      }, 1);
       const nextSessions = body.sessions || [];
       setSessions(nextSessions);
 
@@ -344,9 +467,21 @@ export default function WhatsAppDashboard() {
         await fetchMessages(first.phone);
       }
     } catch {
-      setError("Failed to load conversations.");
+      setError("Failed to load conversations. Please refresh.");
     } finally {
       if (!silent) setIsLoadingSessions(false);
+    }
+  };
+
+  const fetchAgentPresence = async ({ silent = false } = {}) => {
+    try {
+      const body = await fetchJsonWithRetry("/api/admin/whatsapp/agent-presence", {
+        credentials: "include",
+        cache: "no-store"
+      }, 1);
+      setAgentPresence(Array.isArray(body?.agents) ? body.agents : []);
+    } catch {
+      if (!silent) setAgentPresence([]);
     }
   };
 
@@ -364,14 +499,10 @@ export default function WhatsAppDashboard() {
     try {
       const query = new URLSearchParams({ phone });
       if (before) query.set("before", before);
-      const response = await fetch(`/api/admin/whatsapp/messages?${query.toString()}`, {
+      const body = await fetchJsonWithRetry(`/api/admin/whatsapp/messages?${query.toString()}`, {
         credentials: "include",
         cache: "no-store"
-      });
-
-      if (!response.ok) throw new Error("Failed to load messages");
-
-      const body = await response.json();
+      }, 1);
       const incoming = body.messages || [];
       if (appendOlder) {
         setMessages((prev) => {
@@ -404,7 +535,7 @@ export default function WhatsAppDashboard() {
         initialBottomReadyRef.current = true;
       }
     } catch {
-      setError("Failed to load messages.");
+      setError("Failed to load messages. Please retry.");
     } finally {
       if (appendOlder && !silent) {
         setIsLoadingOlder(false);
@@ -423,6 +554,7 @@ export default function WhatsAppDashboard() {
       autoRefreshInFlightRef.current = true;
       try {
         await fetchSessions({ silent: true });
+        await fetchAgentPresence({ silent: true });
         if (selectedSession?.phone) {
           await fetchMessages(selectedSession.phone, { silent: true });
         }
@@ -548,6 +680,55 @@ export default function WhatsAppDashboard() {
     setIsSending(true);
 
     try {
+      const shortcut = parseShortcutCommand(content);
+      if (shortcut?.type === "unknown") {
+        throw new Error(`Unknown shortcut: ${shortcut.command}. Use ${SHORTCUT_HELP}`);
+      }
+
+      if (shortcut?.type === "template") {
+        const templateText = buildTemplateMessage(shortcut.template, shortcut.notes);
+        if (!templateText) {
+          throw new Error(`Shortcut could not build a message. Use ${SHORTCUT_HELP}`);
+        }
+        const response = await fetch("/api/admin/reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            phone: selectedSession.phone,
+            message: templateText
+          })
+        });
+
+        if (!response.ok) {
+          const textResponse = await response.text();
+          throw new Error(textResponse || "Template send failed");
+        }
+
+        await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+        return;
+      }
+
+      if (shortcut?.type === "handover") {
+        const response = await fetch("/api/admin/whatsapp/handover-bot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            phone: selectedSession.phone,
+            flow: shortcut.flow,
+            notes: shortcut.notes || ""
+          })
+        });
+        if (!response.ok) {
+          const textResponse = await response.text();
+          throw new Error(textResponse || "Bot handover failed");
+        }
+
+        await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+        return;
+      }
+
       const response = await fetch("/api/admin/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -708,6 +889,27 @@ export default function WhatsAppDashboard() {
               ← Back
             </a>
             <button type="button" onClick={fetchSessions}>Refresh</button>
+            {agentPresence.length > 0 && (
+              <div className="wa-presenceWrap" title="Agent activity status">
+                {agentPresence.map((agent) => (
+                  <span key={agent.id} className={`wa-presenceChip is-${agent.presence}`}>
+                    <span className="wa-presenceDot" />
+                    <span className="wa-presenceName">{agent.name}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="wa-stateLegend" aria-label="Chat state legend">
+              <span className="wa-stateLegendTitle">Legend</span>
+              <span className="wa-stateLegendName is-lead">Lead Name</span>
+              <span className="wa-stateLegendName is-patient">Patient Name</span>
+              <span className="wa-stateFlag is-active">Active</span>
+              <span className="wa-stateFlag is-unread">Unread</span>
+              <span className="wa-stateFlag is-pending">Pending</span>
+              <span className="wa-stateFlag is-resolved">Resolved</span>
+              <span className="wa-stateFlag is-closed">Closed</span>
+              <span className="wa-stateFlag is-expired">24h expired</span>
+            </div>
           </div>
         </div>
 
@@ -741,9 +943,10 @@ export default function WhatsAppDashboard() {
                 <div className="wa-empty">No conversations found.</div>
               ) : (
                 filteredSessions.map((session) => {
-                  const live = isWithin24(session);
+                  const signals = getSessionSignals(session);
+                  const signalClasses = signals.map((s) => `cs-state-${s.key}`).join(" ");
                   const suffix = formatDateTime(session.last_message_at);
-                  const contactType = session.contact_type === "lead" ? "Lead" : "Patient";
+                  const contactTypeClass = session.contact_type === "lead" ? "is-lead" : "is-patient";
                   const isActivePhoneMatch =
                     selectedSession &&
                     canonicalPhone(selectedSession.phone) === canonicalPhone(session.phone);
@@ -756,18 +959,27 @@ export default function WhatsAppDashboard() {
                   return (
                     <Conversation
                       key={session.id}
-                      name={`${displayName} (${contactType})`}
-                      info={`${session.phone}${suffix ? ` • ${suffix}` : ""}`}
+                      name={
+                        <span className="wa-conversationNameWrap">
+                          <span className={`wa-conversationNameText ${contactTypeClass}`}>{displayName}</span>
+                          <span className="wa-conversationNameFlags">
+                            {signals.map((signal) => (
+                              <span
+                                key={`${session.id}-label-${signal.key}`}
+                                className={`wa-stateDot ${signal.className}`}
+                                title={signal.label}
+                                aria-label={signal.label}
+                              />
+                            ))}
+                          </span>
+                        </span>
+                      }
+                      info={<span className="wa-conversationInfoText">{`${session.phone}${suffix ? ` • ${suffix}` : ""}`}</span>}
                       onClick={() => handleSelect(session)}
                       active={selectedSession?.id === session.id}
-                      unreadCnt={session.status === "handoff" ? (session.unread_count || 0) : 0}
-                    >
-                      <div className="wa-conversationMeta">
-                        <span className={`wa-status ${live ? "is-live" : "is-expired"}`}>
-                          {live ? "Live window" : "Window expired"}
-                        </span>
-                      </div>
-                    </Conversation>
+                      unreadCnt={session.unread_count || 0}
+                      className={signalClasses}
+                    />
                   );
                 })
               )}
@@ -928,14 +1140,7 @@ export default function WhatsAppDashboard() {
                     className="wa-hiddenFileInput"
                     onChange={handleAttachmentUpload}
                   />
-                  <button
-                    type="button"
-                    onClick={handleAttachmentChoose}
-                    disabled={!isWithin24(selectedSession) || isSendingAttachment}
-                    className="wa-inlineBtn"
-                  >
-                    {isSendingAttachment ? "Sending..." : "Attach File"}
-                  </button>
+                  <span className="wa-shortcutHint">Shortcuts: {SHORTCUT_HELP}</span>
                 </div>
               </div>
             )}
@@ -1024,7 +1229,8 @@ export default function WhatsAppDashboard() {
                   }
                   onSend={handleSend}
                   disabled={!canReply}
-                  attachButton={false}
+                  attachButton
+                  onAttachClick={handleAttachmentChoose}
                 />
               )}
               </ChatContainer>
@@ -1088,6 +1294,86 @@ export default function WhatsAppDashboard() {
           display: flex;
           gap: 8px;
           align-items: center;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+        }
+
+        .wa-stateLegend {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          max-width: 520px;
+          margin-left: 8px;
+        }
+
+        .wa-stateLegendTitle {
+          font-size: 11px;
+          font-weight: 700;
+          color: #58708a;
+          margin-right: 2px;
+        }
+
+        .wa-stateLegendName {
+          font-size: 11px;
+          font-weight: 700;
+          border-radius: 999px;
+          padding: 1px 8px;
+          border: 1px solid transparent;
+          white-space: nowrap;
+        }
+
+        .wa-stateLegendName.is-lead {
+          color: #1f5fbf;
+          background: #e7efff;
+          border-color: #d4e2f8;
+        }
+
+        .wa-stateLegendName.is-patient {
+          color: #1f7a4d;
+          background: #e9f9ef;
+          border-color: #cdebd7;
+        }
+
+        .wa-presenceWrap {
+          display: inline-flex;
+          gap: 6px;
+          align-items: center;
+          flex-wrap: wrap;
+          max-width: 420px;
+        }
+
+        .wa-presenceChip {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          border: 1px solid #d0d9e6;
+          border-radius: 999px;
+          padding: 3px 8px;
+          font-size: 11px;
+          font-weight: 700;
+          color: #34465d;
+          background: #f8fbff;
+        }
+
+        .wa-presenceDot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: #94a3b8;
+        }
+
+        .wa-presenceChip.is-online .wa-presenceDot {
+          background: #16a34a;
+        }
+
+        .wa-presenceChip.is-away .wa-presenceDot {
+          background: #d97706;
+        }
+
+        .wa-presenceChip.is-offline .wa-presenceDot {
+          background: #94a3b8;
         }
 
         .wa-backBtn {
@@ -1214,9 +1500,85 @@ export default function WhatsAppDashboard() {
           accent-color: #0f7f85;
         }
 
-        .wa-conversationMeta {
-          margin-top: 4px;
-          font-size: 11px;
+        .wa-conversationNameWrap {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .wa-conversationNameText {
+          font-weight: 500;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .wa-conversationNameText.is-lead {
+          color: #1f5fbf;
+        }
+
+        .wa-conversationNameText.is-patient {
+          color: #1f7a4d;
+        }
+
+        .wa-conversationNameFlags {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          margin-left: auto;
+          flex: 0 0 auto;
+        }
+
+        .wa-stateDot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          border: 1px solid transparent;
+          display: inline-block;
+          flex: 0 0 10px;
+        }
+
+        .wa-stateDot.is-unread {
+          background: #d98800;
+          border-color: #bf7600;
+        }
+
+        .wa-stateDot.is-pending {
+          background: #2f6fd6;
+          border-color: #245ab0;
+        }
+
+        .wa-stateDot.is-resolved {
+          background: #1f9d5b;
+          border-color: #19804b;
+        }
+
+        .wa-stateDot.is-expired {
+          background: #d14343;
+          border-color: #a93737;
+        }
+
+        .wa-stateDot.is-active {
+          background: #6b7280;
+          border-color: #4b5563;
+        }
+
+        .wa-stateDot.is-closed {
+          background: #64748b;
+          border-color: #475569;
+        }
+
+        .wa-conversationInfoText {
+          color: inherit;
+        }
+
+        .cs-conversation.cs-state-unread .wa-conversationNameText,
+        .cs-conversation.cs-state-pending .wa-conversationNameText {
+          font-weight: 700;
         }
 
         .wa-status {
@@ -1263,6 +1625,89 @@ export default function WhatsAppDashboard() {
           background: #f4f5f7;
           color: #4a5568;
           text-transform: capitalize;
+        }
+
+        .wa-stateFlag {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 1px 8px;
+          border-radius: 999px;
+          border: 1px solid transparent;
+          font-size: 10px;
+          font-weight: 800;
+          line-height: 1.5;
+          letter-spacing: 0.01em;
+          white-space: nowrap;
+        }
+
+        .wa-stateFlag::before {
+          content: "";
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: #9aa7b8;
+          flex: 0 0 auto;
+        }
+
+        .wa-stateFlag.is-unread {
+          background: #fff4dc;
+          border-color: #f0dbad;
+          color: #8a5600;
+        }
+
+        .wa-stateFlag.is-unread::before {
+          background: #d98800;
+        }
+
+        .wa-stateFlag.is-pending {
+          background: #edf4ff;
+          border-color: #d4e2f8;
+          color: #2b4f87;
+        }
+
+        .wa-stateFlag.is-pending::before {
+          background: #2f6fd6;
+        }
+
+        .wa-stateFlag.is-resolved {
+          background: #e9f9ef;
+          border-color: #cdebd7;
+          color: #1f6f46;
+        }
+
+        .wa-stateFlag.is-resolved::before {
+          background: #1f9d5b;
+        }
+
+        .wa-stateFlag.is-active {
+          background: #f2f4f7;
+          border-color: #dde2e8;
+          color: #3f4a5a;
+        }
+
+        .wa-stateFlag.is-active::before {
+          background: #6b7280;
+        }
+
+        .wa-stateFlag.is-closed {
+          background: #eef2f7;
+          border-color: #d5dce6;
+          color: #425063;
+        }
+
+        .wa-stateFlag.is-closed::before {
+          background: #64748b;
+        }
+
+        .wa-stateFlag.is-expired {
+          background: #fbeeee;
+          border-color: #f1d2d2;
+          color: #8b2f2f;
+        }
+
+        .wa-stateFlag.is-expired::before {
+          background: #d14343;
         }
 
         .wa-sessionActionBar {
@@ -1677,6 +2122,12 @@ export default function WhatsAppDashboard() {
           cursor: not-allowed;
         }
 
+        .wa-shortcutHint {
+          font-size: 12px;
+          color: #546a86;
+          font-weight: 600;
+        }
+
         .wa-hiddenFileInput {
           display: none;
         }
@@ -1734,10 +2185,12 @@ export default function WhatsAppDashboard() {
           border: 1px solid transparent;
         }
 
-        .cs-conversation.cs-conversation--unread .cs-conversation__name,
+        .cs-conversation .cs-conversation__name {
+          font-weight: 500;
+        }
+
         .cs-conversation.cs-conversation--unread .cs-conversation__info {
-          font-weight: 800;
-          color: #0f7f85;
+          font-weight: 700;
         }
 
         .cs-conversation:hover {
@@ -1805,6 +2258,12 @@ export default function WhatsAppDashboard() {
             justify-content: flex-end;
           }
 
+          .wa-stateLegend {
+            width: 100%;
+            justify-content: flex-start;
+            margin-left: 0;
+          }
+
           .cs-main-container {
             display: flex !important;
             flex-direction: column !important;
@@ -1818,6 +2277,16 @@ export default function WhatsAppDashboard() {
           }
 
           .wa-chatCol {
+            flex: 1 1 auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0;
+          }
+
+          .cs-sidebar,
+          .wa-chatCol,
+          .wa-chatBody .cs-chat-container {
+            flex-basis: auto !important;
             width: 100% !important;
             min-width: 0;
           }

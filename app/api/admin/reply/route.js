@@ -88,6 +88,7 @@ export async function POST(req) {
     await supabase
       .from("chat_sessions")
       .update({
+        unread_count: 0,
         last_message_at: new Date(),
         updated_at: new Date()
       })

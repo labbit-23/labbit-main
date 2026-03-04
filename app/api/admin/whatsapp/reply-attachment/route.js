@@ -86,7 +86,7 @@ export async function POST(req) {
 
     await supabase
       .from("chat_sessions")
-      .update({ last_message_at: new Date(), updated_at: new Date() })
+      .update({ unread_count: 0, last_message_at: new Date(), updated_at: new Date() })
       .eq("id", chatSession.id);
 
     return NextResponse.json({ ok: true }, { status: 200 });
@@ -94,4 +94,3 @@ export async function POST(req) {
     return new Response(err?.message || "Internal server error", { status: 500 });
   }
 }
-

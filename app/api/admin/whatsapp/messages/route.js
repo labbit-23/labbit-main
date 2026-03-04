@@ -60,6 +60,13 @@ function pickLatestProfileName(messageRows = []) {
   );
 }
 
+function shouldSignStoragePath(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (/^https?:\/\//i.test(text)) return false;
+  return text.startsWith("uploads/");
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
 
@@ -257,12 +264,30 @@ export async function GET(request) {
       }))
     };
 
-    await supabase
-      .from("chat_sessions")
-      .update({ unread_count: 0, updated_at: new Date() })
-      .eq("id", chatSession.id);
+    let normalizedMessages = before ? [...(messages || [])].reverse() : (messages || []);
+    normalizedMessages = await Promise.all(
+      normalizedMessages.map(async (row) => {
+        const mediaUrl = row?.payload?.media?.url;
+        if (!shouldSignStoragePath(mediaUrl)) return row;
 
-    const normalizedMessages = before ? [...(messages || [])].reverse() : (messages || []);
+        const filePath = String(mediaUrl).replace(/^uploads\//, "");
+        const { data: signed } = await supabase.storage
+          .from("uploads")
+          .createSignedUrl(filePath, 60 * 60);
+
+        if (!signed?.signedUrl) return row;
+        return {
+          ...row,
+          payload: {
+            ...(row.payload || {}),
+            media: {
+              ...(row.payload?.media || {}),
+              url: signed.signedUrl
+            }
+          }
+        };
+      })
+    );
     const oldestLoadedAt = normalizedMessages[0]?.created_at || null;
 
     let hasOlder = false;
