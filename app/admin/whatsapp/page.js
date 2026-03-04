@@ -16,6 +16,10 @@ import { useUser } from "@/app/context/UserContext";
 const APP_LOGO = process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png";
 const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Labbit";
 const IST_TIMEZONE = "Asia/Kolkata";
+const HEADER_WHATSAPP_NUMBER =
+  process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ||
+  process.env.NEXT_PUBLIC_BUSINESS_WHATSAPP_NUMBER ||
+  "";
 
 function parseServerDate(value) {
   if (!value) return null;
@@ -85,6 +89,24 @@ function digitsOnly(value) {
 function canonicalPhone(value) {
   const digits = digitsOnly(value);
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function formatWhatsappNumberDisplay(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const digits = digitsOnly(raw);
+  if (!digits) return raw;
+  return raw.startsWith("+") ? `+${digits}` : `+${digits}`;
+}
+
+function extractBusinessNumberFromPayload(payload) {
+  const candidates = [
+    payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.metadata?.display_phone_number,
+    payload?.raw_body?.value?.metadata?.display_phone_number,
+    payload?.raw_body?.metadata?.display_phone_number,
+    payload?.raw_message?.metadata?.display_phone_number
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim()) || null;
 }
 
 function getDisplayMessageText(msg, botLabelMap) {
@@ -218,6 +240,16 @@ export default function WhatsAppDashboard() {
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
+  const webhookWhatsappNumber = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const number = extractBusinessNumberFromPayload(messages[i]?.payload);
+      if (number) return number;
+    }
+    return null;
+  }, [messages]);
+  const displayWhatsappNumber = formatWhatsappNumberDisplay(
+    webhookWhatsappNumber || labMeta?.whatsapp_number || HEADER_WHATSAPP_NUMBER
+  );
 
   const messageEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -666,6 +698,9 @@ export default function WhatsAppDashboard() {
             <div>
               <h1>WhatsApp Inbox</h1>
               <p>Agent + bot conversation console</p>
+              {displayWhatsappNumber && (
+                <p className="wa-ownNumber">Business Number: {displayWhatsappNumber}</p>
+              )}
             </div>
           </div>
           <div className="wa-headerActions">
@@ -1239,6 +1274,13 @@ export default function WhatsAppDashboard() {
           background: #fdfefe;
           padding: 10px 12px;
           flex-wrap: wrap;
+        }
+
+        .wa-ownNumber {
+          margin-top: 2px;
+          font-size: 12px;
+          color: #466079;
+          font-weight: 600;
         }
 
         .wa-sessionActionInfo {
