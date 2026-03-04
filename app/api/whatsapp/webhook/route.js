@@ -5,7 +5,10 @@ import {
   handoffToHuman
 } from "@/lib/whatsapp/sessions";
 import { processMessage } from "@/lib/whatsapp/engine";
-import { createReportRequestClickupTask } from "@/lib/clickup";
+import {
+  createReportRequestClickupTask,
+  createWhatsappFollowupClickupTask
+} from "@/lib/clickup";
 import {
   sendTextMessage,
   sendMainMenu,
@@ -808,6 +811,31 @@ export async function POST(req) {
           }
         });
       }
+
+      if (result.notifyText?.startsWith("📞 Callback Request")) {
+        try {
+          const clickupResult = await createWhatsappFollowupClickupTask({
+            labId: session.lab_id,
+            patientPhone: phone,
+            notes: result.notifyText
+          });
+          if (!clickupResult.ok && !clickupResult.skipped) {
+            console.error("ClickUp callback task failed:", clickupResult.error);
+          }
+        } catch (clickupErr) {
+          console.error("Unexpected ClickUp callback task error:", clickupErr);
+        }
+
+        await sendTeamWebhookNotification({
+          templates,
+          eventType: "callback_request",
+          payload: {
+            labId: session.lab_id,
+            patientPhone: phone,
+            notifyText: result.notifyText
+          }
+        });
+      }
     }
 
     // --------------------------------------------------
@@ -1099,8 +1127,8 @@ export async function POST(req) {
             phone,
             packageName: inferredPackageName,
             area: inferredArea,
-            date: nextContext.selected_date,
-            timeslot: nextContext.selected_slot,
+            date: nextContext.selected_date_iso || nextContext.selected_date,
+            timeslot: nextContext.selected_slot_id || nextContext.selected_slot,
             persons: 1,
             whatsapp: true,
             agree: true,

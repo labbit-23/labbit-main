@@ -737,11 +737,6 @@ export default function WhatsAppDashboard() {
                 })
               )}
             </ConversationList>
-            <div className="wa-sidebarLegend">
-              <span className="wa-legendTitle">Legend</span>
-              <span className="wa-legendItem is-lead">Blue: Lead</span>
-              <span className="wa-legendItem is-patient">Green: Existing Patient</span>
-            </div>
           </Sidebar>
 
           <div className="wa-chatCol">
@@ -1759,8 +1754,40 @@ export default function WhatsAppDashboard() {
             grid-template-columns: 1fr;
           }
 
+          .wa-sidebarHeader {
+            flex-wrap: wrap;
+          }
+
+          .wa-headerActions {
+            width: 100%;
+            justify-content: flex-end;
+          }
+
+          .cs-main-container {
+            display: flex !important;
+            flex-direction: column !important;
+          }
+
           .cs-sidebar {
-            min-width: 280px;
+            max-width: 100%;
+            width: 100%;
+            min-width: 0;
+            flex: 0 0 42vh;
+          }
+
+          .wa-chatCol {
+            width: 100% !important;
+            min-width: 0;
+          }
+
+          .wa-chatBody .cs-chat-container {
+            min-height: 48vh;
+          }
+
+          .wa-messageFilterBar {
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
           }
         }
       `}</style>

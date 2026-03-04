@@ -31,7 +31,7 @@ const STATUS_LABELS = {
   cancelled: "CANCELLED"
 };
 
-export default function PickupHistory({ refreshFlag }) {
+export default function PickupHistory({ refreshFlag, date }) {
   const toast = useToast();
   const { user } = useUser();
 
@@ -52,6 +52,26 @@ export default function PickupHistory({ refreshFlag }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
+
+  const toDateKeyIST = (value) => {
+    if (!value) return "";
+    try {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      })
+        .formatToParts(new Date(value))
+        .reduce((acc, part) => {
+          if (part.type !== "literal") acc[part.type] = part.value;
+          return acc;
+        }, {});
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    } catch {
+      return "";
+    }
+  };
 
   const formatIST = (value) => {
     if (!value) return "-";
@@ -106,8 +126,17 @@ export default function PickupHistory({ refreshFlag }) {
   }, [refreshFlag, statusFilter, toast]);
 
   const grouped = useMemo(() => {
-    return pickups;
-  }, [pickups]);
+    const effectiveDate =
+      date ||
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+
+    return pickups.filter((pickup) => toDateKeyIST(pickup.requested_at) === effectiveDate);
+  }, [pickups, date]);
 
   const updatePickupStatus = async (pickupId, status, lotReference = "") => {
     try {

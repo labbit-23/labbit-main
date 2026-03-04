@@ -3,6 +3,7 @@
 "use client";
 
 import React, { useState } from "react";
+import dayjs from "dayjs";
 import {
   Box,
   Tabs,
@@ -25,7 +26,7 @@ import DashboardMetrics from "../../components/DashboardMetrics";
 export default function CollectionCentreTabsPage() {
   const toast = useToast();
   const [refreshFlag, setRefreshFlag] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
   const { user } = useUser();
   const execType = (user?.executiveType || "").toLowerCase();
   const isOpsAdmin = execType === "admin" || execType === "manager" || execType === "director";
@@ -60,12 +61,19 @@ export default function CollectionCentreTabsPage() {
         <Heading mb={6}>Collection Centre Dashboard</Heading>
 
         <Tabs variant="enclosed" colorScheme="teal" isLazy>
-          <TabList mb={4}>
+          <TabList
+            mb={4}
+            overflowX={{ base: "auto", md: "visible" }}
+            overflowY="hidden"
+            flexWrap={{ base: "nowrap", md: "wrap" }}
+            whiteSpace="nowrap"
+            sx={{ WebkitOverflowScrolling: "touch" }}
+          >
             {(execType === "b2b" ||
               execType === "logistics" ||
-              isOpsAdmin) && <Tab>Pickup History</Tab>}
+              isOpsAdmin) && <Tab flexShrink={0}>Pickup History</Tab>}
 
-            {(execType === "b2b" || execType === "logistics" || isOpsAdmin) && <Tab>Request Pickup</Tab>}
+            {(execType === "b2b" || execType === "logistics" || isOpsAdmin) && <Tab flexShrink={0}>Request Pickup</Tab>}
           </TabList>
 
           <TabPanels>
@@ -75,6 +83,7 @@ export default function CollectionCentreTabsPage() {
               <TabPanel>
                 <PickupHistory
                   refreshFlag={refreshFlag}
+                  date={selectedDate}
                 />
               </TabPanel>
             )}

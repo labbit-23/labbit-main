@@ -383,6 +383,7 @@ const exportVisitsImage = async () => {
                 Labbit Admin Dashboard
               </Heading>
               <Button
+                className="no-export"
                 as="a"
                 href="/admin/whatsapp"
                 colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
@@ -401,6 +402,7 @@ const exportVisitsImage = async () => {
                 )}
               </Button>
               <Button
+                className="no-export"
                 as="a"
                 href={CLICKUP_DASHBOARD_URL}
                 target="_blank"
@@ -416,6 +418,7 @@ const exportVisitsImage = async () => {
                 />
               </Button>
               <Button
+                className="no-export"
                 as="a"
                 href="/collection-centre"
                 colorScheme="teal"
@@ -596,6 +599,20 @@ const exportVisitsImage = async () => {
             </Tabs>
           </Box>
         </Flex>
+        <style jsx global>{`
+          @media (max-width: 768px) {
+            .chakra-tabs__tablist {
+              overflow-x: auto;
+              overflow-y: hidden;
+              white-space: nowrap;
+              flex-wrap: nowrap !important;
+              -webkit-overflow-scrolling: touch;
+            }
+            .chakra-tabs__tab {
+              flex: 0 0 auto;
+            }
+          }
+        `}</style>
       </Box>
     </RequireAuth>
   );

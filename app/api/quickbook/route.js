@@ -8,6 +8,32 @@ import { createQuickbookClickupTask } from "@/lib/clickup";
 
 export const runtime = "nodejs";
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim()
+  );
+}
+
+async function resolveTimeslotId(timeslotInput) {
+  const raw = String(timeslotInput || "").trim();
+  if (!raw) return raw;
+  if (isUuid(raw)) return raw;
+
+  const { data, error } = await supabase
+    .from("visit_time_slots")
+    .select("id, slot_name")
+    .eq("slot_name", raw)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Quickbook Slot Resolve Error]", error);
+    return raw;
+  }
+
+  return data?.id || raw;
+}
+
 export async function POST(req) {
   try {
     const body = await req.json();
@@ -38,6 +64,8 @@ export async function POST(req) {
       );
     }
 
+    const resolvedTimeslot = await resolveTimeslotId(timeslot);
+
     // 1️⃣ Insert booking into quickbookings table
     const baseInsert = {
       patient_name: patientName,
@@ -45,7 +73,7 @@ export async function POST(req) {
       package_name: packageName,
       area,
       date,
-      timeslot,
+      timeslot: resolvedTimeslot,
       persons,
       whatsapp,
       agree,
@@ -116,6 +144,28 @@ export async function POST(req) {
 
     if (error) {
       console.error("[Supabase Insert Error]", error);
+      try {
+        const clickupResult = await createQuickbookClickupTask({
+          booking: {
+            id: null,
+            patient_name: patientName,
+            phone,
+            package_name: packageName,
+            area,
+            date,
+            // Keep original slot label for human readability in task.
+            timeslot,
+            persons,
+            whatsapp
+          },
+          source: "quickbook_api_insert_failed"
+        });
+        if (!clickupResult.ok && !clickupResult.skipped) {
+          console.error("ClickUp quickbook fallback task failed:", clickupResult.error);
+        }
+      } catch (clickupErr) {
+        console.error("Unexpected ClickUp quickbook fallback task error:", clickupErr);
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
