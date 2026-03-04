@@ -106,8 +106,6 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
             visit_date,
             time_slot (slot_name),
             address,
-            lat,
-            lng,
             status,
             executive_id,
             notes,
@@ -205,8 +203,6 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           visit_date,
           time_slot (slot_name),
           address,
-          lat,
-          lng,
           status,
           executive_id,
           patient:patient_id(
@@ -262,8 +258,6 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           visit_date,
           time_slot (slot_name),
           address,
-          lat,
-          lng,
           status,
           executive_id,
           patient:patient_id(

@@ -14,10 +14,25 @@ function isUuid(value) {
   );
 }
 
-async function resolveTimeslotId(timeslotInput) {
+async function resolveTimeslotDetails(timeslotInput) {
   const raw = String(timeslotInput || "").trim();
-  if (!raw) return raw;
-  if (isUuid(raw)) return raw;
+  if (!raw) return { id: raw, label: raw };
+
+  if (isUuid(raw)) {
+    const { data, error } = await supabase
+      .from("visit_time_slots")
+      .select("id, slot_name")
+      .eq("id", raw)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[Quickbook Slot Resolve Error]", error);
+      return { id: raw, label: raw };
+    }
+
+    return { id: raw, label: data?.slot_name || raw };
+  }
 
   const { data, error } = await supabase
     .from("visit_time_slots")
@@ -28,10 +43,13 @@ async function resolveTimeslotId(timeslotInput) {
 
   if (error) {
     console.error("[Quickbook Slot Resolve Error]", error);
-    return raw;
+    return { id: raw, label: raw };
   }
 
-  return data?.id || raw;
+  return {
+    id: data?.id || raw,
+    label: data?.slot_name || raw
+  };
 }
 
 export async function POST(req) {
@@ -64,7 +82,7 @@ export async function POST(req) {
       );
     }
 
-    const resolvedTimeslot = await resolveTimeslotId(timeslot);
+    const resolvedTimeslot = await resolveTimeslotDetails(timeslot);
 
     // 1️⃣ Insert booking into quickbookings table
     const baseInsert = {
@@ -73,7 +91,7 @@ export async function POST(req) {
       package_name: packageName,
       area,
       date,
-      timeslot: resolvedTimeslot,
+      timeslot: resolvedTimeslot.id,
       persons,
       whatsapp,
       agree,
@@ -182,7 +200,10 @@ export async function POST(req) {
     // 3️⃣ Create ClickUp task (best-effort, non-blocking failure)
     try {
       const clickupResult = await createQuickbookClickupTask({
-        booking,
+        booking: {
+          ...booking,
+          timeslot_label: resolvedTimeslot.label
+        },
         source: "quickbook_api"
       });
       if (!clickupResult.ok && !clickupResult.skipped) {
