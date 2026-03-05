@@ -67,23 +67,43 @@ function normalizePhoneVariants(rawPhone) {
 }
 
 function getInboundMedia(message) {
-  if (message?.image) {
+  const image = message?.image || null;
+  if (image) {
+    const url = image.link || image.url || image.image_url || null;
+    const urlSource = image.link
+      ? "link"
+      : image.url
+        ? "url"
+        : image.image_url
+          ? "image_url"
+          : null;
     return {
       type: "image",
-      url: message.image.link || message.image.url || message.image.image_url || null,
-      mimeType: message.image.mime_type || "image/jpeg",
-      id: message.image.id || null,
+      url,
+      urlSource,
+      mimeType: image.mime_type || "image/jpeg",
+      id: image.id || null,
       filename: null
     };
   }
 
-  if (message?.document) {
+  const document = message?.document || null;
+  if (document) {
+    const url = document.link || document.url || document.document_url || null;
+    const urlSource = document.link
+      ? "link"
+      : document.url
+        ? "url"
+        : document.document_url
+          ? "document_url"
+          : null;
     return {
       type: "document",
-      url: message.document.link || message.document.url || message.document.document_url || null,
-      mimeType: message.document.mime_type || "application/octet-stream",
-      id: message.document.id || null,
-      filename: message.document.filename || "prescription"
+      url,
+      urlSource,
+      mimeType: document.mime_type || "application/octet-stream",
+      id: document.id || null,
+      filename: document.filename || "prescription"
     };
   }
 
@@ -129,6 +149,10 @@ async function persistPrescriptionMedia({ inboundMedia, labId, phone }) {
   }
 }
 
+function shouldPersistInboundMedia() {
+  return String(process.env.WHATSAPP_PERSIST_INBOUND_MEDIA || "").toLowerCase() === "true";
+}
+
 function shouldActivateBotFromStart({ session, message, userInput, inboundMedia }) {
   const state = session?.current_state || "START";
   if (state !== "START") return true;
@@ -144,7 +168,7 @@ function shouldActivateBotFromStart({ session, message, userInput, inboundMedia 
   }
 
   // Media-first user messages should also enter bot flow.
-  if (inboundMedia?.url) {
+  if (inboundMedia) {
     return true;
   }
 
@@ -448,17 +472,19 @@ export async function POST(req) {
     let message = null;
 
     if (body?.message) {
+      // Preserve full message object so media/location payloads are not dropped.
       message = {
-        id: body.message.id,
-        from: body.from,
+        ...body.message,
+        id: body.message.id || body.message.message_id || null,
+        from: body.from || body.message.from || null,
         text:
           body.message.type === "text"
-            ? { body: body.message.text }
-            : null,
+            ? { body: body.message.text || body.message?.text?.body || "" }
+            : body.message.text || null,
         interactive:
           body.message.type === "interactive"
             ? body.message.interactive
-            : null
+            : body.message.interactive || null
       };
     }
 
@@ -673,14 +699,51 @@ export async function POST(req) {
         .eq("id", session.id);
     }
 
-    // Persist inbound media before message logging so chat history keeps stable storage links.
     if (inboundMedia) {
+      console.log(
+        "📎 MTALKZ_MEDIA extracted:",
+        JSON.stringify({
+          messageId,
+          type: inboundMedia.type || null,
+          id: inboundMedia.id || null,
+          url: inboundMedia.url || null,
+          urlSource: inboundMedia.urlSource || null
+        })
+      );
+    }
+
+    // Preserve upstream media links (especially Mtalkz `link`) to avoid replacing with uploaded paths.
+    const canPersistToStorage =
+      inboundMedia?.url &&
+      shouldPersistInboundMedia() &&
+      inboundMedia.urlSource !== "link";
+
+    if (canPersistToStorage) {
       const persistedUrl = await persistPrescriptionMedia({
         inboundMedia,
         labId: session.lab_id,
         phone
       });
       inboundMedia = { ...inboundMedia, url: persistedUrl || inboundMedia.url || null };
+      console.log(
+        "📎 MTALKZ_MEDIA storage-persist:",
+        JSON.stringify({
+          messageId,
+          persistedUrl: inboundMedia.url || null
+        })
+      );
+    } else if (inboundMedia?.url) {
+      console.log(
+        "📎 MTALKZ_MEDIA link-persist:",
+        JSON.stringify({
+          messageId,
+          keptUrl: inboundMedia.url,
+          reason:
+            inboundMedia.urlSource === "link"
+              ? "upstream_link"
+              : "storage_persist_disabled"
+        })
+      );
     }
 
     // --------------------------------------------------
@@ -704,6 +767,7 @@ export async function POST(req) {
                 type: inboundMedia.type,
                 id: inboundMedia.id || null,
                 url: inboundMedia.url || null,
+                url_source: inboundMedia.urlSource || null,
                 filename: inboundMedia.filename || null
               }
             }
@@ -711,7 +775,28 @@ export async function POST(req) {
       }
     });
 
-    const shouldIncrementUnread = session.status !== "closed";
+    if (inboundMedia) {
+      console.log(
+        "📎 MTALKZ_MEDIA logged:",
+        JSON.stringify({
+          messageId,
+          savedUrl: inboundMedia.url || null,
+          savedType: inboundMedia.type || null
+        })
+      );
+    }
+
+    const botShouldHandleStart = shouldActivateBotFromStart({
+      session,
+      message,
+      userInput,
+      inboundMedia
+    });
+    const normalizedSessionStatus = String(session.status || "").toLowerCase();
+    const isAgentQueueStatus = ["handoff", "pending"].includes(normalizedSessionStatus);
+    const shouldIncrementUnread =
+      normalizedSessionStatus !== "closed" &&
+      (isAgentQueueStatus || !botShouldHandleStart);
     await supabase
       .from("chat_sessions")
       .update({
@@ -755,7 +840,7 @@ export async function POST(req) {
       lab.alternate_whatsapp_number ||
       lab.internal_whatsapp_number;
 
-    if (!shouldActivateBotFromStart({ session, message, userInput, inboundMedia })) {
+    if (!botShouldHandleStart) {
       // Route non-menu free-form messages to executive attention queue.
       if (session.status !== "handoff") {
         await handoffToHuman(session.id);

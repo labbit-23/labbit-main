@@ -60,6 +60,12 @@ function pickLatestProfileName(messageRows = []) {
   );
 }
 
+function normalizedUnread(row) {
+  const status = String(row?.status || "").toLowerCase();
+  const isAgentQueue = status === "pending" || status === "handoff";
+  return isAgentQueue ? Number(row?.unread_count || 0) : 0;
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
 
@@ -227,6 +233,7 @@ export async function GET(request) {
 
         return {
           ...row,
+          unread_count: normalizedUnread(row),
           patient_name: displayName,
           chat_name: latestInboundProfileName || row.chat_name || null,
           name_candidates: row.name_candidates || [],
@@ -243,7 +250,10 @@ export async function GET(request) {
       (a, b) =>
         new Date(b.last_message_at || b.created_at || 0).getTime() -
         new Date(a.last_message_at || a.created_at || 0).getTime()
-    );
+    ).map((row) => ({
+      ...row,
+      unread_count: normalizedUnread(row)
+    }));
 
     return NextResponse.json({ sessions: sortedSessions }, { status: 200 });
   } catch (err) {

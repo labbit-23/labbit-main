@@ -67,6 +67,110 @@ function shouldSignStoragePath(value) {
   return text.startsWith("uploads/");
 }
 
+function parseMaybeJson(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function normalizedUnread(row) {
+  const status = String(row?.status || "").toLowerCase();
+  const isAgentQueue = status === "pending" || status === "handoff";
+  return isAgentQueue ? Number(row?.unread_count || 0) : 0;
+}
+
+function extractMediaFromPayload(payload = {}) {
+  const rawMessage = payload?.raw_message || {};
+  const rawBodyMessage =
+    payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] ||
+    payload?.raw_body?.value?.messages?.[0] ||
+    {};
+
+  const image =
+    rawMessage?.image ||
+    rawBodyMessage?.image ||
+    null;
+  const document =
+    rawMessage?.document ||
+    rawBodyMessage?.document ||
+    null;
+
+  if (image) {
+    return {
+      type: "image",
+      url: image?.link || image?.url || image?.image_url || null,
+      id: image?.id || null,
+      filename: null
+    };
+  }
+
+  if (document) {
+    return {
+      type: "document",
+      url: document?.link || document?.url || document?.document_url || null,
+      id: document?.id || null,
+      filename: document?.filename || null
+    };
+  }
+
+  return null;
+}
+
+async function resolveMediaUrlById({ mediaId, mediaFetchConfig, authDetails }) {
+  if (!mediaId || !mediaFetchConfig?.url) return null;
+
+  const method = String(mediaFetchConfig.method || "GET").toUpperCase();
+  const rawHeaders = mediaFetchConfig.headers && typeof mediaFetchConfig.headers === "object"
+    ? mediaFetchConfig.headers
+    : {};
+  const headers = { ...rawHeaders };
+
+  const apiKey = authDetails?.api_key || authDetails?.apikey || null;
+  if (apiKey) {
+    headers[mediaFetchConfig.api_key_header || "X-API-KEY"] = apiKey;
+  }
+
+  const bearerToken = mediaFetchConfig.bearer_token || authDetails?.bearer_token || null;
+  if (bearerToken && !headers.Authorization) {
+    headers.Authorization = `Bearer ${bearerToken}`;
+  }
+
+  const url = String(mediaFetchConfig.url)
+    .replace("{media_id}", encodeURIComponent(String(mediaId)));
+
+  const response = await fetch(url, {
+    method,
+    headers
+  });
+  if (!response.ok) return null;
+
+  const text = await response.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    return null;
+  }
+
+  return (
+    body?.url ||
+    body?.link ||
+    body?.media_url ||
+    body?.download_url ||
+    body?.data?.url ||
+    body?.data?.link ||
+    body?.result?.url ||
+    null
+  );
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
 
@@ -157,6 +261,8 @@ export async function GET(request) {
     }
 
     let lab = null;
+    let mediaResolverConfig = null;
+    let mediaResolverAuth = {};
     const defaultBotLabelMap = {
       "Main Menu Sent": "Shared main menu options",
       "More Services Menu Sent": "Shared more services menu",
@@ -174,19 +280,14 @@ export async function GET(request) {
 
       const { data: waApiData } = await supabase
         .from("labs_apis")
-        .select("templates")
+        .select("templates, auth_details")
         .eq("lab_id", chatSession.lab_id)
         .eq("api_name", "whatsapp_outbound")
         .maybeSingle();
 
-      let templates = waApiData?.templates;
-      if (typeof templates === "string") {
-        try {
-          templates = JSON.parse(templates);
-        } catch {
-          templates = null;
-        }
-      }
+      const templates = parseMaybeJson(waApiData?.templates);
+      mediaResolverConfig = templates?.media_fetch || templates?.media_resolver || null;
+      mediaResolverAuth = waApiData?.auth_details || {};
 
       const customLabels =
         templates?.chat_history_labels ||
@@ -250,6 +351,7 @@ export async function GET(request) {
 
     const enrichedSession = {
       ...chatSession,
+      unread_count: normalizedUnread(chatSession),
       patient_name: displayName,
       contact_type: hasNonLead ? "patient" : "lead",
       chat_name: latestChatName,
@@ -267,21 +369,73 @@ export async function GET(request) {
     let normalizedMessages = before ? [...(messages || [])].reverse() : (messages || []);
     normalizedMessages = await Promise.all(
       normalizedMessages.map(async (row) => {
-        const mediaUrl = row?.payload?.media?.url;
-        if (!shouldSignStoragePath(mediaUrl)) return row;
+        const extractedMedia = extractMediaFromPayload(row?.payload || {});
+        const mergedMedia = {
+          ...(extractedMedia || {}),
+          ...(row?.payload?.media || {})
+        };
+        const mediaId = mergedMedia?.id || null;
+        let mediaUrl = mergedMedia?.url;
+
+        if (!mediaUrl && mediaId && mediaResolverConfig) {
+          const resolvedUrl = await resolveMediaUrlById({
+            mediaId,
+            mediaFetchConfig: mediaResolverConfig,
+            authDetails: mediaResolverAuth
+          });
+          if (resolvedUrl) {
+            mediaUrl = resolvedUrl;
+          }
+        }
+
+        if (!shouldSignStoragePath(mediaUrl)) {
+          if (!row?.payload?.media && extractedMedia) {
+            return {
+              ...row,
+              payload: {
+                ...(row.payload || {}),
+                media: mergedMedia
+              }
+            };
+          }
+          if (mediaUrl && mediaUrl !== mergedMedia?.url) {
+            return {
+              ...row,
+              payload: {
+                ...(row.payload || {}),
+                media: {
+                  ...(mergedMedia || {}),
+                  url: mediaUrl
+                }
+              }
+            };
+          }
+          return row;
+        }
 
         const filePath = String(mediaUrl).replace(/^uploads\//, "");
         const { data: signed } = await supabase.storage
           .from("uploads")
           .createSignedUrl(filePath, 60 * 60);
 
-        if (!signed?.signedUrl) return row;
+        if (!signed?.signedUrl) {
+          if (!row?.payload?.media && extractedMedia) {
+            return {
+              ...row,
+              payload: {
+                ...(row.payload || {}),
+                media: mergedMedia
+              }
+            };
+          }
+          return row;
+        }
         return {
           ...row,
           payload: {
             ...(row.payload || {}),
             media: {
-              ...(row.payload?.media || {}),
+              ...(mergedMedia || {}),
               url: signed.signedUrl
             }
           }

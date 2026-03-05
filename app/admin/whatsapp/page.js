@@ -63,7 +63,9 @@ function formatMessageTime(value) {
 
 function isWithin24(session) {
   if (!session?.last_user_message_at) return false;
-  const diff = Date.now() - new Date(session.last_user_message_at).getTime();
+  const parsed = parseServerDate(session.last_user_message_at);
+  if (!parsed || Number.isNaN(parsed.getTime())) return false;
+  const diff = Date.now() - parsed.getTime();
   return diff < 24 * 60 * 60 * 1000;
 }
 
@@ -258,11 +260,25 @@ function getDisplayMessageText(msg, botLabelMap) {
 
 function getMessageMedia(msg) {
   const media = msg?.payload?.media;
-  if (media?.url) {
+  const fallbackUrl =
+    media?.url ||
+    media?.link ||
+    msg?.payload?.raw_message?.image?.link ||
+    msg?.payload?.raw_message?.image?.url ||
+    msg?.payload?.raw_message?.image?.image_url ||
+    msg?.payload?.raw_message?.document?.link ||
+    msg?.payload?.raw_message?.document?.url ||
+    msg?.payload?.raw_message?.document?.document_url ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.link ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.url ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.link ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.url;
+
+  if (fallbackUrl) {
     return {
       type: media.type || "file",
-      url: media.url,
-      filename: media.filename || null
+      url: fallbackUrl,
+      filename: media?.filename || msg?.payload?.raw_message?.document?.filename || null
     };
   }
 
