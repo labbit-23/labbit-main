@@ -153,6 +153,51 @@ function shouldPersistInboundMedia() {
   return String(process.env.WHATSAPP_PERSIST_INBOUND_MEDIA || "").toLowerCase() === "true";
 }
 
+async function resolveMediaUrlById({ mediaId, mediaFetchConfig, authDetails }) {
+  if (!mediaId || !mediaFetchConfig?.url) return null;
+
+  const method = String(mediaFetchConfig.method || "GET").toUpperCase();
+  const rawHeaders = mediaFetchConfig.headers && typeof mediaFetchConfig.headers === "object"
+    ? mediaFetchConfig.headers
+    : {};
+  const headers = { ...rawHeaders };
+
+  const apiKey = authDetails?.api_key || authDetails?.apikey || null;
+  if (apiKey) {
+    headers[mediaFetchConfig.api_key_header || "X-API-KEY"] = apiKey;
+  }
+
+  const bearerToken = mediaFetchConfig.bearer_token || authDetails?.bearer_token || null;
+  if (bearerToken && !headers.Authorization) {
+    headers.Authorization = `Bearer ${bearerToken}`;
+  }
+
+  const url = String(mediaFetchConfig.url)
+    .replace("{media_id}", encodeURIComponent(String(mediaId)));
+
+  const response = await fetch(url, { method, headers });
+  if (!response.ok) return null;
+
+  const text = await response.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    return null;
+  }
+
+  return (
+    body?.url ||
+    body?.link ||
+    body?.media_url ||
+    body?.download_url ||
+    body?.data?.url ||
+    body?.data?.link ||
+    body?.result?.url ||
+    null
+  );
+}
+
 function shouldActivateBotFromStart({ session, message, userInput, inboundMedia }) {
   const state = session?.current_state || "START";
   if (state !== "START") return true;
@@ -604,6 +649,17 @@ export async function POST(req) {
       return Response.json({ success: true });
     }
 
+    const { data: waApiConfig } = await supabase
+      .from("labs_apis")
+      .select("templates, auth_details")
+      .eq("lab_id", session.lab_id)
+      .eq("api_name", "whatsapp_outbound")
+      .maybeSingle();
+
+    const templates = parseTemplates(waApiConfig?.templates);
+    const mediaResolverConfig = templates?.media_fetch || templates?.media_resolver || null;
+    const mediaResolverAuth = waApiConfig?.auth_details || {};
+
     // --------------------------------------------------
     // 7️⃣ Patient Linking / Lead Creation
     // --------------------------------------------------
@@ -697,6 +753,49 @@ export async function POST(req) {
           patient_name: profileName || session.patient_name || null
         })
         .eq("id", session.id);
+    }
+
+    if (inboundMedia?.id && !inboundMedia?.url && mediaResolverConfig) {
+      try {
+        const resolvedUrl = await resolveMediaUrlById({
+          mediaId: inboundMedia.id,
+          mediaFetchConfig: mediaResolverConfig,
+          authDetails: mediaResolverAuth
+        });
+        if (resolvedUrl) {
+          inboundMedia = {
+            ...inboundMedia,
+            url: resolvedUrl,
+            urlSource: "resolved_by_id"
+          };
+          console.log(
+            "📎 MTALKZ_MEDIA resolved_by_id:",
+            JSON.stringify({
+              messageId,
+              mediaId: inboundMedia.id,
+              resolvedUrl
+            })
+          );
+        } else {
+          console.log(
+            "📎 MTALKZ_MEDIA resolve_by_id_failed:",
+            JSON.stringify({
+              messageId,
+              mediaId: inboundMedia.id,
+              reason: "empty_resolver_response"
+            })
+          );
+        }
+      } catch (resolveErr) {
+        console.log(
+          "📎 MTALKZ_MEDIA resolve_by_id_error:",
+          JSON.stringify({
+            messageId,
+            mediaId: inboundMedia.id,
+            error: resolveErr?.message || "resolver_error"
+          })
+        );
+      }
     }
 
     if (inboundMedia) {
@@ -820,14 +919,6 @@ export async function POST(req) {
     // 🔟 Process Bot Message
     // --------------------------------------------------
 
-    const { data: waApiConfig } = await supabase
-      .from("labs_apis")
-      .select("templates")
-      .eq("lab_id", session.lab_id)
-      .eq("api_name", "whatsapp_outbound")
-      .maybeSingle();
-
-    const templates = parseTemplates(waApiConfig?.templates);
     const botFlowConfig = templates?.bot_flow || {};
     const packageCatalog = getPackageCatalog();
     const feedbackUrl =
@@ -842,16 +933,19 @@ export async function POST(req) {
 
     if (!botShouldHandleStart) {
       // Route non-menu free-form messages to executive attention queue.
-      if (session.status !== "handoff") {
+      // Avoid sending the same wait message repeatedly once a chat is already in manual handling statuses.
+      const statusNow = String(session.status || "").toLowerCase();
+      const isAlreadyManualMode = ["handoff", "pending", "resolved", "closed"].includes(statusNow);
+      if (!isAlreadyManualMode) {
         await handoffToHuman(session.id);
+        await sendTextMessage({
+          labId: session.lab_id,
+          phone,
+          text:
+            botFlowConfig?.texts?.wait_for_executive_text ||
+            "Thanks for your message. Please wait, our executive will reach out to help you shortly."
+        });
       }
-      await sendTextMessage({
-        labId: session.lab_id,
-        phone,
-        text:
-          botFlowConfig?.texts?.wait_for_executive_text ||
-          "Thanks for your message. Please wait, our executive will reach out to help you shortly."
-      });
       return Response.json({ success: true });
     }
 

@@ -20,7 +20,21 @@ const HEADER_WHATSAPP_NUMBER =
   process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ||
   process.env.NEXT_PUBLIC_BUSINESS_WHATSAPP_NUMBER ||
   "";
-const SHORTCUT_HELP = "/r report reply, /hv home visit bot flow, /menu main menu";
+
+const DEFAULT_CHAT_SETTINGS = {
+  shortcuts: [
+    {
+      key: "/r",
+      label: "Report reply",
+      type: "template",
+      message:
+        "Please find your report attached. If you need any clarification, reply here and our team will help you."
+    },
+    { key: "/hv", label: "Home visit bot flow", type: "handover", flow: "home_visit" },
+    { key: "/menu", label: "Main menu bot flow", type: "handover", flow: "main_menu" },
+    { key: "/reports", label: "Report bot flow", type: "handover", flow: "reports" }
+  ]
+};
 
 function parseServerDate(value) {
   if (!value) return null;
@@ -162,7 +176,20 @@ function decodeMessageEntities(value) {
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/gi, "'");
+    .replace(/&#39;/gi, "'")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]*>/g, "");
+}
+
+function toPlainComposerText(value) {
+  return decodeMessageEntities(String(value || ""))
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\r/g, "")
+    .trimStart();
 }
 
 function extractBusinessNumberFromPayload(payload) {
@@ -313,39 +340,56 @@ async function fetchJsonWithRetry(url, options = {}, retries = 1) {
   throw lastError || new Error("Request failed");
 }
 
-function parseShortcutCommand(text) {
+function normalizeChatSettings(raw) {
+  const shortcuts = Array.isArray(raw?.shortcuts) ? raw.shortcuts : DEFAULT_CHAT_SETTINGS.shortcuts;
+  return {
+    shortcuts: shortcuts
+      .map((item) => ({
+        key: String(item?.key || "").trim().toLowerCase(),
+        label: String(item?.label || "").trim(),
+        type: String(item?.type || "").trim().toLowerCase(),
+        message: String(item?.message || "").trim(),
+        flow: String(item?.flow || "").trim().toLowerCase()
+      }))
+      .filter((item) => item.key.startsWith("/") && (item.type === "template" || item.type === "handover"))
+  };
+}
+
+function buildShortcutHelp(settings) {
+  const parts = (settings?.shortcuts || [])
+    .slice(0, 6)
+    .map((item) => `${item.key} ${item.label || item.type}`);
+  return parts.join(", ");
+}
+
+function parseShortcutCommand(text, settings) {
   const value = String(text || "").trim();
-  if (!value.startsWith("/")) return null;
+  if (!value.startsWith("/") && !value.startsWith("\\")) return null;
 
   const [rawCmd, ...rest] = value.split(/\s+/);
-  const command = rawCmd.toLowerCase();
+  const command = rawCmd.replace(/^\\/, "/").toLowerCase();
   const notes = rest.join(" ").trim();
-
-  if (command === "/r") {
-    return { type: "template", template: "reports_reply", notes };
+  const shortcut = (settings?.shortcuts || []).find((item) => item.key === command);
+  if (shortcut?.type === "template") {
+    return { type: "template", command, message: shortcut.message || "", notes };
   }
-
-  if (command === "/rbot" || command === "/reports") {
-    return { type: "handover", flow: "reports", notes };
+  if (shortcut?.type === "handover") {
+    return { type: "handover", command, flow: shortcut.flow || "main_menu", notes };
   }
-
-  if (command === "/hv" || command === "/homevisit") {
-    return { type: "handover", flow: "home_visit", notes };
-  }
-
-  if (command === "/menu") {
-    return { type: "handover", flow: "main_menu", notes };
-  }
-
   return { type: "unknown", command };
 }
 
-function buildTemplateMessage(template, notes) {
-  const extra = notes ? `\n${notes}` : "";
-  if (template === "reports_reply") {
-    return `Please find your report attached. If you need any clarification, reply here and our team will help you.${extra}`;
-  }
-  return notes || "";
+function buildSessionsSignature(list = []) {
+  return (Array.isArray(list) ? list : [])
+    .map((session) => [
+      session?.id || "",
+      session?.phone || "",
+      session?.status || "",
+      session?.last_message_at || "",
+      session?.last_user_message_at || "",
+      Number(session?.unread_count || 0)
+    ].join("|"))
+    .join("||");
 }
 
 export default function WhatsAppDashboard() {
@@ -360,7 +404,6 @@ export default function WhatsAppDashboard() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
   const [senderFilter, setSenderFilter] = useState("all");
-  const [showBotMessages, setShowBotMessages] = useState(true);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -370,11 +413,14 @@ export default function WhatsAppDashboard() {
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [clickupAction, setClickupAction] = useState("followup");
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
+  const [hint, setHint] = useState("");
+  const [notificationPermission, setNotificationPermission] = useState("default");
   const [agentPresence, setAgentPresence] = useState([]);
+  const [chatSettings, setChatSettings] = useState(DEFAULT_CHAT_SETTINGS);
+  const [composerText, setComposerText] = useState("");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -392,6 +438,10 @@ export default function WhatsAppDashboard() {
   const attachInputRef = useRef(null);
   const initialBottomReadyRef = useRef(false);
   const autoRefreshInFlightRef = useRef(false);
+  const selectedSessionRef = useRef(null);
+  const sessionsSignatureRef = useRef("");
+  const hasBootstrappedSessionsRef = useRef(false);
+  const previousUnreadBySessionRef = useRef(new Map());
 
   const isExecutiveAttentionAutoReply = (msg) => {
     const text = String(msg?.message || "").toLowerCase();
@@ -405,9 +455,16 @@ export default function WhatsAppDashboard() {
     !isExecutiveAttentionAutoReply(msg);
 
   useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission || "default");
+    }
+  }, []);
+
+  useEffect(() => {
     if (isUserLoading || !user) return;
     fetchSessions();
     fetchAgentPresence();
+    fetchChatSettings();
   }, [isUserLoading, user]);
 
   useEffect(() => {
@@ -422,6 +479,24 @@ export default function WhatsAppDashboard() {
   useEffect(() => {
     setOpenInfoSessionId(null);
   }, [selectedSession?.id]);
+
+  useEffect(() => {
+    selectedSessionRef.current = selectedSession || null;
+  }, [selectedSession]);
+
+  useEffect(() => {
+    if (!selectedSession) return;
+    const status = String(selectedSession.status || "").toLowerCase();
+    if (tab === "active" && status === "closed") {
+      const firstActive = sessions.find((s) => String(s?.status || "").toLowerCase() !== "closed");
+      if (firstActive) handleSelect(firstActive);
+    }
+    if (tab === "closed" && status !== "closed") {
+      const firstClosed = sessions.find((s) => String(s?.status || "").toLowerCase() === "closed");
+      if (firstClosed) handleSelect(firstClosed);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, sessions]);
 
   const getMessageScrollElement = () =>
     chatContainerRef.current?.querySelector(".cs-message-list__scroll-wrapper") || null;
@@ -438,6 +513,13 @@ export default function WhatsAppDashboard() {
     setTimeout(doScroll, 120);
   };
 
+  const getFirstSessionForTab = (list = []) => {
+    if (!Array.isArray(list) || list.length === 0) return null;
+    if (tab === "active") return list.find((row) => String(row?.status || "").toLowerCase() !== "closed") || null;
+    if (tab === "closed") return list.find((row) => String(row?.status || "").toLowerCase() === "closed") || null;
+    return list[0] || null;
+  };
+
   const fetchSessions = async (options = {}) => {
     const { silent = false } = options;
     setError("");
@@ -449,7 +531,34 @@ export default function WhatsAppDashboard() {
         cache: "no-store"
       }, 1);
       const nextSessions = body.sessions || [];
-      setSessions(nextSessions);
+      const unreadNow = new Map(nextSessions.map((row) => [row.id, Number(row?.unread_count || 0)]));
+      if (hasBootstrappedSessionsRef.current && notificationPermission === "granted" && typeof window !== "undefined") {
+        nextSessions.forEach((row) => {
+          const prev = Number(previousUnreadBySessionRef.current.get(row.id) || 0);
+          const now = Number(row?.unread_count || 0);
+          const delta = now - prev;
+          if (delta > 0) {
+            const title = row?.patient_name || row?.phone || "New WhatsApp Message";
+            const bodyText = delta > 1
+              ? `${delta} new messages`
+              : "New message received";
+            const note = new Notification(title, { body: bodyText, tag: `wa-${row.id}` });
+            note.onclick = () => {
+              window.focus();
+              handleSelect(row);
+            };
+          }
+        });
+      }
+      previousUnreadBySessionRef.current = unreadNow;
+      hasBootstrappedSessionsRef.current = true;
+
+      const nextSignature = buildSessionsSignature(nextSessions);
+      const hasSessionListChanged = nextSignature !== sessionsSignatureRef.current;
+      sessionsSignatureRef.current = nextSignature;
+      if (!silent || hasSessionListChanged) {
+        setSessions(nextSessions);
+      }
 
       if (selectedSession) {
         const freshSelected = nextSessions.find((s) => s.id === selectedSession.id);
@@ -467,9 +576,11 @@ export default function WhatsAppDashboard() {
             prev.map((row) => (row.id === mergedSelected.id ? { ...row, patient_name: mergedSelected.patient_name } : row))
           );
         } else if (nextSessions.length > 0) {
-          const first = nextSessions[0];
-          setSelectedSession(first);
-          await fetchMessages(first.phone);
+          const first = getFirstSessionForTab(nextSessions) || nextSessions[0];
+          if (first) {
+            setSelectedSession(first);
+            await fetchMessages(first.phone);
+          }
         } else {
           setSelectedSession(null);
         }
@@ -478,12 +589,16 @@ export default function WhatsAppDashboard() {
         const matchedByPhone = requestedPhone
           ? nextSessions.find((s) => String(s.phone || "").includes(String(requestedPhone)))
           : null;
-        const first = matchedByPhone || nextSessions[0];
-        setSelectedSession(first);
-        await fetchMessages(first.phone);
+        const first = matchedByPhone || getFirstSessionForTab(nextSessions) || nextSessions[0];
+        if (first) {
+          setSelectedSession(first);
+          await fetchMessages(first.phone);
+        }
       }
+      return nextSessions;
     } catch {
       setError("Failed to load conversations. Please refresh.");
+      return [];
     } finally {
       if (!silent) setIsLoadingSessions(false);
     }
@@ -498,6 +613,18 @@ export default function WhatsAppDashboard() {
       setAgentPresence(Array.isArray(body?.agents) ? body.agents : []);
     } catch {
       if (!silent) setAgentPresence([]);
+    }
+  };
+
+  const fetchChatSettings = async () => {
+    try {
+      const body = await fetchJsonWithRetry("/api/admin/whatsapp/settings", {
+        credentials: "include",
+        cache: "no-store"
+      }, 1);
+      setChatSettings(normalizeChatSettings(body?.settings || DEFAULT_CHAT_SETTINGS));
+    } catch {
+      setChatSettings(DEFAULT_CHAT_SETTINGS);
     }
   };
 
@@ -569,10 +696,25 @@ export default function WhatsAppDashboard() {
       if (autoRefreshInFlightRef.current) return;
       autoRefreshInFlightRef.current = true;
       try {
-        await fetchSessions({ silent: true });
+        const beforeRefreshSelected = selectedSessionRef.current;
+        const nextSessions = await fetchSessions({ silent: true });
         await fetchAgentPresence({ silent: true });
-        if (selectedSession?.phone) {
-          await fetchMessages(selectedSession.phone, { silent: true });
+
+        if (beforeRefreshSelected?.phone) {
+          const beforePhone = canonicalPhone(beforeRefreshSelected.phone);
+          const afterRefreshSelected = nextSessions.find(
+            (s) => canonicalPhone(s?.phone) === beforePhone
+          );
+          const shouldRefreshMessages =
+            !afterRefreshSelected ||
+            String(afterRefreshSelected.last_message_at || "") !==
+              String(beforeRefreshSelected.last_message_at || "") ||
+            Number(afterRefreshSelected.unread_count || 0) !==
+              Number(beforeRefreshSelected.unread_count || 0);
+
+          if (afterRefreshSelected?.phone && shouldRefreshMessages) {
+            await fetchMessages(afterRefreshSelected.phone, { silent: true });
+          }
         }
       } finally {
         autoRefreshInFlightRef.current = false;
@@ -580,7 +722,7 @@ export default function WhatsAppDashboard() {
     };
 
     refreshTick();
-    const interval = setInterval(refreshTick, 8000);
+    const interval = setInterval(refreshTick, 10000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshTick();
     };
@@ -589,10 +731,9 @@ export default function WhatsAppDashboard() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [isUserLoading, user, selectedSession?.phone]);
+  }, [isUserLoading, user, selectedSession?.id]);
 
   const handleSelect = async (session) => {
-    setShowBotMessages(true);
     setSelectedSession(session);
     setMessages([]);
     setHasOlderMessages(false);
@@ -620,7 +761,7 @@ export default function WhatsAppDashboard() {
     });
   };
 
-  const handleCreateClickupTask = async () => {
+  const handleCreateClickupTask = async (action = "followup") => {
     if (!selectedSession?.phone || isCreatingTask) return;
     const notes = window.prompt("Add notes for this task (optional):", "") || "";
     setIsCreatingTask(true);
@@ -631,7 +772,7 @@ export default function WhatsAppDashboard() {
         credentials: "include",
         body: JSON.stringify({
           phone: selectedSession.phone,
-          action: clickupAction,
+          action,
           notes
         })
       });
@@ -685,7 +826,7 @@ export default function WhatsAppDashboard() {
   };
 
   const handleSend = async (text) => {
-    const content = text.trim();
+    const content = toPlainComposerText(String(text ?? composerText ?? ""));
     if (!selectedSession || !content || isSending) return;
     if (!isWithin24(selectedSession)) {
       setError("Cannot send messages after the 24-hour window has expired.");
@@ -693,35 +834,23 @@ export default function WhatsAppDashboard() {
     }
 
     setError("");
+    setHint("");
     setIsSending(true);
 
     try {
-      const shortcut = parseShortcutCommand(content);
+      const shortcut = parseShortcutCommand(content, chatSettings);
+      const shortcutHelp = buildShortcutHelp(chatSettings) || "No shortcuts configured";
       if (shortcut?.type === "unknown") {
-        throw new Error(`Unknown shortcut: ${shortcut.command}. Use ${SHORTCUT_HELP}`);
+        throw new Error(`Unknown shortcut: ${shortcut.command}. Use ${shortcutHelp}`);
       }
 
       if (shortcut?.type === "template") {
-        const templateText = buildTemplateMessage(shortcut.template, shortcut.notes);
+        const templateText = `${shortcut.message || ""}${shortcut.notes ? `\n${shortcut.notes}` : ""}`.trim();
         if (!templateText) {
-          throw new Error(`Shortcut could not build a message. Use ${SHORTCUT_HELP}`);
+          throw new Error(`Shortcut has empty template. Configure it in WhatsApp Settings.`);
         }
-        const response = await fetch("/api/admin/reply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            phone: selectedSession.phone,
-            message: templateText
-          })
-        });
-
-        if (!response.ok) {
-          const textResponse = await response.text();
-          throw new Error(textResponse || "Template send failed");
-        }
-
-        await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+        setComposerText(templateText);
+        setHint("Preset inserted. Review/edit and press Enter to send.");
         return;
       }
 
@@ -741,6 +870,7 @@ export default function WhatsAppDashboard() {
           throw new Error(textResponse || "Bot handover failed");
         }
 
+        setComposerText("");
         await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
         return;
       }
@@ -760,6 +890,7 @@ export default function WhatsAppDashboard() {
         throw new Error(textResponse || "Reply failed");
       }
 
+      setComposerText("");
       await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
     } catch (err) {
       setError(err?.message || "Message could not be sent. Please retry.");
@@ -816,10 +947,6 @@ export default function WhatsAppDashboard() {
   const filteredMessages = useMemo(() => {
     let filtered = messages;
 
-    if (!showBotMessages) {
-      filtered = filtered.filter((msg) => !isBotOutboundMessage(msg));
-    }
-
     if (senderFilter === "all") return filtered;
 
     return filtered.filter((msg) => {
@@ -831,11 +958,56 @@ export default function WhatsAppDashboard() {
       if (senderFilter === "bot") return !hasAgent;
       return true;
     });
-  }, [messages, senderFilter, showBotMessages]);
+  }, [messages, senderFilter]);
+
+  const draftShortcut = useMemo(
+    () => parseShortcutCommand(toPlainComposerText(composerText), chatSettings),
+    [composerText, chatSettings]
+  );
+
+  const insertTemplateFromDraftShortcut = () => {
+    if (!draftShortcut || draftShortcut.type !== "template") return false;
+    const templateText = `${draftShortcut.message || ""}${draftShortcut.notes ? `\n${draftShortcut.notes}` : ""}`.trim();
+    if (!templateText) return false;
+    setComposerText(templateText);
+    setHint("Preset inserted. Review/edit and press Enter to send.");
+    return true;
+  };
+
+  const handleComposerKeyDown = (event) => {
+    if (event?.key !== "Tab") return;
+    if (!draftShortcut || draftShortcut.type !== "template") return;
+    event.preventDefault();
+    insertTemplateFromDraftShortcut();
+  };
+
+  const handleComposerChange = (nextValue) => {
+    if (typeof nextValue === "string") {
+      setComposerText(nextValue);
+      return;
+    }
+    const derived =
+      nextValue?.target?.value ??
+      nextValue?.currentTarget?.value ??
+      "";
+    setComposerText(String(derived));
+  };
+
+  const enableBrowserAlerts = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission || "default");
+      if (permission === "granted") {
+        setHint("Browser notifications enabled.");
+      }
+    } catch {
+      setNotificationPermission("denied");
+    }
+  };
 
   const canReply = Boolean(
     selectedSession &&
-    selectedSession.status !== "closed" &&
     isWithin24(selectedSession) &&
     !isSending &&
     !isUpdatingStatus
@@ -893,8 +1065,10 @@ export default function WhatsAppDashboard() {
               <img src={APP_LOGO} alt={`${APP_NAME} logo`} className="wa-logo" />
             </a>
             <div>
-              <h1>WhatsApp Inbox</h1>
-              <p>Agent + bot conversation console</p>
+              <h1>
+                WhatsApp Inbox
+                <span className="wa-titleSub">Agent + bot console</span>
+              </h1>
               {displayWhatsappNumber && (
                 <p className="wa-ownNumber">Business Number: {displayWhatsappNumber}</p>
               )}
@@ -904,54 +1078,61 @@ export default function WhatsAppDashboard() {
             <a href="/admin" className="wa-backBtn">
               ← Back
             </a>
+            <a href="/admin/whatsapp/settings" className="wa-backBtn" title="WhatsApp Settings">
+              ⚙ Settings
+            </a>
             <button type="button" onClick={fetchSessions}>Refresh</button>
-            {agentPresence.length > 0 && (
-              <div className="wa-presenceWrap" title="Agent activity status">
-                {agentPresence.map((agent) => (
-                  <span key={agent.id} className={`wa-presenceChip is-${agent.presence}`}>
-                    <span className="wa-presenceDot" />
-                    <span className="wa-presenceName">{agent.name}</span>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="wa-stateLegend" aria-label="Chat state legend">
-              <span className="wa-stateLegendTitle">Legend</span>
-              <span className="wa-stateLegendName is-lead">Lead Name</span>
-              <span className="wa-stateLegendName is-patient">Patient Name</span>
-              <span className="wa-stateFlag is-active">Active</span>
-              <span className="wa-stateFlag is-unread">Unread</span>
-              <span className="wa-stateFlag is-pending">Pending</span>
-              <span className="wa-stateFlag is-resolved">Resolved</span>
-              <span className="wa-stateFlag is-closed">Closed</span>
-              <span className="wa-stateFlag is-expired">24h expired</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="wa-toolbar">
-          <div className="wa-tabs">
-            {["active", "closed", "all"].map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={tab === value ? "is-active" : ""}
-                onClick={() => setTab(value)}
-              >
-                {value}
+            {notificationPermission !== "granted" && (
+              <button type="button" onClick={enableBrowserAlerts} className="wa-backBtn">
+                🔔 Enable Alerts
               </button>
-            ))}
+            )}
           </div>
-
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by patient or phone"
-          />
         </div>
 
         <MainContainer>
           <Sidebar position="left" scrollable>
+            <div className="wa-leftPanelTools">
+              <div className="wa-tabs">
+                {["active", "closed", "all"].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={tab === value ? "is-active" : ""}
+                    onClick={() => setTab(value)}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by patient or phone"
+              />
+
+              <div className="wa-leftMeta">
+                <div className="wa-stateLegend" aria-label="Chat state legend">
+                  <span className="wa-stateLegendTitle">Legend</span>
+                  <span className="wa-stateFlag is-unread">Unread</span>
+                  <span className="wa-stateFlag is-pending">Pending</span>
+                  <span className="wa-stateFlag is-resolved">Resolved</span>
+                  <span className="wa-stateFlag is-closed">Closed</span>
+                  <span className="wa-stateFlag is-expired">24h</span>
+                </div>
+                {agentPresence.length > 0 && (
+                  <div className="wa-presenceWrap" title="Agent activity status">
+                    {agentPresence.map((agent) => (
+                      <span key={agent.id} className={`wa-presenceChip is-${agent.presence}`}>
+                        <span className="wa-presenceDot" />
+                        <span className="wa-presenceName">{agent.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <ConversationList>
               {isLoadingSessions ? (
                 <div className="wa-empty">Loading conversations...</div>
@@ -1004,32 +1185,6 @@ export default function WhatsAppDashboard() {
 
           <div className="wa-chatCol">
             <div className="wa-chatTop">
-            <div className="wa-messageFilterBar">
-              <span>History:</span>
-              {[
-                { key: "all", label: "All" },
-                { key: "agent", label: "Agents" },
-                { key: "bot", label: "Bot" }
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={senderFilter === item.key ? "is-active" : ""}
-                  onClick={() => setSenderFilter(item.key)}
-                >
-                  {item.label}
-                </button>
-              ))}
-              <label className="wa-botToggle">
-                <input
-                  type="checkbox"
-                  checked={showBotMessages}
-                  onChange={(e) => setShowBotMessages(e.target.checked)}
-                />
-                Show BOT Messages
-              </label>
-            </div>
-
             {selectedSession && (
               <div className="wa-sessionActionBar">
                 <div className="wa-sessionActionInfo">
@@ -1064,7 +1219,52 @@ export default function WhatsAppDashboard() {
                   </span>
                 </div>
 
+                <div className="wa-messageFilterBar">
+                  {[
+                    { key: "all", label: "All" },
+                    { key: "agent", label: "Agents" },
+                    { key: "bot", label: "Bot" }
+                  ].map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={senderFilter === item.key ? "is-active" : ""}
+                      onClick={() => setSenderFilter(item.key)}
+                      title={`Show ${item.label}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="wa-actionBtns">
+                  <button
+                    type="button"
+                    onClick={() => handleCreateClickupTask("followup")}
+                    disabled={isCreatingTask}
+                    className="wa-inlineBtn"
+                    title="Create follow-up task"
+                  >
+                    {isCreatingTask ? "..." : "Follow-up"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCreateClickupTask("report_request")}
+                    disabled={isCreatingTask}
+                    className="wa-inlineBtn"
+                    title="Create report task"
+                  >
+                    Report Task
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCreateClickupTask("doctors_connect")}
+                    disabled={isCreatingTask}
+                    className="wa-inlineBtn"
+                    title="Create doctor connect task"
+                  >
+                    Doctor Connect
+                  </button>
                   <button
                     type="button"
                     disabled={isUpdatingStatus}
@@ -1126,40 +1326,6 @@ export default function WhatsAppDashboard() {
             )}
 
             {error && <div className="wa-error">{error}</div>}
-
-            {selectedSession && (
-              <div className="wa-composerActions">
-                <div className="wa-composerActionGroup">
-                  <select
-                    value={clickupAction}
-                    onChange={(e) => setClickupAction(e.target.value)}
-                    className="wa-inlineSelect"
-                  >
-                    <option value="followup">Create Follow-up Task</option>
-                    <option value="report_request">Create Report Task</option>
-                    <option value="doctors_connect">Create Doctor Connect Task</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleCreateClickupTask}
-                    disabled={isCreatingTask}
-                    className="wa-inlineBtn"
-                  >
-                    {isCreatingTask ? "Creating..." : "Create ClickUp"}
-                  </button>
-                </div>
-                <div className="wa-composerActionGroup">
-                  <input
-                    ref={attachInputRef}
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
-                    className="wa-hiddenFileInput"
-                    onChange={handleAttachmentUpload}
-                  />
-                  <span className="wa-shortcutHint">Shortcuts: {SHORTCUT_HELP}</span>
-                </div>
-              </div>
-            )}
             </div>
 
             <div className="wa-chatBody">
@@ -1232,23 +1398,40 @@ export default function WhatsAppDashboard() {
                 <div ref={messageEndRef} />
               </MessageList>
 
-              {selectedSession && (
-                <MessageInput
-                  placeholder={
-                    !isWithin24(selectedSession)
-                      ? "Reply window expired. Use a template message to reopen."
-                      : selectedSession.status === "closed"
-                        ? "Chat is closed. Mark pending/resolved to continue."
-                        : isSending
-                          ? "Sending..."
-                          : "Type a message"
-                  }
-                  onSend={handleSend}
-                  disabled={!canReply}
-                  attachButton
-                  onAttachClick={handleAttachmentChoose}
-                />
+              <input
+                ref={attachInputRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                className="wa-hiddenFileInput"
+                onChange={handleAttachmentUpload}
+              />
+              <div className="wa-shortcutHintBar">
+                Shortcuts: {buildShortcutHelp(chatSettings) || "No shortcuts configured"}
+              </div>
+              {hint && <div className="wa-inlineHint">{hint}</div>}
+              {draftShortcut?.type === "template" && (
+                <div className="wa-inlineHint is-soft">
+                  Preset detected ({draftShortcut.command}). Press Tab to insert preset message.
+                </div>
               )}
+              <MessageInput
+                placeholder={
+                  !selectedSession
+                    ? "Select a conversation to start replying"
+                    : !isWithin24(selectedSession)
+                      ? "Reply window expired. Use a template message to reopen."
+                      : isSending
+                        ? "Sending..."
+                        : "Type a message"
+                }
+                onSend={handleSend}
+                disabled={!canReply}
+                value={composerText}
+                onChange={handleComposerChange}
+                onKeyDown={handleComposerKeyDown}
+                attachButton={Boolean(selectedSession && isWithin24(selectedSession))}
+                onAttachClick={handleAttachmentChoose}
+              />
               </ChatContainer>
             </div>
           </div>
@@ -1281,7 +1464,7 @@ export default function WhatsAppDashboard() {
           overflow: hidden;
           box-shadow: 0 16px 36px rgba(27, 39, 56, 0.1);
           display: grid;
-          grid-template-rows: auto auto 1fr;
+          grid-template-rows: auto 1fr;
         }
 
         .wa-brand {
@@ -1314,14 +1497,46 @@ export default function WhatsAppDashboard() {
           flex-wrap: wrap;
         }
 
+        .wa-leftPanelTools {
+          padding: 10px 10px 8px;
+          border-bottom: 1px solid #e0e7f0;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          background: #ffffff;
+        }
+
+        .wa-leftPanelTools input {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid #d0d9e6;
+          border-radius: 10px;
+          padding: 0 12px;
+          height: 34px;
+          font-size: 14px;
+          outline: none;
+        }
+
+        .wa-leftPanelTools input:focus {
+          border-color: #8ea0b7;
+          box-shadow: 0 0 0 3px rgba(142, 160, 183, 0.15);
+        }
+
+        .wa-leftMeta {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          align-items: flex-start;
+        }
+
         .wa-stateLegend {
           display: inline-flex;
           align-items: center;
           gap: 6px;
           flex-wrap: wrap;
-          justify-content: flex-end;
-          max-width: 520px;
-          margin-left: 8px;
+          justify-content: flex-start;
+          max-width: 100%;
+          margin-left: 0;
         }
 
         .wa-stateLegendTitle {
@@ -1419,12 +1634,21 @@ export default function WhatsAppDashboard() {
           margin: 0;
           font-size: 20px;
           color: #0c3f47;
+          display: inline-flex;
+          align-items: baseline;
+          gap: 8px;
         }
 
         .wa-sidebarHeader p {
           margin: 4px 0 0;
           font-size: 13px;
           color: #607087;
+        }
+
+        .wa-titleSub {
+          font-size: 12px;
+          font-weight: 500;
+          color: #70849c;
         }
 
         .wa-sidebarHeader button {
@@ -1436,15 +1660,6 @@ export default function WhatsAppDashboard() {
           font-size: 12px;
           font-weight: 600;
           cursor: pointer;
-        }
-
-        .wa-toolbar {
-          display: grid;
-          grid-template-columns: auto 1fr;
-          gap: 10px;
-          padding: 10px 16px;
-          border-bottom: 1px solid #e0e7f0;
-          background: #ffffff;
         }
 
         .wa-tabs {
@@ -1472,30 +1687,14 @@ export default function WhatsAppDashboard() {
           color: #fff;
         }
 
-        .wa-toolbar input {
-          width: 100%;
-          box-sizing: border-box;
-          border: 1px solid #d0d9e6;
-          border-radius: 10px;
-          padding: 0 12px;
-          height: 34px;
-          font-size: 14px;
-          outline: none;
-        }
-
-        .wa-toolbar input:focus {
-          border-color: #8ea0b7;
-          box-shadow: 0 0 0 3px rgba(142, 160, 183, 0.15);
-        }
-
         .wa-messageFilterBar {
           display: flex;
           align-items: center;
           gap: 8px;
           flex-wrap: wrap;
-          padding: 8px 12px;
-          border-bottom: 1px solid #e0e7f0;
-          background: #fff;
+          padding: 0;
+          border-bottom: 0;
+          background: transparent;
           font-size: 12px;
           color: #607087;
         }
@@ -1738,7 +1937,7 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-ownNumber {
-          margin-top: 2px;
+          margin-top: 1px;
           font-size: 12px;
           color: #466079;
           font-weight: 600;
@@ -2138,10 +2337,27 @@ export default function WhatsAppDashboard() {
           cursor: not-allowed;
         }
 
-        .wa-shortcutHint {
+        .wa-shortcutHintBar {
           font-size: 12px;
           color: #546a86;
           font-weight: 600;
+          padding: 4px 10px;
+          border-top: 1px solid #e0e7f0;
+          background: #f8fbff;
+        }
+
+        .wa-inlineHint {
+          font-size: 12px;
+          color: #2d4f77;
+          padding: 4px 10px;
+          background: #eef5ff;
+          border-top: 1px solid #d9e7fb;
+        }
+
+        .wa-inlineHint.is-soft {
+          color: #5f7490;
+          background: #f5f8fc;
+          border-top-color: #e1e9f4;
         }
 
         .wa-hiddenFileInput {
@@ -2259,10 +2475,6 @@ export default function WhatsAppDashboard() {
             border-radius: 0;
             border-left: 0;
             border-right: 0;
-          }
-
-          .wa-toolbar {
-            grid-template-columns: 1fr;
           }
 
           .wa-sidebarHeader {
