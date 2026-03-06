@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-
+import {
+  MainContainer,
+  Sidebar,
+  ConversationList,
+  Conversation,
+  ChatContainer,
+  MessageList,
+  MessageInput
+} from "@chatscope/chat-ui-kit-react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/app/context/UserContext";
 
@@ -490,8 +498,32 @@ export default function WhatsAppDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, sessions]);
 
+useEffect(() => {
+  const handler = (e) => {
+    const attachBtn = e.target.closest(".cs-message-input__tools button");
 
-  const getMessageScrollElement = () => chatContainerRef.current || null;
+    if (!attachBtn) return;
+
+    // first button in tools is always the attach button
+    const tools = attachBtn.closest(".cs-message-input__tools");
+    if (!tools) return;
+
+    const buttons = tools.querySelectorAll("button");
+    if (buttons[0] === attachBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleAttachmentChoose();
+    }
+  };
+
+  document.addEventListener("click", handler);
+
+  return () => document.removeEventListener("click", handler);
+}, []);
+
+  const getMessageScrollElement = () =>
+    chatContainerRef.current?.querySelector(".cs-message-list__scroll-wrapper") || null;
+
   const scrollToBottom = () => {
     const doScroll = () => {
       const scrollEl = getMessageScrollElement();
@@ -500,6 +532,8 @@ export default function WhatsAppDashboard() {
       }
     };
     requestAnimationFrame(doScroll);
+    setTimeout(doScroll, 40);
+    setTimeout(doScroll, 120);
   };
 
   const getFirstSessionForTab = (list = []) => {
@@ -1091,9 +1125,9 @@ export default function WhatsAppDashboard() {
           </div>
         </div>
 
-        <div className="wa-main">
-          <div className="wa-sidebar">
-              <div className="wa-leftPanelTools">
+        <MainContainer>
+          <Sidebar position="left" scrollable>
+            <div className="wa-leftPanelTools">
               <div className="wa-tabs">
                 {["active", "closed", "all"].map((value) => (
                   <button
@@ -1134,7 +1168,7 @@ export default function WhatsAppDashboard() {
                 )}
               </div>
             </div>
-            <div className="wa-conversationList">
+            <ConversationList>
               {isLoadingSessions ? (
                 <div className="wa-empty">Loading conversations...</div>
               ) : filteredSessions.length === 0 ? (
@@ -1155,37 +1189,34 @@ export default function WhatsAppDashboard() {
                     "Unknown";
 
                   return (
-                    <div
+                    <Conversation
                       key={session.id}
-                      className={`wa-conversation ${selectedSession?.id === session.id ? "is-active" : ""}`}
+                      name={
+                        <span className="wa-conversationNameWrap">
+                          <span className={`wa-conversationNameText ${contactTypeClass}`}>{displayName}</span>
+                          <span className="wa-conversationNameFlags">
+                            {signals.map((signal) => (
+                              <span
+                                key={`${session.id}-label-${signal.key}`}
+                                className={`wa-stateDot ${signal.className}`}
+                                title={signal.label}
+                                aria-label={signal.label}
+                              />
+                            ))}
+                          </span>
+                        </span>
+                      }
+                      info={<span className="wa-conversationInfoText">{`${session.phone}${suffix ? ` • ${suffix}` : ""}`}</span>}
                       onClick={() => handleSelect(session)}
-                    >
-                    <div className="wa-conversationNameWrap">
-                      <span className={`wa-conversationNameText ${contactTypeClass}`}>
-                        {displayName}
-                      </span>
-
-                      <span className="wa-conversationNameFlags">
-                        {signals.map((s) => (
-                          <span key={s.key} className={`wa-stateDot ${s.className}`} title={s.label}></span>
-                        ))}
-                      </span>
-                    </div>
-
-                        <div className="wa-conversationInfoText">
-                          {session.phone}
-                        {suffix ? ` • ${suffix}` : ""}
-                      </div>
-
-                      {session.unread_count > 0 && (
-                        <span className="wa-unread">{session.unread_count}</span>
-                      )}
-                    </div>
+                      active={selectedSession?.id === session.id}
+                      unreadCnt={session.unread_count || 0}
+                      className={signalClasses}
+                    />
                   );
                 })
               )}
-            </div>
-          </div>
+            </ConversationList>
+          </Sidebar>
 
           <div className="wa-chatCol">
             <div className="wa-chatTop">
@@ -1332,16 +1363,9 @@ export default function WhatsAppDashboard() {
             {error && <div className="wa-error">{error}</div>}
             </div>
 
-                <div className="wa-chatBody">
-                  <div
-                    className="wa-messageList"
-                    ref={chatContainerRef}
-                    onScroll={(e) => {
-                      if (e.target.scrollTop < 40 ) {
-                        handleLoadOlder();
-                      }
-                    }}
-                  >
+            <div className="wa-chatBody">
+              <ChatContainer ref={chatContainerRef}>
+              <MessageList onYReachStart={handleLoadOlder}>
                 {!selectedSession ? (
                   <div className="wa-empty">Select a conversation to view messages.</div>
                 ) : isLoadingMessages ? (
@@ -1407,6 +1431,7 @@ export default function WhatsAppDashboard() {
                   </>
                 )}
                 <div ref={messageEndRef} />
+              </MessageList>
               {/*
               <div className="wa-shortcutHintBar">
                 Shortcuts: {buildShortcutHelp(chatSettings) || "No shortcuts configured"}
@@ -1437,7 +1462,7 @@ export default function WhatsAppDashboard() {
                 sendButton={true}
               />
               */}
-              </div>
+              </ChatContainer>
               
               <input
                 ref={attachInputRef}
@@ -1497,7 +1522,7 @@ export default function WhatsAppDashboard() {
               </div>
             </div>
           </div>
-        </div>
+        </MainContainer>
       </div>
 
       <style jsx global>{`
@@ -2510,7 +2535,6 @@ export default function WhatsAppDashboard() {
           min-height: 0;
           display: flex;
           flex-direction: column;
-          overflow: hidden;
         }
 
         .wa-chatBody .cs-chat-container {
@@ -2520,50 +2544,6 @@ export default function WhatsAppDashboard() {
           min-height: 0;
         }
 
-        .wa-main {
-          display: flex;
-          flex: 1;
-          min-height: 0;
-        }
-
-        .wa-sidebar {
-          width: 360px;
-          border-right: 1px solid #e0e7f0;
-          background: #f9fbfd;
-          display: flex;
-          flex-direction: column;
-          min-height: 0;
-        }
-
-        .wa-conversationList {
-          flex: 1;
-          overflow-y: auto;
-          min-height: 0;
-        }
-
-        .wa-conversation {
-          padding: 10px 12px;
-          border-bottom: 1px solid #eef2f7;
-          cursor: pointer;
-        }
-
-        .wa-conversation:hover {
-          background: #f4f7fc;
-        }
-
-        .wa-conversation.is-active {
-          background: #1e2c40;
-          color: white;
-        }
-
-        .wa-messageList {
-          flex: 1;
-          min-height: 0;
-          overflow-y: auto;
-          padding: 8px;
-          background: linear-gradient(180deg, #f7fafe 0%, #ffffff 100%);
-        }
-          
         .cs-sidebar {
           border-right: 1px solid #e0e7f0;
           max-width: 390px;
