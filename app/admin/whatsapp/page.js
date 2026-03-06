@@ -309,7 +309,19 @@ function getMessageMedia(msg) {
       filename: doc.filename || null
     };
   }
+  // InstaAlerts media filedata support
+  const filedata =
+    msg?.payload?.media?.filedata ||
+    msg?.payload?.raw_message?.image?.filedata ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.filedata ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.filedata;
 
+  if (filedata) {
+    return {
+      type: "image",
+      url: `/api/admin/whatsapp/media?filedata=${encodeURIComponent(filedata)}`
+    };
+  }
   return null;
 }
 
