@@ -11,6 +11,7 @@ import {
 } from "@/lib/clickup";
 import {
   sendTextMessage,
+  sendDocumentMessage,
   sendMainMenu,
   sendMoreServicesMenu,
   sendReportInputPrompt,
@@ -1375,6 +1376,15 @@ export async function POST(req) {
           labId: session.lab_id,
           phone,
           text: result.replyText
+        });
+        break;
+
+      case "SEND_DOCUMENT":
+        await sendDocumentMessage({
+          labId: session.lab_id,
+          phone,
+          documentUrl: result.documentUrl,
+          filename: result.filename
         });
         break;
 
