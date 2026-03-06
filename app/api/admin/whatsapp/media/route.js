@@ -1,55 +1,50 @@
-//app/api/admin/whatsapp/media/route.js
-
-import { NextResponse } from "next/server";
+import { spawnSync } from "child_process";
 
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const filedata = searchParams.get("filedata");
+    const mediaId = searchParams.get("filedata");
 
-    if (!filedata) {
-      return NextResponse.json(
-        { error: "Missing filedata parameter" },
-        { status: 400 }
-      );
+    if (!mediaId) {
+      return new Response("Missing media id", { status: 400 });
     }
 
-    const providerUrl =`${process.env.WHATSAPP_MEDIA_URL}` +
-      encodeURIComponent(filedata);
+    const token = process.env.WHATSAPP_MEDIA_TOKEN;
 
-    const response = await fetch(providerUrl, {
-      method: "GET",
-      headers: {
-        Authentication: `Bearer ${process.env.WHATSAPP_MEDIA_TOKEN}`
-      }
-    });
+    // STEP 1: resolve media id → filedata
+    const resolve = spawnSync("curl", [
+      "--location",
+      `https://rcmmedia.instaalerts.zone/services/media/get?media_id=${mediaId}`,
+      "--header",
+      `Authentication: Bearer ${token}`
+    ]);
 
-    if (!response.ok) {
-    const text = await response.text();
+    const resolveJson = JSON.parse(resolve.stdout.toString());
 
-    console.error("MEDIA PROVIDER ERROR:");
-    console.error("Status:", response.status);
-    console.error("Body:", text);
-
-    return new Response(text, {
-        status: response.status,
-        headers: { "Content-Type": "text/plain" }
-    });
+    if (!resolveJson.filedata) {
+      console.error("Media resolve failed:", resolveJson);
+      return new Response(JSON.stringify(resolveJson), { status: 500 });
     }
 
-    const contentType =
-      response.headers.get("content-type") || "application/octet-stream";
+    const filedata = resolveJson.filedata;
 
-    const buffer = await response.arrayBuffer();
+    // STEP 2: download actual media
+    const download = spawnSync("curl", [
+      "--location",
+      `https://rcmmedia.instaalerts.zone/services/media/download?filedata=${filedata}`,
+      "--header",
+      `Authentication: Bearer ${token}`
+    ]);
 
-    return new Response(buffer, {
+    return new Response(download.stdout, {
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": "image/*",
         "Cache-Control": "public, max-age=86400"
       }
     });
+
   } catch (err) {
     console.error("Media proxy error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return new Response("Media fetch failed", { status: 500 });
   }
 }
