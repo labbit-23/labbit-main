@@ -25,12 +25,16 @@ export async function GET(req) {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      console.error("Media fetch failed:", text);
-      return NextResponse.json(
-        { error: "Failed to fetch media" },
-        { status: 500 }
-      );
+    const text = await response.text();
+
+    console.error("MEDIA PROVIDER ERROR:");
+    console.error("Status:", response.status);
+    console.error("Body:", text);
+
+    return new Response(text, {
+        status: response.status,
+        headers: { "Content-Type": "text/plain" }
+    });
     }
 
     const contentType =
