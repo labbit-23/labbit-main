@@ -14,6 +14,7 @@ import {
   sendMainMenu,
   sendMoreServicesMenu,
   sendReportInputPrompt,
+  sendReportSelectionMenu,
   sendLocationMessage,
   sendLocationOptionsMenu,
   sendBranchLocationsMenu,
@@ -1088,6 +1089,14 @@ export async function POST(req) {
 
       case "REPORT_INPUT_PROMPT":
         await sendReportInputPrompt({ labId: session.lab_id, phone });
+        break;
+
+      case "REPORT_SELECTION_MENU":
+        await sendReportSelectionMenu({
+          labId: session.lab_id,
+          phone,
+          reports: result.reports
+        });
         break;
 
       case "PACKAGE_MENU": {
