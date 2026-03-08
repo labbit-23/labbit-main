@@ -1095,6 +1095,7 @@ export async function POST(req) {
         break;
 
       case "REPORT_SELECTION_MENU":
+        nextContext.reports = result.reports;
         await sendReportSelectionMenu({
           labId: session.lab_id,
           phone,
