@@ -1050,7 +1050,9 @@ export async function POST(req) {
           acc[String(slot.id)] = slot.title;
           return acc;
         }, {});
-        if (!nextContext.slot_page || Number(nextContext.slot_page) < 1) {
+        if (result.context?.slot_page) {
+          nextContext.slot_page = Number(result.context.slot_page);
+        } else if (!nextContext.slot_page || Number(nextContext.slot_page) < 1) {
           nextContext.slot_page = 1;
         }
       } catch (slotError) {
@@ -1276,20 +1278,40 @@ export async function POST(req) {
       }
 
       case "BOOKING_SLOT_MENU": {
+
         let slotOptions = [];
+
         try {
           slotOptions = await fetchVisitTimeSlots();
         } catch (slotError) {
           console.error("❌ Time slot menu send failed:", slotError);
         }
 
+        // Hide past slots if booking for today (+30 min buffer)
+        const selectedDateIso = nextContext.selected_date_iso;
+        const todayIso = new Date().toISOString().slice(0,10);
+
+        if (selectedDateIso === todayIso) {
+
+          const now = new Date();
+          const currentMinutes = now.getHours() * 60 + now.getMinutes() + 30;
+
+          slotOptions = slotOptions.filter(slot => {
+
+            const [h,m] = slot.start_time.split(":");
+            const slotMinutes = Number(h) * 60 + Number(m);
+
+            return slotMinutes > currentMinutes;
+
+          });
+
+        }
+
         if (slotOptions.length === 0) {
           await sendTextMessage({
             labId: session.lab_id,
             phone,
-            text:
-              botFlowConfig?.texts?.booking_slot_fallback ||
-              "Unable to load slot menu right now. Please type your preferred time slot."
+            text: "No slots are available today. Please select another date."
           });
           break;
         }
@@ -1301,6 +1323,7 @@ export async function POST(req) {
           timeSlots: slotOptions,
           page: nextContext.slot_page || 1
         });
+
         break;
       }
 
