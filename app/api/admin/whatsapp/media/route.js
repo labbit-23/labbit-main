@@ -13,14 +13,23 @@ export async function GET(req) {
 
     // STEP 1: resolve media id → filedata
     const resolve = spawnSync("curl", [
-      "--location",
-      `https://rcmmedia.instaalerts.zone/services/media/get?media_id=${mediaId}`,
-      "--header",
-      `Authentication: Bearer ${token}`
+    "--fail",
+    "--location",
+    `https://rcmmedia.instaalerts.zone/services/media/get?media_id=${mediaId}`,
+    "--header",
+    `Authorization: Bearer ${token}`
     ]);
 
-    const resolveJson = JSON.parse(resolve.stdout.toString());
+    const resolveText = resolve.stdout.toString();
 
+    let resolveJson;
+
+    try {
+    resolveJson = JSON.parse(resolveText);
+    } catch {
+    console.error("Media resolve returned non-JSON:", resolveText);
+    return new Response("Media resolve failed", { status: 500 });
+    }
     if (!resolveJson.filedata) {
       console.error("Media resolve failed:", resolveJson);
       return new Response(JSON.stringify(resolveJson), { status: 500 });
