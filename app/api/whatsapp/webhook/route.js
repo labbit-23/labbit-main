@@ -467,7 +467,8 @@ async function fetchVisitTimeSlots() {
   return (data || []).map((slot) => ({
     id: slot.id,
     title: slot.slot_name || `${slot.start_time || ""} - ${slot.end_time || ""}`.trim(),
-    description: slot.start_time && slot.end_time ? `${slot.start_time} - ${slot.end_time}` : ""
+    description: slot.start_time && slot.end_time ? `${slot.start_time} - ${slot.end_time}` : "",
+    start_time: slot.start_time || null   // ← add this
   }));
 }
 
