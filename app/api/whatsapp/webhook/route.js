@@ -555,13 +555,16 @@ export async function POST(req) {
 
     const messageId = message?.id;
     const rawPhone = message?.from;
+    const messageTimestamp =
+      message?.timestamp && Number.isFinite(Number(message.timestamp))
+        ? Number(message.timestamp)
+        : null;
 
     if (!messageId || !rawPhone) {
       console.log("⚠️ Missing messageId or phone.");
       return Response.json({ success: true });
     }
-    await updateSession(session.id, result.newState, nextContext, messageTimestamp);
-    
+
     // --------------------------------------------------
     // 2️⃣ Duplicate Protection
     // --------------------------------------------------
