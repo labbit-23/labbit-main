@@ -571,13 +571,43 @@ export async function POST(req) {
 
     const { data: existing } = await supabase
       .from("whatsapp_messages")
-      .select("id")
+      .select("id, created_at, lab_id, phone")
       .eq("message_id", messageId)
       .maybeSingle();
 
     if (existing) {
-      console.log("🔁 Duplicate ignored:", messageId);
-      return Response.json({ success: true });
+      const inboundCreatedAt = existing?.created_at ? new Date(existing.created_at) : null;
+      const duplicateAgeMs =
+        inboundCreatedAt && !Number.isNaN(inboundCreatedAt.getTime())
+          ? Date.now() - inboundCreatedAt.getTime()
+          : Number.POSITIVE_INFINITY;
+
+      let hasOutboundAfterInbound = false;
+      if (existing?.lab_id && existing?.phone && inboundCreatedAt) {
+        const { data: outboundAfter } = await supabase
+          .from("whatsapp_messages")
+          .select("id")
+          .eq("lab_id", existing.lab_id)
+          .eq("phone", existing.phone)
+          .eq("direction", "outbound")
+          .gte("created_at", inboundCreatedAt.toISOString())
+          .limit(1);
+        hasOutboundAfterInbound = Boolean(outboundAfter?.length);
+      }
+
+      if (hasOutboundAfterInbound) {
+        console.log("🔁 Duplicate ignored (already responded):", messageId);
+        return Response.json({ success: true });
+      }
+
+      // If duplicate arrived immediately, first request is likely still processing.
+      if (duplicateAgeMs < 20_000) {
+        console.log("🔁 Duplicate ignored (in-flight):", messageId);
+        return Response.json({ success: true });
+      }
+
+      // Replay stalled inbound processing if earlier run logged inbound but never responded.
+      console.log("♻️ Replaying stalled inbound:", messageId);
     }
 
     // --------------------------------------------------
@@ -856,30 +886,32 @@ export async function POST(req) {
     // 8️⃣ Log Inbound (Minimal Storage)
     // --------------------------------------------------
 
-    await supabase.from("whatsapp_messages").insert({
-      message_id: messageId,
-      lab_id: session.lab_id,
-      phone: phone,
-      name: profileName || null,
-      message: userInput,
-      direction: "inbound",
-      payload: {
-        raw_message: message,
-        raw_body: body,
-        ...(profileName ? { profile_name: profileName } : {}),
-        ...(inboundMedia
-          ? {
-              media: {
-                type: inboundMedia.type,
-                id: inboundMedia.id || null,
-                url: inboundMedia.url || null,
-                url_source: inboundMedia.urlSource || null,
-                filename: inboundMedia.filename || null
+    if (!existing) {
+      await supabase.from("whatsapp_messages").insert({
+        message_id: messageId,
+        lab_id: session.lab_id,
+        phone: phone,
+        name: profileName || null,
+        message: userInput,
+        direction: "inbound",
+        payload: {
+          raw_message: message,
+          raw_body: body,
+          ...(profileName ? { profile_name: profileName } : {}),
+          ...(inboundMedia
+            ? {
+                media: {
+                  type: inboundMedia.type,
+                  id: inboundMedia.id || null,
+                  url: inboundMedia.url || null,
+                  url_source: inboundMedia.urlSource || null,
+                  filename: inboundMedia.filename || null
+                }
               }
-            }
-          : {})
-      }
-    });
+            : {})
+        }
+      });
+    }
 
     if (inboundMedia) {
       console.log(
