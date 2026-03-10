@@ -197,7 +197,7 @@ export async function GET(request) {
       .select("*")
       .in("phone", phoneCandidates(phone))
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(50);
 
     if (labIds.length > 0) {
       sessionQuery = sessionQuery.in("lab_id", labIds);
@@ -486,6 +486,7 @@ export async function GET(request) {
       {
         messages: normalizedMessages,
         session: enrichedSession,
+        sessions: chatSessions,
         lab,
         botLabelMap,
         pagination: {

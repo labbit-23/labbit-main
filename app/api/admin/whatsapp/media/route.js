@@ -1,59 +1,130 @@
-import { spawnSync } from "child_process";
+import { NextResponse } from "next/server";
+import { getIronSession } from "iron-session";
+import { ironOptions } from "@/lib/session";
+import { supabase } from "@/lib/supabaseServer";
+import { phoneVariantsIndia } from "@/lib/phone";
 
-export async function GET(req) {
+const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
+
+function getRoleKey(user) {
+  if (!user) return "";
+  if (user.userType === "executive") return (user.executiveType || "").toLowerCase();
+  return (user.userType || "").toLowerCase();
+}
+
+function canUseWhatsappInbox(user) {
+  return ALLOWED_EXEC_TYPES.includes(getRoleKey(user));
+}
+
+export async function GET(request) {
+  const response = NextResponse.next();
+
   try {
-    const { searchParams } = new URL(req.url);
-    const mediaId = searchParams.get("filedata");
+    const session = await getIronSession(request, response, ironOptions);
+    const user = session?.user;
+
+    if (!user || !canUseWhatsappInbox(user)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+
+    const mediaId =
+      searchParams.get("media_id") ||
+      searchParams.get("filedata");
 
     if (!mediaId) {
-      return new Response("Missing media id", { status: 400 });
+      return new NextResponse("Missing media_id or phone", { status: 400 });
     }
 
-    const token = process.env.WHATSAPP_MEDIA_TOKEN;
+    const labIds = Array.isArray(user.labIds) ? user.labIds.filter(Boolean) : [];
 
-    // STEP 1: resolve media id → filedata
-    const resolve = spawnSync("curl", [
-    "--fail",
-    "--location",
-    `https://rcmmedia.instaalerts.zone/services/media/get?media_id=${mediaId}`,
-    "--header",
-    `Authorization: Bearer ${token}`
-    ]);
+    // Locate the message that contains this media
+    let messageQuery = supabase
+    .from("whatsapp_messages")
+    .select("lab_id")
+    .or(
+        `payload->media->>id.eq.${mediaId},payload->raw_message->image->>id.eq.${mediaId},payload->raw_message->document->>id.eq.${mediaId}`
+    )
+    .limit(1);
 
-    const resolveText = resolve.stdout.toString();
-
-    let resolveJson;
-
-    try {
-    resolveJson = JSON.parse(resolveText);
-    } catch {
-    console.error("Media resolve returned non-JSON:", resolveText);
-    return new Response("Media resolve failed", { status: 500 });
-    }
-    if (!resolveJson.filedata) {
-      console.error("Media resolve failed:", resolveJson);
-      return new Response(JSON.stringify(resolveJson), { status: 500 });
+    if (labIds.length > 0) {
+      messageQuery = messageQuery.in("lab_id", labIds);
     }
 
-    const filedata = resolveJson.filedata;
+    const { data: messageRow, error: messageError } = await messageQuery.maybeSingle();
 
-    // STEP 2: download actual media
-    const download = spawnSync("curl", [
-      "--location",
-      `https://rcmmedia.instaalerts.zone/services/media/download?filedata=${filedata}`,
-      "--header",
-      `Authentication: Bearer ${token}`
-    ]);
+    if (messageError || !messageRow) {
+      console.error("Media message lookup failed", messageError);
+      return new NextResponse("Media not found", { status: 404 });
+    }
 
-    return new Response(download.stdout, {
+    const labId = messageRow.lab_id;
+
+    // Load WhatsApp API config
+    const { data: apiRow, error: apiError } = await supabase
+      .from("labs_apis")
+      .select("base_url, auth_details")
+      .eq("lab_id", labId)
+      .eq("api_name", "whatsapp_outbound")
+      .maybeSingle();
+
+    if (apiError || !apiRow) {
+      console.error("labs_apis lookup failed", apiError);
+      return new NextResponse("API config missing", { status: 500 });
+    }
+
+    const baseUrl = apiRow.base_url;
+    const apiKey =
+      apiRow.auth_details?.api_key ||
+      apiRow.auth_details?.apikey;
+
+    if (!baseUrl || !apiKey) {
+      return new NextResponse("MessagingHub credentials missing", { status: 500 });
+    }
+
+    // Remove /messages
+    const baseWithoutMessages = baseUrl.replace(/\/messages$/, "");
+
+    // Extract account id
+    const accountId = baseWithoutMessages.split("/meta/")[1];
+
+    if (!accountId) {
+      return new NextResponse("Invalid MessagingHub base_url", { status: 500 });
+    }
+
+    const downloadUrl =
+      `https://messaginghub.solutions/relaybridge/api/v1/meta/${accountId}/${mediaId}/media/download`;
+
+    const mediaResponse = await fetch(downloadUrl, {
+      method: "POST",
       headers: {
-        "Content-Type": "image/*",
+        "x-api-key": apiKey,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (!mediaResponse.ok) {
+      const text = await mediaResponse.text();
+      console.error("Media download failed:", text);
+      return new NextResponse("Media download failed", { status: 500 });
+    }
+
+    const buffer = await mediaResponse.arrayBuffer();
+
+    const contentType =
+      mediaResponse.headers.get("content-type") ||
+      "application/octet-stream";
+
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": contentType,
         "Cache-Control": "public, max-age=86400"
       }
     });
 
   } catch (err) {
     console.error("Media proxy error:", err);
-    return new Response("Media fetch failed", { status: 500 });
+    return new NextResponse("Media fetch failed", { status: 500 });
   }
 }
