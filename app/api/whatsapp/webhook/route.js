@@ -560,7 +560,8 @@ export async function POST(req) {
       console.log("⚠️ Missing messageId or phone.");
       return Response.json({ success: true });
     }
-
+    await updateSession(session.id, result.newState, nextContext, messageTimestamp);
+    
     // --------------------------------------------------
     // 2️⃣ Duplicate Protection
     // --------------------------------------------------
@@ -1075,7 +1076,7 @@ export async function POST(req) {
       }
     }
 
-    await updateSession(session.id, result.newState, nextContext);
+    await updateSession(session.id, result.newState, nextContext, messageTimestamp);
 
     // --------------------------------------------------
     // 1️⃣3️⃣ Send Reply
