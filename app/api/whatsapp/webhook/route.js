@@ -992,6 +992,7 @@ export async function POST(req) {
       botFlowConfig,
       inboundLocation,
       inboundMedia,
+      selectedReportTitle: message?.interactive?.list_reply?.title || null,
       packageCatalog
     });
 
