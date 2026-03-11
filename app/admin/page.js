@@ -95,6 +95,10 @@ const exportVisitsImage = async () => {
         if (!res.ok) throw new Error("Failed to fetch executives");
         return res.json();
       });
+      const whatsappSessionsFetch = fetch("/api/admin/whatsapp/sessions").then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch WhatsApp sessions");
+        return res.json();
+      });
 
       const [
         { data: visitsData, error: visitsError },
@@ -103,7 +107,7 @@ const exportVisitsImage = async () => {
         { data: timeSlotsData, error: timeSlotsError },
         { data: quickbookData, error: quickbookError },
         { data: statusOptionsData, error: statusOptionsError },
-        { data: chatSessionsData, error: chatSessionsError }
+        whatsappSessionsBody
       ] = await Promise.all([
         supabase
           .from("visits")
@@ -132,9 +136,7 @@ const exportVisitsImage = async () => {
           .from("visit_statuses")
           .select("code, label, color, order")
           .order("order"),
-        supabase
-          .from("chat_sessions")
-          .select("id, unread_count, status")
+        whatsappSessionsFetch
       ]);
 
       if (visitsError) throw visitsError;
@@ -143,8 +145,6 @@ const exportVisitsImage = async () => {
       if (timeSlotsError) throw timeSlotsError;
       if (quickbookError) throw quickbookError;
       if (statusOptionsError) throw statusOptionsError;
-      if (chatSessionsError) throw chatSessionsError;
-
       setVisits(visitsData || []);
       setExecutives(executivesData || []);
       setLabs(labsData || []);
@@ -152,8 +152,8 @@ const exportVisitsImage = async () => {
       setQuickbookings(quickbookData || []);
       setStatusOptions(statusOptionsData || []);
 
-      const unreadCount = (chatSessionsData || [])
-        .reduce((acc, session) => acc + (session.unread_count || 0), 0);
+      const unreadCount = ((whatsappSessionsBody?.sessions) || [])
+        .reduce((acc, session) => acc + Number(session?.unread_count || 0), 0);
       setUnreadWhatsAppCount(unreadCount);
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");

@@ -55,6 +55,13 @@ async function getAssignedCentreIds(executiveId) {
   return (data || []).map((row) => row.collection_centre_id);
 }
 
+function normalizedWhatsappUnread(session) {
+  const status = String(session?.status || "").toLowerCase();
+  return status === "pending" || status === "handoff"
+    ? Number(session?.unread_count || 0)
+    : 0;
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -91,7 +98,7 @@ export async function GET() {
 
       counts.quickbook_pending = qbCount || 0;
       counts.whatsapp_unread = (sessions || [])
-        .reduce((sum, s) => sum + (s.unread_count || 0), 0);
+        .reduce((sum, s) => sum + normalizedWhatsappUnread(s), 0);
 
       const adminLabIds = await getLabIds(user.id);
       const adminCentreIds = await getCentreIdsByLabs(adminLabIds);

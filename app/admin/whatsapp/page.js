@@ -1186,6 +1186,11 @@ export default function WhatsAppDashboard() {
                       </span>
 
                       <span className="wa-conversationNameFlags">
+                        {session.unread_count > 0 && (
+                          <span className="wa-unread" title={`${session.unread_count} unread`}>
+                            {session.unread_count}
+                          </span>
+                        )}
                         {signals.map((s) => (
                           <span key={s.key} className={`wa-stateDot ${s.className}`} title={s.label}></span>
                         ))}
@@ -1196,10 +1201,6 @@ export default function WhatsAppDashboard() {
                           {session.phone}
                         {suffix ? ` • ${suffix}` : ""}
                       </div>
-
-                      {session.unread_count > 0 && (
-                        <span className="wa-unread">{session.unread_count}</span>
-                      )}
                     </div>
                   );
                 })
@@ -1798,10 +1799,10 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-conversationNameWrap {
-          display: flex;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
           align-items: center;
-          justify-content: space-between;
-          gap: 8px;
+          column-gap: 8px;
           width: 100%;
           min-width: 0;
         }
@@ -1826,8 +1827,9 @@ export default function WhatsAppDashboard() {
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          margin-left: auto;
           flex: 0 0 auto;
+          justify-self: end;
+          white-space: nowrap;
         }
 
         .wa-stateDot {
@@ -1871,6 +1873,23 @@ export default function WhatsAppDashboard() {
 
         .wa-conversationInfoText {
           color: inherit;
+        }
+
+        .wa-unread {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 22px;
+          height: 22px;
+          padding: 0 6px;
+          border-radius: 999px;
+          background: #cf1322;
+          color: #ffffff;
+          font-size: 12px;
+          font-weight: 800;
+          line-height: 1;
+          box-shadow: 0 0 0 2px #ffffff;
+          flex: 0 0 auto;
         }
 
         .cs-conversation.cs-state-unread .wa-conversationNameText,

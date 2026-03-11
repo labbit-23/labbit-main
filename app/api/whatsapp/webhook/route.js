@@ -949,7 +949,7 @@ export async function POST(req) {
     // 9️⃣ Human Handoff Mode
     // --------------------------------------------------
 
-    if (session.status === "handoff") {
+    if (["handoff", "pending"].includes(normalizedSessionStatus)) {
       console.log("👤 In human handoff mode.");
       return Response.json({ success: true });
     }
@@ -973,7 +973,7 @@ export async function POST(req) {
     if (!botShouldHandleStart) {
       // Route non-menu free-form messages to executive attention queue.
       // Avoid sending the same wait message repeatedly once a chat is already in manual handling statuses.
-      const statusNow = String(session.status || "").toLowerCase();
+      const statusNow = normalizedSessionStatus;
       const isAlreadyManualMode = ["handoff", "pending", "resolved", "closed"].includes(statusNow);
       if (!isAlreadyManualMode) {
         await handoffToHuman(session.id);
