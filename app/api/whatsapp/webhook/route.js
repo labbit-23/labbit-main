@@ -4,7 +4,7 @@ import {
   updateSession,
   handoffToHuman
 } from "@/lib/whatsapp/sessions";
-import { processMessage } from "@/lib/whatsapp/engine";
+import { detectIntent, processMessage } from "@/lib/whatsapp/engine";
 import {
   createReportRequestClickupTask,
   createWhatsappFollowupClickupTask
@@ -15,6 +15,7 @@ import {
   sendMainMenu,
   sendMoreServicesMenu,
   sendReportInputPrompt,
+  sendReportPostDownloadMenu,
   sendReportSelectionMenu,
   sendLocationMessage,
   sendLocationOptionsMenu,
@@ -224,7 +225,40 @@ function shouldActivateBotFromStart({ session, message, userInput, inboundMedia 
     .replace(/\s+/g, " ")
     .toUpperCase();
 
-  return BOT_START_KEYWORDS.has(normalized);
+  if (BOT_START_KEYWORDS.has(normalized)) {
+    return true;
+  }
+
+  return Boolean(detectIntent(userInput));
+}
+
+async function isReachablePdfDocument(url) {
+  if (!url) return false;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/pdf")) {
+      return true;
+    }
+
+    const contentDisposition = String(response.headers.get("content-disposition") || "").toLowerCase();
+    if (contentDisposition.includes(".pdf")) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function preferPatient(primary, secondary) {
@@ -988,13 +1022,33 @@ export async function POST(req) {
       return Response.json({ success: true });
     }
 
-    const result = await processMessage(session, userInput, phone, {
+    let result = await processMessage(session, userInput, phone, {
       botFlowConfig,
       inboundLocation,
       inboundMedia,
       selectedReportTitle: message?.interactive?.list_reply?.title || null,
       packageCatalog
     });
+
+    if (result.replyType === "SEND_DOCUMENT") {
+      const isPdfAvailable = await isReachablePdfDocument(result.documentUrl);
+
+      if (!isPdfAvailable) {
+        result = {
+          replyType: "INTERNAL_NOTIFY",
+          notifyText: [
+            "📄 Report Request",
+            `Phone: ${phone}`,
+            `Input: ${result.fallbackRequestedInput || "Requested PDF not available"}`
+          ].join("\n"),
+          replyText:
+            botFlowConfig?.texts?.report_request_ack ||
+            "Thank you. Our team will verify and send your report shortly.",
+          newState: "START",
+          context: {}
+        };
+      }
+    }
 
     // --------------------------------------------------
     // 1️⃣1️⃣ Internal Notify
@@ -1448,6 +1502,12 @@ export async function POST(req) {
           documentUrl: result.documentUrl,
           filename: result.filename
         });
+        if (result.sendReportActionsMenu) {
+          await sendReportPostDownloadMenu({
+            labId: session.lab_id,
+            phone
+          });
+        }
         break;
 
       case "TEXT":
