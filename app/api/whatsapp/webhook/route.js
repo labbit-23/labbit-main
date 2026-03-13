@@ -242,16 +242,33 @@ async function isReachablePdfDocument(url) {
     });
 
     if (!response.ok) {
+      console.warn("[pdf-preflight] non-ok response", {
+        url,
+        status: response.status,
+        statusText: response.statusText
+      });
       return false;
     }
 
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (contentType.includes("application/pdf")) {
+      console.log("[pdf-preflight] accepted by content-type", {
+        url,
+        contentType,
+        contentLength: response.headers.get("content-length"),
+        contentDisposition: response.headers.get("content-disposition")
+      });
       return true;
     }
 
     const contentDisposition = String(response.headers.get("content-disposition") || "").toLowerCase();
     if (contentDisposition.includes(".pdf")) {
+      console.log("[pdf-preflight] accepted by content-disposition", {
+        url,
+        contentType,
+        contentLength: response.headers.get("content-length"),
+        contentDisposition
+      });
       return true;
     }
 
@@ -260,11 +277,28 @@ async function isReachablePdfDocument(url) {
     const pdfSignature = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
     const startsLikePdf = pdfSignature.every((byte, index) => bytes[index] === byte);
     if (startsLikePdf) {
+      console.log("[pdf-preflight] accepted by file signature", {
+        url,
+        contentType,
+        contentLength: response.headers.get("content-length"),
+        firstBytes: Array.from(bytes.slice(0, 8))
+      });
       return true;
     }
 
+    console.warn("[pdf-preflight] rejected response", {
+      url,
+      contentType,
+      contentLength: response.headers.get("content-length"),
+      contentDisposition,
+      firstBytes: Array.from(bytes.slice(0, 16))
+    });
     return false;
-  } catch {
+  } catch (error) {
+    console.error("[pdf-preflight] fetch failed", {
+      url,
+      error: error?.message || String(error)
+    });
     return false;
   }
 }
