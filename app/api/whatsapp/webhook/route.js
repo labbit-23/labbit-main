@@ -255,10 +255,20 @@ async function isReachablePdfDocument(url) {
       return true;
     }
 
+    const bodyText = await response.text();
+    const startsLikePdf = bodyText.startsWith("%PDF-");
+    if (startsLikePdf) {
+      return true;
+    }
+
     return false;
   } catch {
     return false;
   }
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function preferPatient(primary, secondary) {
@@ -1503,6 +1513,7 @@ export async function POST(req) {
           filename: result.filename
         });
         if (result.sendReportActionsMenu) {
+          await wait(1500);
           await sendReportPostDownloadMenu({
             labId: session.lab_id,
             phone
