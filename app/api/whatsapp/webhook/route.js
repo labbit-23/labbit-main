@@ -255,8 +255,10 @@ async function isReachablePdfDocument(url) {
       return true;
     }
 
-    const bodyText = await response.text();
-    const startsLikePdf = bodyText.startsWith("%PDF-");
+    const bodyBuffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(bodyBuffer);
+    const pdfSignature = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+    const startsLikePdf = pdfSignature.every((byte, index) => bytes[index] === byte);
     if (startsLikePdf) {
       return true;
     }
