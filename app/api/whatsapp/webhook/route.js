@@ -1549,7 +1549,7 @@ export async function POST(req) {
           filename: result.filename
         });
         if (result.sendReportActionsMenu) {
-          await wait(1500);
+          await wait(4000);
           await sendReportPostDownloadMenu({
             labId: session.lab_id,
             phone
