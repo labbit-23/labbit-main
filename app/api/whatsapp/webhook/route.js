@@ -32,6 +32,7 @@ import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/pho
 
 const BOT_START_KEYWORDS = new Set([
   "HI",
+  "HAI",
   "HELLO",
   "HEY",
   "HII",
@@ -243,7 +244,11 @@ function shouldResumeBotFromHandoff({ message, userInput }) {
     .replace(/\s+/g, " ")
     .toUpperCase();
 
-  return ["HI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized);
+  if (["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized)) {
+    return true;
+  }
+
+  return /^(hi|hii|hai|hello|hey|menu)\b/i.test(String(userInput || "").trim());
 }
 
 async function isReachablePdfDocument(url) {
