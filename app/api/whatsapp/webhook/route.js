@@ -233,6 +233,19 @@ function shouldActivateBotFromStart({ session, message, userInput, inboundMedia 
   return Boolean(detectIntent(userInput));
 }
 
+function shouldResumeBotFromHandoff({ message, userInput }) {
+  if (message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id) {
+    return true;
+  }
+
+  const normalized = String(userInput || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+
+  return ["HI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized);
+}
+
 async function isReachablePdfDocument(url) {
   if (!url) return false;
 
@@ -1115,8 +1128,27 @@ export async function POST(req) {
     // --------------------------------------------------
 
     if (["handoff", "pending"].includes(normalizedSessionStatus)) {
+      if (shouldResumeBotFromHandoff({ message, userInput })) {
+        const resumedAt = new Date();
+        await supabase
+          .from("chat_sessions")
+          .update({
+            status: "active",
+            current_state: "START",
+            context: {},
+            last_message_at: resumedAt.toISOString(),
+            last_user_message_at: resumedAt.toISOString(),
+            updated_at: resumedAt.toISOString()
+          })
+          .eq("id", session.id);
+        session.status = "active";
+        session.current_state = "START";
+        session.context = {};
+        console.log("🤖 Resuming bot from human handoff mode.");
+      } else {
       console.log("👤 In human handoff mode.");
       return Response.json({ success: true });
+      }
     }
 
     // --------------------------------------------------
