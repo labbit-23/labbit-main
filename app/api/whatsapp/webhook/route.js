@@ -1107,50 +1107,46 @@ export async function POST(req) {
       );
     }
 
+    let normalizedSessionStatus = String(session.status || "").toLowerCase();
+
+    if (["handoff", "pending"].includes(normalizedSessionStatus) &&
+      shouldResumeBotFromHandoff({ message, userInput })) {
+      session.status = "active";
+      session.current_state = "START";
+      session.context = {};
+      normalizedSessionStatus = "active";
+      console.log("🤖 Resuming bot from human handoff mode.");
+    }
+
     const botShouldHandleStart = shouldActivateBotFromStart({
       session,
       message,
       userInput,
       inboundMedia
     });
-    const normalizedSessionStatus = String(session.status || "").toLowerCase();
     const isAgentQueueStatus = ["handoff", "pending"].includes(normalizedSessionStatus);
     const shouldIncrementUnread =
       normalizedSessionStatus !== "closed" &&
       (isAgentQueueStatus || !botShouldHandleStart);
-    await supabase
-      .from("chat_sessions")
-      .update({
-        last_message_at: new Date(),
-        last_user_message_at: new Date(),
-        unread_count: shouldIncrementUnread ? (session.unread_count || 0) + 1 : (session.unread_count || 0),
-        updated_at: new Date()
-      })
-      .eq("id", session.id);
+    if (shouldIncrementUnread) {
+      const touchedAt = new Date();
+      await supabase
+        .from("chat_sessions")
+        .update({
+          last_message_at: touchedAt.toISOString(),
+          last_user_message_at: touchedAt.toISOString(),
+          unread_count: (session.unread_count || 0) + 1,
+          updated_at: touchedAt.toISOString()
+        })
+        .eq("id", session.id);
+    }
 
     // --------------------------------------------------
     // 9️⃣ Human Handoff Mode
     // --------------------------------------------------
 
     if (["handoff", "pending"].includes(normalizedSessionStatus)) {
-      if (shouldResumeBotFromHandoff({ message, userInput })) {
-        const resumedAt = new Date();
-        await supabase
-          .from("chat_sessions")
-          .update({
-            status: "active",
-            current_state: "START",
-            context: {},
-            last_message_at: resumedAt.toISOString(),
-            last_user_message_at: resumedAt.toISOString(),
-            updated_at: resumedAt.toISOString()
-          })
-          .eq("id", session.id);
-        session.status = "active";
-        session.current_state = "START";
-        session.context = {};
-        console.log("🤖 Resuming bot from human handoff mode.");
-      } else {
+      {
       console.log("👤 In human handoff mode.");
       return Response.json({ success: true });
       }
