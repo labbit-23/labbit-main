@@ -6,17 +6,104 @@ import crypto from 'crypto';
 import mustache from 'mustache';
 
 export async function POST(request) {
-  const { phone: rawPhone, labId } = await request.json();
+  const { phone: rawPhone, labId: rawLabId } = await request.json();
 
   if (!rawPhone) {
+    return NextResponse.json({ error: "Missing phone number" }, { status: 400 });
+  }
+
+  const rawIdentifier = String(rawPhone || "").trim();
+  const normalizedDigits = rawIdentifier.replace(/\D/g, '');
+  const normalizedPhone = normalizedDigits.length >= 10
+    ? normalizedDigits.slice(-10)
+    : "";
+  const looksLikePhone = normalizedPhone.length === 10;
+
+  let phone = looksLikePhone ? normalizedPhone : "";
+  let labId = rawLabId || "";
+  let isExecutive = false;
+
+  let matchedExecutive = null;
+
+  if (!looksLikePhone) {
+    const { data: executives, error: execLookupError } = await supabase
+      .from('executives')
+      .select('id, phone')
+      .ilike('email', rawIdentifier.toLowerCase())
+      .limit(2);
+
+    if (execLookupError || !Array.isArray(executives) || executives.length === 0) {
+      return NextResponse.json({ error: "Executive not found for reset password flow" }, { status: 404 });
+    }
+
+    if (executives.length > 1) {
+      return NextResponse.json(
+        { error: "Multiple executive accounts found. Use mobile number for reset password." },
+        { status: 409 }
+      );
+    }
+
+    matchedExecutive = executives[0];
+    phone = String(matchedExecutive.phone || "").replace(/\D/g, '');
+    isExecutive = true;
+
+    if (!phone) {
+      return NextResponse.json({ error: "Executive phone number is missing." }, { status: 400 });
+    }
+
+    if (!labId) {
+      const { data: labRows, error: labError } = await supabase
+        .from('executives_labs')
+        .select('lab_id')
+        .eq('executive_id', matchedExecutive.id)
+        .limit(1);
+
+      if (labError || !Array.isArray(labRows) || !labRows[0]?.lab_id) {
+        return NextResponse.json({ error: "No lab ID found associated with this executive." }, { status: 404 });
+      }
+
+      labId = labRows[0].lab_id;
+    }
+  }
+
+  if (!isExecutive) {
+    try {
+      const { data: executiveRows, error: execError } = await supabase
+        .from('executives')
+        .select('id, phone')
+        .eq('phone', phone)
+        .limit(2);
+
+      if (!execError && Array.isArray(executiveRows) && executiveRows.length === 1 && executiveRows[0]?.id) {
+        isExecutive = true;
+        matchedExecutive = executiveRows[0];
+      }
+    } catch (err) {
+      // fail silently - treat as patient if there's an error looking up executives
+      console.error('Error checking if executive:', err);
+    }
+  }
+
+  if (isExecutive && !labId && matchedExecutive?.id) {
+    const { data: labRows, error: labError } = await supabase
+      .from('executives_labs')
+      .select('lab_id')
+      .eq('executive_id', matchedExecutive.id)
+      .limit(1);
+
+    if (labError || !Array.isArray(labRows) || !labRows[0]?.lab_id) {
+      return NextResponse.json({ error: "No lab ID found associated with this executive." }, { status: 404 });
+    }
+
+    labId = labRows[0].lab_id;
+  }
+
+  if (!phone) {
     return NextResponse.json({ error: "Missing phone number" }, { status: 400 });
   }
   if (!labId) {
     return NextResponse.json({ error: "Missing lab ID" }, { status: 400 });
   }
-
-  // Normalize phone to digits only for consistent storage and lookup
-  const phone = rawPhone.replace(/\D/g, '');
 
   // Generate 6-digit OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -43,26 +130,6 @@ export async function POST(request) {
   if (dbError || !insertedOtp) {
     console.error('Failed to save OTP:', dbError);
     return NextResponse.json({ error: "Failed to generate OTP" }, { status: 500 });
-  }
-
-  // Identify whether phone belongs to an executive or patient
-  // Default "isExecutive" false
-  let isExecutive = false;
-
-  try {
-    const { data: executiveData, error: execError } = await supabase
-      .from('executives')
-      .select('id')
-      .eq('phone', phone)
-      .limit(1)
-      .single();
-
-    if (!execError && executiveData && executiveData.id) {
-      isExecutive = true;
-    }
-  } catch (err) {
-    // fail silently - treat as patient if there's an error looking up executives
-    console.error('Error checking if executive:', err);
   }
 
   // Load lab-specific SMS config and templates from labs_apis
@@ -118,7 +185,13 @@ export async function POST(request) {
     const smsRes = await fetch(`${labConfig.base_url}?${params.toString()}`);
     const smsText = await smsRes.text();
 
-    return NextResponse.json({ message: 'OTP sent successfully', smsResponse: smsText });
+    return NextResponse.json({
+      message: 'OTP sent successfully',
+      smsResponse: smsText,
+      resolvedPhone: phone,
+      resolvedLabId: labId,
+      isExecutive
+    });
   } catch (err) {
     console.error('Failed to send OTP SMS:', err);
     return NextResponse.json({ error: "Failed to send OTP" }, { status: 500 });

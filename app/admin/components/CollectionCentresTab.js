@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
@@ -28,7 +28,7 @@ import {
   Text,
   Spinner,
 } from "@chakra-ui/react";
-import { AddIcon, EditIcon, RepeatIcon } from "@chakra-ui/icons";
+import { AddIcon, EditIcon } from "@chakra-ui/icons";
 
 const EMPTY_FORM = {
   id: "",
@@ -39,7 +39,7 @@ const EMPTY_FORM = {
   address: "",
 };
 
-export default function CollectionCentresTab({ labs = [] }) {
+export default function CollectionCentresTab({ labs = [], themeMode = "light", onRegisterRefresh }) {
   const toast = useToast();
   const modal = useDisclosure();
 
@@ -54,7 +54,7 @@ export default function CollectionCentresTab({ labs = [] }) {
     return map;
   }, [labs]);
 
-  const loadCentres = async () => {
+  const loadCentres = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/collection-centres?my_labs=true");
@@ -70,11 +70,18 @@ export default function CollectionCentresTab({ labs = [] }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     loadCentres();
-  }, []);
+  }, [loadCentres]);
+
+  useEffect(() => {
+    onRegisterRefresh?.(() => loadCentres);
+    return () => onRegisterRefresh?.(() => null);
+  }, [onRegisterRefresh, loadCentres]);
+
+  const isDark = themeMode === "dark";
 
   const openCreate = () => {
     setForm({
@@ -138,9 +145,6 @@ export default function CollectionCentresTab({ labs = [] }) {
         <Button leftIcon={<AddIcon />} colorScheme="teal" onClick={openCreate}>
           Add Collection Centre
         </Button>
-        <Button leftIcon={<RepeatIcon />} variant="outline" onClick={loadCentres} isLoading={loading}>
-          Refresh
-        </Button>
       </HStack>
 
       {loading ? (
@@ -148,17 +152,17 @@ export default function CollectionCentresTab({ labs = [] }) {
           <Spinner size="lg" />
         </Box>
       ) : centres.length === 0 ? (
-        <Text color="gray.600">No collection centres found for your labs.</Text>
+        <Text color={isDark ? "whiteAlpha.700" : "gray.600"}>No collection centres found for your labs.</Text>
       ) : (
-        <Table size="sm" variant="simple" bg="white" borderRadius="md">
-          <Thead bg="gray.50">
+        <Table size="sm" variant="simple" bg={isDark ? "rgba(255,255,255,0.03)" : "white"} borderRadius="md" color={isDark ? "whiteAlpha.920" : "gray.800"}>
+          <Thead bg={isDark ? "rgba(255,255,255,0.08)" : "gray.50"}>
             <Tr>
-              <Th>Centre</Th>
-              <Th>Lab</Th>
-              <Th>Phone</Th>
-              <Th>Email</Th>
-              <Th>Address</Th>
-              <Th isNumeric>Actions</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Centre</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Lab</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Email</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Address</Th>
+              <Th isNumeric color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
             </Tr>
           </Thead>
           <Tbody>
@@ -170,7 +174,20 @@ export default function CollectionCentresTab({ labs = [] }) {
                 <Td>{centre.contact_email || "-"}</Td>
                 <Td>{centre.address || "-"}</Td>
                 <Td isNumeric>
-                  <Button size="xs" leftIcon={<EditIcon />} variant="outline" onClick={() => openEdit(centre)}>
+                  <Button
+                    size="xs"
+                    leftIcon={<EditIcon />}
+                    variant="outline"
+                    onClick={() => openEdit(centre)}
+                    {...(isDark
+                      ? {
+                          bg: "rgba(255,255,255,0.08)",
+                          color: "white",
+                          borderColor: "whiteAlpha.400",
+                          _hover: { bg: "rgba(255,255,255,0.16)" },
+                        }
+                      : {})}
+                  >
                     Edit
                   </Button>
                 </Td>
@@ -182,7 +199,7 @@ export default function CollectionCentresTab({ labs = [] }) {
 
       <Modal isOpen={modal.isOpen} onClose={() => !saving && modal.onClose()} size="lg" isCentered>
         <ModalOverlay />
-        <ModalContent as="form" onSubmit={saveCentre}>
+        <ModalContent as="form" onSubmit={saveCentre} bg={isDark ? "#111827" : "white"} color={isDark ? "whiteAlpha.920" : "gray.800"}>
           <ModalHeader>{form.id ? "Edit Collection Centre" : "Add Collection Centre"}</ModalHeader>
           <ModalCloseButton disabled={saving} />
           <ModalBody>

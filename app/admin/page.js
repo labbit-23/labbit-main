@@ -5,9 +5,9 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Box, Tabs, TabList, TabPanels, Tab, TabPanel,
   Button, useDisclosure, Flex, Text, Heading,
-  useToast, IconButton, Badge, Tooltip
+  useToast, IconButton, Badge, Tooltip, HStack, Spacer
 } from "@chakra-ui/react";
-import { AddIcon, DownloadIcon } from "@chakra-ui/icons";
+import { AddIcon, DownloadIcon, LinkIcon, RepeatIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
 
 import { supabase } from "../../lib/supabaseClient";
@@ -30,6 +30,13 @@ const WHATSAPP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/whatsapp.svg";
 const CLICKUP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/clickup.svg";
+const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
+
+function waitForPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
 
 export default function AdminDashboard() {
   const toast = useToast();
@@ -45,6 +52,8 @@ export default function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [statusOptions, setStatusOptions] = useState([]);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
+  const [themeMode, setThemeMode] = useState("light");
+  const [collectionRefreshHandler, setCollectionRefreshHandler] = useState(null);
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
@@ -61,8 +70,14 @@ const exportVisitsImage = async () => {
   // Hide all elements with .no-export class
   const hiddenEls = visitsTableRef.current.querySelectorAll(".no-export");
   hiddenEls.forEach(el => (el.style.visibility = "hidden"));
+  const previousTheme = themeMode;
 
   try {
+    if (previousTheme === "dark") {
+      setThemeMode("light");
+      await waitForPaint();
+    }
+
     const canvas = await html2canvas(visitsTableRef.current, {
       backgroundColor: "#fff",
       scale: 2,
@@ -74,6 +89,9 @@ const exportVisitsImage = async () => {
   } catch (err) {
     toast({ title: "Error generating image", description: err.message, status: "error" });
   } finally {
+    if (previousTheme === "dark") {
+      setThemeMode("dark");
+    }
     // Restore visibility after capture
     hiddenEls.forEach(el => (el.style.visibility = "visible"));
   }
@@ -170,6 +188,19 @@ const exportVisitsImage = async () => {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedTheme = window.localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
+    if (storedTheme === "dark" || storedTheme === "light") {
+      setThemeMode(storedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, themeMode);
+  }, [themeMode]);
 
   const uniquePatients = React.useMemo(() => {
     const map = new Map();
@@ -308,6 +339,21 @@ const exportVisitsImage = async () => {
     return acc;
   }, {});
   const pendingQuickbookCount = quickbookings.filter(qb => qb.status?.toLowerCase() === "pending").length;
+  const darkActionButtonProps = themeMode === "dark"
+    ? {
+        bg: "rgba(255,255,255,0.10)",
+        color: "white",
+        borderColor: "whiteAlpha.400",
+        _hover: { bg: "rgba(255,255,255,0.18)" },
+      }
+    : {};
+  const refreshVisibleTab = useCallback(async () => {
+    if (tabIndex === 4 && typeof collectionRefreshHandler === "function") {
+      await collectionRefreshHandler();
+      return;
+    }
+    await fetchAll();
+  }, [tabIndex, collectionRefreshHandler, fetchAll]);
 
   const todaysVisits = visits.filter(
     (v) => v.visit_date?.slice(0, 10) === selectedDate
@@ -357,12 +403,21 @@ const exportVisitsImage = async () => {
 
   return (
     <RequireAuth roles={["admin", "manager", "director"]}>
-      <Box minH="100vh" w="100vw">
+      <Box
+        minH="100vh"
+        w="100vw"
+        className={`dashboard-theme-shell ${themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}`}
+        bg={themeMode === "dark" ? "var(--dashboard-shell-bg)" : "var(--dashboard-page-bg)"}
+        color="var(--dashboard-page-text)"
+        data-admin-dashboard-shell="true"
+      >
         <ShortcutBar
           userRole="admin"
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           executives={executives}
+          themeMode={themeMode}
+          onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
         />
 
         <Flex align="flex-start" justify="center" minH="100vh" py={8} pt="64px">
@@ -370,15 +425,14 @@ const exportVisitsImage = async () => {
             w="full"
             maxW="7xl"
             mx="auto"
-            bg="whiteAlpha.80"
+            className="dashboard-theme-card"
             borderRadius="xl"
-            boxShadow="2xl"
             px={[4, 8]}
             py={[8, 14]}
             ref={visitsTableRef}
           >
             <Flex align="center" mb={8} wrap="wrap" gap={3}>
-              <Heading color="green.600" size="xl" flex="1 1 auto">
+              <Heading className="dashboard-theme-heading" size="xl" flex="1 1 auto">
                 Labbit Admin Dashboard
               </Heading>
               <Button
@@ -388,6 +442,7 @@ const exportVisitsImage = async () => {
                 colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
                 variant={unreadWhatsAppCount > 0 ? "solid" : "outline"}
                 px={3}
+                {...(themeMode === "dark" && unreadWhatsAppCount === 0 ? darkActionButtonProps : {})}
               >
                 <img
                   src={WHATSAPP_ICON_URL}
@@ -409,39 +464,57 @@ const exportVisitsImage = async () => {
                 colorScheme="blue"
                 variant="outline"
                 px={3}
+                {...darkActionButtonProps}
               >
                 <img
                   src={CLICKUP_ICON_URL}
                   alt="ClickUp"
-                  style={{ width: 18, height: 18 }}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    filter: themeMode === "dark" ? "invert(1) brightness(1.2)" : "none"
+                  }}
                 />
               </Button>
-              <Button
-                className="no-export"
-                as="a"
-                href="/collection-centre"
-                colorScheme="teal"
-                variant="outline"
-                size="sm"
-              >
-                Logistics
-              </Button>
+              <Tooltip label="Open Logistics">
+                <IconButton
+                  className="no-export"
+                  as="a"
+                  href="/collection-centre"
+                  aria-label="Open logistics dashboard"
+                  icon={<LinkIcon />}
+                  size="md"
+                  variant="outline"
+                  {...(themeMode === "dark"
+                    ? {
+                        color: "white",
+                        bg: "rgba(255,255,255,0.08)",
+                        borderColor: "whiteAlpha.400",
+                        _hover: { bg: "rgba(255,255,255,0.18)" },
+                      }
+                    : {
+                        borderColor: "gray.300",
+                      })}
+                />
+              </Tooltip>
               <IconButton
+                className="no-export"
                 icon={<DownloadIcon />}
                 aria-label="Download Visits Schedule"
                 size="md"
                 onClick={exportVisitsImage}
+                {...darkActionButtonProps}
               />
             </Flex>
 
             {errorMsg && (
-              <Text color="red.500" mb={6}>
+              <Text color="red.400" mb={6}>
                 {errorMsg}
               </Text>
             )}
 
             <Box mb={6}>
-              <DashboardMetrics hvExecutiveId={null} date={selectedDate} />
+              <DashboardMetrics hvExecutiveId={null} date={selectedDate} themeMode={themeMode} />
             </Box>
 
             <Tabs
@@ -451,7 +524,7 @@ const exportVisitsImage = async () => {
               colorScheme="green"
               isLazy
             >
-              <TabList>
+              <TabList alignItems="center" gap={2}>
                 <Tab>
                   Visits{" "}
                   {unassignedVisitCount > 0 && (
@@ -495,6 +568,28 @@ const exportVisitsImage = async () => {
                 </Tab>
                 <Tab>Executives</Tab>
                 <Tab>Collection Centres</Tab>
+                <Spacer />
+                <HStack spacing={2} className="no-export">
+                  <Tooltip label="Refresh visible tab">
+                    <IconButton
+                      aria-label="Refresh current tab"
+                      icon={<RepeatIcon />}
+                      size="sm"
+                      variant="outline"
+                      onClick={refreshVisibleTab}
+                      {...(themeMode === "dark"
+                        ? {
+                            color: "white",
+                            bg: "rgba(255,255,255,0.08)",
+                            borderColor: "whiteAlpha.400",
+                            _hover: { bg: "rgba(255,255,255,0.18)" },
+                          }
+                        : {
+                            borderColor: "gray.300",
+                          })}
+                    />
+                  </Tooltip>
+                </HStack>
               </TabList>
 
               <TabPanels>
@@ -507,7 +602,7 @@ const exportVisitsImage = async () => {
                         <Flex
                           key={exec.id}
                           align="center"
-                          bg="gray.100"
+                          className="dashboard-theme-chip"
                           borderRadius="full"
                           px={3}
                           py={1}
@@ -535,6 +630,7 @@ const exportVisitsImage = async () => {
                     onAssign={handleAssignToExec}
                     onDelete={handleDisableVisit} 
                     statusOptions={statusOptions}
+                    themeMode={themeMode}
                   />
                   <VisitModal
                     isOpen={visitModal.isOpen}
@@ -561,6 +657,7 @@ const exportVisitsImage = async () => {
                   <QuickBookTab
                     quickbookings={quickbookings}
                     onRefresh={fetchAll}
+                    themeMode={themeMode}
                   />
                 </TabPanel>
 
@@ -579,6 +676,7 @@ const exportVisitsImage = async () => {
                     labs={labs}
                     loading={loading}
                     onRefresh={fetchAll}
+                    themeMode={themeMode}
                   />
                   <ExecutiveModal
                     isOpen={executiveModal.isOpen}
@@ -592,7 +690,11 @@ const exportVisitsImage = async () => {
                 </TabPanel>
 
                 <TabPanel>
-                  <CollectionCentresTab labs={labs} />
+                  <CollectionCentresTab
+                    labs={labs}
+                    themeMode={themeMode}
+                    onRegisterRefresh={setCollectionRefreshHandler}
+                  />
                 </TabPanel>
               </TabPanels>
             </Tabs>

@@ -13,6 +13,16 @@ import {
   // sendAdminVisitSms, // optional future
   // sendLogisticsVisitSms // optional future
 } from "@/lib/visitSms";
+import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
+
+async function notifyPatientWhatsappWithSmsFallback(visitId) {
+  try {
+    await sendPatientVisitWhatsapp(visitId);
+  } catch (waError) {
+    console.error(`Visit ${visitId}: Patient WhatsApp failed, falling back to SMS:`, waError?.message || waError);
+    await sendPatientVisitSms(visitId);
+  }
+}
 
 /**
  * GET - Fetch a single visit by ID with executive and time_slot details
@@ -65,7 +75,7 @@ export async function GET(request, context) {
 /**
  * PUT - Update a visit by ID
  *  - Logs changes in visit_activity_log
- *  - Sends SMS notifications based on visit_statuses.notify_to (JSONB)
+ *  - Sends notifications based on visit_statuses.notify_to (JSONB)
  */
 export async function PUT(request, context) {
   const { id } = await context.params;
@@ -158,7 +168,7 @@ export async function PUT(request, context) {
         for (const role of statusRow.notify_to) {
           try {
             if (role === "patient") {
-              await sendPatientVisitSms(newVisit.id);
+              await notifyPatientWhatsappWithSmsFallback(newVisit.id);
             }
             if (role === "phlebo" && newVisit.executive_id && newVisit.executive?.phone) {
               await sendPhleboVisitSms(newVisit.id);

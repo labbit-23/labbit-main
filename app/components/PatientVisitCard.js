@@ -7,6 +7,7 @@ export default function PatientVisitCard({
   isSelected = false,
   onSelect,
   openVisitModal,
+  themeMode = "light",
 }) {
   const statusColor =
     visit.status === "unassigned"
@@ -18,32 +19,37 @@ export default function PatientVisitCard({
   return (
     <Box
       p={4}
-      bg={isPast ? "gray.100" : "white"}
+      bg={themeMode === "dark"
+        ? (isPast ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.04)")
+        : (isPast ? "gray.100" : "white")}
       borderRadius="lg"
       boxShadow="sm"
       opacity={isPast ? 0.7 : 1}
       cursor="pointer"
       border={isSelected ? "2px solid teal" : "1px solid transparent"}
+      color={themeMode === "dark" ? "whiteAlpha.920" : "gray.800"}
       onClick={() => onSelect && onSelect()}
-      _hover={{ boxShadow: "md" }}
+      _hover={{ boxShadow: "md", bg: themeMode === "dark" ? "rgba(255,255,255,0.08)" : undefined }}
     >
       <VStack align="flex-start" spacing={1}>
         <HStack>
-          <Text fontWeight="bold">
+          <Text fontWeight="bold" color={themeMode === "dark" ? "whiteAlpha.920" : "gray.800"}>
             {new Date(visit.visit_date).toLocaleDateString()}
           </Text>
           <Badge colorScheme={statusColor}>{visit.status}</Badge>
           {isPast && <Badge colorScheme="gray">Past</Badge>}
         </HStack>
         {visit.executive && visit.executive.name && (
-          <Text fontSize="sm" color="gray.600">
+          <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.760" : "gray.600"}>
             Assigned To: {visit.executive.name}{" "}
             {visit.executive.phone && `(${visit.executive.phone})`}
           </Text>
         )}
-        <Text fontSize="sm">Address: {visit.address}</Text>
+        <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.900" : "gray.800"}>
+          Address: {visit.address}
+        </Text>
         {visit.time_slot && (
-          <Text fontSize="sm" color="gray.500">
+          <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.500"}>
             Slot: {visit.time_slot.slot_name}
           </Text>
         )}

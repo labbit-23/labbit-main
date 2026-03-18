@@ -24,6 +24,7 @@ export default function AddressCard({
   showEdit = true,
   showDefaultTick = true,
   refreshAddresses, // optional callback to reload after setting default
+  themeMode = "light",
 }) {
   const toast = useToast();
 
@@ -58,11 +59,12 @@ export default function AddressCard({
       width="100%"
       borderRadius="md"
       border={isSelected ? '2px solid teal' : '1px solid #E2E8F0'}
-      bg="white"
+      bg={themeMode === "dark" ? "rgba(255,255,255,0.04)" : "white"}
       boxShadow="base"
       cursor="pointer"
       position="relative"
-      _hover={{ boxShadow: 'md', borderColor: 'teal.500' }}
+      color={themeMode === "dark" ? "whiteAlpha.920" : "gray.800"}
+      _hover={{ boxShadow: 'md', borderColor: 'teal.500', bg: themeMode === "dark" ? "rgba(255,255,255,0.08)" : "white" }}
       onClick={onSelect}
       onDoubleClick={handleDoubleClick} // 📌 double click handler
       transition=".15s"
@@ -73,7 +75,7 @@ export default function AddressCard({
           <Text fontWeight="bold" fontSize="md" isTruncated>
             {address.label || ''}
           </Text>
-          <Text fontSize="xs" fontWeight="bold" color="gray.500" isTruncated>
+          <Text fontSize="xs" fontWeight="bold" color={themeMode === "dark" ? "whiteAlpha.600" : "gray.500"} isTruncated>
             {address.area || 'Area'}
           </Text>
           {isDefault && showDefaultTick && (
@@ -87,7 +89,7 @@ export default function AddressCard({
         <Text
           fontSize="sm"
           fontWeight="semibold"
-          color="gray.800"
+          color={themeMode === "dark" ? "whiteAlpha.900" : "gray.800"}
           noOfLines={1}
           isTruncated
           w="full"
@@ -100,7 +102,7 @@ export default function AddressCard({
           <HStack w="100%" align="center">
             <Text
               fontSize="xs"
-              color="gray.500"
+              color={themeMode === "dark" ? "whiteAlpha.600" : "gray.500"}
               noOfLines={1}
               isTruncated
               flex="1"
@@ -131,6 +133,7 @@ export default function AddressCard({
             aria-label="Edit address"
             size="xs"
             variant="ghost"
+            color={themeMode === "dark" ? "whiteAlpha.900" : "gray.700"}
             position="absolute"
             top="6px"
             right="6px"

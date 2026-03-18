@@ -10,6 +10,8 @@ export default function AddressPicker({
   labels = [],
   onAdd = () => {},
   onEdit = () => {},
+  refreshAddresses,
+  themeMode = "light",
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -42,6 +44,8 @@ export default function AddressPicker({
           isDefault={addr.is_default}
           onSelect={() => setSelectedIndex(idx)}
           onEdit={() => onEdit(addr)}
+          refreshAddresses={refreshAddresses}
+          themeMode={themeMode}
         />
       ))}
       <Button colorScheme="blue" onClick={onAdd}>

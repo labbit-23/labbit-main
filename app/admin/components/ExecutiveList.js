@@ -27,6 +27,7 @@ export default function ExecutiveList({
   labs = [],
   loading = false,
   onRefresh = () => {},
+  themeMode = "light",
 }) {
   const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
@@ -161,17 +162,19 @@ export default function ExecutiveList({
 
   if (!localExecutives.length) {
     return (
-      <Text textAlign="center" py={10} fontSize="lg" color="gray.600">
+      <Text textAlign="center" py={10} fontSize="lg" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
         No executives found.
       </Text>
     );
   }
 
+  const isDark = themeMode === "dark";
+
   return (
     <>
       {Object.entries(groupedExecutives).map(([type, execs]) => (
         <Box key={type} my={6}>
-          <Heading size="md" mb={3} textTransform="capitalize">
+          <Heading size="md" mb={3} textTransform="capitalize" color={isDark ? "whiteAlpha.900" : "gray.800"}>
             {type}
           </Heading>
           <Table
@@ -180,16 +183,17 @@ export default function ExecutiveList({
             rounded="xl"
             boxShadow="md"
             overflowX="auto"
-            bg="white"
+            bg={isDark ? "rgba(255,255,255,0.03)" : "white"}
+            color={isDark ? "whiteAlpha.920" : "gray.800"}
           >
-            <Thead bg="gray.100">
+            <Thead bg={isDark ? "rgba(255,255,255,0.08)" : "gray.100"}>
               <Tr>
-                <Th>Name</Th>
-                <Th>Phone</Th>
-                <Th>Email</Th>
-                <Th>Lab</Th>
-                <Th>Status</Th>
-                <Th isNumeric>Actions</Th>
+                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Name</Th>
+                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
+                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Email</Th>
+                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Lab</Th>
+                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
+                <Th isNumeric color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
               </Tr>
             </Thead>
             <Tbody>
@@ -239,6 +243,14 @@ export default function ExecutiveList({
                           variant="outline"
                           colorScheme="blue"
                           onClick={() => handleUpdate(exec)}
+                          {...(isDark
+                            ? {
+                                bg: "rgba(255,255,255,0.08)",
+                                color: "white",
+                                borderColor: "whiteAlpha.400",
+                                _hover: { bg: "rgba(255,255,255,0.16)" },
+                              }
+                            : {})}
                         >
                           Update
                         </Button>

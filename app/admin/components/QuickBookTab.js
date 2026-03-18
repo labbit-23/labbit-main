@@ -15,7 +15,7 @@ import { Icon } from "@chakra-ui/react";
 import { FiSave } from "react-icons/fi";
 import { FiNavigation } from "react-icons/fi";
 
-export default function QuickBookTab({ quickbookings = [], onRefresh }) {
+export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode = "light" }) {
   const [processingQuickBook, setProcessingQuickBook] = useState(null);
   const [saving, setSaving] = useState(null);
   const [visitLists, setVisitLists] = useState({});
@@ -90,19 +90,27 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
     }
   };
 
+ const isDark = themeMode === "dark";
+
  const renderTable = (list, faded = false) => (
-  <Table size="sm" bg={faded ? "gray.50" : "white"} opacity={faded ? 0.6 : 1} mb={faded ? 0 : 8}>
+  <Table
+    size="sm"
+    bg={isDark ? (faded ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.03)") : (faded ? "gray.50" : "white")}
+    color={isDark ? "whiteAlpha.920" : "gray.800"}
+    opacity={faded ? 0.72 : 1}
+    mb={faded ? 0 : 8}
+  >
     <Thead>
       <Tr>
-        <Th>Patient</Th>
-        <Th>Phone</Th>
-        <Th>Package</Th>
-        <Th>Date</Th>
-        <Th>Slot</Th>
-        <Th>Location</Th>
-        <Th>Assign Visit</Th>
-        <Th>Status</Th>
-        <Th>Actions</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Patient</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Package</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Date</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Slot</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Location</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Assign Visit</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
       </Tr>
     </Thead>
     <Tbody>
@@ -168,6 +176,14 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                     setLinkingVisitId(qb.id);
                   }}
                   title="Assign Visit to Quick Booking"
+                  {...(isDark
+                    ? {
+                        bg: "rgba(255,255,255,0.08)",
+                        color: "white",
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        _hover: { bg: "rgba(255,255,255,0.16)" },
+                      }
+                    : {})}
                 >
                   Link Visit
                 </Button>
@@ -206,17 +222,17 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    background: "#f7f7fa",
-                    border: "1px solid #D3DCEE",
-                    color: "#333",
+                    background: isDark ? "rgba(255,255,255,0.08)" : "#f7f7fa",
+                    border: isDark ? "1px solid rgba(255,255,255,0.18)" : "1px solid #D3DCEE",
+                    color: isDark ? "#fff" : "#333",
                     fontWeight: 600,
                     paddingInline: "10px",
                     borderRadius: "0.5em",
                     cursor: "pointer"
                   }}
                   _hover={{
-                    background: "#e3f4fd",
-                    borderColor: "#90cdf4"
+                    background: isDark ? "rgba(255,255,255,0.16)" : "#e3f4fd",
+                    borderColor: isDark ? "rgba(255,255,255,0.28)" : "#90cdf4"
                   }}
                 >
                   {statusObj?.label || rawStatus}
@@ -231,6 +247,13 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                     size="sm"
                     icon={<FiNavigation />}
                     mr={2}
+                    {...(isDark
+                      ? {
+                          bg: "rgba(255,255,255,0.08)",
+                          color: "white",
+                          _hover: { bg: "rgba(255,255,255,0.16)" },
+                        }
+                      : {})}
                     onClick={() => {
                       const url = getQuickbookNavUrl(qb);
                       if (!url) {
@@ -246,6 +269,14 @@ export default function QuickBookTab({ quickbookings = [], onRefresh }) {
                     size="sm"
                     mr={2}
                     leftIcon={<EditIcon />}
+                    {...(isDark
+                      ? {
+                          bg: "rgba(255,255,255,0.08)",
+                          color: "white",
+                          border: "1px solid rgba(255,255,255,0.18)",
+                          _hover: { bg: "rgba(255,255,255,0.16)" },
+                        }
+                      : {})}
                     onClick={async () => {
                       const current = qb.location_lat && qb.location_lng
                         ? `${qb.location_lat},${qb.location_lng}`

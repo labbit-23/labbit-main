@@ -38,6 +38,38 @@ function formatGender(val) {
   return '';
 }
 
+function formatDateInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function deriveAgeFromDob(dob) {
+  if (!dob) return '';
+  const birthDate = new Date(dob);
+  if (Number.isNaN(birthDate.getTime())) return '';
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDelta = today.getMonth() - birthDate.getMonth();
+  const dayDelta = today.getDate() - birthDate.getDate();
+  if (monthDelta < 0 || (monthDelta === 0 && dayDelta < 0)) {
+    age -= 1;
+  }
+
+  return age >= 0 ? String(age) : '';
+}
+
+function deriveDobFromAge(ageValue) {
+  const age = Number(ageValue);
+  if (!Number.isFinite(age) || age < 0) return '';
+
+  const today = new Date();
+  const estimated = new Date(today.getFullYear() - age, 0, 1);
+  return formatDateInput(estimated);
+}
+
 export default function ModularPatientModal({
   isOpen,
   onClose,
@@ -62,6 +94,7 @@ export default function ModularPatientModal({
   });
 
   const [addresses, setAddresses] = useState([]);
+  const [ageInput, setAgeInput] = useState('');
   const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [showAddresses, setShowAddresses] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -83,6 +116,7 @@ export default function ModularPatientModal({
         address_line: initialPatient.address_line ?? '',
         pincode: initialPatient.pincode ?? '',
       });
+      setAgeInput(deriveAgeFromDob(initialPatient.dob ?? ''));
 
       if (initialPatient.addresses && Array.isArray(initialPatient.addresses)) {
         setAddresses(initialPatient.addresses);
@@ -117,13 +151,35 @@ export default function ModularPatientModal({
         address_line: '',
         pincode: '',
       });
+      setAgeInput('');
       setAddresses([]);
       setShowAddresses(false);
     }
   }, [initialPatient, isOpen]);
 
   const updateField = field => e => {
-    setPatientData(prev => ({ ...prev, [field]: e.target.value }));
+    const value = e.target.value;
+    setPatientData(prev => ({ ...prev, [field]: value }));
+    if (field === 'dob') {
+      setAgeInput(deriveAgeFromDob(value));
+    }
+  };
+
+  const updateAge = (e) => {
+    const value = e.target.value;
+    setAgeInput(value);
+
+    if (value === '') {
+      setPatientData((prev) => ({ ...prev, dob: '' }));
+      return;
+    }
+
+    if (!/^\d{1,3}$/.test(value)) return;
+
+    const derivedDob = deriveDobFromAge(value);
+    if (derivedDob) {
+      setPatientData((prev) => ({ ...prev, dob: derivedDob }));
+    }
   };
 
   const validateForm = () => {
@@ -209,9 +265,29 @@ export default function ModularPatientModal({
 
             {/* DOB */}
             <FormControl isRequired>
-              <HStack spacing={3}>
+              <HStack spacing={3} align="flex-start">
                 <FormLabel flex="0 0 140px">DOB</FormLabel>
-                <Input type="date" value={patientData.dob} onChange={updateField('dob')} />
+                <VStack align="stretch" spacing={2} flex="1">
+                  <HStack spacing={2}>
+                    <Input
+                      type="date"
+                      value={patientData.dob}
+                      onChange={updateField('dob')}
+                    />
+                    <Input
+                      maxW="120px"
+                      type="number"
+                      min="0"
+                      max="130"
+                      placeholder="Age"
+                      value={ageInput}
+                      onChange={updateAge}
+                    />
+                  </HStack>
+                  <Text fontSize="xs" color="gray.500">
+                    Enter either DOB or age. Age auto-fills an estimated DOB using January 1 of the birth year.
+                  </Text>
+                </VStack>
               </HStack>
             </FormControl>
 

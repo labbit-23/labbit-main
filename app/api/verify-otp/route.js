@@ -94,7 +94,9 @@ export async function POST(request) {
 
       console.log('EXEC TYPE:', execType, 'REDIRECT before assign:', payload.redirectUrl);
 
-      if (adminTypes.includes(execType)) {
+      if (execType === 'director') {
+        payload.redirectUrl = '/cto';
+      } else if (adminTypes.includes(execType)) {
         payload.redirectUrl = '/admin';
       } else if (execType === 'phlebo') {
         payload.redirectUrl = '/phlebo';

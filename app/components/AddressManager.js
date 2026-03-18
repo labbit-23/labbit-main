@@ -6,7 +6,7 @@ import { VStack, Text, useToast } from '@chakra-ui/react';
 import AddressPicker from './AddressPicker';
 import AddressModal from './AddressModal';
 
-export default function AddressManager({ patientId, onChange }) {
+export default function AddressManager({ patientId, onChange, themeMode = "light" }) {
   const [addresses, setAddresses] = useState([]);
   const [labels, setLabels] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -111,9 +111,11 @@ export default function AddressManager({ patientId, onChange }) {
         labels={labels}
         onAdd={() => { setEditingAddress(null); setModalOpen(true); }}
         onEdit={(addr) => { setEditingAddress(addr); setModalOpen(true); }}
+        refreshAddresses={fetchAddresses}
+        themeMode={themeMode}
       />
       {addresses.length === 0 && (
-        <Text color="gray.500" fontStyle="italic" textAlign="center">
+        <Text color={themeMode === "dark" ? "whiteAlpha.700" : "gray.500"} fontStyle="italic" textAlign="center">
           No addresses available.
         </Text>
       )}
@@ -122,6 +124,7 @@ export default function AddressManager({ patientId, onChange }) {
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
         address={editingAddress}
+        themeMode={themeMode}
       />
     </VStack>
   );

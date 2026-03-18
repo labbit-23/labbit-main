@@ -21,12 +21,11 @@ export default function PatientsTab({
   defaultExecutiveId = null,         // <-- Add this!
   disablePhoneInput = false,
   quickbookContext = null,
+  themeMode = 'light',
 }) {
   const toast = useToast();
   const { user, isLoading: isUserLoading } = useUser();
   const isPatientUser = user?.userType === 'patient';
-  const [lastVisitArea, setLastVisitArea] = useState("");
-
   const [internalSelectedPatient, setInternalSelectedPatient] = useState(null);
   const [initialPhone, setInitialPhone] = useState(
     quickbookContext?.booking?.phone || ''
@@ -97,23 +96,6 @@ export default function PatientsTab({
         console.log("Fetched visits data:", data);  // Add this log
 
         setVisits(Array.isArray(data) ? data : []);
-
-        if (Array.isArray(data) && data.length > 0) {
-          const latest = data[0];
-          if (latest.address && !latest.address_id) {
-            setLastVisitArea(latest.address);
-            console.log("Setting lastVisitArea:", latest.address);
-
-          } else {
-            setLastVisitArea("");
-            console.log("lastVisitArea not set as not found", latest.address);
-
-          }
-        } else {
-          setLastVisitArea("");
-          console.log("No visits received, clearing lastVisitArea.");
-
-        }
 
       } catch (err) {
         setVisitsError(err.message || 'Error fetching visits');
@@ -260,11 +242,18 @@ export default function PatientsTab({
   return (
     <Box>
       {quickbookContext?.source === 'quickbook' && (
-        <Box bg="yellow.50" p={3} mb={4} borderRadius="md" border="1px solid" borderColor="yellow.200">
-          <Text fontSize="sm" color="yellow.800" fontWeight="medium">
+        <Box
+          bg={themeMode === 'dark' ? "rgba(250,204,21,0.14)" : "yellow.50"}
+          p={3}
+          mb={4}
+          borderRadius="md"
+          border="1px solid"
+          borderColor={themeMode === 'dark' ? "rgba(250,204,21,0.28)" : "yellow.200"}
+        >
+          <Text fontSize="sm" color={themeMode === 'dark' ? "yellow.200" : "yellow.800"} fontWeight="medium">
             Processing QuickBook booking — please confirm patient details and create a visit.
           </Text>
-          <Text fontSize="xs" color="yellow.700" mt={1}>
+          <Text fontSize="xs" color={themeMode === 'dark' ? "yellow.100" : "yellow.700"} mt={1}>
             {[
               quickbookContext.booking.patient_name || '(No name)',
               quickbookContext.booking.phone,
@@ -289,6 +278,7 @@ export default function PatientsTab({
         }
         onPatientSelected={onPatientSelectionHandler}
         onPhoneChange={setLastLookupPhone}    // Add this line
+        themeMode={themeMode}
 
         onNewPatient={() => {
           if (propSelectedPatient === undefined) {
@@ -354,9 +344,10 @@ export default function PatientsTab({
               loading={loadingVisits}
               error={visitsError}
               setVisitsLoading={setIsSavingVisit}
+              themeMode={themeMode}
             />
           ) : (
-            <AddressManager patientId={selectedPatient.id} onChange={() => {}} />
+            <AddressManager patientId={selectedPatient.id} onChange={() => {}} themeMode={themeMode} />
           )}
         </Box>
       )}
@@ -372,7 +363,7 @@ export default function PatientsTab({
 
       {!isUserLoading && user?.userType && visitModalOpen && (
         <VisitModal
-          key={`${editingVisit?.id || 'new'}-${lastVisitArea}`} 
+          key={`${editingVisit?.id || 'new'}-${selectedPatient?.id || 'no-patient'}`}
           isOpen={visitModalOpen}
           onClose={() => {
             setVisitModalOpen(false);
@@ -409,7 +400,6 @@ export default function PatientsTab({
               ? {
                   patient_id: selectedPatient.id,
                   patient: { name: selectedPatient.name },
-                  address: lastVisitArea || "",  // <--- Add this line
                   // ✅ Scrub any stale visit_code
                   visit_code: undefined
                 }

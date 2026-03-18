@@ -23,6 +23,7 @@ export default function PatientLookup({
   onPatientSelected,
   onNewPatient,
   onPhoneChange,      // new prop
+  themeMode = 'light',
 }) {
   const [phone, setPhone] = useState(initialPhone);
   const [patients, setPatients] = useState([]);
@@ -30,6 +31,7 @@ export default function PatientLookup({
   const [noResults, setNoResults] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const toast = useToast();
+  const isDark = themeMode === 'dark';
 
   // Helper to get patient source label
   const getPatientSource = (patient) => {
@@ -177,13 +179,21 @@ export default function PatientLookup({
       )}
 
       {!loading && noResults && (
-        <Text color="gray.600" fontStyle="italic" textAlign="center">
+        <Text color={isDark ? "whiteAlpha.700" : "gray.600"} fontStyle="italic" textAlign="center">
           No patients found for the entered phone number.
         </Text>
       )}
 
       {!loading && patients.length > 0 && (
-        <Box maxHeight="300px" overflowY="auto" borderWidth="1px" borderRadius="md" p={2}>
+        <Box
+          maxHeight="300px"
+          overflowY="auto"
+          borderWidth="1px"
+          borderRadius="md"
+          p={2}
+          bg={isDark ? "rgba(255,255,255,0.03)" : "white"}
+          borderColor={isDark ? "whiteAlpha.200" : "gray.200"}
+        >
           <Text fontWeight="bold" mb={2}>
             Patients found:
           </Text>
@@ -199,9 +209,10 @@ export default function PatientLookup({
                 mb={2}
                 borderWidth="2px"
                 borderRadius="md"
-                borderColor={isSelected ? 'green.400' : 'gray.200'}
+                borderColor={isSelected ? 'green.400' : (isDark ? 'whiteAlpha.200' : 'gray.200')}
                 cursor="pointer"
-                _hover={{ bg: 'gray.100' }}
+                bg={isDark ? "rgba(255,255,255,0.04)" : "white"}
+                _hover={{ bg: isDark ? 'rgba(255,255,255,0.08)' : 'gray.100' }}
                 onClick={() => handlePatientSelect(p, uniqueKey)}
                 role="button"
                 tabIndex={0}
@@ -210,7 +221,7 @@ export default function PatientLookup({
                   if (e.key === 'Enter' || e.key === ' ') handlePatientSelect(p, uniqueKey);
                 }}
               >
-                <Text fontWeight="semibold">
+                <Text fontWeight="semibold" color={isDark ? "whiteAlpha.920" : "gray.800"}>
                   {p.name}{' '}
                   {p.mrn ? (
                     <Badge colorScheme="blue">MRN: {p.mrn}</Badge>
@@ -218,15 +229,15 @@ export default function PatientLookup({
                     <Badge colorScheme="green">External ID: {p.external_key}</Badge>
                   ) : null}
                 </Text>
-                <Text fontSize="sm" color="gray.600">
+                <Text fontSize="sm" color={isDark ? "whiteAlpha.760" : "gray.600"}>
                   DOB: {p.dob ?? '-'} | Gender: {p.gender ?? '-'}
                 </Text>
                 {p.address_line && (
-                  <Text fontSize="sm" color="gray.600" noOfLines={1}>
+                  <Text fontSize="sm" color={isDark ? "whiteAlpha.760" : "gray.600"} noOfLines={1}>
                     Address: {p.address_line}
                   </Text>
                 )}
-                <Text fontSize="xs" color="gray.500" mt={1}>
+                <Text fontSize="xs" color={isDark ? "whiteAlpha.600" : "gray.500"} mt={1}>
                   Source: {getPatientSource(p)}
                 </Text>
               </Box>

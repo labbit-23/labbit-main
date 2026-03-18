@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton,
   ModalBody, ModalFooter, Button, FormControl, FormLabel, Input,
-  VStack, HStack, Spinner, Text, IconButton, Switch, Tooltip
+  VStack, HStack, Spinner, Text, IconButton, Switch, Tooltip, useToast
 } from '@chakra-ui/react';
 import { EditIcon } from '@chakra-ui/icons';
 import { MdMyLocation } from 'react-icons/md';
@@ -13,7 +13,8 @@ import { MdMyLocation } from 'react-icons/md';
 // Leaflet map client-only import
 const LeafletMap = dynamic(() => import('./LeafletMap'), { ssr: false });
 
-export default function AddressModal({ isOpen, onClose, onSave, address }) {
+export default function AddressModal({ isOpen, onClose, onSave, address, themeMode = "light" }) {
+  const toast = useToast();
   const [form, setForm] = useState({
     id: null,
     label: '',
@@ -32,6 +33,15 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchUnavailable, setSearchUnavailable] = useState(false);
+
+  const parseJsonResponse = async (res, fallbackMessage) => {
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      throw new Error(fallbackMessage);
+    }
+    return res.json();
+  };
 
   // Initialize form values
   useEffect(() => {
@@ -74,10 +84,22 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
     setSearchLoading(true);
     try {
       const res = await fetch(`/api/location_autocomplete?query=${encodeURIComponent(value)}`);
-      const data = await res.json();
+      const data = await parseJsonResponse(
+        res,
+        'Address search is unavailable right now. Please enter the address manually.'
+      );
       setSearchResults(data.features || []);
+      setSearchUnavailable(false);
     } catch {
       setSearchResults([]);
+      setSearchUnavailable(true);
+      toast({
+        title: 'Address search unavailable',
+        description: 'Please enter the address manually for now.',
+        status: 'warning',
+        duration: 4000,
+        isClosable: true,
+      });
     }
     setSearchLoading(false);
   };
@@ -95,7 +117,10 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
   const performReverseGeocode = async (lat, lng) => {
     try {
       const res = await fetch(`/api/reverse_geocode?lat=${lat}&lng=${lng}`);
-      const data = await res.json();
+      const data = await parseJsonResponse(
+        res,
+        'Location details could not be loaded. Please fill the address fields manually.'
+      );
       setForm(f => ({
         ...f,
         address_line: f.address_line || data.address_line || '',
@@ -107,6 +132,13 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
       }));
     } catch (err) {
       console.error(err);
+      toast({
+        title: 'Location lookup unavailable',
+        description: 'Coordinates were captured, but address details need to be entered manually.',
+        status: 'warning',
+        duration: 4000,
+        isClosable: true,
+      });
     }
   };
 
@@ -152,7 +184,7 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
-      <ModalContent>
+      <ModalContent bg={themeMode === "dark" ? "#111827" : "white"} color={themeMode === "dark" ? "whiteAlpha.920" : "gray.800"}>
         <ModalHeader>{address ? 'Edit' : 'Add'} Address</ModalHeader>
         <ModalCloseButton />
         {/* LIMIT HEIGHT + SCROLL for gestures */}
@@ -224,13 +256,26 @@ export default function AddressModal({ isOpen, onClose, onSave, address }) {
               </Tooltip>
             </HStack>
             {searchLoading && <Spinner size="sm" />}
+            {searchUnavailable && (
+              <Text fontSize="sm" color={themeMode === "dark" ? "yellow.200" : "orange.600"}>
+                Search is temporarily unavailable. You can still enter the address manually below.
+              </Text>
+            )}
             {searchResults.length > 0 && (
-              <VStack mt={2} maxH="150px" overflowY="auto" p={2} border="1px solid #E2E8F0" borderRadius="md" bg="white">
+              <VStack
+                mt={2}
+                maxH="150px"
+                overflowY="auto"
+                p={2}
+                border={themeMode === "dark" ? "1px solid rgba(255,255,255,0.16)" : "1px solid #E2E8F0"}
+                borderRadius="md"
+                bg={themeMode === "dark" ? "rgba(255,255,255,0.04)" : "white"}
+              >
                 {searchResults.map(feature => (
                   <Text
                     key={feature.id}
                     cursor="pointer"
-                    _hover={{ bg: "teal.50" }}
+                    _hover={{ bg: themeMode === "dark" ? "rgba(255,255,255,0.08)" : "teal.50" }}
                     onClick={() => handleSelectSuggestion(feature)}
                   >
                     {feature.place_name || feature.properties?.name}

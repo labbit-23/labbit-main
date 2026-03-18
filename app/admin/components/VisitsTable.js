@@ -63,6 +63,7 @@ export default function VisitsTable({
   onAssign,
   loading = false,
   statusOptions = [], //added prop for dynamic status options
+  themeMode = "light",
 }) {
   const [assigning, setAssigning] = useState(new Set());
   const [selectedExec, setSelectedExec] = useState({});
@@ -136,24 +137,35 @@ export default function VisitsTable({
     return <Text textAlign="center" py={10}>No visits found.</Text>;
   }
 
+  const isDark = themeMode === "dark";
+  const tableShellBg = isDark ? "rgba(255,255,255,0.03)" : "white";
+  const tableHeadBg = isDark ? "rgba(255,255,255,0.08)" : "gray.100";
+  const tableText = isDark ? "whiteAlpha.920" : "gray.800";
+  const tableMutedText = isDark ? "whiteAlpha.700" : "gray.500";
+  const sectionHeading = isDark ? "green.200" : "green.700";
+  const disabledHeading = isDark ? "whiteAlpha.700" : "gray.500";
+  const rowBorderColor = isDark ? "whiteAlpha.200" : "gray.100";
+  const disabledRowBg = isDark ? "rgba(255,255,255,0.04)" : "gray.50";
+  const actionButtonBg = isDark ? "rgba(255,255,255,0.08)" : undefined;
+
   return (
     <>
-      <Box overflowX="auto" bg="white" rounded="xl" shadow="lg" p={4}>
+      <Box overflowX="auto" bg={tableShellBg} rounded="xl" shadow="lg" p={4} color={tableText}>
         {/* Active Visits Groups */}
         {groups.map(({ exec, visits }) => (
           <Box key={exec ? exec.id : "unassigned"} mb={8}>
-            <Text fontWeight="bold" fontSize="lg" mb={3} color={exec ? "green.700" : "gray.600"}>
+            <Text fontWeight="bold" fontSize="lg" mb={3} color={exec ? sectionHeading : tableMutedText}>
               {exec ? exec.name : "Unassigned"}
             </Text>
             <Table variant="simple" size="sm">
-              <Thead bg="gray.100">
+              <Thead bg={tableHeadBg}>
                 <Tr>
-                  <Th>Patient</Th>
-                  <Th>Address / Tests</Th>
-                  <Th>Date</Th>
-                  <Th>Slot</Th>
-                  <Th>Status</Th>
-                  <Th className="no-export" isNumeric>Actions</Th>
+                  <Th color={tableMutedText}>Patient</Th>
+                  <Th color={tableMutedText}>Address / Tests</Th>
+                  <Th color={tableMutedText}>Date</Th>
+                  <Th color={tableMutedText}>Slot</Th>
+                  <Th color={tableMutedText}>Status</Th>
+                  <Th className="no-export" isNumeric color={tableMutedText}>Actions</Th>
                 </Tr>
               </Thead>
               <Tbody>
@@ -162,38 +174,41 @@ export default function VisitsTable({
                   return (
                     <Tr key={visit.id}>
                       {/* Patient info */}
-                      <Td>
+                      <Td borderColor={rowBorderColor}>
                         <Box>{visit.patient?.name ?? "Unknown"}</Box>
-                        <Box fontWeight="bold" fontSize="sm" color="gray.700">
+                        <Box fontWeight="bold" fontSize="sm" color={isDark ? "whiteAlpha.900" : "gray.700"}>
                           {visit.patient?.phone ?? "No Phone"}
                         </Box>
                       </Td>
                       {/* Address / Code */}
-                      <Td>
+                      <Td borderColor={rowBorderColor}>
                         <Box fontWeight="bold">
                           {visit.address || "No Area"}
                         </Box>
-                        <Box fontSize="sm" color="gray.500">
+                        <Box fontSize="sm" color={tableMutedText}>
                           {visit.notes ?? "N/A"}
                         </Box>
                       </Td>
                       {/* Date */}
-                      <Td>{formatDate(visit.visit_date)}</Td>
+                      <Td borderColor={rowBorderColor}>{formatDate(visit.visit_date)}</Td>
                       {/* Slot */}
-                      <Td>{getSlotDisplay(visit)}</Td>
+                      <Td borderColor={rowBorderColor}>{getSlotDisplay(visit)}</Td>
                       {/* Status with dynamic color */}
-                      <Td>
+                      <Td borderColor={rowBorderColor}>
                         <Badge colorScheme={getStatusColor(visit.status)} rounded="md" px={2}>
                           {visit.status?.toUpperCase().replace(/_/g, " ")}
                         </Badge>
                       </Td>
                       {/* Actions */}
-                      <Td className="no-export" isNumeric>
+                      <Td className="no-export" isNumeric borderColor={rowBorderColor}>
                         <HStack spacing={2} justify="flex-end">
                           <IconButton
                             aria-label="Edit"
                             icon={<EditIcon />}
                             size="sm"
+                            bg={actionButtonBg}
+                            color={isDark ? "whiteAlpha.900" : undefined}
+                            _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
                             onClick={() => onEdit && onEdit(visit)}
                           />
                           <IconButton
@@ -209,6 +224,9 @@ export default function VisitsTable({
                                 size="xs"
                                 w={120}
                                 placeholder="Assign Exec"
+                                bg={isDark ? "rgba(15,23,42,0.88)" : undefined}
+                                color={isDark ? "whiteAlpha.900" : undefined}
+                                borderColor={isDark ? "whiteAlpha.300" : undefined}
                                 onChange={(e) => setSelectedExec((prev) => ({
                                   ...prev,
                                   [visit.id]: e.target.value
@@ -245,45 +263,45 @@ export default function VisitsTable({
         {/* Disabled Visits Section */}
         {disabled.length > 0 && (
           <Box mt={10}>
-            <Text fontWeight="bold" fontSize="lg" mb={3} color="gray.500">
+            <Text fontWeight="bold" fontSize="lg" mb={3} color={disabledHeading}>
               Disabled Visits
             </Text>
             <Table variant="simple" size="sm">
-              <Thead bg="gray.100">
+              <Thead bg={tableHeadBg}>
                 <Tr>
-                  <Th>Patient</Th>
-                  <Th>Address / Code</Th>
-                  <Th>Date</Th>
-                  <Th>Slot</Th>
-                  <Th>Status</Th>
-                  <Th className="no-export" isNumeric>Actions</Th>
+                  <Th color={tableMutedText}>Patient</Th>
+                  <Th color={tableMutedText}>Address / Code</Th>
+                  <Th color={tableMutedText}>Date</Th>
+                  <Th color={tableMutedText}>Slot</Th>
+                  <Th color={tableMutedText}>Status</Th>
+                  <Th className="no-export" isNumeric color={tableMutedText}>Actions</Th>
                 </Tr>
               </Thead>
               <Tbody>
                 {disabled.map((visit) => (
-                  <Tr key={visit.id} opacity={0.5} bg="gray.50">
-                    <Td>
+                  <Tr key={visit.id} opacity={0.65} bg={disabledRowBg}>
+                    <Td borderColor={rowBorderColor}>
                       <Box>{visit.patient?.name ?? "Unknown"}</Box>
-                      <Box fontWeight="bold" fontSize="sm" color="gray.700">
+                      <Box fontWeight="bold" fontSize="sm" color={isDark ? "whiteAlpha.900" : "gray.700"}>
                         {visit.patient?.phone ?? "No Phone"}
                       </Box>
                     </Td>
-                    <Td>
+                    <Td borderColor={rowBorderColor}>
                       <Box fontWeight="bold">
                         {visit.address || "No Area"}
                       </Box>
-                      <Box fontSize="sm" color="gray.500">
+                      <Box fontSize="sm" color={tableMutedText}>
                         {visit.visit_code ?? "N/A"}
                       </Box>
                     </Td>
-                    <Td>{formatDate(visit.visit_date)}</Td>
-                    <Td>{getSlotDisplay(visit)}</Td>
-                    <Td>
+                    <Td borderColor={rowBorderColor}>{formatDate(visit.visit_date)}</Td>
+                    <Td borderColor={rowBorderColor}>{getSlotDisplay(visit)}</Td>
+                    <Td borderColor={rowBorderColor}>
                       <Badge colorScheme="gray" rounded="md" px={2}>
                         DISABLED
                       </Badge>
                     </Td>
-                    <Td className="no-export" isNumeric>
+                    <Td className="no-export" isNumeric borderColor={rowBorderColor}>
                       {/* You can add re-enable or other actions here if needed */}
                     </Td>
                   </Tr>

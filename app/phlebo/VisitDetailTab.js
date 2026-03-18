@@ -25,6 +25,20 @@ import { supabase } from "../../lib/supabaseClient";
 import TestPackageSelector from "../../components/TestPackageSelector";
 import { useUser } from "../context/UserContext";
 
+const FALLBACK_STATUS_OPTIONS = [
+  { code: "disabled", label: "Cancelled", order: -3 },
+  { code: "postponed", label: "Postponed", order: -2 },
+  { code: "rejected", label: "Rejected", order: -1 },
+  { code: "pending", label: "Pending", order: 0 },
+  { code: "unassigned", label: "Unassigned", order: 1 },
+  { code: "booked", label: "Booked", order: 2 },
+  { code: "accepted", label: "Accepted", order: 3 },
+  { code: "in_progress", label: "In Progress", order: 4 },
+  { code: "sample_picked", label: "Sample Picked", order: 5 },
+  { code: "sample_dropped", label: "Sample Dropped", order: 6 },
+  { code: "completed", label: "Billed", order: 7 },
+];
+
 function extractGoogleMapsUrl(text) {
   if (!text) return null;
   const match = String(text).match(
@@ -33,21 +47,26 @@ function extractGoogleMapsUrl(text) {
   return match ? match[1] : null;
 }
 
-export default function VisitDetailTab({ visit, onBack }) {
+export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
   const toast = useToast();
   const { user, isLoading: userLoading } = useUser();
+  const isPhleboUser =
+    !!user &&
+    user.userType === "executive" &&
+    String(user.executiveType || "").toLowerCase() === "phlebo";
 
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [selectedTestIds, setSelectedTestIds] = useState(new Set());
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [visitStatus, setVisitStatus] = useState(visit.status);
-  const [statusOptions, setStatusOptions] = useState([]);
+  const [statusOptions, setStatusOptions] = useState(FALLBACK_STATUS_OPTIONS);
   const [selectedStatus, setSelectedStatus] = useState(visit.status);
   const [showTestSelection, setShowTestSelection] = useState(false);
 
   // Prescription preview
   const [prescriptionUrl, setPrescriptionUrl] = useState(null);
   const [loadingPrescription, setLoadingPrescription] = useState(false);
+  const [savingGateLocation, setSavingGateLocation] = useState(false);
 
   // Load statuses from API
   useEffect(() => {
@@ -58,7 +77,9 @@ export default function VisitDetailTab({ visit, onBack }) {
         const sorted = Array.isArray(data)
           ? data.sort((a, b) => a.order - b.order)
           : [];
-        setStatusOptions(sorted);
+        if (sorted.length > 0) {
+          setStatusOptions(sorted);
+        }
       } catch (err) {
         toast({
           title: "Error loading statuses",
@@ -200,11 +221,19 @@ export default function VisitDetailTab({ visit, onBack }) {
 
     setUpdatingStatus(true);
     try {
-      const { error } = await supabase
-        .from("visits")
-        .update({ status: newStatus })
-        .eq("id", visit.id);
-      if (error) throw error;
+      const res = await fetch("/api/visits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: visit.id,
+          status: newStatus,
+          updated_by: user?.id || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update status");
+      }
 
       setVisitStatus(newStatus);
       setSelectedStatus(newStatus);
@@ -226,9 +255,7 @@ export default function VisitDetailTab({ visit, onBack }) {
   };
 
   // Next/Prev status
-  const currentIndex = statusOptions.findIndex(
-    (s) => s.code === visitStatus
-  );
+  const currentIndex = statusOptions.findIndex((s) => s.code === visitStatus);
   const nextStatus =
     currentIndex >= 0 && currentIndex < statusOptions.length - 1
       ? statusOptions[currentIndex + 1]
@@ -240,6 +267,23 @@ export default function VisitDetailTab({ visit, onBack }) {
   // Grouped status options by order
   const normalOptions = statusOptions.filter(s => s.order > 0);
   const abnormalOptions = statusOptions.filter(s => s.order <= 0);
+  const allowedNormalOptions = isPhleboUser
+    ? normalOptions.filter((option) => option.order >= (statusOptions[currentIndex]?.order ?? option.order))
+    : normalOptions;
+  const nextActionLabel =
+    nextStatus?.code === "accepted"
+      ? "Mark as Accepted"
+      : nextStatus?.code === "in_progress"
+      ? "Start Visit"
+      : nextStatus?.code === "sample_picked"
+      ? "Mark Sample Picked"
+      : nextStatus?.code === "sample_dropped"
+      ? "Mark Sample Dropped"
+      : nextStatus?.code === "completed"
+      ? "Mark Billed"
+      : nextStatus
+      ? `Mark as ${nextStatus.label}`
+      : null;
 
   const embeddedMapsUrl = extractGoogleMapsUrl(visit.address);
   const mapsUrl = visit.lat && visit.lng
@@ -257,6 +301,61 @@ export default function VisitDetailTab({ visit, onBack }) {
     );
   }
 
+  const saveGateLocation = async () => {
+    if (!navigator.geolocation) {
+      toast({ title: "Geolocation is not available on this device", status: "warning" });
+      return;
+    }
+
+    setSavingGateLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const res = await fetch("/api/visits", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: visit.id,
+              patient_id: visit.patient_id,
+              lat: latitude,
+              lng: longitude,
+              location_text: visit.address || "Gate location captured by phlebo",
+              address: visit.address || "",
+              updated_by: user?.id || null,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data.error || "Failed to save gate location");
+          }
+          toast({
+            title: "Gate location saved",
+            description: "This visit now has the latest gate coordinates.",
+            status: "success",
+          });
+        } catch (err) {
+          toast({
+            title: "Failed to save gate location",
+            description: err.message,
+            status: "error",
+          });
+        } finally {
+          setSavingGateLocation(false);
+        }
+      },
+      (err) => {
+        setSavingGateLocation(false);
+        toast({
+          title: "Unable to read current location",
+          description: err.message,
+          status: "warning",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
   return (
     <Box>
       {onBack && (
@@ -271,7 +370,7 @@ export default function VisitDetailTab({ visit, onBack }) {
 
       {/* Show visit.notes directly if exists */}
       {visit.notes && (
-        <Text mb={4} fontSize="sm" bg="gray.50" p={2} borderRadius="md">
+        <Text mb={4} fontSize="sm" bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"} p={2} borderRadius="md">
           {visit.notes}
         </Text>
       )}
@@ -280,7 +379,7 @@ export default function VisitDetailTab({ visit, onBack }) {
       {loadingPrescription ? (
         <Spinner size="sm" color="teal" mb={4} />
       ) : prescriptionUrl ? (
-        <Box mb={4} p={3} bg="gray.50" borderRadius="md">
+        <Box mb={4} p={3} bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"} borderRadius="md">
           <Heading size="sm" mb={2}>Prescription</Heading>
           {/\.(pdf)$/i.test(prescriptionUrl)
             ? (
@@ -323,24 +422,32 @@ export default function VisitDetailTab({ visit, onBack }) {
           }
         </Box>
       ) : visit.prescription && typeof visit.prescription === "string" ? (
-        <Box mb={4} p={3} bg="gray.50" borderRadius="md" whiteSpace="pre-wrap">
+        <Box mb={4} p={3} bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"} borderRadius="md" whiteSpace="pre-wrap">
           <Heading size="sm" mb={2}>Prescription</Heading>
           <Text>{visit.prescription}</Text>
         </Box>
       ) : null}
 
       {/* Current status */}
-      <Text mb={4}>
-        Status:{" "}
-        <strong>
-          {statusOptions.find((s) => s.code === visitStatus)?.label ||
-            visitStatus}
-        </strong>
-      </Text>
+      <Box
+        mb={5}
+        p={4}
+        borderRadius="lg"
+        bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"}
+        borderWidth="1px"
+        borderColor={themeMode === "dark" ? "whiteAlpha.200" : "gray.200"}
+      >
+        <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"} mb={1}>
+          Current Visit Status
+        </Text>
+        <Text fontSize="xl" fontWeight="bold">
+          {statusOptions.find((s) => s.code === visitStatus)?.label || visitStatus}
+        </Text>
+      </Box>
 
       {/* Main nav buttons */}
-      <Stack direction="row" spacing={4} mb={6} flexWrap="wrap">
-        {prevStatus && (
+      <Stack direction={{ base: "column", md: "row" }} spacing={4} mb={6}>
+        {!isPhleboUser && prevStatus && (
           <Button
             size="sm"
             colorScheme={prevStatus.order <= 0 ? "red" : "gray"}
@@ -352,13 +459,22 @@ export default function VisitDetailTab({ visit, onBack }) {
         )}
         {nextStatus && (
           <Button
+            size="md"
             colorScheme={nextStatus.order <= 0 ? "red" : "teal"}
             onClick={() => updateStatus(nextStatus.code)}
             isLoading={updatingStatus}
           >
-            Mark as {nextStatus.label} →
+            {nextActionLabel} →
           </Button>
         )}
+        <Button
+          variant="outline"
+          colorScheme="orange"
+          onClick={saveGateLocation}
+          isLoading={savingGateLocation}
+        >
+          Save Gate Location
+        </Button>
       </Stack>
 
       {/* Status override dropdown */}
@@ -369,7 +485,7 @@ export default function VisitDetailTab({ visit, onBack }) {
           onChange={(e) => setSelectedStatus(e.target.value)}
         >
           <optgroup label="Normal Flow">
-            {normalOptions.map((s) => (
+            {allowedNormalOptions.map((s) => (
               <option key={s.code} value={s.code}>
                 {s.label}
               </option>
@@ -398,7 +514,7 @@ export default function VisitDetailTab({ visit, onBack }) {
 
       {/* Navigation */}
       {mapsUrl && (
-        <HStack spacing={4} mb={6}>
+        <HStack spacing={4} mb={6} flexWrap="wrap">
           <Link href={mapsUrl} isExternal>
             <Button colorScheme="blue" leftIcon={<ExternalLinkIcon />}>
               Navigate to Address

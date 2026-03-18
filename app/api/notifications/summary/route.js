@@ -77,6 +77,7 @@ export async function GET() {
       whatsapp_unread: 0,
       pickups_samples_ready: 0,
       pickups_samples_ready_urgent: 0,
+      admin_visit_attention: 0,
       phlebo_assigned_active: 0,
       phlebo_unassigned_available: 0,
     };
@@ -99,6 +100,25 @@ export async function GET() {
       counts.quickbook_pending = qbCount || 0;
       counts.whatsapp_unread = (sessions || [])
         .reduce((sum, s) => sum + normalizedWhatsappUnread(s), 0);
+
+      const { data: adminNotifyStatuses, error: adminStatusError } = await supabase
+        .from("visit_statuses")
+        .select("code")
+        .contains("notify_to", ["admin"]);
+
+      if (adminStatusError) throw adminStatusError;
+
+      const adminStatusCodes = (adminNotifyStatuses || []).map((row) => row.code).filter(Boolean);
+      if (adminStatusCodes.length > 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        const { count: adminVisitCount, error: adminVisitError } = await supabase
+          .from("visits")
+          .select("id", { count: "exact", head: true })
+          .in("status", adminStatusCodes)
+          .gte("visit_date", today);
+        if (adminVisitError) throw adminVisitError;
+        counts.admin_visit_attention = adminVisitCount || 0;
+      }
 
       const adminLabIds = await getLabIds(user.id);
       const adminCentreIds = await getCentreIdsByLabs(adminLabIds);

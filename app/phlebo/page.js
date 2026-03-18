@@ -9,6 +9,7 @@ import {
   Tab,
   TabPanel,
   Box,
+  HStack,
 } from "@chakra-ui/react";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -31,6 +32,23 @@ function PhleboContent({ userRole = "executive" }) {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+  const [themeMode, setThemeMode] = useState("light");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("phleboThemeMode");
+    if (saved === "dark" || saved === "light") {
+      setThemeMode(saved);
+    }
+  }, []);
+
+  const toggleThemeMode = () => {
+    const next = themeMode === "dark" ? "light" : "dark";
+    setThemeMode(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("phleboThemeMode", next);
+    }
+  };
 
   // Lock executive to self if user is phlebo
   const lockExecutive =
@@ -81,7 +99,13 @@ function PhleboContent({ userRole = "executive" }) {
   };
 
   return (
-    <>
+    <Box
+      minH="100vh"
+      w="100vw"
+      className={`dashboard-theme-shell ${themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}`}
+      bg={themeMode === "dark" ? "var(--dashboard-shell-bg)" : "var(--dashboard-page-bg)"}
+      color="var(--dashboard-page-text)"
+    >
       <ShortcutBar
         userRole={userRole}
         hvExecutiveName={selectedExecutiveName}
@@ -91,19 +115,26 @@ function PhleboContent({ userRole = "executive" }) {
         selectedExecutiveId={selectedExecutiveId}
         setSelectedExecutiveId={lockExecutive ? undefined : setSelectedExecutiveId}
         lockExecutive={lockExecutive}
+        themeMode={themeMode}
+        onToggleTheme={toggleThemeMode}
       />
 
       <Box
         maxW="7xl"
         mx="auto"
         p={6}
-        bg="gray.50"
+        bg={themeMode === "dark" ? "var(--dashboard-panel-bg)" : "gray.50"}
         minH="calc(100vh - 72px)"
         rounded="md"
-        boxShadow="sm"
+        boxShadow={themeMode === "dark" ? "var(--dashboard-panel-shadow)" : "sm"}
         mt="72px"
+        color={themeMode === "dark" ? "whiteAlpha.900" : "gray.800"}
+        borderWidth={themeMode === "dark" ? "1px" : "0"}
+        borderColor={themeMode === "dark" ? "var(--dashboard-panel-border)" : "transparent"}
       >
-        <DashboardMetrics hvExecutiveId={selectedExecutiveId} date={selectedDate} />
+        <HStack justify="space-between" align="center" mb={4} flexWrap="wrap">
+          <DashboardMetrics hvExecutiveId={selectedExecutiveId} date={selectedDate} themeMode={themeMode} />
+        </HStack>
 
         <Tabs
           index={tabIndex}
@@ -113,7 +144,12 @@ function PhleboContent({ userRole = "executive" }) {
           isFitted
           mt={6}
         >
-          <TabList bg="teal.50" borderRadius="md" boxShadow="sm" p={1}>
+          <TabList
+            bg={themeMode === "dark" ? "whiteAlpha.100" : "teal.50"}
+            borderRadius="md"
+            boxShadow="sm"
+            p={1}
+          >
             <Tab flex="1">Active Visits</Tab>
             <Tab flex="1">Patient Lookup</Tab>
             <Tab flex="1" isDisabled={!selectedVisit}>
@@ -122,31 +158,33 @@ function PhleboContent({ userRole = "executive" }) {
           </TabList>
 
           <TabPanels>
-            <TabPanel p={6} bg="white" rounded="md" boxShadow="sm">
+            <TabPanel p={6} bg={themeMode === "dark" ? "gray.800" : "white"} rounded="md" boxShadow="sm">
               <ActiveVisitsTab
                 onSelectVisit={handleVisitSelect}
                 selectedVisit={selectedVisit}
                 selectedDate={selectedDate}
                 setSelectedDate={setSelectedDate}
                 hvExecutiveId={selectedExecutiveId}
+                themeMode={themeMode}
               />
             </TabPanel>
 
-            <TabPanel p={6} bg="white" rounded="md" boxShadow="sm">
+            <TabPanel p={6} bg={themeMode === "dark" ? "gray.800" : "white"} rounded="md" boxShadow="sm">
               <PatientsTab
                 // Optionally pass quickbookContext here if relevant
                 //onPatientSelected={() => setTabIndex(0)} // example: go back to Active Visits on patient select
                 phone="" // or any default phone number if needed
                 defaultExecutiveId={selectedExecutiveId}     // Pass this prop!
                 disablePhoneInput={false}
+                themeMode={themeMode}
               />
             </TabPanel>
 
-            <TabPanel p={6} bg="white" rounded="md" boxShadow="sm">
+            <TabPanel p={6} bg={themeMode === "dark" ? "gray.800" : "white"} rounded="md" boxShadow="sm">
               {selectedVisit ? (
-                <VisitDetailTab visit={selectedVisit} />
+                <VisitDetailTab key={selectedVisit.id} visit={selectedVisit} themeMode={themeMode} />
               ) : (
-                <Box color="gray.500" textAlign="center" py={10} fontStyle="italic">
+                <Box color={themeMode === "dark" ? "whiteAlpha.700" : "gray.500"} textAlign="center" py={10} fontStyle="italic">
                   Please select a visit to view details.
                 </Box>
               )}
@@ -154,7 +192,7 @@ function PhleboContent({ userRole = "executive" }) {
           </TabPanels>
         </Tabs>
       </Box>
-    </>
+    </Box>
   );
 }
 

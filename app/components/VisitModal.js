@@ -6,7 +6,7 @@ import {
   Modal, ModalOverlay, ModalContent, ModalHeader,
   ModalBody, ModalFooter, ModalCloseButton, Button,
   VStack, FormControl, FormLabel, Select, Input,
-  Text, Spinner, Box, Flex, useToast, IconButton, Textarea, Image
+  Text, Spinner, Box, Flex, useToast, IconButton, Textarea, Image, Badge
 } from "@chakra-ui/react";
 import { EditIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
@@ -16,6 +16,34 @@ import { getModalFieldSettings } from "../../lib/modalFieldSettings";
 
 const formatDate = (date) =>
   date ? new Date(date).toISOString().slice(0, 10) : "";
+
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("en-IN", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const summarizeActivity = (entry) => {
+  if (entry?.remark) return entry.remark;
+  if (entry?.previous_status !== undefined || entry?.new_status !== undefined) {
+    return `Status ${entry?.previous_status || "none"} -> ${entry?.new_status || "none"}`;
+  }
+
+  const oldStatus = entry?.old_value?.status;
+  const newStatus = entry?.new_value?.status;
+  if (oldStatus || newStatus) {
+    return `Status ${oldStatus || "none"} -> ${newStatus || "none"}`;
+  }
+
+  return entry?.activity_type || "Visit updated";
+};
 
 export default function VisitModal({
   isOpen,
@@ -32,6 +60,7 @@ export default function VisitModal({
   if (userLoading || !user) return null;
 
   const role = (user.executiveType || user.userType || "patient").toLowerCase();
+  const canViewActivity = ["admin", "manager", "director"].includes(role);
   const { hiddenFields, readOnlyFields, defaultValues } = useMemo(
     () => getModalFieldSettings("VisitModal", role),
     [role]
@@ -78,6 +107,8 @@ export default function VisitModal({
   const [loadingLatest, setLoadingLatest] = useState(false);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState(null);
+  const [visitActivity, setVisitActivity] = useState([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
 
   const handlePrescriptionFile = async (e) => {
     const file = e.target.files[0];
@@ -236,6 +267,45 @@ export default function VisitModal({
   }, [isOpen, formData.patient_id]);
 
   useEffect(() => {
+    if (!isOpen || !visitInitialData?.id || !canViewActivity) {
+      setVisitActivity([]);
+      setLoadingActivity(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingActivity(true);
+    fetch(`/api/visits/${visitInitialData.id}/activity`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.error || "Failed to load visit activity");
+        }
+        return data;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setVisitActivity(Array.isArray(data?.activity) ? data.activity : []);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setVisitActivity([]);
+        toast({
+          title: "Unable to load visit activity",
+          description: error.message,
+          status: "warning",
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingActivity(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, visitInitialData?.id, canViewActivity, toast]);
+
+  useEffect(() => {
     if (!formData.patient_id) { setPatientAddresses([]); return; }
     let cancelled = false;
     setLoadingAddresses(true);
@@ -243,29 +313,57 @@ export default function VisitModal({
       .then(r => r.json())
       .then(data => {
         if (cancelled) return;
-        const addresses = Array.isArray(data) ? data : [];
-        setPatientAddresses(addresses);
-        if (!formData.address_id && !formData.address) {
-          const defAddr = addresses.find(a => a.is_default);
-          if (defAddr) {
-            setFormData(f => ({
-              ...f,
-              address_id: defAddr.id,
-              address: defAddr.area || defAddr.address_line || "",
-            }));
-          } else if (addresses.length === 1) {
-            setFormData(f => ({
-              ...f,
-              address_id: addresses[0].id,
-              address: addresses[0].area || addresses[0].address_line || "",
-            }));
-          }
-        }
+        setPatientAddresses(Array.isArray(data) ? data : []);
       })
       .catch(() => { if (!cancelled) setPatientAddresses([]); })
       .finally(() => { if (!cancelled) setLoadingAddresses(false); });
     return () => { cancelled = true; };
   }, [formData.patient_id]);
+
+  useEffect(() => {
+    if (!isOpen || formData.id || loadingAddresses || loadingLatest) return;
+    if (formData.address_id || formData.address) return;
+
+    if (patientAddresses.length > 0) {
+      const defaultAddress =
+        patientAddresses.find((address) => address.is_default) || patientAddresses[0];
+
+      if (defaultAddress) {
+        setFormData((current) => {
+          if (current.address_id || current.address) return current;
+          return {
+            ...current,
+            address_id: defaultAddress.id,
+            address: defaultAddress.area || defaultAddress.address_line || "",
+            lat: current.lat ?? defaultAddress.lat ?? null,
+            lng: current.lng ?? defaultAddress.lng ?? null,
+          };
+        });
+      }
+      return;
+    }
+
+    if (latestVisit?.address) {
+      setFormData((current) => {
+        if (current.address_id || current.address) return current;
+        return {
+          ...current,
+          address: latestVisit.address,
+          lat: current.lat ?? latestVisit.lat ?? null,
+          lng: current.lng ?? latestVisit.lng ?? null,
+        };
+      });
+    }
+  }, [
+    isOpen,
+    formData.id,
+    formData.address_id,
+    formData.address,
+    loadingAddresses,
+    loadingLatest,
+    patientAddresses,
+    latestVisit,
+  ]);
 
   const handleChange = field => e => {
     const val = e.target.value;
@@ -460,7 +558,7 @@ export default function VisitModal({
                       </Flex>
                     ) : (
                       <Input
-                        placeholder="Enter area"
+                        placeholder={loadingLatest ? "Loading previous visit address..." : "Enter area"}
                         value={formData.address}
                         onChange={handleChange("address")}
                       />
@@ -544,6 +642,46 @@ export default function VisitModal({
                     )}
                   </>
                 ), false)}
+
+                {canViewActivity && formData.id && (
+                  <Box w="100%" borderWidth="1px" borderColor="gray.200" rounded="md" p={4}>
+                    <Flex justify="space-between" align="center" mb={3}>
+                      <Text fontWeight="semibold">Visit Activity</Text>
+                      {loadingActivity ? <Spinner size="sm" /> : <Badge>{visitActivity.length}</Badge>}
+                    </Flex>
+                    {loadingActivity ? (
+                      <Flex justify="center" py={4}>
+                        <Spinner />
+                      </Flex>
+                    ) : visitActivity.length === 0 ? (
+                      <Text fontSize="sm" color="gray.500">No activity logged yet.</Text>
+                    ) : (
+                      <VStack align="stretch" spacing={3} maxH="240px" overflowY="auto">
+                        {visitActivity.map((entry) => (
+                          <Box
+                            key={entry.id || `${entry.created_at}-${entry.activity_type || "activity"}`}
+                            borderWidth="1px"
+                            borderColor="gray.100"
+                            rounded="md"
+                            p={3}
+                          >
+                            <Flex justify="space-between" align="flex-start" gap={3} mb={1}>
+                              <Text fontSize="sm" fontWeight="semibold">
+                                {summarizeActivity(entry)}
+                              </Text>
+                              <Text fontSize="xs" color="gray.500" whiteSpace="nowrap">
+                                {formatDateTime(entry.created_at)}
+                              </Text>
+                            </Flex>
+                            <Text fontSize="xs" color="gray.600">
+                              By {entry.changed_by_role || "system"} {entry.changed_by ? `(${entry.changed_by})` : ""}
+                            </Text>
+                          </Box>
+                        ))}
+                      </VStack>
+                    )}
+                  </Box>
+                )}
               </VStack>
             )}
           </ModalBody>

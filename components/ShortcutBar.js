@@ -12,13 +12,17 @@ import {
   Select,
   Badge,
   useBreakpointValue,
+  useToast,
+  Circle,
 } from "@chakra-ui/react";
-import { FiLogOut, FiHome } from "react-icons/fi";
+import { MoonIcon, SunIcon } from "@chakra-ui/icons";
+import { FiBell, FiBellOff, FiHome, FiLogOut } from "react-icons/fi";
 import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 import { useUser } from "../app/context/UserContext";
 import AppNotifications from "./AppNotifications";
+import NotificationsHelper from "../lib/notificationsHelper";
 
 // Map roles to display label and color scheme
 const ROLE_MARKERS = {
@@ -60,10 +64,122 @@ export default function ShortcutBar({
   selectedDate,
   setSelectedDate,
   lockExecutive = false,
+  themeMode = "light",
+  onToggleTheme,
 }) {
   const router = useRouter();
   const isMobile = useBreakpointValue({ base: true, md: false });
   const { user, refreshUser } = useUser();
+  const toast = useToast();
+  const [notificationPermission, setNotificationPermission] = React.useState("unknown");
+
+  React.useEffect(() => {
+    const syncNotificationPermission = () => {
+      if (typeof window === "undefined" || typeof Notification === "undefined") {
+        setNotificationPermission("unsupported");
+        return;
+      }
+      setNotificationPermission(Notification.permission || "default");
+    };
+
+    syncNotificationPermission();
+
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleFocus = () => syncNotificationPermission();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncNotificationPermission();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  const enableNotifications = async () => {
+    if (notificationPermission === "unsupported") {
+      toast({
+        title: "Notifications unavailable",
+        description: "This browser does not support notifications.",
+        status: "warning",
+        duration: 3000,
+      });
+      setNotificationPermission("unsupported");
+      return;
+    }
+
+    if (notificationPermission === "granted") {
+      NotificationsHelper.showNotification("Notifications enabled", {
+        body: "Browser notifications are already on for this page.",
+      });
+      toast({
+        title: "Notifications already enabled",
+        description: "A test notification was sent.",
+        status: "success",
+        duration: 2500,
+      });
+      return;
+    }
+
+    if (notificationPermission === "denied") {
+      toast({
+        title: "Notifications blocked",
+        description: "Please allow notifications from your browser site settings for this page.",
+        status: "warning",
+        duration: 4000,
+      });
+      return;
+    }
+
+    if (notificationPermission === "default") {
+      toast({
+        title: "Browser permission prompt",
+        description: "Please allow notifications in the browser prompt if it appears.",
+        status: "info",
+        duration: 2500,
+      });
+    }
+
+    const permission = await NotificationsHelper.requestPermission();
+    setNotificationPermission(permission);
+
+    if (permission === "granted") {
+      NotificationsHelper.showNotification("Notifications enabled", {
+        body: "You will now receive browser alerts from Labbit while this tab is active.",
+      });
+      toast({
+        title: "Notifications enabled",
+        status: "success",
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (permission === "denied") {
+      toast({
+        title: "Notifications blocked",
+        description: "Allow notifications in your browser site settings to turn them on.",
+        status: "warning",
+        duration: 4000,
+      });
+      return;
+    }
+
+    toast({
+      title: "Notifications not enabled",
+      description: "Use the browser prompt or site settings to allow notifications.",
+      status: "info",
+      duration: 3000,
+    });
+  };
 
   const handleLogout = async () => {
     try {
@@ -93,7 +209,7 @@ export default function ShortcutBar({
         break;
       case "executive":
         if (["admin", "manager", "director"].includes((user.executiveType || "").toLowerCase())) {
-          router.push("/admin");
+          router.push((user.executiveType || "").toLowerCase() === "director" ? "/cto" : "/admin");
         } else if ((user.executiveType || "").toLowerCase() === "phlebo") {
           router.push("/phlebo");
         } else {
@@ -107,16 +223,71 @@ export default function ShortcutBar({
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
   const roleMarker = getRoleMarker(user);
+  const notificationLabel =
+    notificationPermission === "granted"
+      ? "Notifications On"
+      : notificationPermission === "denied"
+      ? "Notifications Blocked"
+      : notificationPermission === "unsupported"
+      ? "Notifications Unsupported"
+      : "Enable Notifications";
+  const notificationIcon = notificationPermission === "granted" ? <FiBell /> : <FiBellOff />;
+  const notificationButtonProps =
+    notificationPermission === "granted"
+      ? {
+          colorScheme: "green",
+          variant: themeMode === "dark" ? "solid" : "outline",
+          color: themeMode === "dark" ? "gray.900" : "green.700",
+          bg: themeMode === "dark" ? "green.300" : undefined,
+        }
+      : notificationPermission === "denied"
+      ? {
+          colorScheme: "red",
+          variant: "outline",
+          color: themeMode === "dark" ? "red.200" : "red.600",
+          borderColor: themeMode === "dark" ? "red.300" : "red.200",
+        }
+      : notificationPermission === "unsupported"
+      ? {
+          colorScheme: "gray",
+          variant: "ghost",
+          color: themeMode === "dark" ? "whiteAlpha.500" : "gray.400",
+        }
+      : {
+          colorScheme: "yellow",
+          variant: "outline",
+          color: themeMode === "dark" ? "yellow.200" : "yellow.700",
+          borderColor: themeMode === "dark" ? "yellow.300" : "yellow.300",
+        };
+  const notificationDotColor =
+    notificationPermission === "granted"
+      ? "green.400"
+      : notificationPermission === "denied"
+      ? "red.400"
+      : notificationPermission === "unsupported"
+      ? "gray.400"
+      : "yellow.400";
+  const notificationSrLabel =
+    notificationPermission === "granted"
+      ? "Notifications enabled"
+      : notificationPermission === "denied"
+      ? "Notifications blocked"
+      : notificationPermission === "unsupported"
+      ? "Notifications unsupported"
+      : "Notifications not enabled";
 
   return (
     <Box
+      className={themeMode === "dark" ? "dashboard-theme-shortcutbar" : ""}
       position="fixed"
       top={0}
       left={0}
       right={0}
-      bg="rgba(255,255,255,0.85)"
+      bg={themeMode === "dark" ? "#0f172a" : "rgba(255,255,255,0.85)"}
       backdropFilter="blur(12px)"
-      boxShadow="sm"
+      boxShadow={themeMode === "dark" ? "0 10px 30px rgba(2,6,23,0.42)" : "sm"}
+      borderBottomWidth="1px"
+      borderBottomColor={themeMode === "dark" ? "whiteAlpha.200" : "gray.200"}
       zIndex={1000}
     >
       <AppNotifications />
@@ -181,7 +352,7 @@ export default function ShortcutBar({
             <Text
               fontWeight="bold"
               fontSize={{ base: "sm", md: "md" }}
-              color="teal.700"
+              color={themeMode === "dark" ? "whiteAlpha.900" : "teal.700"}
               isTruncated
               maxW={{ base: "90px", sm: "150px" }}
             >
@@ -198,9 +369,48 @@ export default function ShortcutBar({
               onClick={handleHomeDashboard}
               variant="ghost"
               size={{ base: "sm", sm: "md" }}
+              color={themeMode === "dark" ? "whiteAlpha.900" : undefined}
+              _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : undefined}
               aria-label="Go to dashboard home"
             />
           </Tooltip>
+          <Tooltip label={notificationLabel}>
+            <Box position="relative">
+              <IconButton
+                icon={notificationIcon}
+                onClick={notificationPermission === "unsupported" ? undefined : enableNotifications}
+                size={{ base: "sm", sm: "md" }}
+                _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : { bg: "gray.100" }}
+                aria-label={notificationLabel}
+                isDisabled={notificationPermission === "unsupported"}
+                {...notificationButtonProps}
+              />
+              <Circle
+                size="10px"
+                bg={notificationDotColor}
+                position="absolute"
+                top="1px"
+                right="1px"
+                borderWidth="2px"
+                borderColor={themeMode === "dark" ? "#0f172a" : "white"}
+                pointerEvents="none"
+              />
+              <Box srOnly>{notificationSrLabel}</Box>
+            </Box>
+          </Tooltip>
+          {typeof onToggleTheme === "function" && (
+            <Tooltip label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+              <IconButton
+                icon={themeMode === "dark" ? <SunIcon /> : <MoonIcon />}
+                onClick={onToggleTheme}
+                variant="ghost"
+                size={{ base: "sm", sm: "md" }}
+                color={themeMode === "dark" ? "whiteAlpha.900" : "gray.700"}
+                _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : { bg: "gray.100" }}
+                aria-label="Toggle theme"
+              />
+            </Tooltip>
+          )}
           {!!user && (
             <Tooltip label={`Logged in as ${roleMarker.label}`}>
               <Badge
@@ -208,9 +418,9 @@ export default function ShortcutBar({
                 variant="subtle"
                 px={{ base: 2, sm: 3 }}
                 borderRadius="md"
-                fontSize="xs"
+                fontSize="0.68rem"
                 fontWeight="bold"
-                maxW="60px"
+                maxW="72px"
                 isTruncated = {false}
               >
                 {roleMarker.label}
@@ -223,6 +433,8 @@ export default function ShortcutBar({
               onClick={handleLogout}
               variant="ghost"
               size={{ base: "sm", sm: "md" }}
+              color={themeMode === "dark" ? "whiteAlpha.900" : undefined}
+              _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : undefined}
               aria-label="Logout"
             />
           </Tooltip>
@@ -235,7 +447,7 @@ export default function ShortcutBar({
           px={2}
           py={1}
           borderTop="1px solid"
-          borderColor="gray.200"
+          borderColor={themeMode === "dark" ? "whiteAlpha.200" : "gray.200"}
           display="flex"
           justifyContent="center"
           userSelect="none"

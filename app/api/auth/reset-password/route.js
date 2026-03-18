@@ -24,9 +24,10 @@ export async function POST(req) {
 
     // Normalize phone if identifier looks like phone number
     const rawIdentifier = String(identifier || "").trim();
-    const isPhone = /^\d{10}$/.test(rawIdentifier);
+    const identifierDigits = rawIdentifier.replace(/\D/g, "");
+    const isPhone = identifierDigits.length >= 10;
     const normalizedIdentifier = isPhone
-      ? rawIdentifier.replace(/\D/g, "")
+      ? identifierDigits.slice(-10)
       : rawIdentifier.toLowerCase();
 
     // Lookup executive by phone or email

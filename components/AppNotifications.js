@@ -18,6 +18,9 @@ function notifyDiff(roleKey, prev, next) {
   const delta = (key) => (next[key] || 0) - (prev[key] || 0);
 
   if (["admin", "manager", "director"].includes(roleKey)) {
+    if (delta("admin_visit_attention") > 0) {
+      showNotification("Visit Attention Needed", `${delta("admin_visit_attention")} visit(s) now need admin attention.`);
+    }
     if (delta("pickups_samples_ready_urgent") > 0) {
       showNotification("URGENT Pickup Lot", `${delta("pickups_samples_ready_urgent")} urgent pickup lot(s) added.`);
     }

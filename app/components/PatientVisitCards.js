@@ -11,6 +11,7 @@ export default function PatientVisitCards({
   openVisitModal,
   loading = false,
   error = null,
+  themeMode = "light",
 }) {
   if (loading) return <Spinner size="lg" my={6} />;
 
@@ -58,17 +59,17 @@ export default function PatientVisitCards({
   const renderVisitDetails = (visit) => (
     <VStack align="start" spacing={1} mt={1}>
       {visit.address && (
-        <Text fontSize="sm" color="gray.600" noOfLines={1} title={visit.address}>
+        <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.760" : "gray.600"} noOfLines={1} title={visit.address}>
           📍 {visit.address}
         </Text>
       )}
       {visit.executive && visit.executive.name && (
-        <Text fontSize="sm" color="gray.600" noOfLines={1} title={visit.executive.name}>
+        <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.760" : "gray.600"} noOfLines={1} title={visit.executive.name}>
           🧑‍⚕️ HV: {visit.executive.name}
         </Text>
       )}
       {!visit.executive?.name && visit.executive_id && (
-        <Text fontSize="sm" color="gray.400" noOfLines={1} title={visit.executive_id}>
+        <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.600" : "gray.400"} noOfLines={1} title={visit.executive_id}>
           🧑‍⚕️ HV ID: {visit.executive_id.slice(0, 8)}...
         </Text>
       )}
@@ -84,6 +85,7 @@ export default function PatientVisitCards({
             isSelected={selectedVisitId === visit.id}
             onSelect={() => onSelectVisit(visit.id)}
             openVisitModal={() => openVisitModal(visit)}
+            themeMode={themeMode}
           />
           {renderVisitDetails(visit)}
         </Box>
@@ -96,6 +98,7 @@ export default function PatientVisitCards({
             isSelected={selectedVisitId === lastPastVisit.id}
             onSelect={() => onSelectVisit(lastPastVisit.id)}
             openVisitModal={() => openVisitModal(lastPastVisit)}
+            themeMode={themeMode}
           />
           {renderVisitDetails(lastPastVisit)}
         </Box>

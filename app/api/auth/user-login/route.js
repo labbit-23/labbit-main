@@ -18,9 +18,10 @@ export async function POST(req) {
     }
 
     const rawIdentifier = String(identifier || "").trim();
-    const isPhone = /^\d{10}$/.test(rawIdentifier);
+    const identifierDigits = rawIdentifier.replace(/\D/g, "");
+    const isPhone = identifierDigits.length >= 10;
     const normalizedIdentifier = isPhone
-      ? rawIdentifier.replace(/\D/g, "")
+      ? identifierDigits.slice(-10)
       : rawIdentifier.toLowerCase();
 
     // Lookup executive by phone or email
@@ -116,7 +117,9 @@ export async function POST(req) {
 
     let redirectUrl = '/'; // fallback
 
-    if (adminTypes.includes(execType)) {
+    if (execType === 'director') {
+      redirectUrl = '/cto';
+    } else if (adminTypes.includes(execType)) {
       redirectUrl = '/admin';
     } else if (execType === 'phlebo') {
       redirectUrl = '/phlebo';

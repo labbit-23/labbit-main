@@ -100,6 +100,7 @@ export default function LoginPage() {
   // Employee forgot password & reset flow
   const [employeeOtpSent, setEmployeeOtpSent] = useState(false);
   const [employeeOtp, setEmployeeOtp] = useState('');
+  const [employeeOtpPhone, setEmployeeOtpPhone] = useState('');
   const [employeeOtpVerifying, setEmployeeOtpVerifying] = useState(false);
   const [employeeNewPassword, setEmployeeNewPassword] = useState('');
   const [employeeResetStep, setEmployeeResetStep] = useState('otp'); // 'otp' | 'reset'
@@ -135,6 +136,11 @@ export default function LoginPage() {
             return;
           }
           if (user.userType === 'executive') {
+            if (execType === 'director') {
+              await refreshUser();
+              router.replace('/cto');
+              return;
+            }
             if (adminRoles.includes(execType)) {
               await refreshUser(); // from useUser()
               router.replace('/admin');
@@ -347,9 +353,11 @@ export default function LoginPage() {
     setEmployeeOtpVerifying(true);
 
     try {
-      let phoneToVerify = employeeIdentifier;
-      if (/^\d{10}$/.test(employeeIdentifier)) {
-        phoneToVerify = normalizePhone(employeeIdentifier);
+      let phoneToVerify = employeeOtpPhone;
+      if (!phoneToVerify) {
+        phoneToVerify = /^\d{10}$/.test(employeeIdentifier)
+          ? normalizePhone(employeeIdentifier)
+          : employeeIdentifier;
       }
 
       const res = await fetch('/api/verify-otp', {
@@ -409,6 +417,7 @@ export default function LoginPage() {
 
       setEmployeeOtpSent(false);
       setEmployeeOtp('');
+      setEmployeeOtpPhone('');
       setEmployeeNewPassword('');
       setEmployeeResetStep('otp');
     } catch (err) {
@@ -438,38 +447,13 @@ export default function LoginPage() {
         phoneToSend = normalizePhone(employeeIdentifier);
       }
 
-      let labIdToSend = (employeeLabIds.length > 0 && employeeLabIds[0]) || selectedLabId || '';
-
-      if (!labIdToSend) {
-        const resLookup = await fetch('/api/auth/user-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            identifier: employeeIdentifier,
-            password: 'dummy_password',
-            rememberMe: false,
-          }),
-        });
-        const lookupData = await resLookup.json();
-
-        if (!resLookup.ok && lookupData?.error) {
-          throw new Error(lookupData.error);
-        }
-
-        if (lookupData.labIds && Array.isArray(lookupData.labIds) && lookupData.labIds.length > 0) {
-          labIdToSend = lookupData.labIds[0];
-          setEmployeeLabIds(lookupData.labIds);
-        }
-      }
-
-      if (!labIdToSend) {
-        throw new Error('No lab ID found associated with this account.');
-      }
-
       const res = await fetch('/api/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneToSend, labId: labIdToSend }),
+        body: JSON.stringify({
+          phone: phoneToSend,
+          labId: (employeeLabIds.length > 0 && employeeLabIds[0]) || selectedLabId || ''
+        }),
       });
       const data = await res.json();
 
@@ -484,6 +468,10 @@ export default function LoginPage() {
       });
 
       setEmployeeOtpSent(true);
+      setEmployeeOtpPhone(data.resolvedPhone || '');
+      if (data.resolvedLabId) {
+        setEmployeeLabIds((prev) => (prev.includes(data.resolvedLabId) ? prev : [data.resolvedLabId, ...prev]));
+      }
       setEmployeeResetStep('otp');
     } catch (error) {
       toast({
