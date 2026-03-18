@@ -4,6 +4,7 @@ import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 import { phoneVariantsIndia } from "@/lib/phone";
 import {
+  sendTextMessage,
   sendMainMenu,
   sendReportInputPrompt,
   sendBookingDateMenu
@@ -90,6 +91,18 @@ export async function POST(request) {
       })
       .eq("id", chatSession.id);
 
+    if (notes) {
+      await sendTextMessage({
+        labId: chatSession.lab_id,
+        phone: chatSession.phone,
+        text: notes,
+        sender: {
+          id: user.id,
+          name: user.name || "Agent"
+        }
+      });
+    }
+
     if (flow === "reports") {
       await sendReportInputPrompt({ labId: chatSession.lab_id, phone: chatSession.phone });
     } else if (flow === "home_visit") {
@@ -112,4 +125,3 @@ export async function POST(request) {
     return new Response("Internal server error", { status: 500 });
   }
 }
-

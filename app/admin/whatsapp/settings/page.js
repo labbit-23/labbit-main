@@ -33,6 +33,7 @@ export default function WhatsappSettingsPage() {
   const [settings, setSettings] = useState({ shortcuts: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [seedingBotFlow, setSeedingBotFlow] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -110,6 +111,27 @@ export default function WhatsappSettingsPage() {
     }
   };
 
+  const seedBotFlow = async () => {
+    setError("");
+    setNotice("");
+    setSeedingBotFlow(true);
+    try {
+      const response = await fetch("/api/admin/whatsapp/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "seed_bot_flow" })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await response.json();
+      setNotice("Default bot flow inserted");
+    } catch (err) {
+      setError(err?.message || "Failed to insert bot flow");
+    } finally {
+      setSeedingBotFlow(false);
+    }
+  };
+
   return (
     <div className="waSettingsRoot">
       <div className="waSettingsCard">
@@ -122,6 +144,9 @@ export default function WhatsappSettingsPage() {
             <a href="/admin/whatsapp" className="waBtnGhost">← Back to Inbox</a>
             <button type="button" className="waBtnGhost" onClick={fetchSettings} disabled={loading}>
               Refresh
+            </button>
+            <button type="button" className="waBtnGhost" onClick={seedBotFlow} disabled={loading || seedingBotFlow || saving}>
+              {seedingBotFlow ? "Inserting Bot Flow..." : "Insert Default Bot Flow"}
             </button>
             <button type="button" className="waBtnPrimary" onClick={save} disabled={saving || loading}>
               {saving ? "Saving..." : "Save"}
@@ -287,4 +312,3 @@ export default function WhatsappSettingsPage() {
     </div>
   );
 }
-

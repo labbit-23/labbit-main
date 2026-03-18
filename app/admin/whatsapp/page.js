@@ -202,6 +202,17 @@ function getDisplayMessageText(msg, botLabelMap) {
   const rawMessage = msg.message || "";
 
   if (msg.direction === "inbound") {
+    const inboundInteractive =
+      msg?.payload?.raw_message?.interactive ||
+      msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive ||
+      null;
+
+    const listReplyTitle = inboundInteractive?.list_reply?.title;
+    const buttonReplyTitle = inboundInteractive?.button_reply?.title;
+    if (listReplyTitle || buttonReplyTitle) {
+      return decodeMessageEntities(listReplyTitle || buttonReplyTitle);
+    }
+
     if (rawMessage === "__MEDIA__") {
       const mediaType = msg?.payload?.media?.type;
       if (mediaType === "image") return "Shared image";
@@ -426,6 +437,9 @@ export default function WhatsAppDashboard() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
+  const [isSendingReportTool, setIsSendingReportTool] = useState(false);
+  const [isSeedingBotFlow, setIsSeedingBotFlow] = useState(false);
+  const [showBotFlowMenu, setShowBotFlowMenu] = useState(false);
   const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
@@ -490,6 +504,7 @@ export default function WhatsAppDashboard() {
 
   useEffect(() => {
     setOpenInfoSessionId(null);
+    setShowBotFlowMenu(false);
   }, [selectedSession?.id]);
 
   useEffect(() => {
@@ -846,6 +861,53 @@ export default function WhatsAppDashboard() {
     }
   };
 
+  const handleSendLatestReport = async () => {
+    if (!selectedSession?.phone) {
+      setError("Select a conversation first.");
+      return;
+    }
+
+    if (!isWithin24(selectedSession)) {
+      setError("Cannot send reports after the 24-hour window has expired.");
+      return;
+    }
+
+    const confirmed = typeof window === "undefined"
+      ? true
+      : window.confirm(`Send latest report to ${selectedSession.patient_name || selectedSession.phone}?`);
+    if (!confirmed) {
+      setHint("Latest report send cancelled.");
+      return;
+    }
+
+    setError("");
+    setHint("");
+    setIsSendingReportTool(true);
+
+    try {
+      const response = await fetch("/api/admin/whatsapp/report-tools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "send_latest_report",
+          phone: selectedSession.phone
+        })
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to send latest report.");
+      }
+
+      setHint("Latest report sent to the patient.");
+      await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+    } catch (err) {
+      setError(err?.message || "Failed to send latest report.");
+    } finally {
+      setIsSendingReportTool(false);
+    }
+  };
+
   const handleSend = async (text) => {
     const content = toPlainComposerText(String(text ?? composerText ?? ""));
     if (!selectedSession || !content || isSending) return;
@@ -1024,6 +1086,72 @@ export default function WhatsAppDashboard() {
       }
     } catch {
       setNotificationPermission("denied");
+    }
+  };
+
+  const handleSeedBotFlow = async () => {
+    setError("");
+    setHint("");
+    setIsSeedingBotFlow(true);
+    try {
+      const response = await fetch("/api/admin/whatsapp/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "seed_bot_flow" })
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      setHint("Default bot flow inserted for this lab.");
+    } catch (err) {
+      setError(err?.message || "Failed to insert bot flow.");
+    } finally {
+      setIsSeedingBotFlow(false);
+    }
+  };
+
+  const handleBotFlowInsert = async (flow) => {
+    if (!selectedSession?.phone) {
+      setError("Select a conversation first.");
+      return;
+    }
+
+    setError("");
+    setHint("");
+    setIsSending(true);
+    setShowBotFlowMenu(false);
+
+    try {
+      const response = await fetch("/api/admin/whatsapp/handover-bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          phone: selectedSession.phone,
+          flow,
+          notes: toPlainComposerText(composerText)
+        })
+      });
+
+      if (!response.ok) {
+        const textResponse = await response.text();
+        throw new Error(textResponse || "Bot flow handover failed");
+      }
+
+      setHint(
+        flow === "reports"
+          ? "Reports bot flow inserted into this chat."
+          : flow === "home_visit"
+          ? "Home visit bot flow inserted into this chat."
+          : "Main menu bot flow inserted into this chat."
+      );
+      setComposerText("");
+      await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+    } catch (err) {
+      setError(err?.message || "Failed to insert bot flow into chat.");
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -1469,13 +1597,69 @@ export default function WhatsAppDashboard() {
               />
 
               <div className="wa-customComposer">
+                <div className="wa-botMenuWrap">
+                  <button
+                    type="button"
+                    className="wa-attachBtn"
+                    onClick={() => setShowBotFlowMenu((prev) => !prev)}
+                    disabled={!selectedSession || isSending || isUpdatingStatus}
+                    title="Insert bot flow into chat"
+                  >
+                    🤖
+                  </button>
+                  {showBotFlowMenu && (
+                    <div className="wa-botMenu">
+                      <button
+                        type="button"
+                        className="wa-botMenuItem"
+                        onClick={() => handleBotFlowInsert("main_menu")}
+                      >
+                        Main Menu
+                      </button>
+                      <button
+                        type="button"
+                        className="wa-botMenuItem"
+                        onClick={() => handleBotFlowInsert("reports")}
+                      >
+                        Reports Flow
+                      </button>
+                      <button
+                        type="button"
+                        className="wa-botMenuItem"
+                        onClick={() => handleBotFlowInsert("home_visit")}
+                      >
+                        Home Visit Flow
+                      </button>
+                      <button
+                        type="button"
+                        className="wa-botMenuItem is-secondary"
+                        onClick={handleSeedBotFlow}
+                        disabled={isSeedingBotFlow}
+                      >
+                        {isSeedingBotFlow ? "Inserting Default Config..." : "Seed Default Config"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="wa-botMenuWrap">
+                  <button
+                    type="button"
+                    className="wa-attachBtn"
+                    onClick={handleAttachmentChoose}
+                    disabled={!selectedSession || isSendingAttachment || isSendingReportTool}
+                    title="Upload attachment"
+                  >
+                    📎
+                  </button>
+                </div>
                 <button
                   type="button"
                   className="wa-attachBtn"
-                  onClick={handleAttachmentChoose}
-                  disabled={!selectedSession || isSendingAttachment}
+                  onClick={handleSendLatestReport}
+                  disabled={!selectedSession || isSending || isUpdatingStatus || isSendingReportTool}
+                  title="Send latest report"
                 >
-                  📎
+                  🧾
                 </button>
 
                 <textarea
@@ -2500,6 +2684,53 @@ export default function WhatsAppDashboard() {
           border-top: 1px solid #e0e7f0;
           padding: 10px;
           background: #fff;
+        }
+
+        .wa-botMenuWrap {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .wa-botMenu {
+          position: absolute;
+          bottom: 44px;
+          left: 0;
+          min-width: 180px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 8px;
+          background: #ffffff;
+          border: 1px solid #d7e1ef;
+          border-radius: 10px;
+          box-shadow: 0 12px 30px rgba(15, 47, 74, 0.18);
+          z-index: 20;
+        }
+
+        .wa-botMenu.is-wide {
+          min-width: 300px;
+          max-width: 340px;
+        }
+
+        .wa-botMenuItem {
+          height: 34px;
+          border-radius: 8px;
+          border: 1px solid #d6dfeb;
+          background: #f7fbff;
+          color: #1e3a5a;
+          font-size: 13px;
+          font-weight: 700;
+          padding: 0 10px;
+          text-align: left;
+          cursor: pointer;
+        }
+
+
+        .wa-botMenuItem.is-secondary {
+          color: #0f7f85;
+          background: #edf9f9;
+          border-color: #bde2e4;
         }
 
         .wa-customComposer textarea {

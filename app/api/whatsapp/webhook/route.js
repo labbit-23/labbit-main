@@ -239,16 +239,24 @@ function shouldResumeBotFromHandoff({ message, userInput }) {
     return true;
   }
 
-  const normalized = String(userInput || "")
-    .trim()
+  const raw = String(userInput || "").trim();
+  const normalized = raw
     .replace(/\s+/g, " ")
     .toUpperCase();
+  const normalizedGreeting = raw
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
 
-  if (["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized)) {
+  if (
+    ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized) ||
+    ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalizedGreeting)
+  ) {
     return true;
   }
 
-  return /^(hi|hii|hai|hello|hey|menu)\b/i.test(String(userInput || "").trim());
+  return /^(hi|hii|hai|hello|hey|menu)\b/i.test(raw);
 }
 
 async function isReachablePdfDocument(url) {
@@ -1109,7 +1117,7 @@ export async function POST(req) {
 
     let normalizedSessionStatus = String(session.status || "").toLowerCase();
 
-    if (["handoff", "pending"].includes(normalizedSessionStatus) &&
+    if (["handoff", "pending", "resolved", "closed"].includes(normalizedSessionStatus) &&
       shouldResumeBotFromHandoff({ message, userInput })) {
       session.status = "active";
       session.current_state = "START";
@@ -1198,14 +1206,30 @@ export async function POST(req) {
       const isPdfAvailable = await isReachablePdfDocument(result.documentUrl);
 
       if (!isPdfAvailable) {
+        let statusMessage = null;
+
+        if (result.reportStatusReqno) {
+          try {
+            const reportStatus = await getReportStatus(result.reportStatusReqno);
+            statusMessage = buildReportStatusMessage(reportStatus);
+          } catch (error) {
+            console.error("[report-status] no-pdf fallback failed", {
+              reqno: result.reportStatusReqno,
+              error: error?.message || String(error)
+            });
+          }
+        }
+
         result = {
           replyType: "INTERNAL_NOTIFY",
           notifyText: [
             "📄 Report Request",
             `Phone: ${phone}`,
-            `Input: ${result.fallbackRequestedInput || "Requested PDF not available"}`
-          ].join("\n"),
+            `Input: ${result.fallbackRequestedInput || "Requested PDF not available"}`,
+            statusMessage ? `Status: ${statusMessage.replace(/\n+/g, " | ")}` : null
+          ].filter(Boolean).join("\n"),
           replyText:
+            statusMessage ||
             botFlowConfig?.texts?.report_request_ack ||
             "Thank you. Our team will verify and send your report shortly.",
           newState: "START",
