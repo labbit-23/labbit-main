@@ -31,17 +31,22 @@ export async function POST(request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { sessionId, action } = await request.json();
+    const { sessionId, action, note } = await request.json();
 
     if (!sessionId || !action || !ACTION_TO_STATUS[action]) {
       return NextResponse.json({ error: "Invalid sessionId or action" }, { status: 400 });
+    }
+
+    const trimmedNote = String(note || "").trim();
+    if (action === "resolve" && !trimmedNote) {
+      return NextResponse.json({ error: "Closure statement is required to resolve a chat" }, { status: 400 });
     }
 
     const labIds = Array.isArray(user.labIds) ? user.labIds.filter(Boolean) : [];
 
     let validateQuery = supabase
       .from("chat_sessions")
-      .select("id, lab_id")
+      .select("id, lab_id, phone, context")
       .eq("id", sessionId)
       .limit(1)
       .maybeSingle();
@@ -62,14 +67,48 @@ export async function POST(request) {
     }
 
     const status = ACTION_TO_STATUS[action];
+    const nextContext =
+      action === "resolve"
+        ? {
+            ...(session.context && typeof session.context === "object" ? session.context : {}),
+            last_resolution_note: trimmedNote,
+            last_resolution_at: new Date().toISOString(),
+            last_resolution_by: user.name || user.id || "Unknown"
+          }
+        : session.context;
+
     const { error: updateError } = await supabase
       .from("chat_sessions")
-      .update({ status, unread_count: 0, updated_at: new Date() })
+      .update({ status, unread_count: 0, updated_at: new Date(), context: nextContext })
       .eq("id", sessionId);
 
     if (updateError) {
       console.error("[whatsapp/session-action] update error", updateError);
       return NextResponse.json({ error: "Failed to update status" }, { status: 500 });
+    }
+
+    if (action === "resolve") {
+      const { error: logError } = await supabase.from("whatsapp_messages").insert({
+        lab_id: session.lab_id,
+        phone: session.phone,
+        message: `Resolved: ${trimmedNote}`,
+        direction: "status",
+        payload: {
+          sender: {
+            id: user.id || null,
+            name: user.name || null,
+            role: getRoleKey(user) || null,
+            userType: user.userType || null
+          },
+          internal: true,
+          action: "resolve",
+          note: trimmedNote
+        }
+      });
+
+      if (logError) {
+        console.error("[whatsapp/session-action] log error", logError);
+      }
     }
 
     return NextResponse.json({ success: true, status }, { status: 200 });

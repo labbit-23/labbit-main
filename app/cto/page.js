@@ -701,11 +701,34 @@ function CtoDashboardPage() {
                             px={3}
                             py={2}
                             borderRadius="14px"
-                            bg={selectedService?.service_key === service.service_key ? "rgba(126,244,215,0.16)" : "rgba(255,255,255,0.05)"}
-                            border={selectedService?.service_key === service.service_key ? "1px solid rgba(126,244,215,0.38)" : "1px solid transparent"}
+                            bg={
+                              service.status === "down"
+                                ? "rgba(248,113,113,0.18)"
+                                : service.status === "degraded"
+                                ? "rgba(250,204,21,0.14)"
+                                : selectedService?.service_key === service.service_key
+                                ? "rgba(126,244,215,0.16)"
+                                : "rgba(255,255,255,0.05)"
+                            }
+                            border={
+                              service.status === "down"
+                                ? "1px solid rgba(248,113,113,0.45)"
+                                : service.status === "degraded"
+                                ? "1px solid rgba(250,204,21,0.35)"
+                                : selectedService?.service_key === service.service_key
+                                ? "1px solid rgba(126,244,215,0.38)"
+                                : "1px solid transparent"
+                            }
                             cursor="pointer"
                             transition="all 0.2s ease"
-                            _hover={{ bg: "rgba(255,255,255,0.08)" }}
+                            _hover={{
+                              bg:
+                                service.status === "down"
+                                  ? "rgba(248,113,113,0.24)"
+                                  : service.status === "degraded"
+                                  ? "rgba(250,204,21,0.18)"
+                                  : "rgba(255,255,255,0.08)"
+                            }}
                             onClick={() => setSelectedServiceKey(service.service_key)}
                           >
                             <Flex justify="space-between" align="center" gap={3}>

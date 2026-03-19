@@ -5,7 +5,7 @@ import {
   handoffToHuman
 } from "@/lib/whatsapp/sessions";
 import { detectIntent, processMessage } from "@/lib/whatsapp/engine";
-import { getReportStatus } from "@/lib/neosoft/client";
+import { getReportStatus, getRadiologyReport } from "@/lib/neosoft/client";
 import {
   createReportRequestClickupTask,
   createWhatsappFollowupClickupTask
@@ -408,7 +408,7 @@ function buildReportStatusMessage(reportStatus) {
     } else {
       lines.push("Radiology status: Radiology reports are not ready yet.");
     }
-    lines.push("This bot sends lab reports only. Radiology reports are usually shared by the lab separately on request.");
+    //lines.push("This bot sends lab reports only. Radiology reports are usually shared by the lab separately on request.");
   }
 
   return lines.join("\n").trim() || null;

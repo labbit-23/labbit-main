@@ -129,6 +129,11 @@ function getSessionSignals(session) {
 }
 
 function getSenderLabel(msg, currentUserId) {
+  if (msg.direction === "status") {
+    const sender = msg?.payload?.sender;
+    return sender?.name ? `Internal Note (${sender.name})` : "Internal Note";
+  }
+
   if (msg.direction !== "outbound") return "User";
 
   const sender = msg?.payload?.sender;
@@ -447,6 +452,8 @@ export default function WhatsAppDashboard() {
   const [agentPresence, setAgentPresence] = useState([]);
   const [chatSettings, setChatSettings] = useState(DEFAULT_CHAT_SETTINGS);
   const [composerText, setComposerText] = useState("");
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState("list");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -485,6 +492,37 @@ export default function WhatsAppDashboard() {
       setNotificationPermission(Notification.permission || "default");
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const media = window.matchMedia("(max-width: 900px)");
+    const syncViewport = () => {
+      const mobile = media.matches;
+      setIsMobileViewport(mobile);
+      if (!mobile) {
+        setMobilePanel("chat");
+      } else if (!selectedSession) {
+        setMobilePanel("list");
+      }
+    };
+
+    syncViewport();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", syncViewport);
+      return () => media.removeEventListener("change", syncViewport);
+    }
+
+    media.addListener(syncViewport);
+    return () => media.removeListener(syncViewport);
+  }, [selectedSession]);
+
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    if (selectedSession?.id && mobilePanel !== "chat") {
+      setMobilePanel("chat");
+    }
+  }, [isMobileViewport, mobilePanel, selectedSession?.id]);
 
   useEffect(() => {
     if (isUserLoading || !user) return;
@@ -759,6 +797,9 @@ export default function WhatsAppDashboard() {
 
   const handleSelect = async (session) => {
     setSelectedSession(session);
+    if (isMobileViewport) {
+      setMobilePanel("chat");
+    }
     setMessages([]);
     setHasOlderMessages(false);
     setOldestCursor(null);
@@ -984,8 +1025,28 @@ export default function WhatsAppDashboard() {
 
   const handleSessionAction = async (action) => {
     if (!selectedSession?.id || isUpdatingStatus) return;
+    let note = "";
+
+    if (action === "resolve") {
+      const input =
+        typeof window === "undefined"
+          ? ""
+          : window.prompt("Add a closure statement for this resolution:", "");
+
+      if (input === null) {
+        setHint("Resolve cancelled.");
+        return;
+      }
+
+      note = String(input || "").trim();
+      if (!note) {
+        setError("Please add a closure statement before resolving this chat.");
+        return;
+      }
+    }
 
     setError("");
+    setHint("");
     setIsUpdatingStatus(true);
 
     try {
@@ -995,13 +1056,18 @@ export default function WhatsAppDashboard() {
         credentials: "include",
         body: JSON.stringify({
           sessionId: selectedSession.id,
-          action
+          action,
+          note
         })
       });
 
       if (!response.ok) {
         const textResponse = await response.text();
         throw new Error(textResponse || "Failed to update chat status");
+      }
+
+      if (action === "resolve") {
+        setHint("Chat resolved and closure note saved.");
       }
 
       await Promise.all([fetchSessions(), fetchMessages(selectedSession.phone)]);
@@ -1207,7 +1273,7 @@ export default function WhatsAppDashboard() {
 
   return (
     <div className="wa-root">
-      <div className="wa-frame">
+      <div className={`wa-frame ${isMobileViewport ? `is-mobile-${mobilePanel}` : ""}`}>
         <div className="wa-sidebarHeader">
           <div className="wa-brand">
             <a href="/admin" className="wa-logoLink" title="Back to Admin Dashboard">
@@ -1239,8 +1305,8 @@ export default function WhatsAppDashboard() {
           </div>
         </div>
 
-        <div className="wa-main">
-          <div className="wa-sidebar">
+        <div className={`wa-main ${isMobileViewport ? `is-mobile-${mobilePanel}` : ""}`}>
+          <div className={`wa-sidebar ${isMobileViewport && mobilePanel !== "list" ? "is-mobile-hidden" : ""}`}>
               <div className="wa-leftPanelTools">
               <div className="wa-tabs">
                 {["active", "closed", "all"].map((value) => (
@@ -1336,11 +1402,22 @@ export default function WhatsAppDashboard() {
             </div>
           </div>
 
-          <div className="wa-chatCol">
+          <div className={`wa-chatCol ${isMobileViewport && mobilePanel !== "chat" ? "is-mobile-hidden" : ""}`}>
             <div className="wa-chatTop">
             {selectedSession && (
               <div className="wa-sessionActionBar">
                 <div className="wa-sessionActionInfo">
+                  {isMobileViewport && (
+                    <button
+                      type="button"
+                      className="wa-mobileBackBtn"
+                      aria-label="Back to chats"
+                      title="Back to chats"
+                      onClick={() => setMobilePanel("list")}
+                    >
+                      ←
+                    </button>
+                  )}
                   <span className="wa-sessionName">
                     {selectedSession.patient_name || selectedSession.phone}
                   </span>
@@ -1507,7 +1584,8 @@ export default function WhatsAppDashboard() {
                       </div>
                     )}
                     {filteredMessages.map((msg) => {
-                      const outgoing = msg.direction === "outbound";
+                      const outgoing = msg.direction === "outbound" || msg.direction === "status";
+                      const isStatusNote = msg.direction === "status";
                       const senderLabel = getSenderLabel(msg, user?.id);
                       const isBotMessage = isBotOutboundMessage(msg);
                       const media = getMessageMedia(msg);
@@ -1517,14 +1595,19 @@ export default function WhatsAppDashboard() {
                       };
 
                       return (
-                        <div key={msg.id} className={`wa-msgRow ${outgoing ? "is-out" : "is-in"}`}>
+                        <div
+                          key={msg.id}
+                          className={`wa-msgRow ${isStatusNote ? "is-status" : outgoing ? "is-out" : "is-in"}`}
+                        >
                           {!outgoing && (
                             <div className="wa-avatar wa-avatarPatient">
                               {getInitial(selectedSession?.patient_name || "P")}
                             </div>
                           )}
 
-                          <div className={`wa-msgBubble ${outgoing ? "is-out" : "is-in"} ${isBotMessage ? "is-bot" : ""}`}>
+                          <div
+                            className={`wa-msgBubble ${isStatusNote ? "is-status" : outgoing ? "is-out" : "is-in"} ${isBotMessage ? "is-bot" : ""}`}
+                          >
                             <div className="wa-msgMeta">
                               <span className="wa-msgSender">{senderLabel}</span>
                               <span className="wa-msgTime">{formatMessageTime(msg.created_at)} IST</span>
@@ -1545,7 +1628,7 @@ export default function WhatsAppDashboard() {
                             )}
                           </div>
 
-                          {outgoing && (
+                          {outgoing && !isStatusNote && (
                             <div className="wa-avatar wa-avatarLab">
                               <img src={labMeta?.logo_url || APP_LOGO} alt="Lab logo" />
                             </div>
@@ -2427,6 +2510,23 @@ export default function WhatsAppDashboard() {
           cursor: not-allowed;
         }
 
+        .wa-mobileBackBtn {
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          border: 1px solid #cfd9e6;
+          background: #f7fbff;
+          color: #294365;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          font-weight: 700;
+          cursor: pointer;
+          flex: 0 0 34px;
+        }
+
         .wa-msgRow {
           display: flex;
           align-items: flex-end;
@@ -2451,6 +2551,10 @@ export default function WhatsAppDashboard() {
 
         .wa-msgRow.is-in {
           justify-content: flex-start;
+        }
+
+        .wa-msgRow.is-status {
+          justify-content: center;
         }
 
         .wa-avatar {
@@ -2509,6 +2613,14 @@ export default function WhatsAppDashboard() {
           color: #42536b;
         }
 
+        .wa-msgBubble.is-status {
+          background: #fff8e8;
+          color: #6c4a00;
+          border: 1px solid #efd9a1;
+          border-radius: 14px;
+          max-width: min(82%, 760px);
+        }
+
         .wa-msgMeta {
           display: flex;
           align-items: center;
@@ -2524,6 +2636,10 @@ export default function WhatsAppDashboard() {
 
         .wa-msgBubble.is-out .wa-msgMeta {
           color: #5a6b83;
+        }
+
+        .wa-msgBubble.is-status .wa-msgMeta {
+          color: #8a5a00;
         }
 
         .wa-msgSender {
@@ -2684,6 +2800,7 @@ export default function WhatsAppDashboard() {
           border-top: 1px solid #e0e7f0;
           padding: 10px;
           background: #fff;
+          flex: 0 0 auto;
         }
 
         .wa-botMenuWrap {
@@ -2901,19 +3018,100 @@ export default function WhatsAppDashboard() {
 
         @media (max-width: 900px) {
           .wa-frame {
-            height: 100vh;
+            height: 100dvh;
+            min-height: 100dvh;
             border-radius: 0;
             border-left: 0;
             border-right: 0;
+            box-shadow: none;
+            background: #efeae2;
+          }
+
+          .wa-root {
+            padding: 0;
+            background: #efeae2;
+          }
+
+          .wa-frame.is-mobile-chat .wa-sidebarHeader {
+            display: none;
           }
 
           .wa-sidebarHeader {
             flex-wrap: wrap;
+            gap: 10px;
+            padding: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+          }
+
+          .wa-brand {
+            width: 100%;
+            min-width: 0;
+            align-items: flex-start;
+          }
+
+          .wa-logo {
+            width: 32px;
+            height: 32px;
+          }
+
+          .wa-sidebarHeader h1 {
+            font-size: 18px;
+            flex-wrap: wrap;
+            row-gap: 4px;
+          }
+
+          .wa-sidebarHeader p,
+          .wa-ownNumber {
+            font-size: 12px;
           }
 
           .wa-headerActions {
             width: 100%;
-            justify-content: flex-end;
+            justify-content: flex-start;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 2px;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .wa-headerActions a,
+          .wa-headerActions button {
+            flex: 0 0 auto;
+          }
+
+          .wa-main {
+            display: block;
+            background: #efeae2;
+          }
+
+          .wa-main.is-mobile-list .wa-chatCol,
+          .wa-main.is-mobile-chat .wa-sidebar {
+            display: none;
+          }
+
+          .wa-main.is-mobile-list .wa-sidebar,
+          .wa-main.is-mobile-chat .wa-chatCol {
+            display: flex;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            border-right: 0;
+          }
+
+          .wa-sidebar {
+            width: 100%;
+            background: #f7f8fa;
+          }
+
+          .wa-leftPanelTools {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            background: #f7f8fa;
+            padding: 12px 12px 10px;
+            box-shadow: 0 1px 0 rgba(224, 231, 240, 0.9);
           }
 
           .wa-stateLegend {
@@ -2939,6 +3137,22 @@ export default function WhatsAppDashboard() {
             width: 100% !important;
             max-width: 100% !important;
             min-width: 0;
+            min-height: 0;
+            height: 100dvh;
+            max-height: 100dvh;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(255,255,255,0.55), transparent 32%),
+              #e8ddd0;
+          }
+
+          .wa-chatTop {
+            position: sticky;
+            top: 0;
+            z-index: 4;
+            background: #0f7f85;
+            border-bottom: 0;
+            box-shadow: 0 6px 18px rgba(15, 47, 74, 0.18);
           }
 
           .cs-sidebar,
@@ -2954,10 +3168,204 @@ export default function WhatsAppDashboard() {
             min-height: 0;
           }
 
+          .wa-messageList {
+            padding: 10px 10px 16px;
+            background: transparent;
+          }
+
           .wa-messageFilterBar {
             overflow-x: auto;
             white-space: nowrap;
             -webkit-overflow-scrolling: touch;
+          }
+
+          .wa-sessionActionBar {
+            gap: 10px;
+            padding: 10px 12px 8px;
+            background: transparent;
+            border-bottom: 0;
+          }
+
+          .wa-sessionActionInfo,
+          .wa-actionBtns {
+            width: 100%;
+          }
+
+          .wa-sessionActionInfo {
+            color: #ffffff;
+          }
+
+          .wa-sessionName {
+            color: #ffffff;
+            font-size: 15px;
+          }
+
+          .wa-mobileBackBtn {
+            border-color: rgba(255, 255, 255, 0.28);
+            background: rgba(255, 255, 255, 0.14);
+            color: #ffffff;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+          }
+
+          .wa-status.is-live,
+          .wa-status.is-expired,
+          .wa-status.is-patient,
+          .wa-status.is-lead,
+          .wa-status.is-pending,
+          .wa-status.is-resolved,
+          .wa-status.is-closed {
+            background: rgba(255, 255, 255, 0.18);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+          }
+
+          .wa-actionBtns,
+          .wa-messageFilterBar {
+            overflow-x: auto;
+            white-space: nowrap;
+            flex-wrap: nowrap;
+            padding-bottom: 2px;
+          }
+
+          .wa-messageFilterBar button,
+          .wa-actionBtns button {
+            border-color: rgba(255, 255, 255, 0.18);
+          }
+
+          .wa-messageFilterBar button {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+          }
+
+          .wa-messageFilterBar button.is-active {
+            background: #ffffff;
+            border-color: #ffffff;
+            color: #0f7f85;
+          }
+
+          .wa-actionBtns button,
+          .wa-messageFilterBar button {
+            flex: 0 0 auto;
+          }
+
+          .wa-actionBtns button {
+            background: rgba(255, 255, 255, 0.14);
+            color: #ffffff;
+          }
+
+          .wa-actionBtns button.is-active {
+            background: #ffffff;
+            color: #0f7f85;
+            border-color: #ffffff;
+          }
+
+          .wa-actionBtns button.danger,
+          .wa-actionBtns button.danger.is-active {
+            background: #fff5f5;
+            color: #9b2c2c;
+            border-color: #ffd0d0;
+          }
+
+          .wa-msgBubble {
+            max-width: calc(100vw - 88px);
+          }
+
+          .wa-conversation {
+            padding: 13px 14px;
+            margin: 6px 8px;
+            border: 1px solid #e7ebf0;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow: 0 8px 24px rgba(15, 28, 45, 0.05);
+          }
+
+          .wa-conversationInfoText {
+            font-size: 12px;
+            color: #607087;
+          }
+
+          .wa-conversation.is-active {
+            background: #dff1ea;
+            color: #143428;
+            border-color: #9fd2c0;
+          }
+
+          .wa-conversation.is-active .wa-conversationInfoText,
+          .wa-conversation.is-active .wa-conversationNameText.is-patient,
+          .wa-conversation.is-active .wa-conversationNameText.is-lead {
+            color: inherit;
+          }
+
+          .wa-unread {
+            box-shadow: none;
+          }
+
+          .wa-msgRow {
+            gap: 6px;
+            margin: 10px 0;
+          }
+
+          .wa-avatar {
+            width: 24px;
+            height: 24px;
+            flex-basis: 24px;
+            font-size: 11px;
+          }
+
+          .wa-msgBubble.is-in {
+            background: #ffffff;
+            color: #1c2a3d;
+            border: 1px solid rgba(15, 47, 74, 0.08);
+            border-bottom-left-radius: 4px;
+          }
+
+          .wa-msgBubble.is-in .wa-msgMeta {
+            color: #5a6b83;
+          }
+
+          .wa-msgBubble.is-out {
+            background: #dcf8c6;
+            border-color: #bfe6a7;
+          }
+
+          .wa-msgBubble.is-out.is-bot {
+            background: #f4f7fb;
+            border-color: #d7e0ea;
+          }
+
+          .wa-msgBubble.is-status {
+            background: #fff4cf;
+            border-color: #e8cc78;
+            color: #6b4b05;
+          }
+
+          .wa-customComposer {
+            position: sticky;
+            bottom: 0;
+            z-index: 4;
+            background: rgba(248, 249, 251, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+            box-shadow: 0 -8px 20px rgba(15, 28, 45, 0.08);
+            margin-top: auto;
+          }
+
+          .wa-customComposer textarea {
+            min-height: 42px;
+            height: 42px;
+            border-radius: 999px;
+            background: #ffffff;
+          }
+
+          .wa-composerQuickActions {
+            padding: 6px 12px 0;
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .wa-composerQuickActions > * {
+            flex: 0 0 auto;
           }
         }
       `}</style>

@@ -50,6 +50,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [futureUnassignedSummary, setFutureUnassignedSummary] = useState({ count: 0, byDate: {} });
   const [statusOptions, setStatusOptions] = useState([]);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
   const [themeMode, setThemeMode] = useState("light");
@@ -105,8 +106,66 @@ const exportVisitsImage = async () => {
     );
   }, [executives]);
 
-  const fetchAll = useCallback(async () => {
+  const fetchVisitsData = useCallback(async () => {
     setLoading(true);
+    setErrorMsg("");
+    try {
+      const todayKey = dayjs().format("YYYY-MM-DD");
+      const [
+        { data: visitsData, error: visitsError },
+        { data: futureVisitsData, error: futureVisitsError },
+      ] = await Promise.all([
+        supabase
+          .from("visits")
+          .select(`
+            *,
+            patient:patient_id(id, name, phone),
+            executive:executive_id(id, name, email, lab_id),
+            lab:lab_id(id, name),
+            time_slot:time_slot(id, slot_name, start_time, end_time)
+          `)
+          .eq("visit_date", selectedDate)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("visits")
+          .select("visit_date, executive_id, status")
+          .gte("visit_date", todayKey),
+      ]);
+
+      if (visitsError) throw visitsError;
+      if (futureVisitsError) throw futureVisitsError;
+
+      setVisits(visitsData || []);
+      const unassignedFutureVisits = (futureVisitsData || []).filter(
+        (visit) => !visit.executive_id && String(visit.status || "").toLowerCase() !== "disabled"
+      );
+      const byDate = unassignedFutureVisits.reduce((acc, visit) => {
+        const dateKey = String(visit.visit_date || "").slice(0, 10);
+        if (!dateKey) return acc;
+        acc[dateKey] = (acc[dateKey] || 0) + 1;
+        return acc;
+      }, {});
+      setFutureUnassignedSummary({
+        count: unassignedFutureVisits.length,
+        byDate
+      });
+    } catch (error) {
+      setErrorMsg("Failed to load data. Please try again.");
+      toast({
+        title: "Error Loading Visits",
+        description: error.message || "Unknown error",
+        status: "error"
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedDate, toast]);
+
+  useEffect(() => {
+    fetchVisitsData();
+  }, [fetchVisitsData]);
+
+  const fetchBaseData = useCallback(async () => {
     setErrorMsg("");
     try {
       const apiExecutivesFetch = fetch("/api/executives").then((res) => {
@@ -119,7 +178,6 @@ const exportVisitsImage = async () => {
       });
 
       const [
-        { data: visitsData, error: visitsError },
         executivesData,
         { data: labsData, error: labsError },
         { data: timeSlotsData, error: timeSlotsError },
@@ -127,16 +185,6 @@ const exportVisitsImage = async () => {
         { data: statusOptionsData, error: statusOptionsError },
         whatsappSessionsBody
       ] = await Promise.all([
-        supabase
-          .from("visits")
-          .select(`
-            *,
-            patient:patient_id(id, name, phone),
-            executive:executive_id(id, name, email, lab_id),
-            lab:lab_id(id, name),
-            time_slot:time_slot(id, slot_name, start_time, end_time)
-          `)
-          .order("created_at", { ascending: false }),
         apiExecutivesFetch,
         supabase.from("labs").select("id, name").order("name"),
         supabase
@@ -157,13 +205,12 @@ const exportVisitsImage = async () => {
         whatsappSessionsFetch
       ]);
 
-      if (visitsError) throw visitsError;
       if (!executivesData) throw new Error("Failed to load executives");
       if (labsError) throw labsError;
       if (timeSlotsError) throw timeSlotsError;
       if (quickbookError) throw quickbookError;
       if (statusOptionsError) throw statusOptionsError;
-      setVisits(visitsData || []);
+
       setExecutives(executivesData || []);
       setLabs(labsData || []);
       setTimeSlots(timeSlotsData || []);
@@ -180,14 +227,16 @@ const exportVisitsImage = async () => {
         description: error.message || "Unknown error",
         status: "error"
       });
-    } finally {
-      setLoading(false);
     }
   }, [toast]);
 
+  const fetchAll = useCallback(async () => {
+    await Promise.all([fetchBaseData(), fetchVisitsData()]);
+  }, [fetchBaseData, fetchVisitsData]);
+
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    fetchBaseData();
+  }, [fetchBaseData]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -325,19 +374,8 @@ const exportVisitsImage = async () => {
     }
   }
 
-  const today = dayjs().format("YYYY-MM-DD");
-  const upcomingVisits = visits.filter(
-    (v) => v.visit_date && v.visit_date.slice(0, 10) >= today
-  );
-  const unassignedFutureVisits = upcomingVisits.filter(
-    (v) => !v.executive_id && v.status !== "disabled"
-  );
-  const unassignedVisitCount = unassignedFutureVisits.length;
-  const unassignedByDate = unassignedFutureVisits.reduce((acc, visit) => {
-    const dateKey = visit.visit_date.slice(0, 10);
-    acc[dateKey] = (acc[dateKey] || 0) + 1;
-    return acc;
-  }, {});
+  const unassignedVisitCount = futureUnassignedSummary.count;
+  const unassignedByDate = futureUnassignedSummary.byDate;
   const pendingQuickbookCount = quickbookings.filter(qb => qb.status?.toLowerCase() === "pending").length;
   const darkActionButtonProps = themeMode === "dark"
     ? {
@@ -352,14 +390,18 @@ const exportVisitsImage = async () => {
       await collectionRefreshHandler();
       return;
     }
+    if (tabIndex === 0) {
+      await fetchVisitsData();
+      return;
+    }
+    if (tabIndex === 2) {
+      await fetchBaseData();
+      return;
+    }
     await fetchAll();
-  }, [tabIndex, collectionRefreshHandler, fetchAll]);
+  }, [tabIndex, collectionRefreshHandler, fetchAll, fetchBaseData, fetchVisitsData]);
 
-  const todaysVisits = visits.filter(
-    (v) => v.visit_date?.slice(0, 10) === selectedDate
-  );
-
-  const sortedTodaysVisits = [...todaysVisits].sort((a, b) => {
+  const sortedTodaysVisits = [...visits].sort((a, b) => {
     if (a.status === "disabled" && b.status !== "disabled") return 1;
     if (a.status !== "disabled" && b.status === "disabled") return -1;
     return 0;
