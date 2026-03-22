@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
+import { phoneVariantsIndia } from "@/lib/phone";
 
 const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
 const ACTION_TO_STATUS = {
@@ -46,7 +47,7 @@ export async function POST(request) {
 
     let validateQuery = supabase
       .from("chat_sessions")
-      .select("id, lab_id, phone, context")
+      .select("id, lab_id, phone, patient_id, context")
       .eq("id", sessionId)
       .limit(1)
       .maybeSingle();
@@ -77,10 +78,18 @@ export async function POST(request) {
           }
         : session.context;
 
-    const { error: updateError } = await supabase
+    let updateQuery = supabase
       .from("chat_sessions")
       .update({ status, unread_count: 0, updated_at: new Date(), context: nextContext })
-      .eq("id", sessionId);
+      .eq("lab_id", session.lab_id);
+
+    if (session.patient_id) {
+      updateQuery = updateQuery.eq("patient_id", session.patient_id);
+    } else {
+      updateQuery = updateQuery.in("phone", phoneVariantsIndia(session.phone));
+    }
+
+    const { error: updateError } = await updateQuery;
 
     if (updateError) {
       console.error("[whatsapp/session-action] update error", updateError);

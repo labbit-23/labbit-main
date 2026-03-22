@@ -2,6 +2,8 @@
 
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseServer'; // Adjust as per your project
+import { getIronSession } from 'iron-session';
+import { ironOptions } from '@/lib/session';
 
 // Helper function to get max address_index for a patient (or -1 if none)
 async function getMaxAddressIndex(patientId) {
@@ -24,6 +26,9 @@ async function getMaxAddressIndex(patientId) {
 
 export async function POST(request) {
   try {
+    const response = NextResponse.next();
+    const session = await getIronSession(request, response, ironOptions);
+    const user = session?.user || null;
     const body = await request.json();
 
     const {
@@ -35,6 +40,8 @@ export async function POST(request) {
       gender,
       email,
       cregno,     // External key
+      external_key,
+      lab_id,
       addresses = [], // Array of addresses from frontend including label, lat, lng, etc.
     } = body;
 
@@ -156,16 +163,21 @@ export async function POST(request) {
     }
 
     // Save CREGNO (external key) if provided
-    if (cregno) {
+    const sessionLabId =
+      Array.isArray(user?.labIds) && user.labIds.length > 0
+        ? user.labIds.find(Boolean) || null
+        : user?.labId || null;
+    const resolvedLabId = String(lab_id || sessionLabId || "").trim() || undefined;
+    const resolvedExternalKey = String(external_key || cregno || "").trim();
+    if (resolvedExternalKey) {
       try {
-        const DEFAULT_LAB_ID = "b539c161-1e2b-480b-9526-d4b37bd37b1e";
         const savePatientExternalKey = require('../../../lib/savePatientExternalKey').default;
-        const success = await savePatientExternalKey(patient.id, DEFAULT_LAB_ID, cregno);
+        const success = await savePatientExternalKey(patient.id, resolvedLabId, resolvedExternalKey);
         if (!success) {
-          console.warn(`Failed to save CREGNO ${cregno} for patient ${patient.id}`);
+          console.warn(`Failed to save external key ${resolvedExternalKey} for patient ${patient.id}`);
         }
       } catch (keyError) {
-        console.error('Error saving CREGNO:', keyError);
+        console.error('Error saving external key:', keyError);
       }
     }
 

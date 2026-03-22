@@ -62,8 +62,137 @@ function pickLatestProfileName(messageRows = []) {
 
 function normalizedUnread(row) {
   const status = String(row?.status || "").toLowerCase();
-  const isAgentQueue = status === "pending" || status === "handoff";
+  const isAgentQueue = status === "pending" || status === "handoff" || status === "human_handover";
   return isAgentQueue ? Number(row?.unread_count || 0) : 0;
+}
+
+function buildLiteSessions(rows = []) {
+  const groupedByPhone = new Map();
+
+  for (const row of rows) {
+    const key = toCanonicalIndiaPhone(row.phone) || digitsOnly(row.phone) || row.phone;
+    const existing = groupedByPhone.get(key);
+
+    if (!existing) {
+      groupedByPhone.set(key, row);
+      continue;
+    }
+
+    const rowTime = new Date(row.last_message_at || row.created_at || 0).getTime();
+    const existingTime = new Date(existing.last_message_at || existing.created_at || 0).getTime();
+    if (rowTime > existingTime) {
+      groupedByPhone.set(key, row);
+    }
+  }
+
+  return [...groupedByPhone.values()]
+    .map((row) => ({
+      ...row,
+      patient_name: row.patient_name || row.phone || "Unknown",
+      contact_type: row.patient_id ? "patient" : "lead",
+      unread_count: normalizedUnread(row),
+      matched_patient_count: 0,
+      matched_patients: []
+    }))
+    .sort(
+      (a, b) =>
+        new Date(b.last_message_at || b.created_at || 0).getTime() -
+        new Date(a.last_message_at || a.created_at || 0).getTime()
+    );
+}
+
+async function enrichLiteSessions(rows = []) {
+  const patientIds = Array.from(new Set(rows.map((row) => row?.patient_id).filter(Boolean)));
+  const phoneKeys = Array.from(new Set(rows.flatMap((row) => phoneCandidates(row?.phone))));
+
+  let patientRecords = [];
+  if (phoneKeys.length > 0) {
+    const { data: byPhonePatients } = await supabase
+      .from("patients")
+      .select("id, name, phone, is_lead, created_at")
+      .in("phone", phoneKeys)
+      .limit(1000);
+    patientRecords = [...patientRecords, ...(byPhonePatients || [])];
+  }
+
+  if (patientIds.length > 0) {
+    const { data: byIdPatients } = await supabase
+      .from("patients")
+      .select("id, name, phone, is_lead, created_at")
+      .in("id", patientIds)
+      .limit(1000);
+    patientRecords = [...patientRecords, ...(byIdPatients || [])];
+  }
+
+  const patientById = new Map();
+  const patientByPhone = new Map();
+
+  for (const patient of patientRecords) {
+    if (patient?.id) patientById.set(patient.id, patient);
+    for (const candidate of phoneCandidates(patient?.phone)) {
+      const list = patientByPhone.get(candidate) || [];
+      list.push(patient);
+      patientByPhone.set(candidate, list);
+    }
+  }
+
+  return rows.map((row) => {
+    const linkedById = row.patient_id ? patientById.get(row.patient_id) : null;
+    const linkedByPhoneList = phoneCandidates(row.phone)
+      .flatMap((candidate) => patientByPhone.get(candidate) || []);
+    const linkedPatient = pickBestPatient({ byPhone: linkedByPhoneList, byId: linkedById });
+    const matchedPatients = uniquePatients(linkedByPhoneList).sort(
+      (a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+    );
+    const hasNonLead = matchedPatients.some((patient) => !patient?.is_lead);
+
+    return {
+      ...row,
+      patient_name: row.patient_name || row.phone || "Unknown",
+      contact_type: hasNonLead ? "patient" : "lead",
+      unread_count: normalizedUnread(row),
+      matched_patient_count: matchedPatients.length,
+      matched_patients: matchedPatients.map((patient) => ({
+        id: patient.id,
+        name: patient.name || "Unknown",
+        is_lead: Boolean(patient.is_lead)
+      })),
+      resolved_patient_name: linkedPatient?.name || null
+    };
+  });
+}
+
+async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60 }) {
+  let query = supabase
+    .from("chat_sessions")
+    .select("*")
+    .order("last_message_at", { ascending: false })
+    .limit(5000);
+
+  if (labIds.length > 0) {
+    query = query.in("lab_id", labIds);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+
+  const deduped = buildLiteSessions(data || []);
+  const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
+  const sliced = deduped.slice(safeOffset, safeOffset + pageLimit);
+  const enriched = await enrichLiteSessions(sliced);
+  const nextOffset = safeOffset + sliced.length;
+
+  return {
+    sessions: enriched,
+    pagination: {
+      next_offset: nextOffset,
+      has_more: deduped.length > nextOffset,
+      page_size: pageLimit,
+      total_count: deduped.length
+    }
+  };
 }
 
 export async function GET(request) {
@@ -78,8 +207,21 @@ export async function GET(request) {
     }
 
     const labIds = Array.isArray(user.labIds) ? user.labIds.filter(Boolean) : [];
+    const liteMode = request.nextUrl.searchParams.get("lite") === "1";
+    const offsetParam = Number(request.nextUrl.searchParams.get("offset") || 0);
+    const limitParam = Number(request.nextUrl.searchParams.get("limit") || 60);
+    const pageLimit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 20), 200) : 60;
 
-    let query = supabase.from("chat_sessions").select("*").order("last_message_at", { ascending: false });
+    if (liteMode) {
+      const liteResponse = await buildLitePage({ labIds, offset: offsetParam, pageLimit });
+      return NextResponse.json(liteResponse, { status: 200 });
+    }
+
+    let query = supabase
+      .from("chat_sessions")
+      .select("*")
+      .order("last_message_at", { ascending: false })
+      .limit(5000);
 
     if (labIds.length > 0) {
       query = query.in("lab_id", labIds);

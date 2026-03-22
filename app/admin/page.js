@@ -53,6 +53,7 @@ export default function AdminDashboard() {
   const [futureUnassignedSummary, setFutureUnassignedSummary] = useState({ count: 0, byDate: {} });
   const [statusOptions, setStatusOptions] = useState([]);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
+  const [agentPresence, setAgentPresence] = useState([]);
   const [themeMode, setThemeMode] = useState("light");
   const [collectionRefreshHandler, setCollectionRefreshHandler] = useState(null);
 
@@ -176,6 +177,10 @@ const exportVisitsImage = async () => {
         if (!res.ok) throw new Error("Failed to fetch WhatsApp sessions");
         return res.json();
       });
+      const agentPresenceFetch = fetch("/api/admin/whatsapp/agent-presence").then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch agent presence");
+        return res.json();
+      });
 
       const [
         executivesData,
@@ -183,7 +188,8 @@ const exportVisitsImage = async () => {
         { data: timeSlotsData, error: timeSlotsError },
         { data: quickbookData, error: quickbookError },
         { data: statusOptionsData, error: statusOptionsError },
-        whatsappSessionsBody
+        whatsappSessionsBody,
+        agentPresenceBody
       ] = await Promise.all([
         apiExecutivesFetch,
         supabase.from("labs").select("id, name").order("name"),
@@ -202,7 +208,8 @@ const exportVisitsImage = async () => {
           .from("visit_statuses")
           .select("code, label, color, order")
           .order("order"),
-        whatsappSessionsFetch
+        whatsappSessionsFetch,
+        agentPresenceFetch
       ]);
 
       if (!executivesData) throw new Error("Failed to load executives");
@@ -220,6 +227,7 @@ const exportVisitsImage = async () => {
       const unreadCount = ((whatsappSessionsBody?.sessions) || [])
         .reduce((acc, session) => acc + Number(session?.unread_count || 0), 0);
       setUnreadWhatsAppCount(unreadCount);
+      setAgentPresence(Array.isArray(agentPresenceBody?.agents) ? agentPresenceBody.agents : []);
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");
       toast({
@@ -377,6 +385,9 @@ const exportVisitsImage = async () => {
   const unassignedVisitCount = futureUnassignedSummary.count;
   const unassignedByDate = futureUnassignedSummary.byDate;
   const pendingQuickbookCount = quickbookings.filter(qb => qb.status?.toLowerCase() === "pending").length;
+  const onlineAgents = agentPresence.filter((a) => a.presence === "online").length;
+  const awayAgents = agentPresence.filter((a) => a.presence === "away").length;
+  const offlineAgents = agentPresence.filter((a) => a.presence === "offline").length;
   const darkActionButtonProps = themeMode === "dark"
     ? {
         bg: "rgba(255,255,255,0.10)",
@@ -548,6 +559,18 @@ const exportVisitsImage = async () => {
                 {...darkActionButtonProps}
               />
             </Flex>
+
+            <HStack spacing={2} mb={4} align="center" flexWrap="wrap">
+              <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
+                Agents Active: {onlineAgents}
+              </Badge>
+              <Badge colorScheme="yellow" borderRadius="full" px={3} py={1}>
+                Away: {awayAgents}
+              </Badge>
+              <Badge colorScheme="gray" borderRadius="full" px={3} py={1}>
+                Not Logged In: {offlineAgents}
+              </Badge>
+            </HStack>
 
             {errorMsg && (
               <Text color="red.400" mb={6}>

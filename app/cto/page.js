@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Badge,
@@ -11,6 +12,7 @@ import {
   Heading,
   HStack,
   Progress,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -46,6 +48,7 @@ function statusColor(status) {
 
 const keySystems = [
   { service_keys: ["labbit_health"], label: "Labbit" },
+  { service_keys: ["whatsapp_bot_activity", "whatsapp_bot_response_sla_1m", "whatsapp_bot_chats_24h", "whatsapp_bot_reports_24h", "whatsapp_bot_last_report"], label: "WhatsApp Bot" },
   { service_keys: ["supabase_main"], label: "Supabase" },
   { service_keys: ["oracle_db"], label: "Oracle DB" },
   { service_keys: ["mirth_lab", "mirth_dicom", "tailscale_mirth"], label: "Mirth" },
@@ -163,6 +166,7 @@ function domainTitleForService(service) {
   const key = service?.service_key || "";
   const category = service?.category || "";
 
+  if (category === "whatsapp" || key.startsWith("whatsapp_bot_")) return "WhatsApp Chatbot";
   if (key === "supabase_main" || category === "database") return "Database";
   if (
     category === "mirth" ||
@@ -180,8 +184,18 @@ function domainTitleForService(service) {
   return "Other";
 }
 
+function isWhatsappMetric(service) {
+  return service?.category === "whatsapp" || String(service?.service_key || "").startsWith("whatsapp_bot_");
+}
+
 function CtoDashboardPage() {
+  const router = useRouter();
   const [latest, setLatest] = useState({ summary: { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }, services: [] });
+  const [agentPresence, setAgentPresence] = useState([]);
+  const [labs, setLabs] = useState([]);
+  const [selectedLabId, setSelectedLabId] = useState("");
+  const [isProductCto, setIsProductCto] = useState(false);
+  const [pinnedLabId, setPinnedLabId] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState("");
@@ -191,12 +205,55 @@ function CtoDashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const PIN_KEY = "ctoPinnedLabId";
+
+    async function loadLabs() {
+      try {
+        const res = await fetch("/api/labs?cto=true", {
+          credentials: "include",
+          cache: "no-store"
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(data?.labs)) return;
+        if (cancelled) return;
+        const availableLabs = data.labs || [];
+        const productMode = Boolean(data?.is_product_cto);
+        setLabs(availableLabs);
+        setIsProductCto(productMode);
+
+        const storedPinnedLab = typeof window !== "undefined" ? window.localStorage.getItem(PIN_KEY) || "" : "";
+        const safePinnedLab = availableLabs.some((lab) => String(lab.id) === storedPinnedLab) ? storedPinnedLab : "";
+        setPinnedLabId(safePinnedLab);
+
+        if (!selectedLabId && availableLabs.length > 0) {
+          if (productMode && safePinnedLab) {
+            setSelectedLabId(safePinnedLab);
+          } else {
+            setSelectedLabId(String(availableLabs[0].id));
+          }
+        }
+      } catch {
+        // keep dashboard functional even if labs endpoint fails
+      }
+    }
+
+    loadLabs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
 
     async function loadLatest({ silent = false } = {}) {
       if (!silent) setLoading(true);
       setLoadError("");
       try {
-        const res = await fetch(`/api/cto/latest?ts=${Date.now()}`, {
+        const params = new URLSearchParams({ ts: String(Date.now()) });
+        if (selectedLabId) params.set("lab_id", selectedLabId);
+        const res = await fetch(`/api/cto/latest?${params.toString()}`, {
           credentials: "include",
           cache: "no-store",
         });
@@ -223,6 +280,31 @@ function CtoDashboardPage() {
       cancelled = true;
       clearInterval(interval);
       refreshRef.current = null;
+    };
+  }, [selectedLabId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPresence() {
+      try {
+        const res = await fetch("/api/admin/whatsapp/agent-presence", {
+          credentials: "include",
+          cache: "no-store"
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        setAgentPresence(Array.isArray(body?.agents) ? body.agents : []);
+      } catch {
+        if (!cancelled) setAgentPresence([]);
+      }
+    }
+
+    loadPresence();
+    const interval = setInterval(loadPresence, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -317,7 +399,7 @@ function CtoDashboardPage() {
 
   const topLatency = useMemo(() => {
     return [...realServices]
-      .filter((service) => typeof service.latency_ms === "number")
+      .filter((service) => typeof service.latency_ms === "number" && !isWhatsappMetric(service))
       .sort((a, b) => (b.latency_ms || 0) - (a.latency_ms || 0))
       .slice(0, 4);
   }, [realServices]);
@@ -344,6 +426,14 @@ function CtoDashboardPage() {
     return Object.entries(payload).slice(0, 6);
   }, [selectedService]);
 
+  const agentPresenceSummary = useMemo(() => {
+    return {
+      online: agentPresence.filter((a) => a.presence === "online").length,
+      away: agentPresence.filter((a) => a.presence === "away").length,
+      offline: agentPresence.filter((a) => a.presence === "offline").length
+    };
+  }, [agentPresence]);
+
   const keySystemStatuses = useMemo(() => {
     const services = realServices;
     return keySystems.map((system) => {
@@ -359,7 +449,7 @@ function CtoDashboardPage() {
       return {
         ...system,
         status,
-        latency_ms: primaryMatch?.latency_ms,
+        latency_ms: isWhatsappMetric(primaryMatch) ? null : primaryMatch?.latency_ms,
         message:
           freshMatches.length === 0 && matches.length > 0
             ? "No recent snapshot"
@@ -369,6 +459,12 @@ function CtoDashboardPage() {
       };
     });
   }, [realServices]);
+
+  const canSelectLab = isProductCto && labs.length > 1;
+  const selectedLabName = useMemo(() => {
+    const match = labs.find((lab) => String(lab.id) === String(selectedLabId));
+    return match?.name || null;
+  }, [labs, selectedLabId]);
 
   return (
     <Box
@@ -403,6 +499,20 @@ function CtoDashboardPage() {
             <Heading size="2xl" lineHeight="1.05" fontWeight="800">
               Labbit Operations
             </Heading>
+            <Text color="whiteAlpha.760" fontSize="sm">
+              {isProductCto ? "Product CTO view • multi-lab diagnostics" : "Lab-level diagnostics • restricted to assigned lab"}
+            </Text>
+            <HStack spacing={2} flexWrap="wrap">
+              <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
+                Agents Active: {agentPresenceSummary.online}
+              </Badge>
+              <Badge colorScheme="yellow" borderRadius="full" px={3} py={1}>
+                Away: {agentPresenceSummary.away}
+              </Badge>
+              <Badge colorScheme="gray" borderRadius="full" px={3} py={1}>
+                Not Logged In: {agentPresenceSummary.offline}
+              </Badge>
+            </HStack>
               <HStack spacing={4} color="whiteAlpha.760" fontSize="sm" flexWrap="wrap">
                 <HStack spacing={2}>
                   <Box w={2.5} h={2.5} borderRadius="full" bg={heroStats[3].value !== "0" ? "red.400" : heroStats[2].value !== "0" ? "yellow.300" : "green.400"} />
@@ -410,6 +520,12 @@ function CtoDashboardPage() {
                 </HStack>
               <Text color="whiteAlpha.500">•</Text>
               <Text>{lastLoadedAt ? `Last updated ${lastLoadedAt}` : "Waiting for first sync"}</Text>
+              {selectedLabName && (
+                <>
+                  <Text color="whiteAlpha.500">•</Text>
+                  <Text>Lab: {selectedLabName}</Text>
+                </>
+              )}
               {staleServices.length > 0 && (
                 <>
                   <Text color="whiteAlpha.500">•</Text>
@@ -420,6 +536,99 @@ function CtoDashboardPage() {
           </VStack>
 
           <Stack spacing={3} alignSelf={{ base: "stretch", xl: "flex-end" }} w={{ base: "full", xl: "auto" }}>
+            <Box
+              px={3}
+              py={2}
+              borderRadius="18px"
+              bg="rgba(255,255,255,0.05)"
+              border="1px solid rgba(255,255,255,0.08)"
+              minW={{ base: "100%", xl: "320px" }}
+            >
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
+                Monitoring Lab
+              </Text>
+              <Select
+                value={selectedLabId}
+                onChange={(e) => {
+                  setSelectedServiceKey("");
+                  setSelectedLabId(e.target.value);
+                }}
+                isDisabled={!canSelectLab}
+                size="sm"
+                borderRadius="10px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+                color="white"
+              >
+                {labs.length === 0 && <option value="">Default Lab</option>}
+                {labs.map((lab) => (
+                  <option key={lab.id} value={String(lab.id)}>
+                    {lab.name || lab.id}
+                  </option>
+                ))}
+              </Select>
+              {isProductCto && selectedLabId && (
+                <HStack spacing={2} mt={2}>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    borderColor="rgba(255,255,255,0.28)"
+                    color="whiteAlpha.900"
+                    onClick={() => {
+                      if (typeof window === "undefined") return;
+                      const nextPinned = pinnedLabId === selectedLabId ? "" : selectedLabId;
+                      setPinnedLabId(nextPinned);
+                      if (nextPinned) {
+                        window.localStorage.setItem("ctoPinnedLabId", nextPinned);
+                      } else {
+                        window.localStorage.removeItem("ctoPinnedLabId");
+                      }
+                    }}
+                  >
+                    {pinnedLabId === selectedLabId ? "Unpin Lab" : "Pin Lab"}
+                  </Button>
+                  {pinnedLabId === selectedLabId && (
+                    <Text fontSize="xs" color="whiteAlpha.700">Pinned for this browser</Text>
+                  )}
+                </HStack>
+              )}
+              {!isProductCto && (
+                <Text fontSize="xs" color="whiteAlpha.700" mt={2}>
+                  Restricted to assigned lab scope
+                </Text>
+              )}
+            </Box>
+            <Box
+              px={3}
+              py={2}
+              borderRadius="18px"
+              bg="rgba(255,255,255,0.05)"
+              border="1px solid rgba(255,255,255,0.08)"
+              minW={{ base: "100%", xl: "320px" }}
+            >
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
+                CTO Menu
+              </Text>
+              <Select
+                value="/cto"
+                onChange={(e) => {
+                  const nextPath = String(e.target.value || "").trim();
+                  if (nextPath && nextPath !== "/cto") {
+                    router.push(nextPath);
+                  }
+                }}
+                size="sm"
+                borderRadius="10px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+                color="white"
+              >
+                <option value="/cto">Operations Dashboard</option>
+                <option value="/admin/whatsapp">WhatsApp Inbox</option>
+                <option value="/cto/whatsapp-sim">WhatsApp Simulator</option>
+                <option value="/admin">Admin Dashboard</option>
+              </Select>
+            </Box>
             <Flex
               gap={2}
               px={3}
@@ -495,6 +704,29 @@ function CtoDashboardPage() {
                 px={6}
               >
                 Admin Dashboard
+              </Button>
+              <Button
+                as={Link}
+                href="/admin/whatsapp"
+                bg="rgba(56, 189, 248, 0.16)"
+                color="white"
+                _hover={{ bg: "rgba(56, 189, 248, 0.24)" }}
+                borderRadius="full"
+                px={6}
+              >
+                WhatsApp Inbox
+              </Button>
+              <Button
+                as={Link}
+                href="/cto/whatsapp-sim"
+                variant="outline"
+                borderColor="rgba(126, 244, 215, 0.55)"
+                color="white"
+                _hover={{ bg: "rgba(126, 244, 215, 0.16)" }}
+                borderRadius="full"
+                px={6}
+              >
+                Bot Simulator
               </Button>
               <Button
                 variant="outline"
@@ -690,9 +922,11 @@ function CtoDashboardPage() {
                             <Box>
                               <Text fontWeight="700">{service.label || service.service_key}</Text>
                               <Text fontSize="xs">Status: {service.status}</Text>
-                              <Text fontSize="xs">
-                                Latency: {typeof service.latency_ms === "number" ? `${service.latency_ms} ms` : "n/a"}
-                              </Text>
+                              {!isWhatsappMetric(service) && (
+                                <Text fontSize="xs">
+                                  Latency: {typeof service.latency_ms === "number" ? `${service.latency_ms} ms` : "n/a"}
+                                </Text>
+                              )}
                               <Text fontSize="xs">{service.message || "No detail"}</Text>
                             </Box>
                           }
@@ -734,7 +968,11 @@ function CtoDashboardPage() {
                             <Flex justify="space-between" align="center" gap={3}>
                               <Text fontSize="sm">{service.label || service.service_key}</Text>
                               <Text fontSize="xs" color="whiteAlpha.700">
-                                {typeof service.latency_ms === "number" ? `${service.latency_ms} ms` : "n/a"}
+                                {isWhatsappMetric(service)
+                                  ? (service.payload?.last_bot_message_ist || service.payload?.last_bot_report_sent_ist || "Activity")
+                                  : typeof service.latency_ms === "number"
+                                    ? `${service.latency_ms} ms`
+                                    : "n/a"}
                               </Text>
                             </Flex>
                           </Box>
@@ -878,7 +1116,11 @@ function CtoDashboardPage() {
                       <Box>
                         <Text fontSize="xs" color="whiteAlpha.600" mb={1}>Latency</Text>
                         <Text fontSize="sm">
-                          {typeof selectedService.latency_ms === "number" ? `${selectedService.latency_ms} ms` : "n/a"}
+                          {isWhatsappMetric(selectedService)
+                            ? (selectedService.payload?.last_bot_message_ist || selectedService.payload?.last_bot_report_sent_ist || "n/a")
+                            : typeof selectedService.latency_ms === "number"
+                              ? `${selectedService.latency_ms} ms`
+                              : "n/a"}
                         </Text>
                       </Box>
                       <Box>

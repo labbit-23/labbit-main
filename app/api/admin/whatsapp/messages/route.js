@@ -82,7 +82,7 @@ function parseMaybeJson(value) {
 
 function normalizedUnread(row) {
   const status = String(row?.status || "").toLowerCase();
-  const isAgentQueue = status === "pending" || status === "handoff";
+  const isAgentQueue = status === "pending" || status === "handoff" || status === "human_handover";
   return isAgentQueue ? Number(row?.unread_count || 0) : 0;
 }
 
@@ -184,6 +184,7 @@ export async function GET(request) {
 
     const phone = request.nextUrl.searchParams.get("phone");
     const before = request.nextUrl.searchParams.get("before");
+    const since = request.nextUrl.searchParams.get("since");
     const limitParam = Number(request.nextUrl.searchParams.get("limit") || 80);
     const pageLimit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 20), 200) : 80;
     if (!phone) {
@@ -246,11 +247,15 @@ export async function GET(request) {
         .lt("created_at", before)
         .order("created_at", { ascending: false })
         .limit(pageLimit);
-    } else {
-      const cutoffDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    } else if (since) {
       messagesQuery = messagesQuery
-        .gte("created_at", cutoffDate)
-        .order("created_at", { ascending: true });
+        .gt("created_at", since)
+        .order("created_at", { ascending: true })
+        .limit(pageLimit);
+    } else {
+      messagesQuery = messagesQuery
+        .order("created_at", { ascending: false })
+        .limit(pageLimit);
     }
 
     const { data: messages, error: messagesError } = await messagesQuery;
@@ -366,87 +371,101 @@ export async function GET(request) {
       }))
     };
 
-    let normalizedMessages = before ? [...(messages || [])].reverse() : (messages || []);
+    let normalizedMessages =
+      before || !since
+        ? [...(messages || [])].reverse()
+        : (messages || []);
     normalizedMessages = await Promise.all(
       normalizedMessages.map(async (row) => {
-        const extractedMedia = extractMediaFromPayload(row?.payload || {});
-        const mergedMedia = {
-          ...(extractedMedia || {}),
-          ...(row?.payload?.media || {})
-        };
-        const mediaId = mergedMedia?.id || null;
-        let mediaUrl = mergedMedia?.url;
+        try {
+          const extractedMedia = extractMediaFromPayload(row?.payload || {});
+          const mergedMedia = {
+            ...(extractedMedia || {}),
+            ...(row?.payload?.media || {})
+          };
+          const mediaId = mergedMedia?.id || null;
+          let mediaUrl = mergedMedia?.url;
 
-        if (!mediaUrl && mediaId && mediaResolverConfig) {
-          const resolvedUrl = await resolveMediaUrlById({
-            mediaId,
-            mediaFetchConfig: mediaResolverConfig,
-            authDetails: mediaResolverAuth
-          });
-          if (resolvedUrl) {
-            mediaUrl = resolvedUrl;
-          }
-        }
-
-        if (!shouldSignStoragePath(mediaUrl)) {
-          if (!row?.payload?.media && extractedMedia) {
-            return {
-              ...row,
-              payload: {
-                ...(row.payload || {}),
-                media: mergedMedia
-              }
-            };
-          }
-          if (mediaUrl && mediaUrl !== mergedMedia?.url) {
-            return {
-              ...row,
-              payload: {
-                ...(row.payload || {}),
-                media: {
-                  ...(mergedMedia || {}),
-                  url: mediaUrl
-                }
-              }
-            };
-          }
-          return row;
-        }
-
-        const filePath = String(mediaUrl).replace(/^uploads\//, "");
-        const { data: signed } = await supabase.storage
-          .from("uploads")
-          .createSignedUrl(filePath, 60 * 60);
-
-        if (!signed?.signedUrl) {
-          if (!row?.payload?.media && extractedMedia) {
-            return {
-              ...row,
-              payload: {
-                ...(row.payload || {}),
-                media: mergedMedia
-              }
-            };
-          }
-          return row;
-        }
-        return {
-          ...row,
-          payload: {
-            ...(row.payload || {}),
-            media: {
-              ...(mergedMedia || {}),
-              url: signed.signedUrl
+          if (!mediaUrl && mediaId && mediaResolverConfig) {
+            const resolvedUrl = await resolveMediaUrlById({
+              mediaId,
+              mediaFetchConfig: mediaResolverConfig,
+              authDetails: mediaResolverAuth
+            });
+            if (resolvedUrl) {
+              mediaUrl = resolvedUrl;
             }
           }
-        };
+
+          if (!shouldSignStoragePath(mediaUrl)) {
+            if (!row?.payload?.media && extractedMedia) {
+              return {
+                ...row,
+                payload: {
+                  ...(row.payload || {}),
+                  media: mergedMedia
+                }
+              };
+            }
+            if (mediaUrl && mediaUrl !== mergedMedia?.url) {
+              return {
+                ...row,
+                payload: {
+                  ...(row.payload || {}),
+                  media: {
+                    ...(mergedMedia || {}),
+                    url: mediaUrl
+                  }
+                }
+              };
+            }
+            return row;
+          }
+
+          const filePath = String(mediaUrl).replace(/^uploads\//, "");
+          const { data: signed } = await supabase.storage
+            .from("uploads")
+            .createSignedUrl(filePath, 60 * 60);
+
+          if (!signed?.signedUrl) {
+            if (!row?.payload?.media && extractedMedia) {
+              return {
+                ...row,
+                payload: {
+                  ...(row.payload || {}),
+                  media: mergedMedia
+                }
+              };
+            }
+            return row;
+          }
+          return {
+            ...row,
+            payload: {
+              ...(row.payload || {}),
+              media: {
+                ...(mergedMedia || {}),
+                url: signed.signedUrl
+              }
+            }
+          };
+        } catch (mediaError) {
+          console.error("[whatsapp/messages] media normalize error", {
+            messageId: row?.id || null,
+            error: mediaError?.message || String(mediaError)
+          });
+          return row;
+        }
       })
     );
     const oldestLoadedAt = normalizedMessages[0]?.created_at || null;
 
     let hasOlder = false;
     let nextBeforeCursor = oldestLoadedAt;
-    if (oldestLoadedAt) {
+    if (since) {
+      hasOlder = false;
+      nextBeforeCursor = null;
+    } else if (oldestLoadedAt) {
       let olderQuery = supabase
         .from("whatsapp_messages")
         .select("id")
@@ -492,8 +511,8 @@ export async function GET(request) {
         pagination: {
           has_older: hasOlder,
           next_before: nextBeforeCursor,
-          page_size: before ? pageLimit : normalizedMessages.length,
-          initial_window_days: 2
+          page_size: pageLimit,
+          initial_window_days: null
         }
       },
       { status: 200 }

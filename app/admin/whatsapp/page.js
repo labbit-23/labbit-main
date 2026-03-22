@@ -77,7 +77,7 @@ function isWithin24(session) {
 
 function isPendingSession(session) {
   const status = String(session?.status || "").toLowerCase();
-  return status === "pending" || status === "handoff";
+  return status === "pending" || status === "handoff" || status === "human_handover";
 }
 
 function getSessionSignals(session) {
@@ -147,6 +147,15 @@ function getSenderLabel(msg, currentUserId) {
 
 function getInitial(text) {
   return (text || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function getContactActionMeta(session) {
+  const isPatient = String(session?.contact_type || "").toLowerCase() === "patient";
+  return {
+    isPatient,
+    label: isPatient ? "Update contact" : "Add contact",
+    className: isPatient ? "is-saved" : "is-add"
+  };
 }
 
 function digitsOnly(value) {
@@ -250,8 +259,24 @@ function getDisplayMessageText(msg, botLabelMap) {
       return decodeMessageEntities(`Selected time slot: ${slotMap[rawMessage]}`);
     }
 
-    return decodeMessageEntities(rawMessage);
-  }
+  return decodeMessageEntities(rawMessage);
+}
+
+function shouldUpdateSelectedSession(currentSession, nextSession) {
+  if (!currentSession && !nextSession) return false;
+  if (!currentSession || !nextSession) return true;
+
+  return [
+    "id",
+    "phone",
+    "patient_name",
+    "status",
+    "unread_count",
+    "last_message_at",
+    "contact_type",
+    "matched_patient_count"
+  ].some((key) => String(currentSession?.[key] ?? "") !== String(nextSession?.[key] ?? ""));
+}
 
   if (!isBotOutbound) return decodeMessageEntities(rawMessage);
 
@@ -425,35 +450,45 @@ export default function WhatsAppDashboard() {
   const searchParams = useSearchParams();
 
   const [sessions, setSessions] = useState([]);
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [olderSessionsOffset, setOlderSessionsOffset] = useState(0);
   const [messages, setMessages] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
   const [labMeta, setLabMeta] = useState(null);
   const [botLabelMap, setBotLabelMap] = useState({});
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState("active");
+  const [tab, setTab] = useState("all");
   const [senderFilter, setSenderFilter] = useState("all");
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const [isLoadingOlderSessions, setIsLoadingOlderSessions] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [oldestCursor, setOldestCursor] = useState(null);
   const [historyWindowDays, setHistoryWindowDays] = useState(2);
+  const [latestCursor, setLatestCursor] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isSavingContact, setIsSavingContact] = useState(false);
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [isSendingReportTool, setIsSendingReportTool] = useState(false);
   const [isSeedingBotFlow, setIsSeedingBotFlow] = useState(false);
   const [showBotFlowMenu, setShowBotFlowMenu] = useState(false);
   const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
+  const [messageError, setMessageError] = useState("");
   const [hint, setHint] = useState("");
   const [notificationPermission, setNotificationPermission] = useState("default");
   const [agentPresence, setAgentPresence] = useState([]);
+  const [sessionLock, setSessionLock] = useState(null);
   const [chatSettings, setChatSettings] = useState(DEFAULT_CHAT_SETTINGS);
   const [composerText, setComposerText] = useState("");
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [mobilePanel, setMobilePanel] = useState("list");
+  const [showHeaderTools, setShowHeaderTools] = useState(false);
+  const [showSidebarMeta, setShowSidebarMeta] = useState(false);
+  const [pendingTaskAction, setPendingTaskAction] = useState("followup");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -472,9 +507,22 @@ export default function WhatsAppDashboard() {
   const initialBottomReadyRef = useRef(false);
   const autoRefreshInFlightRef = useRef(false);
   const selectedSessionRef = useRef(null);
+  const messagesRef = useRef([]);
   const sessionsSignatureRef = useRef("");
   const hasBootstrappedSessionsRef = useRef(false);
   const previousUnreadBySessionRef = useRef(new Map());
+  const typingHeartbeatRef = useRef(null);
+  const headerToolsRef = useRef(null);
+
+  const scrollSelectedConversationIntoView = () => {
+    if (typeof document === "undefined") return;
+    requestAnimationFrame(() => {
+      const activeRow = document.querySelector(".wa-conversation.is-active");
+      if (activeRow && typeof activeRow.scrollIntoView === "function") {
+        activeRow.scrollIntoView({ block: "nearest" });
+      }
+    });
+  };
 
   const isExecutiveAttentionAutoReply = (msg) => {
     const text = String(msg?.message || "").toLowerCase();
@@ -518,18 +566,25 @@ export default function WhatsAppDashboard() {
   }, [selectedSession]);
 
   useEffect(() => {
-    if (!isMobileViewport) return;
-    if (selectedSession?.id && mobilePanel !== "chat") {
-      setMobilePanel("chat");
-    }
-  }, [isMobileViewport, mobilePanel, selectedSession?.id]);
-
-  useEffect(() => {
     if (isUserLoading || !user) return;
     fetchSessions();
     fetchAgentPresence();
     fetchChatSettings();
   }, [isUserLoading, user]);
+
+  useEffect(() => {
+    if (!showHeaderTools) return undefined;
+    const onDocClick = (event) => {
+      if (!headerToolsRef.current) return;
+      if (!headerToolsRef.current.contains(event.target)) {
+        setShowHeaderTools(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+    };
+  }, [showHeaderTools]);
 
   useEffect(() => {
     if (isPrependingRef.current) {
@@ -550,18 +605,24 @@ export default function WhatsAppDashboard() {
   }, [selectedSession]);
 
   useEffect(() => {
-    if (!selectedSession) return;
-    const status = String(selectedSession.status || "").toLowerCase();
-    if (tab === "active" && status === "closed") {
-      const firstActive = sessions.find((s) => String(s?.status || "").toLowerCase() !== "closed");
-      if (firstActive) handleSelect(firstActive);
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    setSelectedSession(null);
+    setMessages([]);
+    messagesRef.current = [];
+    setMessageError("");
+    setHasOlderMessages(false);
+    setOldestCursor(null);
+    setLatestCursor(null);
+    setHasMoreSessions(false);
+    setOlderSessionsOffset(0);
+    if (isMobileViewport) {
+      setMobilePanel("list");
     }
-    if (tab === "closed" && status !== "closed") {
-      const firstClosed = sessions.find((s) => String(s?.status || "").toLowerCase() === "closed");
-      if (firstClosed) handleSelect(firstClosed);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, sessions]);
+    setSessionLock(null);
+  }, [tab, isMobileViewport]);
 
 
   const getMessageScrollElement = () => chatContainerRef.current || null;
@@ -577,24 +638,70 @@ export default function WhatsAppDashboard() {
 
   const getFirstSessionForTab = (list = []) => {
     if (!Array.isArray(list) || list.length === 0) return null;
-    if (tab === "active") return list.find((row) => String(row?.status || "").toLowerCase() !== "closed") || null;
-    if (tab === "closed") return list.find((row) => String(row?.status || "").toLowerCase() === "closed") || null;
+    if (tab === "open") return list.find((row) => String(row?.status || "").toLowerCase() !== "closed") || null;
+    if (tab === "unread") return list.find((row) => Number(row?.unread_count || 0) > 0) || null;
+    if (tab === "read") return list.find((row) => Number(row?.unread_count || 0) <= 0) || null;
     return list[0] || null;
   };
 
-  const fetchSessions = async (options = {}) => {
-    const { silent = false } = options;
-    setError("");
-    if (!silent) setIsLoadingSessions(true);
+  const fetchSessionLock = async (session = selectedSessionRef.current, { silent = false } = {}) => {
+    const sessionId = session?.id || null;
+    if (!sessionId) {
+      setSessionLock(null);
+      return null;
+    }
 
     try {
-      const body = await fetchJsonWithRetry("/api/admin/whatsapp/sessions", {
+      const body = await fetchJsonWithRetry(`/api/admin/whatsapp/agent-lock?sessionId=${encodeURIComponent(sessionId)}`, {
+        credentials: "include",
+        cache: "no-store"
+      }, 1);
+      setSessionLock(body?.lock || null);
+      return body?.lock || null;
+    } catch {
+      if (!silent) setSessionLock(null);
+      return null;
+    }
+  };
+
+  const releaseTypingLock = async (session = selectedSessionRef.current) => {
+    const sessionId = session?.id || null;
+    if (!sessionId) return;
+
+    try {
+      await fetch("/api/admin/whatsapp/agent-lock", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        keepalive: true,
+        body: JSON.stringify({ sessionId })
+      });
+    } catch {
+      // Best effort cleanup only.
+    }
+  };
+
+  const fetchSessions = async (options = {}) => {
+    const { silent = false, append = false, offset = 0 } = options;
+    setError("");
+    if (!silent && append) {
+      setIsLoadingOlderSessions(true);
+    } else if (!silent) {
+      setIsLoadingSessions(true);
+    }
+
+    try {
+      const query = new URLSearchParams({ lite: "1" });
+      query.set("offset", String(offset));
+      query.set("limit", "60");
+      const body = await fetchJsonWithRetry(`/api/admin/whatsapp/sessions?${query.toString()}`, {
         credentials: "include",
         cache: "no-store"
       }, 1);
       const nextSessions = body.sessions || [];
+      const pagination = body.pagination || {};
       const unreadNow = new Map(nextSessions.map((row) => [row.id, Number(row?.unread_count || 0)]));
-      if (hasBootstrappedSessionsRef.current && notificationPermission === "granted" && typeof window !== "undefined") {
+      if (!append && hasBootstrappedSessionsRef.current && notificationPermission === "granted" && typeof window !== "undefined") {
         nextSessions.forEach((row) => {
           const prev = Number(previousUnreadBySessionRef.current.get(row.id) || 0);
           const now = Number(row?.unread_count || 0);
@@ -612,18 +719,46 @@ export default function WhatsAppDashboard() {
           }
         });
       }
-      previousUnreadBySessionRef.current = unreadNow;
-      hasBootstrappedSessionsRef.current = true;
+      if (!append) {
+        previousUnreadBySessionRef.current = unreadNow;
+        hasBootstrappedSessionsRef.current = true;
+      }
 
-      const nextSignature = buildSessionsSignature(nextSessions);
+      const mergeSessionLists = (primaryRows, extraRows) => {
+        const byId = new Map();
+        for (const row of [...primaryRows, ...extraRows]) {
+          if (!row?.id || byId.has(row.id)) continue;
+          byId.set(row.id, row);
+        }
+        return [...byId.values()].sort(
+          (a, b) =>
+            new Date(b.last_message_at || b.created_at || 0).getTime() -
+            new Date(a.last_message_at || a.created_at || 0).getTime()
+        );
+      };
+
+      const mergedSessions = append
+        ? mergeSessionLists(sessions, nextSessions)
+        : silent
+          ? mergeSessionLists(nextSessions, sessions)
+          : nextSessions;
+
+      const nextSignature = buildSessionsSignature(mergedSessions);
       const hasSessionListChanged = nextSignature !== sessionsSignatureRef.current;
       sessionsSignatureRef.current = nextSignature;
       if (!silent || hasSessionListChanged) {
-        setSessions(nextSessions);
+        setSessions(mergedSessions);
+      }
+      const totalCount = Number(pagination?.total_count || mergedSessions.length);
+      setHasMoreSessions(Boolean(pagination?.has_more) || mergedSessions.length < totalCount);
+      setOlderSessionsOffset(Number(pagination?.next_offset || mergedSessions.length));
+
+      if (append) {
+        return mergedSessions;
       }
 
       if (selectedSession) {
-        const freshSelected = nextSessions.find((s) => s.id === selectedSession.id);
+        const freshSelected = mergedSessions.find((s) => s.id === selectedSession.id);
         if (freshSelected) {
           const mergedSelected = {
             ...freshSelected,
@@ -633,36 +768,55 @@ export default function WhatsAppDashboard() {
               freshSelected.phone ||
               "Unknown"
           };
-          setSelectedSession(mergedSelected);
+          if (shouldUpdateSelectedSession(selectedSessionRef.current, mergedSelected)) {
+            setSelectedSession(mergedSelected);
+          }
           setSessions((prev) =>
             prev.map((row) => (row.id === mergedSelected.id ? { ...row, patient_name: mergedSelected.patient_name } : row))
           );
-        } else if (nextSessions.length > 0) {
-          const first = getFirstSessionForTab(nextSessions) || nextSessions[0];
-          if (first) {
-            setSelectedSession(first);
-            await fetchMessages(first.phone);
-          }
         } else {
           setSelectedSession(null);
+          setMessages([]);
+          setHasOlderMessages(false);
+          setOldestCursor(null);
         }
-      } else if (nextSessions.length > 0) {
+      } else if (mergedSessions.length > 0) {
         const requestedPhone = searchParams.get("phone");
         const matchedByPhone = requestedPhone
-          ? nextSessions.find((s) => String(s.phone || "").includes(String(requestedPhone)))
+          ? mergedSessions.find((s) => String(s.phone || "").includes(String(requestedPhone)))
           : null;
-        const first = matchedByPhone || getFirstSessionForTab(nextSessions) || nextSessions[0];
-        if (first) {
-          setSelectedSession(first);
-          await fetchMessages(first.phone);
+        if (matchedByPhone) {
+          setSelectedSession(matchedByPhone);
+          if (isMobileViewport) {
+            setMobilePanel("chat");
+          }
+          await fetchMessages(matchedByPhone.phone);
+        } else {
+          setSelectedSession(null);
+          setMessages([]);
+          setHasOlderMessages(false);
+          setOldestCursor(null);
+          setLatestCursor(null);
         }
+      } else {
+        setSelectedSession(null);
+        setMessages([]);
+        setHasOlderMessages(false);
+        setOldestCursor(null);
+        setLatestCursor(null);
       }
-      return nextSessions;
+      return mergedSessions;
     } catch {
-      setError("Failed to load conversations. Please refresh.");
+      if (!silent) {
+        setError("Failed to load conversations. Please refresh.");
+      }
       return [];
     } finally {
-      if (!silent) setIsLoadingSessions(false);
+      if (!silent && append) {
+        setIsLoadingOlderSessions(false);
+      } else if (!silent) {
+        setIsLoadingSessions(false);
+      }
     }
   };
 
@@ -692,9 +846,12 @@ export default function WhatsAppDashboard() {
 
   const fetchMessages = async (phone, options = {}) => {
     if (!phone) return;
-    const { before = null, appendOlder = false, silent = false } = options;
+    const { before = null, appendOlder = false, silent = false, since = null } = options;
 
-    setError("");
+    if (!silent) setError("");
+    if (!appendOlder && !since && !silent) {
+      setMessageError("");
+    }
     if (appendOlder && !silent) {
       setIsLoadingOlder(true);
     } else if (!silent) {
@@ -702,8 +859,9 @@ export default function WhatsAppDashboard() {
     }
 
     try {
-      const query = new URLSearchParams({ phone });
+      const query = new URLSearchParams({ phone, limit: before ? "60" : since ? "40" : "60" });
       if (before) query.set("before", before);
+      if (since) query.set("since", since);
       const body = await fetchJsonWithRetry(`/api/admin/whatsapp/messages?${query.toString()}`, {
         credentials: "include",
         cache: "no-store"
@@ -715,11 +873,24 @@ export default function WhatsAppDashboard() {
           const dedupedOlder = incoming.filter((m) => !existingIds.has(m.id));
           return [...dedupedOlder, ...prev];
         });
+      } else if (since) {
+        if (incoming.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const dedupedNew = incoming.filter((m) => !existingIds.has(m.id));
+            return dedupedNew.length > 0 ? [...prev, ...dedupedNew] : prev;
+          });
+        }
       } else {
         setMessages(incoming);
       }
+      if (!appendOlder && !since) {
+        setMessageError("");
+      }
       if (body.session) {
-        setSelectedSession(body.session);
+        if (shouldUpdateSelectedSession(selectedSessionRef.current, body.session)) {
+          setSelectedSession(body.session);
+        }
         setSessions((prev) =>
           prev.map((row) => {
             if (canonicalPhone(row.phone) !== canonicalPhone(body.session.phone)) return row;
@@ -732,15 +903,25 @@ export default function WhatsAppDashboard() {
       }
       setLabMeta(body.lab || null);
       setBotLabelMap(body.botLabelMap || {});
-      setHasOlderMessages(Boolean(body.pagination?.has_older));
-      setOldestCursor(body.pagination?.next_before || null);
-      setHistoryWindowDays(body.pagination?.initial_window_days || 2);
-      if (!appendOlder) {
+      if (!since) {
+        setHasOlderMessages(Boolean(body.pagination?.has_older));
+        setOldestCursor(body.pagination?.next_before || null);
+        setHistoryWindowDays(body.pagination?.initial_window_days || 2);
+      }
+      const newestLoaded = (incoming[incoming.length - 1] || body.messages?.[body.messages.length - 1] || null)?.created_at || null;
+      if (newestLoaded) {
+        setLatestCursor(newestLoaded);
+      } else if (!appendOlder && !since) {
+        setLatestCursor(incoming[incoming.length - 1]?.created_at || null);
+      }
+      if (!appendOlder && !since) {
         scrollToBottom();
         initialBottomReadyRef.current = true;
       }
     } catch {
-      setError("Failed to load messages. Please retry.");
+      if (!silent && !appendOlder && !since && messagesRef.current.length === 0) {
+        setMessageError("Failed to load messages. Please retry.");
+      }
     } finally {
       if (appendOlder && !silent) {
         setIsLoadingOlder(false);
@@ -749,6 +930,75 @@ export default function WhatsAppDashboard() {
       }
     }
   };
+
+  useEffect(() => {
+    if (!selectedSession?.id) {
+      setSessionLock(null);
+      return;
+    }
+
+    fetchSessionLock(selectedSession, { silent: true });
+  }, [selectedSession?.id]);
+
+  useEffect(() => {
+    const typingText = toPlainComposerText(composerText).trim();
+    const session = selectedSessionRef.current;
+    const lockOwnedByOther = Boolean(
+      sessionLock?.active &&
+      sessionLock.agent_id &&
+      sessionLock.agent_id !== user?.id
+    );
+
+    if (!session?.id || !typingText || lockOwnedByOther) {
+      if (typingHeartbeatRef.current) {
+        clearInterval(typingHeartbeatRef.current);
+        typingHeartbeatRef.current = null;
+      }
+      releaseTypingLock(session);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const heartbeat = async () => {
+      try {
+        const response = await fetch("/api/admin/whatsapp/agent-lock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            sessionId: session.id,
+            typing: true
+          })
+        });
+
+        const body = await response.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (response.status === 409) {
+          setSessionLock(body?.lock || null);
+          return;
+        }
+
+        if (response.ok) {
+          setSessionLock(body?.lock || null);
+        }
+      } catch {
+        // Heartbeats are best effort; the chat remains usable if this fails.
+      }
+    };
+
+    heartbeat();
+    typingHeartbeatRef.current = window.setInterval(heartbeat, 8000);
+
+    return () => {
+      cancelled = true;
+      if (typingHeartbeatRef.current) {
+        clearInterval(typingHeartbeatRef.current);
+        typingHeartbeatRef.current = null;
+      }
+      releaseTypingLock(session);
+    };
+  }, [selectedSession?.id, Boolean(toPlainComposerText(composerText).trim()), sessionLock?.active, sessionLock?.agent_id, user?.id]);
 
   useEffect(() => {
     if (isUserLoading || !user) return undefined;
@@ -761,6 +1011,7 @@ export default function WhatsAppDashboard() {
         const beforeRefreshSelected = selectedSessionRef.current;
         const nextSessions = await fetchSessions({ silent: true });
         await fetchAgentPresence({ silent: true });
+        await fetchSessionLock(beforeRefreshSelected, { silent: true });
 
         if (beforeRefreshSelected?.phone) {
           const beforePhone = canonicalPhone(beforeRefreshSelected.phone);
@@ -775,7 +1026,11 @@ export default function WhatsAppDashboard() {
               Number(beforeRefreshSelected.unread_count || 0);
 
           if (afterRefreshSelected?.phone && shouldRefreshMessages) {
-            await fetchMessages(afterRefreshSelected.phone, { silent: true });
+            const cursor = latestCursor || null;
+            await fetchMessages(afterRefreshSelected.phone, {
+              silent: true,
+              since: cursor
+            });
           }
         }
       } finally {
@@ -793,16 +1048,22 @@ export default function WhatsAppDashboard() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [isUserLoading, user, selectedSession?.id]);
+  }, [isUserLoading, user, selectedSession?.id, latestCursor]);
 
   const handleSelect = async (session) => {
+    if (selectedSessionRef.current?.id && selectedSessionRef.current.id !== session?.id) {
+      await releaseTypingLock(selectedSessionRef.current);
+    }
     setSelectedSession(session);
     if (isMobileViewport) {
       setMobilePanel("chat");
     }
     setMessages([]);
+    messagesRef.current = [];
+    setMessageError("");
     setHasOlderMessages(false);
     setOldestCursor(null);
+    setLatestCursor(null);
     initialBottomReadyRef.current = false;
     await fetchMessages(session.phone);
   };
@@ -824,6 +1085,18 @@ export default function WhatsAppDashboard() {
       const delta = (nextEl.scrollHeight || 0) - previousHeight;
       nextEl.scrollTop = previousTop + Math.max(delta, 0);
     });
+  };
+
+  const handleRunTaskAction = async () => {
+    if (!pendingTaskAction) return;
+    await handleCreateClickupTask(pendingTaskAction);
+  };
+
+  const handleLoadOlderSessions = async () => {
+    if (!hasMoreSessions || isLoadingOlderSessions || isLoadingSessions) {
+      return;
+    }
+    await fetchSessions({ append: true, offset: olderSessionsOffset });
   };
 
   const handleCreateClickupTask = async (action = "followup") => {
@@ -850,6 +1123,89 @@ export default function WhatsAppDashboard() {
     } finally {
       setIsCreatingTask(false);
     }
+  };
+
+  const handleSaveContact = async (sessionOverride = null) => {
+    const targetSession = sessionOverride || selectedSession;
+    if (!targetSession?.phone || isSavingContact) return;
+
+    setError("");
+    setHint("");
+    setIsSavingContact(true);
+
+    try {
+      const response = await fetch("/api/admin/whatsapp/save-contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sessionId: targetSession.id,
+          phone: targetSession.phone
+        })
+      });
+
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.error || "Failed to save contact");
+      }
+
+      if (body?.session) {
+        const nextSession = {
+          ...targetSession,
+          ...body.session
+        };
+        setSelectedSession(nextSession);
+      }
+
+      const patientName = body?.patient?.name || body?.session?.patient_name || targetSession.patient_name || targetSession.phone;
+      const mrn = String(body?.patient?.mrn || "").trim();
+      const externalKey = String(body?.patient?.external_key || "").trim();
+      const meta = [mrn ? `MRN ${mrn}` : "", externalKey ? `Key ${externalKey}` : ""].filter(Boolean).join(" • ");
+      setHint(meta ? `Saved ${patientName}. ${meta}` : `Saved ${patientName} to patients.`);
+      await Promise.all([fetchSessions(), fetchMessages(targetSession.phone)]);
+    } catch (err) {
+      setError(err?.message || "Failed to save contact.");
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
+
+  const renderContactActionButton = (session, compact = false) => {
+    if (!session?.phone) return null;
+    const meta = getContactActionMeta(session);
+    const isSavingThisSession = isSavingContact && selectedSession?.id === session.id;
+
+    return (
+      <button
+        type="button"
+        className={`wa-contactIconBtn ${meta.className} ${compact ? "is-compact" : ""}`}
+        onClick={async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (selectedSession?.id !== session.id) {
+            setSelectedSession(session);
+          }
+          await handleSaveContact(session);
+        }}
+        disabled={isSavingContact}
+        title={meta.label}
+        aria-label={meta.label}
+      >
+        {isSavingThisSession ? (
+          "..."
+        ) : (
+          <span className="wa-contactIconVisual" aria-hidden="true">
+            <span className="wa-contactIconRing">
+              <span className="wa-contactIconHead" />
+              <span className="wa-contactIconBody" />
+            </span>
+            <span className={`wa-contactIconBadge ${meta.className}`}>
+              {meta.isPatient ? "E" : "+"}
+            </span>
+          </span>
+        )}
+      </button>
+    );
   };
 
   const handleAttachmentChoose = () => {
@@ -893,6 +1249,7 @@ export default function WhatsAppDashboard() {
         const text = await response.text();
         throw new Error(text || "Failed to send attachment");
       }
+      await releaseTypingLock(selectedSession);
       await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
     } catch (err) {
       setError(err?.message || "Failed to send attachment.");
@@ -941,6 +1298,7 @@ export default function WhatsAppDashboard() {
       }
 
       setHint("Latest report sent to the patient.");
+      await releaseTypingLock(selectedSession);
       await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
     } catch (err) {
       setError(err?.message || "Failed to send latest report.");
@@ -995,6 +1353,7 @@ export default function WhatsAppDashboard() {
         }
 
         setComposerText("");
+        await releaseTypingLock(selectedSession);
         await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
         return;
       }
@@ -1015,6 +1374,7 @@ export default function WhatsAppDashboard() {
       }
 
       setComposerText("");
+      await releaseTypingLock(selectedSession);
       await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
     } catch (err) {
       setError(err?.message || "Message could not be sent. Please retry.");
@@ -1070,7 +1430,12 @@ export default function WhatsAppDashboard() {
         setHint("Chat resolved and closure note saved.");
       }
 
+      await releaseTypingLock(selectedSession);
       await Promise.all([fetchSessions(), fetchMessages(selectedSession.phone)]);
+      if (isMobileViewport) {
+        setMobilePanel("list");
+        scrollSelectedConversationIntoView();
+      }
     } catch (err) {
       setError(err?.message || "Failed to update chat status.");
     } finally {
@@ -1082,8 +1447,12 @@ export default function WhatsAppDashboard() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return sessions.filter((session) => {
-      if (tab === "active" && session.status === "closed") return false;
-      if (tab === "closed" && session.status !== "closed") return false;
+      const status = String(session?.status || "").toLowerCase();
+      const unreadCount = Number(session?.unread_count || 0);
+
+      if (tab === "open" && status === "closed") return false;
+      if (tab === "unread" && unreadCount <= 0) return false;
+      if (tab === "read" && unreadCount > 0) return false;
 
       if (!normalizedSearch) return true;
 
@@ -1108,6 +1477,14 @@ export default function WhatsAppDashboard() {
       return true;
     });
   }, [messages, senderFilter]);
+
+  const agentPresenceSummary = useMemo(() => {
+    return {
+      online: agentPresence.filter((a) => a.presence === "online").length,
+      away: agentPresence.filter((a) => a.presence === "away").length,
+      offline: agentPresence.filter((a) => a.presence === "offline").length
+    };
+  }, [agentPresence]);
 
   const draftShortcut = useMemo(
     () => parseShortcutCommand(toPlainComposerText(composerText), chatSettings),
@@ -1213,6 +1590,7 @@ export default function WhatsAppDashboard() {
           : "Main menu bot flow inserted into this chat."
       );
       setComposerText("");
+      await releaseTypingLock(selectedSession);
       await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
     } catch (err) {
       setError(err?.message || "Failed to insert bot flow into chat.");
@@ -1225,10 +1603,17 @@ export default function WhatsAppDashboard() {
     selectedSession &&
     isWithin24(selectedSession) &&
     !isSending &&
-    !isUpdatingStatus
+    !isUpdatingStatus &&
+    !(sessionLock?.active && sessionLock.agent_id && sessionLock.agent_id !== user?.id)
   );
   const isExpiredWindow = Boolean(selectedSession && !isWithin24(selectedSession));
   const shouldRecommendClose = Boolean(selectedSession && isExpiredWindow && selectedSession.status !== "closed");
+  const isLockedByAnotherAgent = Boolean(
+    selectedSession &&
+    sessionLock?.active &&
+    sessionLock.agent_id &&
+    sessionLock.agent_id !== user?.id
+  );
 
   const hasManyPatients = (session) => Number(session?.matched_patient_count || 0) > 1;
 
@@ -1302,6 +1687,41 @@ export default function WhatsAppDashboard() {
                 🔔 Enable Alerts
               </button>
             )}
+            <div className="wa-toolsMenuWrap" ref={headerToolsRef}>
+              <button
+                type="button"
+                className="wa-backBtn"
+                onClick={() => setShowHeaderTools((prev) => !prev)}
+                aria-expanded={showHeaderTools}
+                title="More WhatsApp tools"
+              >
+                Tools ▾
+              </button>
+              {showHeaderTools && (
+                <div className="wa-toolsMenu">
+                  <div className="wa-toolsTitle">Agent Summary</div>
+                  <div className="wa-agentSummaryCompact">
+                    <span className="wa-agentSummaryChip is-online">Active {agentPresenceSummary.online}</span>
+                    <span className="wa-agentSummaryChip is-away">Away {agentPresenceSummary.away}</span>
+                    <span className="wa-agentSummaryChip is-offline">Not Logged In {agentPresenceSummary.offline}</span>
+                  </div>
+                  {agentPresence.length > 0 && (
+                    <div className="wa-presenceWrap" title="Agent activity status">
+                      {agentPresence.map((agent) => (
+                        <span
+                          key={agent.id}
+                          className={`wa-presenceChip is-${agent.presence}`}
+                          title={`${agent.name} • ${agent.presence}`}
+                        >
+                          <span className="wa-presenceDot" />
+                          <span className="wa-presenceName">{agent.name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1309,7 +1729,7 @@ export default function WhatsAppDashboard() {
           <div className={`wa-sidebar ${isMobileViewport && mobilePanel !== "list" ? "is-mobile-hidden" : ""}`}>
               <div className="wa-leftPanelTools">
               <div className="wa-tabs">
-                {["active", "closed", "all"].map((value) => (
+                {["unread", "open", "read", "all"].map((value) => (
                   <button
                     key={value}
                     type="button"
@@ -1326,8 +1746,15 @@ export default function WhatsAppDashboard() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by patient or phone"
               />
+              <button
+                type="button"
+                className="wa-metaToggle"
+                onClick={() => setShowSidebarMeta((prev) => !prev)}
+              >
+                {showSidebarMeta ? "Hide legend" : "Show legend"}
+              </button>
 
-              <div className="wa-leftMeta">
+              <div className={`wa-leftMeta ${showSidebarMeta ? "is-open" : ""}`}>
                 <div className="wa-stateLegend" aria-label="Chat state legend">
                   <span className="wa-stateLegendTitle">Legend</span>
                   <span className="wa-stateFlag is-unread">Unread</span>
@@ -1336,16 +1763,6 @@ export default function WhatsAppDashboard() {
                   <span className="wa-stateFlag is-closed">Closed</span>
                   <span className="wa-stateFlag is-expired">24h</span>
                 </div>
-                {agentPresence.length > 0 && (
-                  <div className="wa-presenceWrap" title="Agent activity status">
-                    {agentPresence.map((agent) => (
-                      <span key={agent.id} className={`wa-presenceChip is-${agent.presence}`}>
-                        <span className="wa-presenceDot" />
-                        <span className="wa-presenceName">{agent.name}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
             <div className="wa-conversationList">
@@ -1354,7 +1771,8 @@ export default function WhatsAppDashboard() {
               ) : filteredSessions.length === 0 ? (
                 <div className="wa-empty">No conversations found.</div>
               ) : (
-                filteredSessions.map((session) => {
+                <>
+                {filteredSessions.map((session) => {
                   const signals = getSessionSignals(session);
                   const signalClasses = signals.map((s) => `cs-state-${s.key}`).join(" ");
                   const suffix = formatDateTime(session.last_message_at);
@@ -1380,6 +1798,7 @@ export default function WhatsAppDashboard() {
                       </span>
 
                       <span className="wa-conversationNameFlags">
+                        {renderContactActionButton(session, true)}
                         {session.unread_count > 0 && (
                           <span className="wa-unread" title={`${session.unread_count} unread`}>
                             {session.unread_count}
@@ -1392,14 +1811,30 @@ export default function WhatsAppDashboard() {
                     </div>
 
                         <div className="wa-conversationInfoText">
+                          <span className={`wa-contactMiniTag ${session.contact_type === "patient" ? "is-patient" : "is-lead"}`}>
+                            {session.contact_type === "patient" ? "Patient" : "Lead"}
+                          </span>
                           {session.phone}
                         {suffix ? ` • ${suffix}` : ""}
                       </div>
                     </div>
                   );
-                })
+                })}
+                </>
               )}
             </div>
+            {(hasMoreSessions || isLoadingOlderSessions) && (
+              <div className="wa-loadMoreWrap">
+                <button
+                  type="button"
+                  className="wa-loadMoreSessions"
+                  onClick={handleLoadOlderSessions}
+                  disabled={isLoadingOlderSessions}
+                >
+                  {isLoadingOlderSessions ? "Loading older chats..." : "Load older chats"}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className={`wa-chatCol ${isMobileViewport && mobilePanel !== "chat" ? "is-mobile-hidden" : ""}`}>
@@ -1421,18 +1856,20 @@ export default function WhatsAppDashboard() {
                   <span className="wa-sessionName">
                     {selectedSession.patient_name || selectedSession.phone}
                   </span>
-                  {renderDbNamesPopover(selectedSession, true)}
-                  <span
-                    className={`wa-status ${
-                      selectedSession.contact_type === "lead"
-                        ? "is-lead"
-                        : "is-patient"
-                    }`}
-                  >
-                    {selectedSession.contact_type === "lead"
-                      ? "Lead"
-                      : "Patient"}
-                  </span>
+                  {!isMobileViewport && renderDbNamesPopover(selectedSession, true)}
+                  {!isMobileViewport && (
+                    <span
+                      className={`wa-status ${
+                        selectedSession.contact_type === "lead"
+                          ? "is-lead"
+                          : "is-patient"
+                      }`}
+                    >
+                      {selectedSession.contact_type === "lead"
+                        ? "Lead"
+                        : "Patient"}
+                    </span>
+                  )}
                   <span className={`wa-status ${isWithin24(selectedSession) ? "is-live" : "is-expired"}`}>
                     {isWithin24(selectedSession) ? "24h live" : "24h expired"}
                   </span>
@@ -1447,8 +1884,14 @@ export default function WhatsAppDashboard() {
                   >
                     {selectedSession.status || "pending"}
                   </span>
+                  {isLockedByAnotherAgent && (
+                    <span className="wa-status is-locked">
+                      {sessionLock?.agent_name || "Another agent"} is typing
+                    </span>
+                  )}
                 </div>
 
+                {!isMobileViewport && (
                 <div className="wa-messageFilterBar">
                   {[
                     { key: "all", label: "All" },
@@ -1466,57 +1909,55 @@ export default function WhatsAppDashboard() {
                     </button>
                   ))}
                 </div>
+                )}
 
                 <div className="wa-actionBtns">
-                  <button
-                    type="button"
-                    onClick={() => handleCreateClickupTask("followup")}
-                    disabled={isCreatingTask}
-                    className="wa-inlineBtn"
-                    title="Create follow-up task"
-                  >
-                    {isCreatingTask ? "..." : "Follow-up"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleCreateClickupTask("report_request")}
-                    disabled={isCreatingTask}
-                    className="wa-inlineBtn"
-                    title="Create report task"
-                  >
-                    Report Task
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleCreateClickupTask("doctors_connect")}
-                    disabled={isCreatingTask}
-                    className="wa-inlineBtn"
-                    title="Create doctor connect task"
-                  >
-                    Doctor Connect
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isUpdatingStatus}
-                    onClick={() => handleSessionAction("pending")}
-                    className={selectedSession.status === "pending" ? "is-active" : ""}
-                  >
+                  {!isMobileViewport && (
+                    <>
+                      <select
+                        value={pendingTaskAction}
+                        onChange={(e) => setPendingTaskAction(e.target.value)}
+                        className="wa-inlineSelect"
+                        disabled={isCreatingTask}
+                        title="Choose task action"
+                      >
+                        <option value="followup">Follow-up</option>
+                        <option value="report_request">Report task</option>
+                        <option value="doctors_connect">Doctor connect</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleRunTaskAction}
+                        disabled={isCreatingTask}
+                        className="wa-inlineBtn"
+                        title="Run selected task action"
+                      >
+                        {isCreatingTask ? "..." : "Run task"}
+                      </button>
+                    </>
+                  )}
+                    <button
+                      type="button"
+                      disabled={isUpdatingStatus || isLockedByAnotherAgent}
+                      onClick={() => handleSessionAction("pending")}
+                      className={selectedSession.status === "pending" ? "is-active" : ""}
+                    >
                     Pending
                   </button>
-                  <button
-                    type="button"
-                    disabled={isUpdatingStatus}
-                    onClick={() => handleSessionAction("resolve")}
-                    className={selectedSession.status === "resolved" ? "is-active" : ""}
-                  >
+                    <button
+                      type="button"
+                      disabled={isUpdatingStatus || isLockedByAnotherAgent}
+                      onClick={() => handleSessionAction("resolve")}
+                      className={selectedSession.status === "resolved" ? "is-active" : ""}
+                    >
                     Resolve
                   </button>
-                  <button
-                    type="button"
-                    disabled={isUpdatingStatus}
-                    onClick={() => handleSessionAction("close")}
-                    className={selectedSession.status === "closed" ? "is-active danger" : "danger"}
-                  >
+                    <button
+                      type="button"
+                      disabled={isUpdatingStatus || isLockedByAnotherAgent}
+                      onClick={() => handleSessionAction("close")}
+                      className={selectedSession.status === "closed" ? "is-active danger" : "danger"}
+                    >
                     Close
                   </button>
                 </div>
@@ -1556,6 +1997,14 @@ export default function WhatsAppDashboard() {
             )}
 
             {error && <div className="wa-error">{error}</div>}
+            {selectedSession && messageError && !isLoadingMessages && filteredMessages.length === 0 && (
+              <div className="wa-error">{messageError}</div>
+            )}
+            {!error && isLockedByAnotherAgent && (
+              <div className="wa-inlineHint is-soft">
+                {sessionLock?.agent_name || "Another agent"} is actively typing in this chat. Reply tools stay locked until the typing claim expires.
+              </div>
+            )}
             </div>
 
                 <div className="wa-chatBody">
@@ -1685,7 +2134,7 @@ export default function WhatsAppDashboard() {
                     type="button"
                     className="wa-attachBtn"
                     onClick={() => setShowBotFlowMenu((prev) => !prev)}
-                    disabled={!selectedSession || isSending || isUpdatingStatus}
+                    disabled={!selectedSession || isSending || isUpdatingStatus || isLockedByAnotherAgent}
                     title="Insert bot flow into chat"
                   >
                     🤖
@@ -1729,7 +2178,7 @@ export default function WhatsAppDashboard() {
                     type="button"
                     className="wa-attachBtn"
                     onClick={handleAttachmentChoose}
-                    disabled={!selectedSession || isSendingAttachment || isSendingReportTool}
+                    disabled={!canReply || isSendingAttachment || isSendingReportTool || isLockedByAnotherAgent}
                     title="Upload attachment"
                   >
                     📎
@@ -1739,7 +2188,7 @@ export default function WhatsAppDashboard() {
                   type="button"
                   className="wa-attachBtn"
                   onClick={handleSendLatestReport}
-                  disabled={!selectedSession || isSending || isUpdatingStatus || isSendingReportTool}
+                  disabled={!canReply || isSending || isUpdatingStatus || isSendingReportTool || isLockedByAnotherAgent}
                   title="Send latest report"
                 >
                   🧾
@@ -1769,6 +2218,8 @@ export default function WhatsAppDashboard() {
                       ? "Select a conversation to start replying"
                       : !isWithin24(selectedSession)
                         ? "Reply window expired. Use a template message to reopen."
+                        : isLockedByAnotherAgent
+                          ? `${sessionLock?.agent_name || "Another agent"} is replying here right now`
                         : "Type a message"
                   }
                   disabled={!canReply}
@@ -1847,6 +2298,34 @@ export default function WhatsAppDashboard() {
           flex-wrap: wrap;
         }
 
+        .wa-toolsMenuWrap {
+          position: relative;
+        }
+
+        .wa-toolsMenu {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 6px);
+          min-width: 260px;
+          max-width: 340px;
+          padding: 10px;
+          border-radius: 12px;
+          border: 1px solid #d6e0ed;
+          background: #ffffff;
+          box-shadow: 0 14px 28px rgba(18, 35, 58, 0.14);
+          z-index: 50;
+          display: grid;
+          gap: 8px;
+        }
+
+        .wa-toolsTitle {
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.03em;
+          color: #5a6d86;
+          text-transform: uppercase;
+        }
+
         .wa-leftPanelTools {
           padding: 10px 10px 8px;
           border-bottom: 1px solid #e0e7f0;
@@ -1877,6 +2356,24 @@ export default function WhatsAppDashboard() {
           flex-direction: column;
           gap: 6px;
           align-items: flex-start;
+          display: none;
+        }
+
+        .wa-leftMeta.is-open {
+          display: flex;
+        }
+
+        .wa-metaToggle {
+          height: 28px;
+          border-radius: 8px;
+          border: 1px solid #d3dce8;
+          background: #f8fbff;
+          color: #435a77;
+          padding: 0 10px;
+          font-size: 12px;
+          font-weight: 700;
+          width: fit-content;
+          cursor: pointer;
         }
 
         .wa-stateLegend {
@@ -1917,12 +2414,48 @@ export default function WhatsAppDashboard() {
           border-color: #cdebd7;
         }
 
+        .wa-agentSummaryCompact {
+          display: inline-flex;
+          gap: 6px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+
+        .wa-agentSummaryChip {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 2px 8px;
+          font-size: 11px;
+          font-weight: 700;
+          border: 1px solid transparent;
+          line-height: 1.4;
+        }
+
+        .wa-agentSummaryChip.is-online {
+          color: #14532d;
+          background: #dcfce7;
+          border-color: #86efac;
+        }
+
+        .wa-agentSummaryChip.is-away {
+          color: #7c2d12;
+          background: #ffedd5;
+          border-color: #fdba74;
+        }
+
+        .wa-agentSummaryChip.is-offline {
+          color: #334155;
+          background: #e2e8f0;
+          border-color: #cbd5e1;
+        }
+
         .wa-presenceWrap {
           display: inline-flex;
           gap: 6px;
           align-items: center;
           flex-wrap: wrap;
-          max-width: 420px;
+          max-width: 100%;
         }
 
         .wa-presenceChip {
@@ -2210,6 +2743,11 @@ export default function WhatsAppDashboard() {
           text-transform: capitalize;
         }
 
+        .wa-status.is-locked {
+          background: #fff4e5;
+          color: #9a5d00;
+        }
+
         .wa-stateFlag {
           display: inline-flex;
           align-items: center;
@@ -2422,6 +2960,8 @@ export default function WhatsAppDashboard() {
         .wa-actionBtns {
           display: flex;
           gap: 6px;
+          flex-wrap: wrap;
+          align-items: center;
         }
 
         .wa-actionBtns button {
@@ -2456,6 +2996,14 @@ export default function WhatsAppDashboard() {
         .wa-actionBtns button:disabled {
           opacity: 0.65;
           cursor: not-allowed;
+        }
+
+        .wa-actionBtns .wa-inlineSelect,
+        .wa-actionBtns .wa-inlineBtn {
+          height: 28px;
+          border-radius: 8px;
+          font-size: 11px;
+          font-weight: 700;
         }
 
         .wa-empty {
@@ -2733,6 +3281,12 @@ export default function WhatsAppDashboard() {
           cursor: pointer;
         }
 
+        .wa-inlineBtnSecondary {
+          border-color: #c8d6ea;
+          background: #fff;
+          color: #294365;
+        }
+
         .wa-inlineBtn:disabled {
           opacity: 0.65;
           cursor: not-allowed;
@@ -2928,6 +3482,143 @@ export default function WhatsAppDashboard() {
           min-height: 0;
         }
 
+        .wa-loadMoreWrap {
+          padding: 10px 12px 14px;
+          border-top: 1px solid #e7edf5;
+          background: linear-gradient(180deg, rgba(247, 250, 255, 0.92) 0%, #f7fbff 100%);
+        }
+
+        .wa-loadMoreSessions {
+          width: 100%;
+          min-height: 40px;
+          border-radius: 12px;
+          border: 1px solid #c8d6ea;
+          background: #ffffff;
+          color: #1f3552;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          box-shadow: 0 8px 18px rgba(15, 38, 70, 0.06);
+        }
+
+        .wa-loadMoreSessions:disabled {
+          opacity: 0.72;
+          cursor: progress;
+        }
+
+        .wa-contactIconBtn {
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          border: 0;
+          background: transparent;
+          color: #42546d;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          flex: 0 0 auto;
+          padding: 0;
+        }
+
+        .wa-contactIconVisual {
+          position: relative;
+          width: 30px;
+          height: 30px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .wa-contactIconRing {
+          position: relative;
+          width: 30px;
+          height: 30px;
+          border-radius: 999px;
+          border: 2px solid #3f434a;
+          background: #f5f3ef;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+
+        .wa-contactIconHead {
+          position: absolute;
+          top: 6px;
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: #3a3a3a;
+        }
+
+        .wa-contactIconBody {
+          position: absolute;
+          bottom: 4px;
+          width: 14px;
+          height: 8px;
+          border-radius: 10px 10px 4px 4px;
+          background: #3a3a3a;
+        }
+
+        .wa-contactIconBadge {
+          position: absolute;
+          right: -1px;
+          bottom: -1px;
+          min-width: 12px;
+          height: 12px;
+          padding: 0 2px;
+          border-radius: 999px;
+          border: 1px solid #ffffff;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 9px;
+          font-weight: 800;
+          line-height: 1;
+          color: #ffffff;
+          background: #0f7f85;
+        }
+
+        .wa-contactIconBadge.is-saved {
+          background: #1f7a4d;
+        }
+
+        .wa-contactIconBtn.is-compact {
+          width: 32px;
+          height: 32px;
+        }
+
+        .wa-contactIconBtn:disabled {
+          opacity: 0.7;
+          cursor: progress;
+        }
+
+        .wa-contactMiniTag {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 18px;
+          padding: 0 6px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 700;
+          margin-right: 6px;
+        }
+
+        .wa-contactMiniTag.is-patient {
+          background: #eaf9f1;
+          color: #1f7a4d;
+        }
+
+        .wa-contactMiniTag.is-lead {
+          background: #e7efff;
+          color: #1f5fbf;
+        }
+
         .wa-conversation {
           padding: 10px 12px;
           border-bottom: 1px solid #eef2f7;
@@ -3017,6 +3708,10 @@ export default function WhatsAppDashboard() {
         }
 
         @media (max-width: 900px) {
+          .wa-headerActions {
+            display: none;
+          }
+
           .wa-frame {
             height: 100dvh;
             min-height: 100dvh;
@@ -3103,6 +3798,11 @@ export default function WhatsAppDashboard() {
           .wa-sidebar {
             width: 100%;
             background: #f7f8fa;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            height: 100dvh;
+            overflow: hidden;
           }
 
           .wa-leftPanelTools {
@@ -3112,6 +3812,14 @@ export default function WhatsAppDashboard() {
             background: #f7f8fa;
             padding: 12px 12px 10px;
             box-shadow: 0 1px 0 rgba(224, 231, 240, 0.9);
+          }
+
+          .wa-leftMeta {
+            display: none;
+          }
+
+          .wa-metaToggle {
+            display: none;
           }
 
           .wa-stateLegend {
@@ -3193,11 +3901,19 @@ export default function WhatsAppDashboard() {
 
           .wa-sessionActionInfo {
             color: #ffffff;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
           }
 
           .wa-sessionName {
             color: #ffffff;
             font-size: 15px;
+            max-width: calc(100vw - 96px);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
           }
 
           .wa-mobileBackBtn {
@@ -3266,6 +3982,16 @@ export default function WhatsAppDashboard() {
             border-color: #ffd0d0;
           }
 
+          .wa-actionBtns {
+            gap: 6px;
+          }
+
+          .wa-actionBtns button {
+            padding: 0 10px;
+            height: 32px;
+            font-size: 12px;
+          }
+
           .wa-msgBubble {
             max-width: calc(100vw - 88px);
           }
@@ -3294,6 +4020,18 @@ export default function WhatsAppDashboard() {
           .wa-conversation.is-active .wa-conversationNameText.is-patient,
           .wa-conversation.is-active .wa-conversationNameText.is-lead {
             color: inherit;
+          }
+
+          .wa-conversationList {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .wa-loadMoreWrap {
+            padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+            background: #f7f8fa;
           }
 
           .wa-unread {

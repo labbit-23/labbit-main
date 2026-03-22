@@ -15,6 +15,14 @@ import { Icon } from "@chakra-ui/react";
 import { FiSave } from "react-icons/fi";
 import { FiNavigation } from "react-icons/fi";
 
+const REJECTION_REASONS = [
+  { code: "too_far", label: "Too far" },
+  { code: "unserviceable_area", label: "Unserviceable area" },
+  { code: "patient_not_looking", label: "Patient was not looking for a visit" },
+  { code: "patient_visited", label: "Patient already visited" },
+  { code: "other", label: "Other" }
+];
+
 export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode = "light" }) {
   const [processingQuickBook, setProcessingQuickBook] = useState(null);
   const [saving, setSaving] = useState(null);
@@ -110,6 +118,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
         <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Location</Th>
         <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Assign Visit</Th>
         <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
+        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Rejection Reason</Th>
         <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
       </Tr>
     </Thead>
@@ -120,6 +129,9 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
         const rawStatus = edit.status ?? qb.status ?? "";
         const statusValue = (edit.status ?? qb.status ?? "").toLowerCase();
         const visitValue = edit.visit_id ?? qb.visit_id ?? "";
+        const rejectionCode = edit.rejection_code ?? qb.rejection_code ?? "";
+        const rejectionReasonText = edit.rejection_reason ?? qb.rejection_reason ?? "";
+        const isRejected = statusValue === "rejected";
         const statusObj = statusOptions.find(opt => opt.code === statusValue);
         const visitsForDate = visitLists[qbDate] || [];
         const bookedStatus = statusOptions.find(opt => opt.code === "booked");
@@ -154,7 +166,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
                       [qb.id]: { ...(prev[qb.id] || {}), visit_id }
                     }));
                   }}
-                  isDisabled={statusValue === "REJECTED"}
+                  isDisabled={isRejected}
                   w="190px"
                   onBlur={() => setLinkingVisitId(null)} // hide on blur
                   autoFocus
@@ -199,7 +211,13 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
                     const status = e.target.value;
                     setEditedQuickBook(prev => ({
                       ...prev,
-                      [qb.id]: { ...(prev[qb.id] || {}), status }
+                      [qb.id]: {
+                        ...(prev[qb.id] || {}),
+                        status,
+                        ...(status !== "rejected"
+                          ? { rejection_code: "", rejection_reason: "" }
+                          : {})
+                      }
                     }));
                   }}
                   w="120px"
@@ -237,6 +255,72 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
                 >
                   {statusObj?.label || rawStatus}
                 </Button>
+              )}
+            </Td>
+            <Td minW="260px">
+              {isRejected ? (
+                <Box>
+                  <Select
+                    size="sm"
+                    value={rejectionCode}
+                    placeholder="Select rejection reason"
+                    onChange={(e) => {
+                      const code = e.target.value || "";
+                      const found = REJECTION_REASONS.find((item) => item.code === code);
+                      setEditedQuickBook((prev) => ({
+                        ...prev,
+                        [qb.id]: {
+                          ...(prev[qb.id] || {}),
+                          rejection_code: code,
+                          rejection_reason:
+                            code === "other"
+                              ? (prev[qb.id]?.rejection_reason || rejectionReasonText || "")
+                              : (found?.label || "")
+                        }
+                      }));
+                    }}
+                    mb={2}
+                  >
+                    {REJECTION_REASONS.map((item) => (
+                      <option key={item.code} value={item.code}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </Select>
+                  {(rejectionCode === "other" || !rejectionCode) && (
+                    <input
+                      value={rejectionReasonText}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setEditedQuickBook((prev) => ({
+                          ...prev,
+                          [qb.id]: {
+                            ...(prev[qb.id] || {}),
+                            rejection_reason: value
+                          }
+                        }));
+                      }}
+                      placeholder="Write rejection reason"
+                      style={{
+                        width: "100%",
+                        borderRadius: "8px",
+                        padding: "6px 8px",
+                        border: isDark ? "1px solid rgba(255,255,255,0.22)" : "1px solid #cbd5e1",
+                        background: isDark ? "rgba(255,255,255,0.05)" : "#fff",
+                        color: isDark ? "#fff" : "#0f172a"
+                      }}
+                    />
+                  )}
+                  {rejectionReasonText && (
+                    <Badge colorScheme="red" mt={2} whiteSpace="normal">
+                      {rejectionReasonText}
+                    </Badge>
+                  )}
+                </Box>
+              ) : (
+                <Text fontSize="sm" color={isDark ? "whiteAlpha.700" : "gray.500"}>
+                  —
+                </Text>
               )}
             </Td>
 
@@ -326,9 +410,16 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
                     onClick={async () => {
                       setSaving(qb.id);
                       try {
+                        const finalRejectionCode = statusToSave === "rejected" ? (rejectionCode || "other") : null;
+                        const finalRejectionReason =
+                          statusToSave === "rejected"
+                            ? (rejectionReasonText || REJECTION_REASONS.find((item) => item.code === finalRejectionCode)?.label || "Rejected")
+                            : null;
                         const payload = {
                           status: statusToSave,
                           visit_id: visitValue || null,
+                          rejection_code: finalRejectionCode,
+                          rejection_reason: finalRejectionReason
                         };
                         const res = await fetch(`/api/quickbook/${qb.id}`, {
                           method: "PUT",
@@ -354,7 +445,7 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
                     size="sm"
                     colorScheme="green"
                     mr={2}
-                    isDisabled={statusValue === "REJECTED" || !!visitValue}
+                    isDisabled={isRejected || !!visitValue}
                     onClick={() => setProcessingQuickBook(qb)}
                   >
                     Create Visit

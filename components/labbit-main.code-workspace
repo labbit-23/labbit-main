@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../../../sdrc-website"
+		},
+		{
+			"path": "../../../fetchreports"
 		}
 	],
 	"settings": {}

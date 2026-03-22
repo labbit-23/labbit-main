@@ -25,6 +25,17 @@ function derivePresence(lastActiveAtIso, isExecutiveActive = false) {
   return isExecutiveActive ? "away" : "offline";
 }
 
+function pickLatestIso(a, b) {
+  if (!a) return b || null;
+  if (!b) return a || null;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+function isMissingTableError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return error?.code === "42P01" || message.includes("does not exist") || message.includes("relation");
+}
+
 export async function GET(req) {
   const response = NextResponse.next();
   try {
@@ -82,24 +93,64 @@ export async function GET(req) {
       return NextResponse.json({ error: msgError.message }, { status: 500 });
     }
 
-    const latestByExec = new Map();
+    const latestByExecFromMessages = new Map();
     for (const row of messages || []) {
       const senderId = row?.payload?.sender?.id;
       if (!senderId) continue; // Bot/system message, not agent
-      if (!latestByExec.has(senderId)) {
-        latestByExec.set(senderId, row.created_at);
+      if (!latestByExecFromMessages.has(senderId)) {
+        latestByExecFromMessages.set(senderId, row.created_at);
+      }
+    }
+
+    const lockWindowIso = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    let latestByExecFromLocks = new Map();
+    try {
+      let lockQuery = supabase
+        .from("whatsapp_agent_locks")
+        .select("agent_id, last_seen_at, lab_id")
+        .not("agent_id", "is", null)
+        .gte("last_seen_at", lockWindowIso)
+        .order("last_seen_at", { ascending: false })
+        .limit(5000);
+
+      if (labIds.length > 0) {
+        lockQuery = lockQuery.in("lab_id", labIds);
+      }
+
+      const { data: lockRows, error: lockError } = await lockQuery;
+      if (lockError) {
+        if (!isMissingTableError(lockError)) {
+          return NextResponse.json({ error: lockError.message }, { status: 500 });
+        }
+      } else {
+        for (const row of lockRows || []) {
+          const agentId = row?.agent_id;
+          const seenAt = row?.last_seen_at || null;
+          if (!agentId || !seenAt) continue;
+          if (!latestByExecFromLocks.has(agentId)) {
+            latestByExecFromLocks.set(agentId, seenAt);
+          }
+        }
+      }
+    } catch (lockErr) {
+      if (!isMissingTableError(lockErr)) {
+        return NextResponse.json({ error: lockErr?.message || "Failed to load agent lock presence" }, { status: 500 });
       }
     }
 
     const agents = (executives || [])
       .map((exec) => {
-        const lastActiveAt = latestByExec.get(exec.id) || null;
+        const lastFromLocks = latestByExecFromLocks.get(exec.id) || null;
+        const lastFromMessages = latestByExecFromMessages.get(exec.id) || null;
+        const lastActiveAt = pickLatestIso(lastFromLocks, lastFromMessages);
         return {
           id: exec.id,
           name: exec.name || "Unknown",
           role: (exec.type || "").toLowerCase(),
           active: Boolean(exec.active),
           last_active_at: lastActiveAt,
+          last_lock_seen_at: lastFromLocks,
+          last_message_at: lastFromMessages,
           presence: derivePresence(lastActiveAt, Boolean(exec.active))
         };
       })

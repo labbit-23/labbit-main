@@ -16,12 +16,14 @@ import {
   sendMainMenu,
   sendMoreServicesMenu,
   sendReportInputPrompt,
+  sendReportHistoryTrendMenu,
   sendReportPostDownloadMenu,
   sendReportSelectionMenu,
   sendLocationMessage,
   sendLocationOptionsMenu,
   sendBranchLocationsMenu,
   sendBookingDateMenu,
+  sendBookingServicesMenu,
   sendBookingSlotMenu,
   sendBookingLocationMenu,
   sendPackageMenu,
@@ -41,6 +43,11 @@ const BOT_START_KEYWORDS = new Set([
   "MAIN MENU",
   "MENU",
   "REQUEST_REPORTS",
+  "REPORT_DOWNLOAD_LATEST",
+  "REPORT_PREVIOUS_TRENDS",
+  "LATEST REPORT",
+  "PREVIOUS/TRENDS",
+  "PREVIOUS REPORTS",
   "BOOK_HOME_VISIT",
   "MORE_SERVICES"
 ]);
@@ -234,12 +241,38 @@ function shouldActivateBotFromStart({ session, message, userInput, inboundMedia 
   return Boolean(detectIntent(userInput));
 }
 
-function shouldResumeBotFromHandoff({ message, userInput }) {
+function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normalizedSessionStatus, session }) {
   if (message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id) {
     return true;
   }
 
+  if (message?.location?.latitude && message?.location?.longitude) {
+    return true;
+  }
+
+  if (inboundMedia) {
+    return true;
+  }
+
   const raw = String(userInput || "").trim();
+  if (!raw) return false;
+
+  // Closed/resolved conversations should quickly re-enter bot flow on any fresh user text.
+  // so users don't get stuck with silent replies.
+  if (["resolved", "closed"].includes(String(normalizedSessionStatus || "").toLowerCase())) {
+    return true;
+  }
+
+  // For stale handoff/pending sessions, allow any fresh text to resume bot.
+  // This prevents users from being stuck indefinitely when no human is actively handling the thread.
+  if (["handoff", "pending"].includes(String(normalizedSessionStatus || "").toLowerCase())) {
+    const updatedAt = session?.updated_at ? new Date(session.updated_at).getTime() : null;
+    const ageMinutes = Number.isFinite(updatedAt) ? (Date.now() - updatedAt) / (60 * 1000) : null;
+    if (ageMinutes === null || ageMinutes >= 20) {
+      return true;
+    }
+  }
+
   const normalized = raw
     .replace(/\s+/g, " ")
     .toUpperCase();
@@ -521,6 +554,56 @@ function buildNext7Dates() {
   return list;
 }
 
+async function findActiveVisitForPatient({ patientId, labId }) {
+  if (!patientId || !labId) return null;
+
+  const todayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const excludedStatuses = "completed,cancelled,canceled,rejected,disabled,closed";
+
+  const { data, error } = await supabase
+    .from("visits")
+    .select(`
+      id,
+      visit_code,
+      visit_date,
+      status,
+      address,
+      time_slot:time_slot(slot_name, start_time, end_time),
+      executive:executive_id(name, phone)
+    `)
+    .eq("patient_id", patientId)
+    .eq("lab_id", labId)
+    .gte("visit_date", todayIso)
+    .not("status", "in", `(${excludedStatuses})`)
+    .order("visit_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[booking] active visit lookup failed", {
+      patientId,
+      labId,
+      error: error?.message || String(error)
+    });
+    return null;
+  }
+
+  return data || null;
+}
+
+function summarizeBotResult(result = {}) {
+  return {
+    replyType: result.replyType || null,
+    newState: result.newState || null,
+    hasReplyText: Boolean(result.replyText),
+    hasNotifyText: Boolean(result.notifyText),
+    hasDocumentUrl: Boolean(result.documentUrl),
+    filename: result.filename || null,
+    reportStatusReqno: result.reportStatusReqno || null,
+    contextKeys: Object.keys(result.context || {})
+  };
+}
+
 function getPackageCatalog() {
   const packages = Array.isArray(healthPackagesData?.packages)
     ? healthPackagesData.packages
@@ -699,6 +782,7 @@ export async function GET() {
 // --------------------------------------------------
 export async function POST(req) {
   try {
+    const isSimulationRequest = req.headers.get("x-labbit-sim") === "1";
 
     const body = await req.json();
     const profileName = getIncomingProfileName(body);
@@ -819,6 +903,14 @@ export async function POST(req) {
 
     if (message.interactive?.list_reply?.id) {
       userInput = message.interactive.list_reply.id;
+    }
+
+    if (!userInput && message.button?.payload) {
+      userInput = String(message.button.payload).trim();
+    }
+
+    if (!userInput && message.button?.text) {
+      userInput = String(message.button.text).trim();
     }
 
     if (message.location?.latitude && message.location?.longitude) {
@@ -983,6 +1075,13 @@ export async function POST(req) {
         .eq("id", session.id);
     }
 
+    const activeVisit = linkedPatient?.id
+      ? await findActiveVisitForPatient({
+          patientId: linkedPatient.id,
+          labId: session.lab_id
+        })
+      : null;
+
     if (inboundMedia?.id && !inboundMedia?.url && mediaResolverConfig) {
       try {
         const resolvedUrl = await resolveMediaUrlById({
@@ -1088,6 +1187,7 @@ export async function POST(req) {
         payload: {
           raw_message: message,
           raw_body: body,
+          simulated: isSimulationRequest,
           ...(profileName ? { profile_name: profileName } : {}),
           ...(inboundMedia
             ? {
@@ -1118,7 +1218,7 @@ export async function POST(req) {
     let normalizedSessionStatus = String(session.status || "").toLowerCase();
 
     if (["handoff", "pending", "resolved", "closed"].includes(normalizedSessionStatus) &&
-      shouldResumeBotFromHandoff({ message, userInput })) {
+      shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normalizedSessionStatus, session })) {
       session.status = "active";
       session.current_state = "START";
       session.context = {};
@@ -1199,8 +1299,17 @@ export async function POST(req) {
       inboundLocation,
       inboundMedia,
       selectedReportTitle: message?.interactive?.list_reply?.title || null,
-      packageCatalog
+      packageCatalog,
+      activeVisit,
+      labName: lab?.name || "our lab",
+      reportNotifyNumber
     });
+    console.log("[bot] process result", JSON.stringify({
+      phone,
+      sessionId: session.id,
+      sessionState: session.current_state || null,
+      summary: summarizeBotResult(result)
+    }));
 
     if (result.replyType === "SEND_DOCUMENT") {
       const isPdfAvailable = await isReachablePdfDocument(result.documentUrl);
@@ -1232,7 +1341,7 @@ export async function POST(req) {
             statusMessage ||
             botFlowConfig?.texts?.report_request_ack ||
             "Thank you. Our team will verify and send your report shortly.",
-          newState: "START",
+          newState: "HUMAN_HANDOVER",
           context: {}
         };
       }
@@ -1258,6 +1367,7 @@ export async function POST(req) {
       }
 
       if (result.notifyText?.startsWith("📄 Report Request")) {
+        await handoffToHuman(session.id);
         const requestedInput = (userInput || "").trim();
 
         try {
@@ -1315,6 +1425,12 @@ export async function POST(req) {
     // --------------------------------------------------
 
     const nextContext = { ...(result.context || {}) };
+    const shouldSendSimulationNotice =
+      isSimulationRequest && !Boolean(session?.context?.__simulation_notice_sent);
+    if (isSimulationRequest) {
+      nextContext.__simulation = true;
+      nextContext.__simulation_notice_sent = true;
+    }
 
     if (result.replyType === "BOOKING_DATE_MENU") {
       nextContext.available_dates = buildNext7Dates().reduce((acc, item) => {
@@ -1355,11 +1471,30 @@ export async function POST(req) {
     }
 
     await updateSession(session.id, result.newState, nextContext, messageTimestamp);
+    console.log("[bot] session updated", JSON.stringify({
+      phone,
+      sessionId: session.id,
+      newState: result.newState || null,
+      contextKeys: Object.keys(nextContext || {})
+    }));
 
     // --------------------------------------------------
     // 1️⃣3️⃣ Send Reply
     // --------------------------------------------------
+    console.log("[bot] send start", JSON.stringify({
+      phone,
+      sessionId: session.id,
+      replyType: result.replyType || "MAIN_MENU_FALLBACK"
+    }));
 
+    try {
+    if (shouldSendSimulationNotice) {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "🧪 Simulation mode message"
+      });
+    }
     switch (result.replyType) {
 
       case "MAIN_MENU":
@@ -1380,6 +1515,13 @@ export async function POST(req) {
           labId: session.lab_id,
           phone,
           reports: result.reports
+        });
+        break;
+
+      case "REPORT_HISTORY_TREND_MENU":
+        await sendReportHistoryTrendMenu({
+          labId: session.lab_id,
+          phone
         });
         break;
 
@@ -1557,6 +1699,15 @@ export async function POST(req) {
         });
         break;
       }
+
+      case "BOOKING_SERVICES_MENU":
+        await sendBookingServicesMenu({
+          labId: session.lab_id,
+          phone,
+          hasActiveVisit: Boolean(nextContext.has_active_visit),
+          activeVisitSummary: nextContext.active_visit_summary || ""
+        });
+        break;
 
       case "BOOKING_SLOT_MENU": {
 
@@ -1739,6 +1890,21 @@ export async function POST(req) {
       default:
         await sendMainMenu({ labId: session.lab_id, phone });
     }
+    } catch (sendError) {
+      console.error("[bot] send failed", JSON.stringify({
+        phone,
+        sessionId: session.id,
+        replyType: result.replyType || "MAIN_MENU_FALLBACK",
+        error: sendError?.message || String(sendError)
+      }));
+      throw sendError;
+    }
+
+    console.log("[bot] send ok", JSON.stringify({
+      phone,
+      sessionId: session.id,
+      replyType: result.replyType || "MAIN_MENU_FALLBACK"
+    }));
 
     return Response.json({ success: true });
 

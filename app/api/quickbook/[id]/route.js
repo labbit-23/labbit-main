@@ -9,6 +9,8 @@ export async function PUT(request, context) {
   const {
     status,
     visit_id,
+    rejection_code,
+    rejection_reason,
     location_source,
     location_text,
     location_name,
@@ -20,6 +22,8 @@ export async function PUT(request, context) {
   if (
     typeof status === "undefined" &&
     typeof visit_id === "undefined" &&
+    typeof rejection_code === "undefined" &&
+    typeof rejection_reason === "undefined" &&
     typeof location_source === "undefined" &&
     typeof location_text === "undefined" &&
     typeof location_name === "undefined" &&
@@ -33,6 +37,8 @@ export async function PUT(request, context) {
   const updateData = {};
   if (typeof status !== "undefined") updateData.status = status;
   if (typeof visit_id !== "undefined") updateData.visit_id = visit_id;
+  if (typeof rejection_code !== "undefined") updateData.rejection_code = rejection_code;
+  if (typeof rejection_reason !== "undefined") updateData.rejection_reason = rejection_reason;
   if (typeof location_source !== "undefined") updateData.location_source = location_source;
   if (typeof location_text !== "undefined") updateData.location_text = location_text;
   if (typeof location_name !== "undefined") updateData.location_name = location_name;
