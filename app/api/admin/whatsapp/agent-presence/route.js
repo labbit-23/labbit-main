@@ -16,13 +16,23 @@ function canUseWhatsappInbox(user) {
 }
 
 function derivePresence(lastActiveAtIso, isExecutiveActive = false) {
-  if (!lastActiveAtIso) return isExecutiveActive ? "online" : "offline";
+  // If executive is not active in app-level auth, treat as logged out.
+  if (!isExecutiveActive) return "offline";
+
+  // Logged in but no WA chat activity yet -> away (not offline).
+  if (!lastActiveAtIso) return "away";
+
   const lastMs = new Date(lastActiveAtIso).getTime();
-  if (!Number.isFinite(lastMs)) return isExecutiveActive ? "online" : "offline";
+  if (!Number.isFinite(lastMs)) return "away";
+
   const diffMin = (Date.now() - lastMs) / (60 * 1000);
   if (diffMin <= 5) return "online";
-  if (diffMin <= 60) return "away";
-  return isExecutiveActive ? "away" : "offline";
+  if (diffMin <= 90) return "away";
+
+  // Guard against stale "active=true" sessions not cleaned up.
+  if (diffMin > 12 * 60) return "offline";
+
+  return "away";
 }
 
 function pickLatestIso(a, b) {
@@ -49,8 +59,7 @@ export async function GET(req) {
 
     let execQuery = supabase
       .from("executives")
-      .select("id, name, type, active")
-      .in("type", ["admin", "manager", "director"]);
+      .select("id, name, type, active");
 
     if (labIds.length > 0) {
       const { data: mappings, error: mappingError } = await supabase
@@ -75,7 +84,7 @@ export async function GET(req) {
       return NextResponse.json({ error: execError.message }, { status: 500 });
     }
 
-    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const sinceIso = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
     let msgQuery = supabase
       .from("whatsapp_messages")
       .select("created_at, payload, lab_id")
@@ -138,7 +147,9 @@ export async function GET(req) {
       }
     }
 
+    const allowedRoles = new Set(["admin", "manager", "director"]);
     const agents = (executives || [])
+      .filter((exec) => allowedRoles.has(String(exec?.type || "").toLowerCase()))
       .map((exec) => {
         const lastFromLocks = latestByExecFromLocks.get(exec.id) || null;
         const lastFromMessages = latestByExecFromMessages.get(exec.id) || null;

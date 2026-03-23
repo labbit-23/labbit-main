@@ -623,6 +623,7 @@ function SimulatorPage() {
         .wsim-text {
           white-space: pre-wrap;
           line-height: 1.45;
+          font-size: 13px;
         }
 
         .wsim-attachmentLink {

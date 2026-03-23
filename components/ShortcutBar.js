@@ -66,6 +66,8 @@ export default function ShortcutBar({
   lockExecutive = false,
   themeMode = "light",
   onToggleTheme,
+  rightContent = null,
+  centerContent = null,
 }) {
   const router = useRouter();
   const isMobile = useBreakpointValue({ base: true, md: false });
@@ -236,7 +238,7 @@ export default function ShortcutBar({
     notificationPermission === "granted"
       ? {
           colorScheme: "green",
-          variant: themeMode === "dark" ? "solid" : "outline",
+          variant: themeMode === "dark" ? "solid" : "ghost",
           color: themeMode === "dark" ? "gray.900" : "green.700",
           bg: themeMode === "dark" ? "green.300" : undefined,
         }
@@ -427,6 +429,11 @@ export default function ShortcutBar({
               </Badge>
             </Tooltip>
           )}
+          {rightContent ? (
+            <Box display="inline-flex" alignItems="center" gap={2}>
+              {rightContent}
+            </Box>
+          ) : null}
           <Tooltip label="Logout">
             <IconButton
               icon={<FiLogOut />}
@@ -440,6 +447,23 @@ export default function ShortcutBar({
           </Tooltip>
         </Flex>
       </Flex>
+
+      {!isMobile && centerContent && (
+        <Flex
+          position="absolute"
+          top={0}
+          left="50%"
+          transform="translateX(-50%)"
+          height="56px"
+          alignItems="center"
+          pointerEvents="none"
+          userSelect="none"
+          zIndex={999}
+          px={4}
+        >
+          <Box pointerEvents="auto">{centerContent}</Box>
+        </Flex>
+      )}
 
       {/* Second row: date selector */}
       {isMobile && selectedDate && setSelectedDate && (
