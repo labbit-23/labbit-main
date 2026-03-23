@@ -46,6 +46,8 @@ const BOT_START_KEYWORDS = new Set([
   "MAIN MENU",
   "MENU",
   "REQUEST_REPORTS",
+  "REQUEST REPORTS",
+  "REQUEST REPORT",
   "REPORT_DOWNLOAD_LATEST",
   "REPORT_PREVIOUS_TRENDS",
   "LATEST REPORT",
@@ -54,6 +56,18 @@ const BOT_START_KEYWORDS = new Set([
   "BOOK_HOME_VISIT",
   "MORE_SERVICES"
 ]);
+
+function normalizeCommandLikeInput(value) {
+  const raw = String(value || "").trim();
+  const normalized = raw.replace(/\s+/g, " ").toUpperCase();
+  const normalizedGreeting = raw
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  const normalizedUnderscore = normalizedGreeting.replace(/\s+/g, "_");
+  return { raw, normalized, normalizedGreeting, normalizedUnderscore };
+}
 
 function parseTemplates(templates) {
   if (!templates) return {};
@@ -222,6 +236,11 @@ function shouldActivateBotFromStart({ session, message, userInput, inboundMedia 
     return true;
   }
 
+  // Legacy/alternate provider payloads can arrive as `type: "button"`.
+  if (message?.button?.payload || message?.button?.text) {
+    return true;
+  }
+
   // Location pin flow should always continue.
   if (message?.location?.latitude && message?.location?.longitude) {
     return true;
@@ -232,12 +251,14 @@ function shouldActivateBotFromStart({ session, message, userInput, inboundMedia 
     return true;
   }
 
-  const normalized = String(userInput || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toUpperCase();
+  const { normalized, normalizedGreeting, normalizedUnderscore } =
+    normalizeCommandLikeInput(userInput);
 
-  if (BOT_START_KEYWORDS.has(normalized)) {
+  if (
+    BOT_START_KEYWORDS.has(normalized) ||
+    BOT_START_KEYWORDS.has(normalizedGreeting) ||
+    BOT_START_KEYWORDS.has(normalizedUnderscore)
+  ) {
     return true;
   }
 
@@ -249,6 +270,11 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
     return true;
   }
 
+  // Legacy/alternate provider payloads can arrive as `type: "button"`.
+  if (message?.button?.payload || message?.button?.text) {
+    return true;
+  }
+
   if (message?.location?.latitude && message?.location?.longitude) {
     return true;
   }
@@ -257,7 +283,8 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
     return true;
   }
 
-  const raw = String(userInput || "").trim();
+  const { raw, normalized, normalizedGreeting, normalizedUnderscore } =
+    normalizeCommandLikeInput(userInput);
   if (!raw) return false;
 
   // Closed/resolved conversations should quickly re-enter bot flow on any fresh user text.
@@ -275,16 +302,6 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
       return true;
     }
   }
-
-  const normalized = raw
-    .replace(/\s+/g, " ")
-    .toUpperCase();
-  const normalizedGreeting = raw
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
-  const normalizedUnderscore = normalizedGreeting.replace(/\s+/g, "_");
 
   if (
     ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized) ||
