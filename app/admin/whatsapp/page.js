@@ -354,9 +354,10 @@ function getMessageMedia(msg) {
   }
 // InstaAlerts media extractor
 let filedata = null;
+let rawMsg = null;
 
 try {
-  const rawMsg =
+  rawMsg =
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
   filedata =
@@ -368,9 +369,21 @@ try {
 } catch (e) {}
 
 if (filedata) {
+  const fileType = rawMsg?.document?.id ? "document" : "image";
+  const fallbackName =
+    rawMsg?.document?.filename ||
+    msg?.payload?.raw_message?.document?.filename ||
+    msg?.payload?.media?.filename ||
+    null;
+  const query = new URLSearchParams({
+    filedata: String(filedata),
+    kind: fileType
+  });
+  if (fallbackName) query.set("filename", fallbackName);
   return {
-    type: "image",
-    url: `/api/admin/whatsapp/media?filedata=${encodeURIComponent(filedata)}`
+    type: fileType,
+    url: `/api/admin/whatsapp/media?${query.toString()}`,
+    filename: fallbackName
   };
 }
   return null;

@@ -17,11 +17,21 @@ const QUICK_STEPS = [
   { label: "More", value: "button:More Services" }
 ];
 
+function parseServerDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value !== "string") return new Date(value);
+
+  const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value);
+  const normalized = hasTimezone ? value : `${value.replace(" ", "T")}Z`;
+  return new Date(normalized);
+}
+
 function formatTime(value) {
   if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toLocaleString([], {
+  const parsed = parseServerDate(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "";
+  const formatted = parsed.toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
@@ -29,6 +39,7 @@ function formatTime(value) {
     minute: "2-digit",
     hour12: true
   });
+  return `${formatted} IST`;
 }
 
 function extractInteractiveOptions(payload = {}) {
