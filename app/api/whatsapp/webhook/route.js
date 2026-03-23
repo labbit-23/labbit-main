@@ -5,7 +5,7 @@ import {
   handoffToHuman
 } from "@/lib/whatsapp/sessions";
 import { detectIntent, processMessage } from "@/lib/whatsapp/engine";
-import { getReportStatus, getRadiologyReport } from "@/lib/neosoft/client";
+import { getLatestReportMeta, getReportStatus, getRadiologyReport } from "@/lib/neosoft/client";
 import {
   createReportRequestClickupTask,
   createWhatsappFollowupClickupTask
@@ -445,6 +445,30 @@ function buildReportStatusMessage(reportStatus) {
   }
 
   return lines.join("\n").trim() || null;
+}
+
+function pickLatestReportStatusPayload(meta) {
+  if (!meta || typeof meta !== "object") return null;
+  if (meta?.overall_status) return meta;
+  if (meta?.status && typeof meta.status === "object") return meta.status;
+  if (meta?.report_status && typeof meta.report_status === "object") return meta.report_status;
+  if (meta?.data && typeof meta.data === "object") return meta.data;
+  return null;
+}
+
+async function buildLatestReportStatusMessageForPhone(phone) {
+  try {
+    const meta = await getLatestReportMeta(phone);
+    const statusPayload = pickLatestReportStatusPayload(meta);
+    const statusMessage = buildReportStatusMessage(statusPayload);
+    return statusMessage || null;
+  } catch (error) {
+    console.warn("[report-status] latest-report-meta lookup skipped", {
+      phone,
+      error: error?.message || String(error)
+    });
+    return null;
+  }
 }
 
 function wait(ms) {
@@ -1327,6 +1351,8 @@ export async function POST(req) {
               error: error?.message || String(error)
             });
           }
+        } else if (result.latestReportPhone) {
+          statusMessage = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
         }
 
         result = {
@@ -1841,21 +1867,27 @@ export async function POST(req) {
           documentUrl: result.documentUrl,
           filename: result.filename
         });
-        if (result.reportStatusReqno) {
-          try {
-            const reportStatus = await getReportStatus(result.reportStatusReqno);
-            const statusMessage = buildReportStatusMessage(reportStatus);
-            if (statusMessage) {
-              await sendTextMessage({
-                labId: session.lab_id,
-                phone,
-                text: statusMessage
+        {
+          let statusMessage = null;
+          if (result.reportStatusReqno) {
+            try {
+              const reportStatus = await getReportStatus(result.reportStatusReqno);
+              statusMessage = buildReportStatusMessage(reportStatus);
+            } catch (error) {
+              console.error("[report-status] follow-up send failed", {
+                reqno: result.reportStatusReqno,
+                error: error?.message || String(error)
               });
             }
-          } catch (error) {
-            console.error("[report-status] follow-up send failed", {
-              reqno: result.reportStatusReqno,
-              error: error?.message || String(error)
+          } else if (result.latestReportPhone) {
+            statusMessage = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
+          }
+
+          if (statusMessage) {
+            await sendTextMessage({
+              labId: session.lab_id,
+              phone,
+              text: statusMessage
             });
           }
         }
