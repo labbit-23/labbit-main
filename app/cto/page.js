@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Box,
   Badge,
@@ -189,7 +188,6 @@ function isWhatsappMetric(service) {
 }
 
 function CtoDashboardPage() {
-  const router = useRouter();
   const [latest, setLatest] = useState({ summary: { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }, services: [] });
   const [agentPresence, setAgentPresence] = useState([]);
   const [labs, setLabs] = useState([]);
@@ -465,6 +463,62 @@ function CtoDashboardPage() {
     const match = labs.find((lab) => String(lab.id) === String(selectedLabId));
     return match?.name || null;
   }, [labs, selectedLabId]);
+  const togglePinnedLab = () => {
+    if (typeof window === "undefined" || !selectedLabId) return;
+    const nextPinned = pinnedLabId === selectedLabId ? "" : selectedLabId;
+    setPinnedLabId(nextPinned);
+    if (nextPinned) {
+      window.localStorage.setItem("ctoPinnedLabId", nextPinned);
+    } else {
+      window.localStorage.removeItem("ctoPinnedLabId");
+    }
+  };
+
+  const monitoringLabControl = (
+    <HStack
+      spacing={2}
+      px={2}
+      py={1.5}
+      borderRadius="14px"
+      bg="rgba(255,255,255,0.06)"
+      border="1px solid rgba(255,255,255,0.14)"
+      color="white"
+    >
+      <Text fontSize="xs" color="whiteAlpha.800" whiteSpace="nowrap">Lab</Text>
+      <Select
+        value={selectedLabId}
+        onChange={(e) => {
+          setSelectedServiceKey("");
+          setSelectedLabId(e.target.value);
+        }}
+        isDisabled={!canSelectLab}
+        size="sm"
+        maxW="220px"
+        borderRadius="10px"
+        bg="rgba(11, 19, 32, 0.72)"
+        borderColor="rgba(255,255,255,0.22)"
+        color="white"
+      >
+        {labs.length === 0 && <option value="">Default Lab</option>}
+        {labs.map((lab) => (
+          <option key={lab.id} value={String(lab.id)}>
+            {lab.name || lab.id}
+          </option>
+        ))}
+      </Select>
+      {isProductCto && selectedLabId && (
+        <Button
+          size="xs"
+          variant="outline"
+          borderColor="rgba(255,255,255,0.28)"
+          color="whiteAlpha.900"
+          onClick={togglePinnedLab}
+        >
+          {pinnedLabId === selectedLabId ? "Unpin" : "Pin"}
+        </Button>
+      )}
+    </HStack>
+  );
 
   return (
     <Box
@@ -474,7 +528,7 @@ function CtoDashboardPage() {
       px={{ base: 4, md: 8 }}
       py={{ base: 5, md: 8 }}
     >
-      <ShortcutBar themeMode="dark" />
+      <ShortcutBar themeMode="dark" centerContent={monitoringLabControl} />
       <Box maxW="1440px" mx="auto">
         <Box pt="64px" />
         <Flex
@@ -543,6 +597,7 @@ function CtoDashboardPage() {
               bg="rgba(255,255,255,0.05)"
               border="1px solid rgba(255,255,255,0.08)"
               minW={{ base: "100%", xl: "320px" }}
+              display={{ base: "block", md: "none" }}
             >
               <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
                 Monitoring Lab
@@ -574,16 +629,7 @@ function CtoDashboardPage() {
                     variant="outline"
                     borderColor="rgba(255,255,255,0.28)"
                     color="whiteAlpha.900"
-                    onClick={() => {
-                      if (typeof window === "undefined") return;
-                      const nextPinned = pinnedLabId === selectedLabId ? "" : selectedLabId;
-                      setPinnedLabId(nextPinned);
-                      if (nextPinned) {
-                        window.localStorage.setItem("ctoPinnedLabId", nextPinned);
-                      } else {
-                        window.localStorage.removeItem("ctoPinnedLabId");
-                      }
-                    }}
+                    onClick={togglePinnedLab}
                   >
                     {pinnedLabId === selectedLabId ? "Unpin Lab" : "Pin Lab"}
                   </Button>
@@ -597,37 +643,6 @@ function CtoDashboardPage() {
                   Restricted to assigned lab scope
                 </Text>
               )}
-            </Box>
-            <Box
-              px={3}
-              py={2}
-              borderRadius="18px"
-              bg="rgba(255,255,255,0.05)"
-              border="1px solid rgba(255,255,255,0.08)"
-              minW={{ base: "100%", xl: "320px" }}
-            >
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
-                CTO Menu
-              </Text>
-              <Select
-                value="/cto"
-                onChange={(e) => {
-                  const nextPath = String(e.target.value || "").trim();
-                  if (nextPath && nextPath !== "/cto") {
-                    router.push(nextPath);
-                  }
-                }}
-                size="sm"
-                borderRadius="10px"
-                bg="rgba(11, 19, 32, 0.72)"
-                borderColor="rgba(255,255,255,0.18)"
-                color="white"
-              >
-                <option value="/cto">Operations Dashboard</option>
-                <option value="/admin/whatsapp">WhatsApp Inbox</option>
-                <option value="/cto/whatsapp-sim">WhatsApp Simulator</option>
-                <option value="/admin">Admin Dashboard</option>
-              </Select>
             </Box>
             <Flex
               gap={2}
@@ -727,16 +742,6 @@ function CtoDashboardPage() {
                 px={6}
               >
                 Bot Simulator
-              </Button>
-              <Button
-                variant="outline"
-                borderColor="whiteAlpha.400"
-                color="white"
-                _hover={{ bg: "whiteAlpha.120" }}
-                borderRadius="full"
-                px={6}
-              >
-                Alert Matrix
               </Button>
             </Flex>
           </Stack>

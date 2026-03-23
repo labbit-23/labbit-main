@@ -583,6 +583,51 @@ export default function WhatsAppDashboard() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const shouldWarnLeave = Boolean(selectedSession?.id) || Boolean(toPlainComposerText(composerText).trim());
+
+    const onPopState = () => {
+      if (isMobileViewport && mobilePanel === "chat") {
+        setMobilePanel("list");
+        const nextState = { ...(window.history.state || {}), waMobilePanel: "list" };
+        window.history.pushState(nextState, "", window.location.href);
+        return;
+      }
+
+      if (shouldWarnLeave) {
+        const allowLeave = window.confirm("Leave WhatsApp Inbox? Unsent work may be lost.");
+        if (!allowLeave) {
+          window.history.pushState({ ...(window.history.state || {}), waStayOnInbox: true }, "", window.location.href);
+        }
+      }
+    };
+
+    if (isMobileViewport) {
+      const baseState = { ...(window.history.state || {}), waMobilePanel: mobilePanel };
+      window.history.replaceState(baseState, "", window.location.href);
+    }
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isMobileViewport, mobilePanel, selectedSession?.id, composerText]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const shouldWarnLeave = Boolean(selectedSession?.id) || Boolean(toPlainComposerText(composerText).trim());
+    if (!shouldWarnLeave) return undefined;
+
+    const onBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [selectedSession?.id, composerText]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(WHATSAPP_THEME_STORAGE_KEY);
     if (saved === "light" || saved === "dark") {
@@ -1822,7 +1867,7 @@ export default function WhatsAppDashboard() {
                 ))}
               </div>
 
-              {(isMobileViewport || showSearchBox || search) && (
+              {(showSearchBox || search) && (
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -3960,7 +4005,7 @@ export default function WhatsAppDashboard() {
             display: flex;
             flex-direction: column;
             min-height: 0;
-            height: 100dvh;
+            height: 100%;
             overflow: hidden;
           }
 
@@ -4005,8 +4050,8 @@ export default function WhatsAppDashboard() {
             max-width: 100% !important;
             min-width: 0;
             min-height: 0;
-            height: 100dvh;
-            max-height: 100dvh;
+            height: 100%;
+            max-height: 100%;
             overflow: hidden;
             background:
               radial-gradient(circle at top right, rgba(255,255,255,0.55), transparent 32%),
@@ -4531,6 +4576,18 @@ export default function WhatsAppDashboard() {
           box-shadow: 0 8px 18px rgba(15, 38, 70, 0.08);
         }
 
+        .wa-root.theme-light .wa-tabs button {
+          border: 1px solid #d3c4b1;
+          background: #fbf6ef;
+          color: #2b4668;
+        }
+
+        .wa-root.theme-light .wa-tabs button.is-active {
+          background: #0f7f85;
+          border-color: #0f7f85;
+          color: #ffffff;
+        }
+
         .wa-root.theme-light .wa-leftTitleMini {
           color: #1f3552;
         }
@@ -4576,6 +4633,11 @@ export default function WhatsAppDashboard() {
           background: #111b2f !important;
         }
 
+        .wa-root.theme-dark .wa-sessionActionInfo,
+        .wa-root.theme-dark .wa-sessionName {
+          color: #f8fafc !important;
+        }
+
         .wa-root.theme-dark .wa-leftNumberMini {
           color: rgba(248, 250, 252, 0.88) !important;
         }
@@ -4590,7 +4652,30 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-root.theme-dark .wa-conversation {
+          background: #152236 !important;
+          border: 1px solid rgba(255, 255, 255, 0.09) !important;
           border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+        }
+
+        .wa-root.theme-dark .wa-conversation:hover {
+          background: #1a2940 !important;
+        }
+
+        .wa-root.theme-dark .wa-conversation.is-active {
+          background: #1d3340 !important;
+          border-color: rgba(90, 197, 160, 0.5) !important;
+        }
+
+        .wa-root.theme-dark .wa-conversationInfoText {
+          color: rgba(226, 232, 240, 0.82) !important;
+        }
+
+        .wa-root.theme-dark .wa-conversationNameText.is-patient {
+          color: #7fe3b3 !important;
+        }
+
+        .wa-root.theme-dark .wa-conversationNameText.is-lead {
+          color: #9dc3ff !important;
         }
 
         .wa-root.theme-dark .wa-loadMoreWrap {
