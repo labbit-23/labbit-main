@@ -315,19 +315,21 @@ export default function PatientsTab({
           {isSavingVisit ? <Spinner size="sm" /> : 'Book Visit'}
         </Button>
 
-        <Button
-          colorScheme="purple"
-          onClick={handleManageAddressClick}
-          disabled={!selectedPatient?.id || loadingLabels}
-        >
-          {loadingLabels ? (
-            <Spinner size="sm" />
-          ) : hasAddresses ? (
-            'Manage Address'
-          ) : (
-            'Add Address'
-          )}
-        </Button>
+        {quickbookContext?.source !== 'quickbook' && (
+          <Button
+            colorScheme="purple"
+            onClick={handleManageAddressClick}
+            disabled={!selectedPatient?.id || loadingLabels}
+          >
+            {loadingLabels ? (
+              <Spinner size="sm" />
+            ) : hasAddresses ? (
+              'Manage Address'
+            ) : (
+              'Add Address'
+            )}
+          </Button>
+        )}
       </HStack>
 
       {selectedPatient?.id && (
@@ -383,6 +385,7 @@ export default function PatientsTab({
                   time_slot: quickbookContext.booking?.time_slot?.id || '',
                   lat: quickbookContext.booking?.location_lat || null,
                   lng: quickbookContext.booking?.location_lng || null,
+                  location_text: quickbookContext.booking?.location_text || "",
                   address:
                     quickbookContext.booking?.location_text ||
                     quickbookContext.booking?.location_address ||

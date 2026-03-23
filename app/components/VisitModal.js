@@ -6,16 +6,24 @@ import {
   Modal, ModalOverlay, ModalContent, ModalHeader,
   ModalBody, ModalFooter, ModalCloseButton, Button,
   VStack, FormControl, FormLabel, Select, Input,
-  Text, Spinner, Box, Flex, useToast, IconButton, Textarea, Image, Badge
+  Text, Spinner, Box, Flex, useToast, Textarea, Image, Badge
 } from "@chakra-ui/react";
-import { EditIcon } from "@chakra-ui/icons";
-import dayjs from "dayjs";
 import { useUser } from "../context/UserContext";
-import AddressModal from "./AddressModal";
 import { getModalFieldSettings } from "../../lib/modalFieldSettings";
 
 const formatDate = (date) =>
   date ? new Date(date).toISOString().slice(0, 10) : "";
+
+const deriveLocationText = (source = {}) => {
+  if (source?.location_text) return String(source.location_text);
+  const hasLatLng =
+    source?.lat !== null &&
+    typeof source?.lat !== "undefined" &&
+    source?.lng !== null &&
+    typeof source?.lng !== "undefined";
+  if (hasLatLng) return `${source.lat},${source.lng}`;
+  return String(source?.address || "");
+};
 
 const formatDateTime = (value) => {
   if (!value) return "-";
@@ -101,12 +109,8 @@ export default function VisitModal({
   const [timeSlots, setTimeSlots] = useState([]);
   const [statusOptions, setStatusOptions] = useState([]);
   const [dropdownsLoading, setDropdownsLoading] = useState(true);
-  const [patientAddresses, setPatientAddresses] = useState([]);
-  const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [latestVisit, setLatestVisit] = useState(null);
   const [loadingLatest, setLoadingLatest] = useState(false);
-  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
-  const [editingAddress, setEditingAddress] = useState(null);
   const [visitActivity, setVisitActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
@@ -157,7 +161,7 @@ export default function VisitModal({
         address: visitInitialData.address || initialAddress || "",
         lat: visitInitialData.lat || null,
         lng: visitInitialData.lng || null,
-        location_text: visitInitialData.location_text || "",
+        location_text: deriveLocationText(visitInitialData),
         status: visitInitialData.status || defaultValues.status || "unassigned",
         notes: visitInitialData?.tests?.length
           ? Array.isArray(visitInitialData.tests)
@@ -192,7 +196,7 @@ export default function VisitModal({
         address: visitInitialData?.address || initialAddress || "",
         lat: visitInitialData?.lat || null,
         lng: visitInitialData?.lng || null,
-        location_text: visitInitialData?.location_text || "",
+        location_text: deriveLocationText(visitInitialData || {}),
         status: defaultValues.status || "unassigned",
         notes: visitInitialData?.tests?.length
           ? Array.isArray(visitInitialData.tests)
@@ -306,77 +310,32 @@ export default function VisitModal({
   }, [isOpen, visitInitialData?.id, canViewActivity, toast]);
 
   useEffect(() => {
-    if (!formData.patient_id) { setPatientAddresses([]); return; }
-    let cancelled = false;
-    setLoadingAddresses(true);
-    fetch(`/api/patients/addresses?patient_id=${formData.patient_id}`)
-      .then(r => r.json())
-      .then(data => {
-        if (cancelled) return;
-        setPatientAddresses(Array.isArray(data) ? data : []);
-      })
-      .catch(() => { if (!cancelled) setPatientAddresses([]); })
-      .finally(() => { if (!cancelled) setLoadingAddresses(false); });
-    return () => { cancelled = true; };
-  }, [formData.patient_id]);
-
-  useEffect(() => {
-    if (!isOpen || formData.id || loadingAddresses || loadingLatest) return;
-    if (formData.address_id || formData.address) return;
-
-    if (patientAddresses.length > 0) {
-      const defaultAddress =
-        patientAddresses.find((address) => address.is_default) || patientAddresses[0];
-
-      if (defaultAddress) {
-        setFormData((current) => {
-          if (current.address_id || current.address) return current;
-          return {
-            ...current,
-            address_id: defaultAddress.id,
-            address: defaultAddress.area || defaultAddress.address_line || "",
-            lat: current.lat ?? defaultAddress.lat ?? null,
-            lng: current.lng ?? defaultAddress.lng ?? null,
-          };
-        });
-      }
-      return;
-    }
+    if (!isOpen || formData.id || loadingLatest) return;
+    if (formData.address) return;
 
     if (latestVisit?.address) {
       setFormData((current) => {
-        if (current.address_id || current.address) return current;
+        if (current.address) return current;
         return {
           ...current,
           address: latestVisit.address,
           lat: current.lat ?? latestVisit.lat ?? null,
           lng: current.lng ?? latestVisit.lng ?? null,
+          location_text: current.location_text || deriveLocationText(latestVisit),
         };
       });
     }
   }, [
     isOpen,
     formData.id,
-    formData.address_id,
     formData.address,
-    loadingAddresses,
     loadingLatest,
-    patientAddresses,
     latestVisit,
   ]);
 
   const handleChange = field => e => {
     const val = e.target.value;
-    if (field === "address_id") {
-      const addr = patientAddresses.find(a => a.id === val);
-      setFormData(f => ({
-        ...f,
-        address_id: val,
-        address: addr?.area || addr?.address_line || f.address,
-      }));
-    } else {
-      setFormData(f => ({ ...f, [field]: val }));
-    }
+    setFormData(f => ({ ...f, [field]: val }));
   };
 
   const parseLocationInput = (value) => {
@@ -408,7 +367,7 @@ export default function VisitModal({
       return;
     }
 
-    setFormData((f) => ({ ...f, location_text: text }));
+    setFormData((f) => ({ ...f, location_text: text, lat: null, lng: null }));
   };
 
   const isValid =
@@ -526,43 +485,14 @@ export default function VisitModal({
                 }
 
                 {/* Address */}
-                {!hiddenFields.includes("address_id") &&
+                {!hiddenFields.includes("address") &&
                   renderRow("Address / Area", (
-                    loadingAddresses ? <Spinner /> :
-                    patientAddresses.length > 0 ? (
-                      <Flex gap={2}>
-                        <Select
-                          flex="1"
-                          value={formData.address_id}
-                          onChange={handleChange("address_id")}
-                        >
-                          {patientAddresses.map(({ id, label, area, address_line }) => (
-                            <option key={id} value={id}>
-                              {label || address_line} {area ? `(${area})` : ""}
-                            </option>
-                          ))}
-                        </Select>
-                        <IconButton
-                          aria-label="Edit address"
-                          icon={<EditIcon />}
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            const addr = patientAddresses.find(a => a.id === formData.address_id);
-                            if (addr) {
-                              setEditingAddress(addr);
-                              setIsAddressModalOpen(true);
-                            }
-                          }}
-                        />
-                      </Flex>
-                    ) : (
-                      <Input
-                        placeholder={loadingLatest ? "Loading previous visit address..." : "Enter area"}
-                        value={formData.address}
-                        onChange={handleChange("address")}
-                      />
-                    )
+                    <Textarea
+                      placeholder={loadingLatest ? "Loading previous visit location..." : "Enter full visit location"}
+                      value={formData.address}
+                      onChange={handleChange("address")}
+                      rows={2}
+                    />
                   ))
                 }
 
@@ -695,28 +625,6 @@ export default function VisitModal({
         </ModalContent>
       </Modal>
 
-      <AddressModal
-        isOpen={isAddressModalOpen}
-        onClose={() => setIsAddressModalOpen(false)}
-        address={editingAddress}
-        onSave={(updated) => {
-          setIsAddressModalOpen(false);
-          setPatientAddresses(prev => {
-            const idx = prev.findIndex(a => a.id === updated.id);
-            if (idx !== -1) {
-              const copy = [...prev];
-              copy[idx] = updated;
-              return copy;
-            }
-            return [...prev, updated];
-          });
-          setFormData(f => ({
-            ...f,
-            address_id: updated.id,
-            address: updated.area || updated.address_line || "",
-          }));
-        }}
-      />
     </>
   );
 }

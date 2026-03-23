@@ -6,6 +6,7 @@ import {
 } from "@/lib/whatsapp/sessions";
 import { detectIntent, processMessage } from "@/lib/whatsapp/engine";
 import { getLatestReportMeta, getReportStatus, getRadiologyReport } from "@/lib/neosoft/client";
+import { buildReportStatusMessage } from "@/lib/neosoft/reportStatusMessage";
 import {
   createReportRequestClickupTask,
   createWhatsappFollowupClickupTask
@@ -26,8 +27,10 @@ import {
   sendBookingServicesMenu,
   sendBookingSlotMenu,
   sendBookingLocationMenu,
+  sendBookingPostConfirmLocationMenu,
   sendPackageMenu,
-  sendPackageVariantMenu
+  sendPackageVariantMenu,
+  runWithWhatsappSendContext
 } from "@/lib/whatsapp/sender";
 import healthPackagesData from "@/lib/data/health-packages.json";
 import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
@@ -281,11 +284,27 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+  const normalizedUnderscore = normalizedGreeting.replace(/\s+/g, "_");
 
   if (
     ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized) ||
     ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalizedGreeting)
   ) {
+    return true;
+  }
+
+  // Allow deliberate bot-entry commands (eg Request Reports / Latest Report / More Services)
+  // to resume immediately from handoff/pending, especially important in simulator runs.
+  if (
+    BOT_START_KEYWORDS.has(normalized) ||
+    BOT_START_KEYWORDS.has(normalizedGreeting) ||
+    BOT_START_KEYWORDS.has(normalizedUnderscore)
+  ) {
+    return true;
+  }
+
+  // Fallback: free-text intent detection should also resume bot flow from handoff.
+  if (detectIntent(raw)) {
     return true;
   }
 
@@ -361,90 +380,6 @@ async function isReachablePdfDocument(url) {
     });
     return false;
   }
-}
-
-function getStatusRowValue(row, ...keys) {
-  if (!row || typeof row !== "object") return null;
-
-  for (const key of keys) {
-    if (row[key] !== undefined && row[key] !== null) return row[key];
-    const lowerKey = String(key).toLowerCase();
-    const match = Object.keys(row).find((candidate) => String(candidate).toLowerCase() === lowerKey);
-    if (match && row[match] !== undefined && row[match] !== null) {
-      return row[match];
-    }
-  }
-
-  return null;
-}
-
-function getPendingLabTestNames(reportStatus) {
-  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
-
-  return tests
-    .filter((row) => {
-      const groupId = String(getStatusRowValue(row, "GROUPID", "groupid") || "").trim();
-      const approvalFlag = String(getStatusRowValue(row, "APPROVEDFLG", "approvedflg") || "").trim();
-      const status = String(getStatusRowValue(row, "REPORT_STATUS", "report_status") || "").trim();
-      return groupId === "GDEP0001" && approvalFlag !== "1" && status !== "LAB_READY";
-    })
-    .map((row) => String(getStatusRowValue(row, "TESTNM", "testnm", "test_name", "TEST_NAME") || "").trim())
-    .filter(Boolean);
-}
-
-function buildReportStatusMessage(reportStatus) {
-  if (!reportStatus || typeof reportStatus !== "object") return null;
-
-  const overallStatus = String(reportStatus.overall_status || "").trim();
-  const labTotal = Number(reportStatus.lab_total || 0);
-  const radiologyTotal = Number(reportStatus.radiology_total || 0);
-  const radiologyReady = Number(reportStatus.radiology_ready || 0);
-  const pendingLabTests = getPendingLabTestNames(reportStatus);
-  const lines = [];
-
-  switch (overallStatus) {
-    case "FULL_REPORT":
-      lines.push("Lab report status: All lab reports are ready.");
-      break;
-    case "PARTIAL_REPORT":
-      lines.push("Lab report status: Partial lab reports are ready.");
-      if (pendingLabTests.length > 0) {
-        lines.push("");
-        lines.push("Pending lab tests:");
-        for (const testName of pendingLabTests) {
-          lines.push(`- ${testName}`);
-        }
-      }
-      lines.push("");
-      lines.push("This PDF includes only the lab reports that are ready now. Please download again later for the full lab PDF once all pending lab reports are ready.");
-      break;
-    case "NO_REPORT":
-      lines.push("Lab report status: Lab reports are not ready yet.");
-      break;
-    case "NO_LAB_TESTS":
-      if (radiologyTotal > 0) {
-        lines.push("Lab report status: No lab reports are available for this requisition.");
-      } else if (labTotal === 0) {
-        return null;
-      }
-      break;
-    default:
-      return null;
-  }
-
-  if (radiologyTotal > 0) {
-    lines.push("");
-    if (radiologyReady >= radiologyTotal) {
-      lines.push("Radiology status: Radiology reports are ready.");
-    } else if (radiologyReady > 0) {
-      lines.push(`Radiology status: ${radiologyReady} of ${radiologyTotal} radiology reports are ready.`);
-    } else {
-      lines.push("Radiology status: Radiology reports are not ready yet.");
-    }
-    //lines.push("This bot sends lab reports only. Radiology reports are usually shared by the lab separately on request.");
-  }
-
-  return lines.join("\n").trim() || null;
 }
 
 function pickLatestReportStatusPayload(meta) {
@@ -578,11 +513,67 @@ function buildNext7Dates() {
   return list;
 }
 
-async function findActiveVisitForPatient({ patientId, labId }) {
-  if (!patientId || !labId) return null;
+async function findActiveVisitForPatient({ patientId, labId, phone = null, mrn = null }) {
+  if (!labId) return null;
 
-  const todayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const excludedStatuses = "completed,cancelled,canceled,rejected,disabled,closed";
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const excludedStatuses = "cancelled,canceled,rejected,disabled,closed";
+  const candidatePatientIds = new Set();
+  if (patientId) candidatePatientIds.add(patientId);
+
+  const normalizedPhone = digitsOnly(phone || "").slice(-10);
+  if (normalizedPhone) {
+    const phoneCandidates = Array.from(
+      new Set([
+        normalizedPhone,
+        ...phoneVariantsIndia(normalizedPhone).map((p) => digitsOnly(p).slice(-10)).filter(Boolean)
+      ])
+    );
+
+    if (phoneCandidates.length > 0) {
+      const { data: matchedPatients, error: patientMatchError } = await supabase
+        .from("patients")
+        .select("id")
+        .in("phone", phoneCandidates)
+        .limit(20);
+
+      if (patientMatchError) {
+        console.error("[booking] patient match lookup failed", {
+          phone: normalizedPhone,
+          labId,
+          error: patientMatchError?.message || String(patientMatchError)
+        });
+      } else {
+        for (const row of matchedPatients || []) {
+          if (row?.id) candidatePatientIds.add(row.id);
+        }
+      }
+    }
+  }
+
+  const normalizedMrn = String(mrn || "").trim();
+  if (normalizedMrn) {
+    const { data: mrnMatchedPatients, error: mrnMatchError } = await supabase
+      .from("patients")
+      .select("id")
+      .eq("mrn", normalizedMrn)
+      .limit(20);
+
+    if (mrnMatchError) {
+      console.error("[booking] mrn patient match lookup failed", {
+        mrn: normalizedMrn,
+        labId,
+        error: mrnMatchError?.message || String(mrnMatchError)
+      });
+    } else {
+      for (const row of mrnMatchedPatients || []) {
+        if (row?.id) candidatePatientIds.add(row.id);
+      }
+    }
+  }
+
+  const lookupIds = Array.from(candidatePatientIds).filter(Boolean);
+  if (lookupIds.length === 0) return null;
 
   const { data, error } = await supabase
     .from("visits")
@@ -595,7 +586,7 @@ async function findActiveVisitForPatient({ patientId, labId }) {
       time_slot:time_slot(slot_name, start_time, end_time),
       executive:executive_id(name, phone)
     `)
-    .eq("patient_id", patientId)
+    .in("patient_id", lookupIds)
     .eq("lab_id", labId)
     .gte("visit_date", todayIso)
     .not("status", "in", `(${excludedStatuses})`)
@@ -606,6 +597,8 @@ async function findActiveVisitForPatient({ patientId, labId }) {
   if (error) {
     console.error("[booking] active visit lookup failed", {
       patientId,
+      lookupIds,
+      mrn: normalizedMrn || null,
       labId,
       error: error?.message || String(error)
     });
@@ -805,8 +798,14 @@ export async function GET() {
 // 🔹 POST Handler
 // --------------------------------------------------
 export async function POST(req) {
-  try {
-    const isSimulationRequest = req.headers.get("x-labbit-sim") === "1";
+  const isSimulationRequest = req.headers.get("x-labbit-sim") === "1";
+  return runWithWhatsappSendContext(
+    {
+      useDevEndpoint: isSimulationRequest,
+      simulated: isSimulationRequest
+    },
+    async () => {
+      try {
 
     const body = await req.json();
     const profileName = getIncomingProfileName(body);
@@ -1012,7 +1011,7 @@ export async function POST(req) {
     if (session.patient_id) {
       const { data: existingLinked } = await supabase
         .from("patients")
-        .select("id, name, is_lead")
+        .select("id, name, is_lead, mrn")
         .eq("id", session.patient_id)
         .maybeSingle();
       linkedBySession = existingLinked || null;
@@ -1040,7 +1039,7 @@ export async function POST(req) {
               is_lead: false
             })
             .eq("id", linkedPatient.id)
-            .select("id, name, is_lead")
+            .select("id, name, is_lead, mrn")
             .single();
           linkedPatient = upgradedPatient || linkedPatient;
         } else if (!linkedPatient) {
@@ -1055,7 +1054,7 @@ export async function POST(req) {
               mrn: externalPatient.mrn,
               is_lead: false
             })
-            .select("id, name, is_lead")
+            .select("id, name, is_lead, mrn")
             .single();
           linkedPatient = createdPatient || null;
         }
@@ -1083,7 +1082,7 @@ export async function POST(req) {
           phone: digitsOnly(phone).slice(-10) || phone,
           is_lead: true
         })
-        .select("id, name, is_lead")
+        .select("id, name, is_lead, mrn")
         .single();
       linkedPatient = leadPatient || null;
     }
@@ -1102,7 +1101,9 @@ export async function POST(req) {
     const activeVisit = linkedPatient?.id
       ? await findActiveVisitForPatient({
           patientId: linkedPatient.id,
-          labId: session.lab_id
+          labId: session.lab_id,
+          phone,
+          mrn: linkedPatient?.mrn || null
         })
       : null;
 
@@ -1828,6 +1829,9 @@ export async function POST(req) {
         });
 
         if (quickbookResponse.ok) {
+          const quickbookBody = await quickbookResponse.json().catch(() => null);
+          const bookingId = quickbookBody?.booking?.id || null;
+
           await sendTextMessage({
             labId: session.lab_id,
             phone,
@@ -1836,6 +1840,25 @@ export async function POST(req) {
               botFlowConfig?.texts?.booking_submitted_ack ||
               "Your booking request has been received. Our team will contact you shortly."
           });
+
+          if (bookingId) {
+            const postBookingContext = {
+              ...nextContext,
+              quickbook_booking_id: bookingId,
+              quickbook_awaiting_optional_location: true
+            };
+            await updateSession(
+              session.id,
+              "BOOKING_POST_CONFIRM_LOCATION_OFFER",
+              postBookingContext,
+              messageTimestamp
+            );
+            await wait(350);
+            await sendBookingPostConfirmLocationMenu({
+              labId: session.lab_id,
+              phone
+            });
+          }
         } else {
           const quickbookErrorText = await quickbookResponse.text();
           console.error("❌ Quickbook failed:", quickbookResponse.status, quickbookErrorText);
@@ -1850,6 +1873,52 @@ export async function POST(req) {
         }
         break;
         }
+
+      case "QUICKBOOK_LOCATION_UPDATE": {
+        const bookingId = nextContext.quickbook_booking_id;
+        if (!bookingId) {
+          await sendTextMessage({
+            labId: session.lab_id,
+            phone,
+            text: "Booking is confirmed. Location update was skipped because booking reference was not found."
+          });
+          break;
+        }
+
+        const locationUpdateResponse = await fetch(`https://lab.sdrc.in/api/quickbook/${bookingId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location_source: nextContext.location_source || null,
+            location_text: nextContext.location_text || null,
+            location_name: nextContext.location_name || null,
+            location_address: nextContext.location_address || null,
+            location_lat: nextContext.location_lat || null,
+            location_lng: nextContext.location_lng || null
+          })
+        });
+
+        if (!locationUpdateResponse.ok) {
+          const errText = await locationUpdateResponse.text();
+          console.error("❌ Quickbook location update failed:", locationUpdateResponse.status, errText);
+          await sendTextMessage({
+            labId: session.lab_id,
+            phone,
+            text: "Your booking is confirmed. We could not save the location right now."
+          });
+        } else {
+          await sendTextMessage({
+            labId: session.lab_id,
+            phone,
+            text:
+              result.replyText ||
+              "Thanks. We’ve saved your location for the visit team."
+          });
+        }
+
+        await updateSession(session.id, "START", {}, messageTimestamp);
+        break;
+      }
 
       case "HANDOFF":
         await handoffToHuman(session.id);
@@ -1940,8 +2009,10 @@ export async function POST(req) {
 
     return Response.json({ success: true });
 
-  } catch (err) {
-    console.error("🚨 Webhook Error:", err);
-    return Response.json({ success: false }, { status: 500 });
-  }
+      } catch (err) {
+        console.error("🚨 Webhook Error:", err);
+        return Response.json({ success: false }, { status: 500 });
+      }
+    }
+  );
 }

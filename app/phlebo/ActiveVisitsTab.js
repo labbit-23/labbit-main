@@ -24,7 +24,7 @@ import {
   VStack as ModalVStack,
 } from "@chakra-ui/react";
 import { supabase } from "../../lib/supabaseClient";
-import { FiNavigation } from "react-icons/fi";
+import { FiNavigation, FiMapPin } from "react-icons/fi";
 import { FaMotorcycle } from "react-icons/fa";
 import { PhoneIcon, ChatIcon } from "@chakra-ui/icons";
 import { useUser } from "../context/UserContext";
@@ -88,6 +88,15 @@ function getNextActionLabel(status) {
     default:
       return "Open visit";
   }
+}
+
+function hasLocationPin(visit) {
+  return (
+    visit?.lat !== null &&
+    typeof visit?.lat !== "undefined" &&
+    visit?.lng !== null &&
+    typeof visit?.lng !== "undefined"
+  );
 }
 
 function getVisitGuidance(visit, isRecommended) {
@@ -557,9 +566,19 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                       <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.700"}>
                         {visit.visit_date}
                       </Text>
-                      <Text fontSize="sm" fontWeight="semibold" color={themeMode === "dark" ? "blue.200" : "blue.700"}>
-                        {visit.address ? visit.address.toUpperCase() : "NO AREA"}
-                      </Text>
+                      <HStack spacing={1} align="center">
+                        {hasLocationPin(visit) && (
+                          <Badge colorScheme="teal" variant="subtle" borderRadius="full" title="Location pin available">
+                            <HStack spacing={1}>
+                              <FiMapPin />
+                              <Text as="span" fontSize="xs">Pin</Text>
+                            </HStack>
+                          </Badge>
+                        )}
+                        <Text fontSize="sm" fontWeight="semibold" color={themeMode === "dark" ? "blue.200" : "blue.700"}>
+                          {visit.address ? visit.address.toUpperCase() : "NO AREA"}
+                        </Text>
+                      </HStack>
                     </HStack>
 
                     {/* Timeslot */}
@@ -632,9 +651,16 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                   >
                     <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
                     {/* Address */}
-                    <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
-                      {visit.address || "No Area"}
-                    </Text>
+                    <HStack spacing={2} align="center">
+                      {hasLocationPin(visit) && (
+                        <Badge colorScheme="teal" variant="subtle" borderRadius="full" title="Location pin available">
+                          Pin
+                        </Badge>
+                      )}
+                      <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
+                        {visit.address || "No Area"}
+                      </Text>
+                    </HStack>
                     <Text>{visit.visit_date}</Text>
                     <Text>{visit.time_slot?.slot_name ?? "-"}</Text>
                     <HStack mt={2}>

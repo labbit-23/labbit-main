@@ -50,6 +50,8 @@ export async function GET(request, context) {
         visit_date,
         time_slot,
         address,
+        lat,
+        lng,
         status,
         address_id,
         time_slot:time_slot (
@@ -99,6 +101,8 @@ export async function PUT(request, context) {
       "time_slot",
       "address",
       "address_id",
+      "lat",
+      "lng",
       "status",
       "notes",
       "prescription"

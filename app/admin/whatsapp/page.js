@@ -130,13 +130,16 @@ function getSessionSignals(session) {
   return items;
 }
 
-function getSenderLabel(msg, currentUserId) {
+function getSenderLabel(msg, currentUserId, patientName = "") {
   if (msg.direction === "status") {
     const sender = msg?.payload?.sender;
     return sender?.name ? `Internal Note (${sender.name})` : "Internal Note";
   }
 
-  if (msg.direction !== "outbound") return "User";
+  if (msg.direction !== "outbound") {
+    const name = String(patientName || "").trim();
+    return name || "User";
+  }
 
   const sender = msg?.payload?.sender;
   if (sender?.name) {
@@ -145,6 +148,18 @@ function getSenderLabel(msg, currentUserId) {
   }
 
   return "Bot";
+}
+
+function isSimulatedMessage(msg, sessionContext = null) {
+  if (msg?.payload?.simulated) return true;
+  if (msg?.payload?.sender?.simulated) return true;
+
+  const isOutbound = msg?.direction === "outbound" || msg?.direction === "status";
+  const sender = msg?.payload?.sender;
+  const isBotOutbound = isOutbound && !sender?.id && !sender?.name;
+  if (isBotOutbound && sessionContext?.__simulation) return true;
+
+  return false;
 }
 
 function getInitial(text) {
@@ -2169,7 +2184,8 @@ export default function WhatsAppDashboard() {
                     {filteredMessages.map((msg) => {
                       const outgoing = msg.direction === "outbound" || msg.direction === "status";
                       const isStatusNote = msg.direction === "status";
-                      const senderLabel = getSenderLabel(msg, user?.id);
+                      const senderLabel = getSenderLabel(msg, user?.id, selectedSession?.patient_name);
+                      const simulated = isSimulatedMessage(msg, selectedSession?.context || {});
                       const isBotMessage = isBotOutboundMessage(msg);
                       const media = getMessageMedia(msg);
                       const msgWithContext = {
@@ -2193,6 +2209,14 @@ export default function WhatsAppDashboard() {
                           >
                             <div className="wa-msgMeta">
                               <span className="wa-msgSender">{senderLabel}</span>
+                              {simulated && (
+                                <span
+                                  className="wa-msgSimFlag"
+                                  title="Simulator message (sent via dev endpoint)"
+                                >
+                                  🧪
+                                </span>
+                              )}
                               <span className="wa-msgTime">{formatMessageTime(msg.created_at)} IST</span>
                             </div>
                             <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
@@ -3396,6 +3420,11 @@ export default function WhatsAppDashboard() {
 
         .wa-msgTime {
           white-space: nowrap;
+        }
+
+        .wa-msgSimFlag {
+          font-size: 12px;
+          line-height: 1;
         }
 
         .wa-msgText {

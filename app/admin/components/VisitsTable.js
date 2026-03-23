@@ -15,6 +15,12 @@ const formatDate = (dateInput) => {
   return d.toISOString().split("T")[0];
 };
 
+const hasLocationPin = (visit) =>
+  visit?.lat !== null &&
+  typeof visit?.lat !== "undefined" &&
+  visit?.lng !== null &&
+  typeof visit?.lng !== "undefined";
+
 // Group active visits by executive and return disabled separately
 const groupVisitsByExecutive = (visits, executives) => {
   const execMap = new Map(executives.map((exec) => [exec.id, exec]));
@@ -182,9 +188,16 @@ export default function VisitsTable({
                       </Td>
                       {/* Address / Code */}
                       <Td borderColor={rowBorderColor}>
-                        <Box fontWeight="bold">
-                          {visit.address || "No Area"}
-                        </Box>
+                        <HStack spacing={2} align="center">
+                          <Box fontWeight="bold">
+                            {visit.address || "No Area"}
+                          </Box>
+                          {hasLocationPin(visit) && (
+                            <Badge colorScheme="teal" variant="subtle" borderRadius="full">
+                              PIN
+                            </Badge>
+                          )}
+                        </HStack>
                         <Box fontSize="sm" color={tableMutedText}>
                           {visit.notes ?? "N/A"}
                         </Box>
@@ -287,9 +300,16 @@ export default function VisitsTable({
                       </Box>
                     </Td>
                     <Td borderColor={rowBorderColor}>
-                      <Box fontWeight="bold">
-                        {visit.address || "No Area"}
-                      </Box>
+                      <HStack spacing={2} align="center">
+                        <Box fontWeight="bold">
+                          {visit.address || "No Area"}
+                        </Box>
+                        {hasLocationPin(visit) && (
+                          <Badge colorScheme="teal" variant="subtle" borderRadius="full">
+                            PIN
+                          </Badge>
+                        )}
+                      </HStack>
                       <Box fontSize="sm" color={tableMutedText}>
                         {visit.visit_code ?? "N/A"}
                       </Box>

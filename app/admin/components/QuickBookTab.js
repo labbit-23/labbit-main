@@ -83,8 +83,15 @@ export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode 
   if (!quickbookings) return <Spinner />;
   if (statusOptions.length === 0) return <Spinner />;
 
-  const pendingQuickBooks = quickbookings.filter(qb => qb.status?.toLowerCase() === "pending");
-  const nonPendingQuickBooks = quickbookings.filter(qb => qb.status?.toLowerCase() !== "pending");
+  const getStatusCode = (qb) => String(qb?.status || "").trim().toLowerCase();
+  const pendingQuickBooks = quickbookings.filter((qb) => {
+    const status = getStatusCode(qb);
+    return status === "" || status === "pending";
+  });
+  const nonPendingQuickBooks = quickbookings.filter((qb) => {
+    const status = getStatusCode(qb);
+    return status !== "" && status !== "pending";
+  });
   const disabledVisits = quickbookings.filter(qb => qb.status !== "PENDING" && qb.status !== "REJECTED");
   const fetchVisitsForDate = async (date) => {
     if (visitLists[date]) return; // Already fetched

@@ -130,7 +130,6 @@ function buildReportStatusMessage(reportStatus) {
     } else {
       lines.push("Radiology status: Radiology reports are not ready yet.");
     }
-    lines.push("This bot sends lab reports only. Radiology reports are usually shared by the lab separately on request.");
   }
 
   return lines.join("\n").trim() || null;

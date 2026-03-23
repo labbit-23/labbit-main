@@ -286,6 +286,9 @@ const exportVisitsImage = async () => {
         time_slot: formData.time_slot,
         address: formData.address,
         address_id: formData.address_id || null,
+        lat: formData.lat ?? null,
+        lng: formData.lng ?? null,
+        location_text: formData.location_text || "",
         status: formData.status,
         notes: formData.notes || "",
         prescription: formData.prescription || ""
@@ -384,7 +387,10 @@ const exportVisitsImage = async () => {
 
   const unassignedVisitCount = futureUnassignedSummary.count;
   const unassignedByDate = futureUnassignedSummary.byDate;
-  const pendingQuickbookCount = quickbookings.filter(qb => qb.status?.toLowerCase() === "pending").length;
+  const pendingQuickbookCount = quickbookings.filter((qb) => {
+    const normalized = String(qb?.status || "").trim().toLowerCase();
+    return normalized === "" || normalized === "pending";
+  }).length;
   const onlineAgents = agentPresence.filter((a) => a.presence === "online").length;
   const awayAgents = agentPresence.filter((a) => a.presence === "away").length;
   const offlineAgents = agentPresence.filter((a) => a.presence === "offline").length;
@@ -453,6 +459,13 @@ const exportVisitsImage = async () => {
     });
   }
 }
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchBaseData().catch(() => {});
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [fetchBaseData]);
 
   return (
     <RequireAuth roles={["admin", "manager", "director"]}>

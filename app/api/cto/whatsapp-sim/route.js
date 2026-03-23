@@ -109,7 +109,7 @@ async function loadTranscript(phone) {
     .select("id, lab_id, phone, patient_id, patient_name, status, current_state, context, unread_count, last_message_at, last_user_message_at, created_at")
     .in("phone", variants)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(8);
 
   if (sessionError) throw sessionError;
 
@@ -141,7 +141,7 @@ async function loadTranscript(phone) {
     .select("id, created_at, direction, name, message, payload")
     .in("phone", variants)
     .order("created_at", { ascending: false })
-    .limit(160);
+    .limit(80);
 
   if (latestLabId) {
     messageQuery = messageQuery.eq("lab_id", latestLabId);
