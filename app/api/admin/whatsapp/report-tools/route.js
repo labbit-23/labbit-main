@@ -147,6 +147,14 @@ function buildReportFilename(report) {
   return `SDRC_Report_${reqno}_${firstName}.pdf`;
 }
 
+function buildLatestReportCaption(statusMessage) {
+  const fallback = "Please find your latest report attached.";
+  const text = String(statusMessage || "").trim();
+  if (!text) return fallback;
+  // Keep caption safely under typical WhatsApp limits.
+  return text.length > 900 ? `${text.slice(0, 897)}...` : text;
+}
+
 async function isReachablePdfDocument(url) {
   if (!url) return false;
 
@@ -241,12 +249,28 @@ export async function POST(request) {
         return new Response("Latest report PDF was not found for this patient.", { status: 400 });
       }
 
+      let latestStatusMessage = null;
+      try {
+        const { recentReports } = await lookupReportSelection(phone);
+        const latestReqno = String(recentReports?.[0]?.reqno || "").trim();
+        if (latestReqno) {
+          const reportStatus = await getReportStatus(latestReqno);
+          latestStatusMessage = buildReportStatusMessage(reportStatus);
+        }
+      } catch (statusError) {
+        // Non-blocking: latest report send should still proceed.
+        console.warn("[admin-report-tools] latest status lookup skipped", {
+          phone,
+          error: statusError?.message || String(statusError)
+        });
+      }
+
       await sendDocumentMessage({
         labId: chatSession.lab_id,
         phone: chatSession.phone,
         documentUrl: latestReportUrl,
         filename: `SDRC_Latest_Report_${String(phone || "").replace(/\D/g, "").slice(-10) || "Patient"}.pdf`,
-        caption: "Please find your latest report attached.",
+        caption: buildLatestReportCaption(latestStatusMessage),
         sender: {
           id: user.id || null,
           name: user.name || "Agent",
