@@ -1,7 +1,7 @@
 // File: /app/components/PatientsTab.js
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box, Text, Button, HStack, Spinner, useToast
 } from '@chakra-ui/react';
@@ -239,6 +239,62 @@ export default function PatientsTab({
     setAddressManagerOpen(true);
   };
 
+  const visitModalInitialData = useMemo(() => {
+    if (editingVisit && editingVisit.id) {
+      return editingVisit;
+    }
+
+    if (quickbookContext?.source === 'quickbook') {
+      return {
+        patient_id: selectedPatient?.id,
+        patient: { name: selectedPatient?.name },
+        visit_date: quickbookContext.booking?.date || '',
+        time_slot: quickbookContext.booking?.time_slot?.id || '',
+        lat: quickbookContext.booking?.location_lat || null,
+        lng: quickbookContext.booking?.location_lng || null,
+        location_text: quickbookContext.booking?.location_text || "",
+        address:
+          quickbookContext.booking?.location_text ||
+          quickbookContext.booking?.location_address ||
+          quickbookContext.booking?.area ||
+          "",
+        notes: quickbookContext.booking?.tests?.length
+          ? Array.isArray(quickbookContext.booking.tests)
+            ? quickbookContext.booking.tests.join(', ')
+            : quickbookContext.booking.tests
+          : quickbookContext.booking?.package_name || '',
+        prescription: quickbookContext.booking?.prescription || '',
+        status: 'PENDING',
+      };
+    }
+
+    if (selectedPatient) {
+      return {
+        patient_id: selectedPatient.id,
+        patient: { name: selectedPatient.name },
+        // Scrub any stale visit_code from previous records.
+        visit_code: undefined
+      };
+    }
+
+    return {};
+  }, [
+    editingVisit,
+    selectedPatient?.id,
+    selectedPatient?.name,
+    quickbookContext?.source,
+    quickbookContext?.booking?.date,
+    quickbookContext?.booking?.time_slot?.id,
+    quickbookContext?.booking?.location_lat,
+    quickbookContext?.booking?.location_lng,
+    quickbookContext?.booking?.location_text,
+    quickbookContext?.booking?.location_address,
+    quickbookContext?.booking?.area,
+    quickbookContext?.booking?.tests,
+    quickbookContext?.booking?.package_name,
+    quickbookContext?.booking?.prescription
+  ]);
+
   return (
     <Box>
       {quickbookContext?.source === 'quickbook' && (
@@ -374,40 +430,7 @@ export default function PatientsTab({
           onSubmit={handleVisitSubmit}
           patientId={selectedPatient?.id}
           patients={selectedPatient ? [selectedPatient] : []}
-          visitInitialData={
-            editingVisit && editingVisit.id
-              ? editingVisit
-              : quickbookContext?.source === 'quickbook'
-              ? {
-                  patient_id: selectedPatient?.id,
-                  patient: { name: selectedPatient?.name },
-                  visit_date: quickbookContext.booking?.date || '',
-                  time_slot: quickbookContext.booking?.time_slot?.id || '',
-                  lat: quickbookContext.booking?.location_lat || null,
-                  lng: quickbookContext.booking?.location_lng || null,
-                  location_text: quickbookContext.booking?.location_text || "",
-                  address:
-                    quickbookContext.booking?.location_text ||
-                    quickbookContext.booking?.location_address ||
-                    quickbookContext.booking?.area ||
-                    "",
-                  notes: quickbookContext.booking?.tests?.length
-                    ? Array.isArray(quickbookContext.booking.tests)
-                      ? quickbookContext.booking.tests.join(', ')
-                      : quickbookContext.booking.tests
-                    : quickbookContext.booking?.package_name || '',
-                  prescription: quickbookContext.booking?.prescription || '',
-                  status: 'PENDING',
-                }
-              : selectedPatient
-              ? {
-                  patient_id: selectedPatient.id,
-                  patient: { name: selectedPatient.name },
-                  // ✅ Scrub any stale visit_code
-                  visit_code: undefined
-                }
-              : {}
-          }
+          visitInitialData={visitModalInitialData}
           isLoading={isSavingVisit}
           userType={user.userType}
           defaultExecutiveId={defaultExecutiveId}  // <-- Add this
