@@ -15,6 +15,67 @@ import {
 } from "@/lib/visitSms";
 import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
 
+const VISIT_DETAIL_SELECT_WITH_GEO = `
+  id,
+  patient_id,
+  executive_id,
+  executive:executive_id (
+    id,
+    name,
+    phone
+  ),
+  lab_id,
+  visit_date,
+  time_slot,
+  address,
+  lat,
+  lng,
+  status,
+  address_id,
+  time_slot:time_slot (
+    id,
+    slot_name,
+    start_time,
+    end_time
+  )
+`;
+
+const VISIT_DETAIL_SELECT_NO_GEO = `
+  id,
+  patient_id,
+  executive_id,
+  executive:executive_id (
+    id,
+    name,
+    phone
+  ),
+  lab_id,
+  visit_date,
+  time_slot,
+  address,
+  status,
+  address_id,
+  time_slot:time_slot (
+    id,
+    slot_name,
+    start_time,
+    end_time
+  )
+`;
+
+function isMissingVisitsGeoColumnError(error) {
+  const text = String(error?.message || error || "").toLowerCase();
+  return text.includes("column") && text.includes("visits") && (text.includes("lat") || text.includes("lng"));
+}
+
+function stripVisitGeoFields(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const next = { ...payload };
+  delete next.lat;
+  delete next.lng;
+  return next;
+}
+
 async function notifyPatientWhatsappWithSmsFallback(visitId) {
   try {
     await sendPatientVisitWhatsapp(visitId);
@@ -35,34 +96,19 @@ export async function GET(request, context) {
   }
 
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("visits")
-      .select(`
-        id,
-        patient_id,
-        executive_id,
-        executive:executive_id (
-          id,
-          name,
-          phone
-        ),
-        lab_id,
-        visit_date,
-        time_slot,
-        address,
-        lat,
-        lng,
-        status,
-        address_id,
-        time_slot:time_slot (
-          id,
-          slot_name,
-          start_time,
-          end_time
-        )
-      `)
+      .select(VISIT_DETAIL_SELECT_WITH_GEO)
       .eq("id", id)
       .single();
+
+    if (error && isMissingVisitsGeoColumnError(error)) {
+      ({ data, error } = await supabase
+        .from("visits")
+        .select(VISIT_DETAIL_SELECT_NO_GEO)
+        .eq("id", id)
+        .single());
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 404 });
@@ -134,12 +180,28 @@ export async function PUT(request, context) {
     }
 
     // 2️⃣ Update the visit
-    const { data: newVisit, error: updateErr } = await supabase
+    let finalUpdateData = { ...updateData };
+    let { data: newVisit, error: updateErr } = await supabase
       .from("visits")
-      .update(updateData)
+      .update(finalUpdateData)
       .eq("id", id)
       .select(`*, executive:executive_id ( id, name, phone )`)
       .single();
+
+    if (updateErr && isMissingVisitsGeoColumnError(updateErr)) {
+      const stripped = stripVisitGeoFields(finalUpdateData);
+      if (Object.keys(stripped).length === 0) {
+        return NextResponse.json({ error: "No valid fields provided for update" }, { status: 400 });
+      }
+
+      finalUpdateData = stripped;
+      ({ data: newVisit, error: updateErr } = await supabase
+        .from("visits")
+        .update(finalUpdateData)
+        .eq("id", id)
+        .select(`*, executive:executive_id ( id, name, phone )`)
+        .single());
+    }
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
