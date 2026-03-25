@@ -1757,14 +1757,66 @@ export async function POST(req) {
       }
 
       case "SEND_LOCATION":
-        await sendLocationMessage({
-          labId: session.lab_id,
-          phone,
-          latitude: lab.latitude,
-          longitude: lab.longitude,
-          name: lab.name,
-          address: lab.address
-        });
+        {
+          const latitude = Number(lab.latitude);
+          const longitude = Number(lab.longitude);
+          const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+
+          if (hasCoordinates) {
+            await sendLocationMessage({
+              labId: session.lab_id,
+              phone,
+              latitude,
+              longitude,
+              name: lab.name,
+              address: lab.address
+            });
+          } else {
+            await sendTextMessage({
+              labId: session.lab_id,
+              phone,
+              text:
+                botFlowConfig?.texts?.lab_address_text ||
+                templates?.lab_address_text ||
+                [lab.name, lab.address].filter(Boolean).join("\n") ||
+                "Lab location is currently unavailable. Please contact support."
+            });
+          }
+        }
+        break;
+
+      case "SEND_LOCATION_AND_BRANCHES_MENU":
+        {
+          const latitude = Number(lab.latitude);
+          const longitude = Number(lab.longitude);
+          const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+
+          if (hasCoordinates) {
+            await sendLocationMessage({
+              labId: session.lab_id,
+              phone,
+              latitude,
+              longitude,
+              name: lab.name,
+              address: lab.address
+            });
+          } else {
+            await sendTextMessage({
+              labId: session.lab_id,
+              phone,
+              text:
+                botFlowConfig?.texts?.lab_address_text ||
+                templates?.lab_address_text ||
+                [lab.name, lab.address].filter(Boolean).join("\n") ||
+                "Lab location is currently unavailable. Please contact support."
+            });
+          }
+
+          await sendBranchLocationsMenu({
+            labId: session.lab_id,
+            phone
+          });
+        }
         break;
 
       case "LOCATION_OPTIONS_MENU":
