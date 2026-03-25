@@ -2278,10 +2278,10 @@ export default function WhatsAppDashboard() {
                                   title={`Delivery ${deliveryState}`}
                                   aria-label={`Delivery ${deliveryState}`}
                                 >
-                                  {deliveryState === "sent" && "✓"}
-                                  {deliveryState === "delivered" && "✓✓"}
-                                  {deliveryState === "read" && "✓✓"}
-                                  {deliveryState === "failed" && "⚠"}
+                                  {deliveryState === "sent" && "Sent"}
+                                  {deliveryState === "delivered" && "Delivered"}
+                                  {deliveryState === "read" && "Read"}
+                                  {deliveryState === "failed" && "Failed"}
                                 </span>
                               )}
                             </div>
@@ -3489,27 +3489,42 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-msgDelivery {
-          font-size: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 16px;
+          padding: 1px 6px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 700;
           line-height: 1;
-          letter-spacing: -0.5px;
+          letter-spacing: 0;
           user-select: none;
+          border: 1px solid transparent;
         }
 
         .wa-msgDelivery.is-sent {
-          color: rgba(23, 49, 29, 0.55);
+          color: #5f6a7a;
+          background: rgba(95, 106, 122, 0.12);
+          border-color: rgba(95, 106, 122, 0.22);
         }
 
         .wa-msgDelivery.is-delivered {
-          color: rgba(23, 49, 29, 0.72);
+          color: #1f6d49;
+          background: rgba(31, 109, 73, 0.12);
+          border-color: rgba(31, 109, 73, 0.22);
         }
 
         .wa-msgDelivery.is-read {
           color: #1992ff;
+          background: rgba(25, 146, 255, 0.14);
+          border-color: rgba(25, 146, 255, 0.24);
         }
 
         .wa-msgDelivery.is-failed {
           color: #cc3b3b;
-          letter-spacing: 0;
+          background: rgba(204, 59, 59, 0.14);
+          border-color: rgba(204, 59, 59, 0.24);
         }
 
         .wa-msgSimFlag {
