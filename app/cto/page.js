@@ -270,13 +270,9 @@ function CtoDashboardPage() {
 
     refreshRef.current = loadLatest;
     loadLatest();
-    const interval = setInterval(() => {
-      loadLatest({ silent: true });
-    }, 60000);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
       refreshRef.current = null;
     };
   }, [selectedLabId]);
@@ -299,10 +295,8 @@ function CtoDashboardPage() {
     }
 
     loadPresence();
-    const interval = setInterval(loadPresence, 60000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
   }, []);
 

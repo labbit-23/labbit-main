@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabaseServer";
 import { toCanonicalIndiaPhone } from "@/lib/phone";
 import { fetchInactivePatients } from "@/lib/campaigns/shivam";
 import { sendCampaignTemplate } from "@/lib/campaigns/whatsapp";
+import { getTrendReportUrl } from "@/lib/neosoft/client";
 import {
   canManageCampaigns,
   getCampaignSessionUser,
@@ -16,6 +17,54 @@ function sleep(ms) {
 function safeName(name) {
   const trimmed = String(name || "").trim();
   return trimmed || "Patient";
+}
+
+function buildBookingLink({ mobile, mrno }) {
+  const base = String(process.env.CAMPAIGN_BOOKING_LINK_BASE_URL || "").trim();
+  if (!base) return "";
+  try {
+    const url = new URL(base);
+    if (mobile) url.searchParams.set("phone", String(mobile).replace(/\D/g, "").slice(-10));
+    if (mrno) url.searchParams.set("mrno", String(mrno).trim());
+    return url.toString();
+  } catch {
+    return base;
+  }
+}
+
+function normalizeCheckupDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function getCampaignTemplateSettings() {
+  const templateName = String(process.env.CAMPAIGN_TEMPLATE_NAME || "trend_campaign_v1").trim();
+  const keysRaw = String(process.env.CAMPAIGN_TEMPLATE_PARAM_KEYS || "name").trim();
+  const keys = keysRaw
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  return { templateName, keys: keys.length > 0 ? keys : ["name"] };
+}
+
+function buildTemplateParams(recipient, keys) {
+  const tokenMap = {
+    name: safeName(recipient?.name),
+    mobile: String(recipient?.mobile || "").replace(/\D/g, "").slice(-10),
+    mrno: String(recipient?.mrno || "").trim(),
+    last_health_checkup: normalizeCheckupDate(recipient?.last_health_checkup),
+    trend_link: recipient?.trend_link || "",
+    booking_link: recipient?.booking_link || ""
+  };
+
+  return keys.map((key) => String(tokenMap[key] || "")).filter((value) => value !== "");
 }
 
 export async function POST(request) {
@@ -54,13 +103,19 @@ export async function POST(request) {
       const mobile = toCanonicalIndiaPhone(row?.mobile);
       if (!mobile) continue;
       if (!uniqueByPhone.has(mobile)) {
+        const mrno = String(row?.mrno || "").trim() || null;
         uniqueByPhone.set(mobile, {
           mobile,
-          name: safeName(row?.name)
+          name: safeName(row?.name),
+          mrno,
+          last_health_checkup: row?.last_health_checkup || null,
+          trend_link: mrno ? getTrendReportUrl(mrno) : "",
+          booking_link: buildBookingLink({ mobile, mrno })
         });
       }
     }
     const recipients = [...uniqueByPhone.values()];
+    const templateSettings = getCampaignTemplateSettings();
 
     await supabase.from("campaign_recipients").delete().eq("campaign_id", campaign.id);
 
@@ -68,7 +123,7 @@ export async function POST(request) {
       const seedRows = recipients.map((row) => ({
         campaign_id: campaign.id,
         mobile: row.mobile,
-        mrno: null,
+        mrno: row.mrno || null,
         status: "pending",
         sent_at: null
       }));
@@ -83,8 +138,8 @@ export async function POST(request) {
         await sendCampaignTemplate({
           labId,
           phone: recipient.mobile,
-          templateName: "trend_campaign_v1",
-          templateParams: [recipient.name],
+          templateName: templateSettings.templateName,
+          templateParams: buildTemplateParams(recipient, templateSettings.keys),
           sender: {
             id: user.id,
             name: user.name || "Campaign Admin",
@@ -141,8 +196,13 @@ export async function POST(request) {
         ok: true,
         campaign_id: campaign.id,
         recipients: recipients.length,
+        recipients_with_mrno: recipients.filter((row) => row.mrno).length,
         sent,
-        failed
+        failed,
+        template: {
+          name: templateSettings.templateName,
+          param_keys: templateSettings.keys
+        }
       },
       { status: 200 }
     );

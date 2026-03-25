@@ -4317,6 +4317,22 @@ export default function WhatsAppDashboard() {
             border-color: #d7e0ea;
           }
 
+          /* Mobile safety: force readable text contrast inside bubbles */
+          .wa-msgBubble.is-in .wa-msgText,
+          .wa-msgBubble.is-in .wa-msgSender,
+          .wa-msgBubble.is-in .wa-msgTime {
+            color: #1c2a3d !important;
+          }
+
+          .wa-msgBubble.is-out .wa-msgText,
+          .wa-msgBubble.is-out .wa-msgSender,
+          .wa-msgBubble.is-out .wa-msgTime,
+          .wa-msgBubble.is-out.is-bot .wa-msgText,
+          .wa-msgBubble.is-out.is-bot .wa-msgSender,
+          .wa-msgBubble.is-out.is-bot .wa-msgTime {
+            color: #17311d !important;
+          }
+
           .wa-msgBubble.is-status {
             background: #fff4cf;
             border-color: #e8cc78;
@@ -4339,6 +4355,11 @@ export default function WhatsAppDashboard() {
             height: 42px;
             border-radius: 999px;
             background: #ffffff;
+            color: #1c2a3d;
+          }
+
+          .wa-customComposer textarea::placeholder {
+            color: #607087;
           }
 
           .wa-composerQuickActions {
@@ -4394,6 +4415,38 @@ export default function WhatsAppDashboard() {
             background: #0f7f85;
             border-color: #0f7f85;
             color: #ffffff;
+          }
+
+          .wa-root.theme-light .wa-customComposer textarea {
+            background: #ffffff;
+            color: #1d2b41;
+            border: 1px solid #d5c8b8;
+          }
+
+          .wa-root.theme-light .wa-customComposer textarea::placeholder {
+            color: #6a7a90;
+          }
+
+          .wa-root.theme-dark .wa-customComposer textarea {
+            background: rgba(15, 24, 40, 0.92);
+            color: #f8fafc;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+          }
+
+          .wa-root.theme-dark .wa-customComposer textarea::placeholder {
+            color: rgba(226, 232, 240, 0.72);
+          }
+
+          .wa-root.theme-light .wa-msgBubble.is-in .wa-msgText,
+          .wa-root.theme-light .wa-msgBubble.is-in .wa-msgSender,
+          .wa-root.theme-light .wa-msgBubble.is-in .wa-msgTime {
+            color: #1d2b41 !important;
+          }
+
+          .wa-root.theme-light .wa-msgBubble.is-out.is-bot .wa-msgText,
+          .wa-root.theme-light .wa-msgBubble.is-out.is-bot .wa-msgSender,
+          .wa-root.theme-light .wa-msgBubble.is-out.is-bot .wa-msgTime {
+            color: #42536b !important;
           }
         }
 
@@ -4755,6 +4808,21 @@ export default function WhatsAppDashboard() {
 
         .wa-root.theme-dark .wa-msgBubble.is-in .wa-msgMeta {
           color: #5a6b83 !important;
+        }
+
+        .wa-root.theme-dark .wa-msgBubble.is-in .wa-msgText,
+        .wa-root.theme-dark .wa-msgBubble.is-in .wa-msgSender,
+        .wa-root.theme-dark .wa-msgBubble.is-in .wa-msgTime {
+          color: #152238 !important;
+        }
+
+        .wa-root.theme-dark .wa-msgBubble.is-out .wa-msgText,
+        .wa-root.theme-dark .wa-msgBubble.is-out .wa-msgSender,
+        .wa-root.theme-dark .wa-msgBubble.is-out .wa-msgTime,
+        .wa-root.theme-dark .wa-msgBubble.is-out.is-bot .wa-msgText,
+        .wa-root.theme-dark .wa-msgBubble.is-out.is-bot .wa-msgSender,
+        .wa-root.theme-dark .wa-msgBubble.is-out.is-bot .wa-msgTime {
+          color: #17311d !important;
         }
 
       `}</style>

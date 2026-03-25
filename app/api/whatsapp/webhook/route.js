@@ -81,6 +81,121 @@ function parseTemplates(templates) {
   return typeof templates === "object" ? templates : {};
 }
 
+function extractStatusEvents(body) {
+  const candidates = [];
+
+  const entryStatuses =
+    body?.entry?.[0]?.changes?.[0]?.value?.statuses ||
+    body?.value?.statuses ||
+    body?.statuses ||
+    [];
+
+  if (Array.isArray(entryStatuses)) {
+    for (const row of entryStatuses) {
+      if (row && typeof row === "object") candidates.push(row);
+    }
+  }
+
+  return candidates;
+}
+
+async function resolveLabIdForStatusPhone(phone) {
+  const canonical = toCanonicalIndiaPhone(phone) || String(phone || "").trim();
+  if (!canonical) return null;
+
+  const { data: sessionMatch } = await supabase
+    .from("chat_sessions")
+    .select("lab_id")
+    .eq("phone", canonical)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (sessionMatch?.lab_id) return sessionMatch.lab_id;
+
+  const { data: messageMatch } = await supabase
+    .from("whatsapp_messages")
+    .select("lab_id")
+    .eq("phone", canonical)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (messageMatch?.lab_id) return messageMatch.lab_id;
+
+  const { data: defaultLab } = await supabase
+    .from("labs")
+    .select("id")
+    .eq("is_default", true)
+    .maybeSingle();
+  return defaultLab?.id || null;
+}
+
+async function persistWebhookStatusEvents({ body, statusEvents }) {
+  if (!Array.isArray(statusEvents) || statusEvents.length === 0) return;
+
+  const metadata =
+    body?.entry?.[0]?.changes?.[0]?.value?.metadata ||
+    body?.value?.metadata ||
+    body?.metadata ||
+    null;
+
+  for (const status of statusEvents) {
+    try {
+      const providerMessageId = String(status?.id || "").trim() || null;
+      const statusCode = String(status?.status || "").trim() || "unknown";
+      const recipientRaw = String(status?.recipient_id || "").trim();
+      const phone = toCanonicalIndiaPhone(recipientRaw) || recipientRaw;
+      const labId = await resolveLabIdForStatusPhone(phone);
+
+      if (!labId || !phone) {
+        console.warn("[status-callback] skipped due to unresolved lab/phone", {
+          labId,
+          phone,
+          providerMessageId,
+          statusCode
+        });
+        continue;
+      }
+
+      const errorObj = Array.isArray(status?.errors) ? status.errors[0] || null : null;
+      const ts =
+        status?.timestamp && Number.isFinite(Number(status.timestamp))
+          ? new Date(Number(status.timestamp) * 1000).toISOString()
+          : new Date().toISOString();
+
+      await supabase.from("whatsapp_messages").insert({
+        lab_id: labId,
+        phone,
+        message: `Delivery ${statusCode}${providerMessageId ? ` (${providerMessageId})` : ""}`,
+        direction: "status",
+        message_id: providerMessageId,
+        payload: {
+          status_event: true,
+          status: statusCode,
+          timestamp: ts,
+          recipient_id: recipientRaw || null,
+          provider_message_id: providerMessageId,
+          metadata,
+          error: errorObj
+            ? {
+                code: errorObj.code || null,
+                title: errorObj.title || null,
+                message: errorObj.message || null,
+                details: errorObj?.error_data?.details || null
+              }
+            : null,
+          raw_status: status,
+          raw_body: body
+        }
+      });
+    } catch (err) {
+      console.error("[status-callback] persist failed", {
+        error: err?.message || String(err),
+        status
+      });
+    }
+  }
+}
+
 function getIncomingProfileName(body) {
   const candidates = [
     body?.profile?.name,
@@ -828,6 +943,11 @@ export async function POST(req) {
     const profileName = getIncomingProfileName(body);
     console.log("📩 RAW WEBHOOK:", JSON.stringify(body));
 
+    const statusEvents = extractStatusEvents(body);
+    if (statusEvents.length > 0) {
+      await persistWebhookStatusEvents({ body, statusEvents });
+    }
+
     // --------------------------------------------------
     // 1️⃣ Extract Message Safely
     // --------------------------------------------------
@@ -864,7 +984,11 @@ export async function POST(req) {
     }
 
     if (!message) {
-      console.log("⚠️ No message found in webhook.");
+      if (statusEvents.length > 0) {
+        console.log(`📬 Status callback processed (${statusEvents.length} events).`);
+      } else {
+        console.log("⚠️ No message found in webhook.");
+      }
       return Response.json({ success: true });
     }
 

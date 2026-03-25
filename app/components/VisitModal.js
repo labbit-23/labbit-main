@@ -1,7 +1,7 @@
 // File: /app/components/VisitModal.js
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader,
   ModalBody, ModalFooter, ModalCloseButton, Button,
@@ -113,6 +113,7 @@ export default function VisitModal({
   const [loadingLatest, setLoadingLatest] = useState(false);
   const [visitActivity, setVisitActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
+  const initFormKeyRef = useRef("");
 
   const handlePrescriptionFile = async (e) => {
     const file = e.target.files[0];
@@ -143,6 +144,22 @@ export default function VisitModal({
   };
 
   useEffect(() => {
+    if (!isOpen) return;
+
+    const visitId = String(visitInitialData?.id || "new");
+    const visitDate = String(visitInitialData?.visit_date || "");
+    const visitTimeSlot =
+      visitInitialData?.time_slot && typeof visitInitialData.time_slot === "object"
+        ? String(visitInitialData.time_slot.id || "")
+        : String(visitInitialData?.time_slot || "");
+    const visitAddress = String(visitInitialData?.address || initialAddress || "");
+    const effectivePatientId = String(visitInitialData?.patient_id || patientId || "");
+    const initKey = [visitId, effectivePatientId, visitDate, visitTimeSlot, visitAddress].join("|");
+
+    // Prevent form re-initialization on unrelated parent re-renders.
+    if (initFormKeyRef.current === initKey) return;
+    initFormKeyRef.current = initKey;
+
     if (visitInitialData?.id) {
       setFormData({
         id: visitInitialData.id,
@@ -155,8 +172,8 @@ export default function VisitModal({
           : visitInitialData.lab_id || "",
         visit_date: visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
         time_slot: visitInitialData.time_slot && typeof visitInitialData.time_slot === "object"
-          ? visitInitialData.time_slot.id
-          : visitInitialData.time_slot || "",
+          ? String(visitInitialData.time_slot.id || "")
+          : String(visitInitialData.time_slot || ""),
         address_id: visitInitialData.address_id || "",
         address: visitInitialData.address || initialAddress || "",
         lat: visitInitialData.lat || null,
@@ -189,8 +206,8 @@ export default function VisitModal({
         visit_date: visitInitialData && visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
         time_slot: visitInitialData && visitInitialData.time_slot
           ? typeof visitInitialData.time_slot === "object"
-            ? visitInitialData.time_slot.id
-            : visitInitialData.time_slot
+            ? String(visitInitialData.time_slot.id || "")
+            : String(visitInitialData.time_slot || "")
           : "",
         address_id: "",
         address: visitInitialData?.address || initialAddress || "",
@@ -207,7 +224,12 @@ export default function VisitModal({
         ...defaultValues,
       });
     }
-  }, [visitInitialData, patientId, defaultValues, initialAddress]);
+  }, [isOpen, visitInitialData, patientId, defaultValues, initialAddress, role, user?.id]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    initFormKeyRef.current = "";
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) { setDropdownsLoading(true); return; }
@@ -251,7 +273,10 @@ export default function VisitModal({
   useEffect(() => {
     if (timeSlots.length === 0) return;
     setFormData(prev => {
-      if (prev.time_slot && !timeSlots.some(slot => slot.id === prev.time_slot)) {
+      if (
+        prev.time_slot &&
+        !timeSlots.some((slot) => String(slot.id) === String(prev.time_slot))
+      ) {
         return { ...prev, time_slot: "" };
       }
       return prev;
