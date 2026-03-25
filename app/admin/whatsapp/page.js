@@ -162,6 +162,40 @@ function isSimulatedMessage(msg, sessionContext = null) {
   return false;
 }
 
+function extractStatusProviderMessageId(msg) {
+  return (
+    String(
+      msg?.payload?.provider_message_id ||
+      msg?.payload?.message_id ||
+      msg?.message_id ||
+      ""
+    ).trim() || null
+  );
+}
+
+function extractOutboundProviderMessageId(msg) {
+  const response = msg?.payload?.response || {};
+  return (
+    String(
+      response?.id ||
+      response?.message_id ||
+      response?.messages?.[0]?.id ||
+      response?.result?.id ||
+      msg?.message_id ||
+      ""
+    ).trim() || null
+  );
+}
+
+function deliveryStatusRank(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "failed") return 0;
+  if (normalized === "sent") return 1;
+  if (normalized === "delivered") return 2;
+  if (normalized === "read") return 3;
+  return -1;
+}
+
 function getInitial(text) {
   return (text || "?").trim().charAt(0).toUpperCase() || "?";
 }
@@ -1598,7 +1632,7 @@ export default function WhatsAppDashboard() {
   }, [search, sessions, tab]);
 
   const filteredMessages = useMemo(() => {
-    let filtered = messages;
+    let filtered = messages.filter((msg) => msg?.direction !== "status");
 
     if (senderFilter === "all") return filtered;
 
@@ -1612,6 +1646,21 @@ export default function WhatsAppDashboard() {
       return true;
     });
   }, [messages, senderFilter]);
+
+  const deliveryStatusByProviderMessageId = useMemo(() => {
+    const map = new Map();
+    const statusRows = messages.filter((msg) => msg?.direction === "status");
+    for (const row of statusRows) {
+      const providerId = extractStatusProviderMessageId(row);
+      const status = String(row?.payload?.status || "").toLowerCase();
+      if (!providerId || !status) continue;
+      const prev = map.get(providerId);
+      if (!prev || deliveryStatusRank(status) >= deliveryStatusRank(prev)) {
+        map.set(providerId, status);
+      }
+    }
+    return map;
+  }, [messages]);
 
   const effectiveAgentPresence = useMemo(() => {
     const base = Array.isArray(agentPresence) ? [...agentPresence] : [];
@@ -2187,6 +2236,11 @@ export default function WhatsAppDashboard() {
                       const senderLabel = getSenderLabel(msg, user?.id, selectedSession?.patient_name);
                       const simulated = isSimulatedMessage(msg, selectedSession?.context || {});
                       const isBotMessage = isBotOutboundMessage(msg);
+                      const providerMessageId = extractOutboundProviderMessageId(msg);
+                      const deliveryState =
+                        !isStatusNote && providerMessageId
+                          ? deliveryStatusByProviderMessageId.get(providerMessageId) || null
+                          : null;
                       const media = getMessageMedia(msg);
                       const msgWithContext = {
                         ...msg,
@@ -2218,6 +2272,18 @@ export default function WhatsAppDashboard() {
                                 </span>
                               )}
                               <span className="wa-msgTime">{formatMessageTime(msg.created_at)} IST</span>
+                              {!isStatusNote && deliveryState && (
+                                <span
+                                  className={`wa-msgDelivery is-${deliveryState}`}
+                                  title={`Delivery ${deliveryState}`}
+                                  aria-label={`Delivery ${deliveryState}`}
+                                >
+                                  {deliveryState === "sent" && "✓"}
+                                  {deliveryState === "delivered" && "✓✓"}
+                                  {deliveryState === "read" && "✓✓"}
+                                  {deliveryState === "failed" && "⚠"}
+                                </span>
+                              )}
                             </div>
                             <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
                             {media?.url && (
@@ -3420,6 +3486,30 @@ export default function WhatsAppDashboard() {
 
         .wa-msgTime {
           white-space: nowrap;
+        }
+
+        .wa-msgDelivery {
+          font-size: 12px;
+          line-height: 1;
+          letter-spacing: -0.5px;
+          user-select: none;
+        }
+
+        .wa-msgDelivery.is-sent {
+          color: rgba(23, 49, 29, 0.55);
+        }
+
+        .wa-msgDelivery.is-delivered {
+          color: rgba(23, 49, 29, 0.72);
+        }
+
+        .wa-msgDelivery.is-read {
+          color: #1992ff;
+        }
+
+        .wa-msgDelivery.is-failed {
+          color: #cc3b3b;
+          letter-spacing: 0;
         }
 
         .wa-msgSimFlag {
