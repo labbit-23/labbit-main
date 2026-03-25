@@ -78,6 +78,26 @@ This project is deployed via Vercel.
 
 Ensure that Supabase keys are stored as environment variables in the Vercel project settings.
 
+### VPS Frontend Deploy Script
+
+If you are running the frontend on a VPS (PM2), use:
+
+```bash
+bash scripts/deploy-vps-frontend.sh
+```
+
+Default assumptions:
+- app path: `/opt/labbit-frontend`
+- branch: `main`
+- PM2 app name: `labbit-frontend`
+- health endpoint: `http://127.0.0.1:3000/api/health`
+
+You can override them:
+
+```bash
+APP_DIR=/opt/labbit-frontend BRANCH=main PM2_APP_NAME=labbit-frontend bash scripts/deploy-vps-frontend.sh
+```
+
 
 # Labbit Platform
 

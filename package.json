@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "bot:test": "node scripts/test-whatsapp-bot.mjs"
+    "bot:test": "node scripts/test-whatsapp-bot.mjs",
+    "deploy:vps:frontend": "bash scripts/deploy-vps-frontend.sh"
   },
   "dependencies": {
     "@chakra-ui/icons": "^2.0.17",
