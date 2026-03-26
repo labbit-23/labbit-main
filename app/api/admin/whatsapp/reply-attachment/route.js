@@ -76,6 +76,8 @@ export async function POST(req) {
       documentUrl: signedData.signedUrl,
       filename: file.name || "attachment",
       caption,
+      storagePath: path,
+      storageBucket: "uploads",
       sender: {
         id: user.id || null,
         name: user.name || null,

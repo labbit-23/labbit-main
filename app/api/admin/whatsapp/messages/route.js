@@ -492,6 +492,8 @@ export async function GET(request) {
           };
           const mediaId = mergedMedia?.id || null;
           let mediaUrl = mergedMedia?.url;
+          const explicitStoragePath = String(mergedMedia?.storage_path || "").trim();
+          const storageBucket = String(mergedMedia?.bucket || "uploads").trim() || "uploads";
 
           if (!mediaUrl && mediaId && mediaResolverConfig) {
             const resolvedUrl = await resolveMediaUrlById({
@@ -505,6 +507,27 @@ export async function GET(request) {
           }
 
           if (!shouldSignStoragePath(mediaUrl)) {
+            // If this message has durable storage metadata, always refresh to a new signed URL.
+            if (explicitStoragePath) {
+              const { data: signedByPath } = await supabase.storage
+                .from(storageBucket)
+                .createSignedUrl(explicitStoragePath.replace(/^uploads\//, ""), 60 * 60);
+              if (signedByPath?.signedUrl) {
+                return {
+                  ...row,
+                  payload: {
+                    ...(row.payload || {}),
+                    media: {
+                      ...(mergedMedia || {}),
+                      url: signedByPath.signedUrl,
+                      bucket: storageBucket,
+                      storage_path: explicitStoragePath
+                    }
+                  }
+                };
+              }
+            }
+
             if (!row?.payload?.media && extractedMedia) {
               return {
                 ...row,
