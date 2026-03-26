@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
-import { phoneVariantsIndia } from "@/lib/phone";
+import { phoneLast10, phoneVariantsIndia } from "@/lib/phone";
 
 const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
 
@@ -18,6 +18,29 @@ function canUseWhatsappInbox(user) {
 
 function phoneCandidates(phone) {
   return phoneVariantsIndia(phone);
+}
+
+function applyLabScope(query, { labIds = [], labId = null }) {
+  if (labIds.length > 0) return query.in("lab_id", labIds);
+  if (labId) return query.eq("lab_id", labId);
+  return query;
+}
+
+function dedupeById(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    if (!row?.id || map.has(row.id)) continue;
+    map.set(row.id, row);
+  }
+  return [...map.values()];
+}
+
+function sortByCreatedAt(rows = [], ascending = false) {
+  return [...rows].sort((a, b) => {
+    const at = new Date(a?.created_at || 0).getTime();
+    const bt = new Date(b?.created_at || 0).getTime();
+    return ascending ? at - bt : bt - at;
+  });
 }
 
 function pickBestPatient({ byPhone = [], byId = null }) {
@@ -183,6 +206,7 @@ export async function GET(request) {
     }
 
     const phone = request.nextUrl.searchParams.get("phone");
+    const phoneTail = phoneLast10(phone);
     const before = request.nextUrl.searchParams.get("before");
     const since = request.nextUrl.searchParams.get("since");
     const limitParam = Number(request.nextUrl.searchParams.get("limit") || 80);
@@ -193,12 +217,14 @@ export async function GET(request) {
 
     const labIds = Array.isArray(user.labIds) ? user.labIds.filter(Boolean) : [];
 
+    const phoneKeys = phoneCandidates(phone);
+
     let sessionQuery = supabase
       .from("chat_sessions")
       .select("*")
-      .in("phone", phoneCandidates(phone))
-      .order("created_at", { ascending: false })
-      .limit(50);
+      .in("phone", phoneKeys)
+      .order("last_message_at", { ascending: false })
+      .limit(1);
 
     if (labIds.length > 0) {
       sessionQuery = sessionQuery.in("lab_id", labIds);
@@ -211,36 +237,70 @@ export async function GET(request) {
       return NextResponse.json({ error: "Failed to validate chat access" }, { status: 500 });
     }
 
-    const chatSession = chatSessions?.[0];
+    let chatSession = chatSessions?.[0] || null;
     if (!chatSession) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      // Fallback: allow opening historical chats even if chat_sessions row is missing/stale.
+      let fallbackQuery = supabase
+        .from("whatsapp_messages")
+        .select("lab_id,phone,name,created_at")
+        .in("phone", phoneKeys)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (labIds.length > 0) {
+        fallbackQuery = fallbackQuery.in("lab_id", labIds);
+      }
+
+      let { data: fallbackRows, error: fallbackError } = await fallbackQuery;
+      if (fallbackError) {
+        console.error("[whatsapp/messages] fallback session lookup error", fallbackError);
+        return NextResponse.json({ error: "Failed to validate chat access" }, { status: 500 });
+      }
+
+      if ((!fallbackRows || fallbackRows.length === 0) && phoneTail) {
+        let fuzzyFallbackQuery = supabase
+          .from("whatsapp_messages")
+          .select("lab_id,phone,name,created_at")
+          .ilike("phone", `%${phoneTail}%`)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (labIds.length > 0) {
+          fuzzyFallbackQuery = fuzzyFallbackQuery.in("lab_id", labIds);
+        }
+        const fuzzy = await fuzzyFallbackQuery;
+        fallbackRows = fuzzy.data || [];
+        fallbackError = fuzzy.error || null;
+      }
+      if (fallbackError) {
+        console.error("[whatsapp/messages] fuzzy fallback lookup error", fallbackError);
+        return NextResponse.json({ error: "Failed to validate chat access" }, { status: 500 });
+      }
+
+      const fallback = fallbackRows?.[0];
+      if (!fallback) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+
+      chatSession = {
+        id: null,
+        lab_id: fallback.lab_id || labIds?.[0] || null,
+        phone: fallback.phone || phone,
+        patient_id: null,
+        patient_name: fallback.name || null,
+        status: "active",
+        current_state: null,
+        unread_count: 0,
+        last_message_at: fallback.created_at || null,
+        last_user_message_at: fallback.created_at || null,
+        context: {}
+      };
     }
-
-    let allSessionNamesQuery = supabase
-      .from("chat_sessions")
-      .select("patient_name,last_message_at,created_at")
-      .in("phone", phoneCandidates(phone))
-      .order("last_message_at", { ascending: false })
-      .limit(100);
-
-    if (labIds.length > 0) {
-      allSessionNamesQuery = allSessionNamesQuery.in("lab_id", labIds);
-    } else if (chatSession.lab_id) {
-      allSessionNamesQuery = allSessionNamesQuery.eq("lab_id", chatSession.lab_id);
-    }
-
-    const { data: allSessionNames } = await allSessionNamesQuery;
 
     let messagesQuery = supabase
       .from("whatsapp_messages")
       .select("*")
-      .in("phone", phoneCandidates(phone));
-
-    if (labIds.length > 0) {
-      messagesQuery = messagesQuery.in("lab_id", labIds);
-    } else if (chatSession.lab_id) {
-      messagesQuery = messagesQuery.eq("lab_id", chatSession.lab_id);
-    }
+      .in("phone", phoneKeys);
+    messagesQuery = applyLabScope(messagesQuery, { labIds, labId: chatSession.lab_id });
 
     if (before) {
       messagesQuery = messagesQuery
@@ -263,6 +323,39 @@ export async function GET(request) {
     if (messagesError) {
       console.error("[whatsapp/messages] message fetch error", messagesError);
       return NextResponse.json({ error: "Failed to load messages" }, { status: 500 });
+    }
+    let fetchedRows = messages || [];
+
+    // Backward-compatible fallback for legacy phone formatting in old rows.
+    if (fetchedRows.length < pageLimit && phoneTail) {
+      let fuzzyMessagesQuery = supabase
+        .from("whatsapp_messages")
+        .select("*")
+        .ilike("phone", `%${phoneTail}%`);
+      fuzzyMessagesQuery = applyLabScope(fuzzyMessagesQuery, { labIds, labId: chatSession.lab_id });
+      if (before) {
+        fuzzyMessagesQuery = fuzzyMessagesQuery
+          .lt("created_at", before)
+          .order("created_at", { ascending: false })
+          .limit(pageLimit * 2);
+      } else if (since) {
+        fuzzyMessagesQuery = fuzzyMessagesQuery
+          .gt("created_at", since)
+          .order("created_at", { ascending: true })
+          .limit(pageLimit * 2);
+      } else {
+        fuzzyMessagesQuery = fuzzyMessagesQuery
+          .order("created_at", { ascending: false })
+          .limit(pageLimit * 2);
+      }
+
+      const { data: fuzzyMessages, error: fuzzyMessagesError } = await fuzzyMessagesQuery;
+      if (fuzzyMessagesError) {
+        console.error("[whatsapp/messages] fuzzy message fetch error", fuzzyMessagesError);
+      } else if (fuzzyMessages?.length) {
+        const ascending = Boolean(since);
+        fetchedRows = sortByCreatedAt(dedupeById([...fetchedRows, ...fuzzyMessages]), ascending).slice(0, pageLimit);
+      }
     }
 
     let lab = null;
@@ -332,10 +425,10 @@ export async function GET(request) {
     let latestProfileNameQuery = supabase
       .from("whatsapp_messages")
       .select("name,payload,created_at")
-      .in("phone", phoneCandidates(phone))
+      .in("phone", phoneKeys)
       .eq("direction", "inbound")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(10);
 
     if (labIds.length > 0) {
       latestProfileNameQuery = latestProfileNameQuery.in("lab_id", labIds);
@@ -343,7 +436,21 @@ export async function GET(request) {
       latestProfileNameQuery = latestProfileNameQuery.eq("lab_id", chatSession.lab_id);
     }
 
-    const { data: latestInboundRows } = await latestProfileNameQuery;
+    let { data: latestInboundRows } = await latestProfileNameQuery;
+    if ((!latestInboundRows || latestInboundRows.length === 0) && phoneTail) {
+      let fuzzyInboundQuery = supabase
+        .from("whatsapp_messages")
+        .select("name,payload,created_at")
+        .ilike("phone", `%${phoneTail}%`)
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      fuzzyInboundQuery = applyLabScope(fuzzyInboundQuery, { labIds, labId: chatSession.lab_id });
+      const fuzzyInbound = await fuzzyInboundQuery;
+      if (fuzzyInbound?.data?.length) {
+        latestInboundRows = fuzzyInbound.data;
+      }
+    }
     const latestInboundProfileName = pickLatestProfileName(latestInboundRows);
     const latestChatName = latestInboundProfileName || null;
     const patientNameCandidates = uniqueNames(
@@ -373,8 +480,8 @@ export async function GET(request) {
 
     let normalizedMessages =
       before || !since
-        ? [...(messages || [])].reverse()
-        : (messages || []);
+        ? [...fetchedRows].reverse()
+        : fetchedRows;
     normalizedMessages = await Promise.all(
       normalizedMessages.map(async (row) => {
         try {
@@ -466,36 +573,54 @@ export async function GET(request) {
       hasOlder = false;
       nextBeforeCursor = null;
     } else if (oldestLoadedAt) {
+      // If page is full, there is likely more history. Avoid extra query in the common path.
+      if (normalizedMessages.length >= pageLimit) {
+        hasOlder = true;
+      }
       let olderQuery = supabase
         .from("whatsapp_messages")
         .select("id")
-        .in("phone", phoneCandidates(phone))
+        .in("phone", phoneKeys)
         .lt("created_at", oldestLoadedAt)
         .limit(1);
+      olderQuery = applyLabScope(olderQuery, { labIds, labId: chatSession.lab_id });
 
-      if (labIds.length > 0) {
-        olderQuery = olderQuery.in("lab_id", labIds);
-      } else if (chatSession.lab_id) {
-        olderQuery = olderQuery.eq("lab_id", chatSession.lab_id);
+      if (!hasOlder) {
+        const { data: olderRows } = await olderQuery;
+        hasOlder = Boolean(olderRows?.length);
       }
 
-      const { data: olderRows } = await olderQuery;
-      hasOlder = Boolean(olderRows?.length);
+      if (!hasOlder && phoneTail) {
+        let fuzzyOlderQuery = supabase
+          .from("whatsapp_messages")
+          .select("id")
+          .ilike("phone", `%${phoneTail}%`)
+          .lt("created_at", oldestLoadedAt)
+          .limit(1);
+        fuzzyOlderQuery = applyLabScope(fuzzyOlderQuery, { labIds, labId: chatSession.lab_id });
+        const { data: fuzzyOlderRows } = await fuzzyOlderQuery;
+        hasOlder = Boolean(fuzzyOlderRows?.length);
+      }
     } else if (!before) {
       let anyHistoryQuery = supabase
         .from("whatsapp_messages")
         .select("id")
-        .in("phone", phoneCandidates(phone))
+        .in("phone", phoneKeys)
         .limit(1);
-
-      if (labIds.length > 0) {
-        anyHistoryQuery = anyHistoryQuery.in("lab_id", labIds);
-      } else if (chatSession.lab_id) {
-        anyHistoryQuery = anyHistoryQuery.eq("lab_id", chatSession.lab_id);
-      }
+      anyHistoryQuery = applyLabScope(anyHistoryQuery, { labIds, labId: chatSession.lab_id });
 
       const { data: anyRows } = await anyHistoryQuery;
       hasOlder = Boolean(anyRows?.length);
+      if (!hasOlder && phoneTail) {
+        let fuzzyAnyHistoryQuery = supabase
+          .from("whatsapp_messages")
+          .select("id")
+          .ilike("phone", `%${phoneTail}%`)
+          .limit(1);
+        fuzzyAnyHistoryQuery = applyLabScope(fuzzyAnyHistoryQuery, { labIds, labId: chatSession.lab_id });
+        const { data: fuzzyAnyRows } = await fuzzyAnyHistoryQuery;
+        hasOlder = Boolean(fuzzyAnyRows?.length);
+      }
       if (hasOlder) {
         nextBeforeCursor = new Date().toISOString();
       }
@@ -505,7 +630,7 @@ export async function GET(request) {
       {
         messages: normalizedMessages,
         session: enrichedSession,
-        sessions: chatSessions,
+        sessions: chatSessions?.length ? chatSessions : [chatSession],
         lab,
         botLabelMap,
         pagination: {

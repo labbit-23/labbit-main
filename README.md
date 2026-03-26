@@ -98,6 +98,13 @@ You can override them:
 APP_DIR=/opt/labbit-frontend BRANCH=main PM2_APP_NAME=labbit-frontend bash scripts/deploy-vps-frontend.sh
 ```
 
+Ops runbook (frontend + API + PM2):
+- `docs/vps-operations-runbook.md`
+
+CTO log viewer design + schema:
+- `docs/cto-log-viewer-phase1.md`
+- `docs/cto-events-schema.sql`
+
 
 # Labbit Platform
 

@@ -14,8 +14,14 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Table,
+  Tbody,
+  Td,
   Text,
+  Th,
+  Thead,
   Tooltip,
+  Tr,
   VStack
 } from "@chakra-ui/react";
 import Link from "next/link";
@@ -199,6 +205,12 @@ function CtoDashboardPage() {
   const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
   const [activeStatusFilter, setActiveStatusFilter] = useState("");
+  const [eventsRows, setEventsRows] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState("");
+  const [eventsStatusFilter, setEventsStatusFilter] = useState("open");
+  const [eventsSeverityFilter, setEventsSeverityFilter] = useState("");
+  const [eventActionBusy, setEventActionBusy] = useState({});
   const refreshRef = useRef(null);
 
   useEffect(() => {
@@ -276,6 +288,62 @@ function CtoDashboardPage() {
       refreshRef.current = null;
     };
   }, [selectedLabId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEvents({ silent = false } = {}) {
+      if (!silent) setEventsLoading(true);
+      setEventsError("");
+      try {
+        const params = new URLSearchParams({ limit: "50", ts: String(Date.now()) });
+        if (selectedLabId) params.set("lab_id", selectedLabId);
+        if (eventsStatusFilter) params.set("status", eventsStatusFilter);
+        if (eventsSeverityFilter) params.set("severity", eventsSeverityFilter);
+
+        const res = await fetch(`/api/cto/events?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Failed to load CTO events");
+        if (!cancelled) {
+          setEventsRows(Array.isArray(data.rows) ? data.rows : []);
+        }
+      } catch (error) {
+        if (!cancelled) setEventsError(error.message || "Failed to load CTO events");
+      } finally {
+        if (!cancelled && !silent) setEventsLoading(false);
+      }
+    }
+
+    loadEvents();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLabId, eventsStatusFilter, eventsSeverityFilter]);
+
+  async function updateEventStatus(eventId, status) {
+    if (!eventId || !status) return;
+    setEventActionBusy((prev) => ({ ...prev, [eventId]: true }));
+    try {
+      const res = await fetch(`/api/cto/events/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update event");
+      setEventsRows((prev) =>
+        prev.map((row) => (row.id === eventId ? { ...row, ...(data.row || {}) } : row))
+      );
+    } catch (error) {
+      setEventsError(error.message || "Failed to update event");
+    } finally {
+      setEventActionBusy((prev) => ({ ...prev, [eventId]: false }));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1167,6 +1235,122 @@ function CtoDashboardPage() {
             </Box>
           </GridItem>
         </Grid>
+
+        <Box
+          p={{ base: 5, md: 6 }}
+          borderRadius="28px"
+          bg="rgba(255,255,255,0.05)"
+          border="1px solid rgba(255,255,255,0.08)"
+          mb={5}
+        >
+          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
+            <Box>
+              <Heading size="md" mb={1}>Ops Events</Heading>
+              <Text color="whiteAlpha.700">Human-readable incident queue for CTO operations.</Text>
+            </Box>
+            <HStack spacing={2} flexWrap="wrap">
+              <Select
+                size="sm"
+                value={eventsStatusFilter}
+                onChange={(e) => setEventsStatusFilter(e.target.value)}
+                maxW="170px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+              >
+                <option value="open">Open</option>
+                <option value="acknowledged">Acknowledged</option>
+                <option value="resolved">Resolved</option>
+                <option value="">All status</option>
+              </Select>
+              <Select
+                size="sm"
+                value={eventsSeverityFilter}
+                onChange={(e) => setEventsSeverityFilter(e.target.value)}
+                maxW="170px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+              >
+                <option value="">All severity</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="info">Info</option>
+              </Select>
+            </HStack>
+          </Flex>
+
+          {eventsError && (
+            <Box mb={3} p={3} borderRadius="14px" bg="rgba(248,113,113,0.12)" border="1px solid rgba(248,113,113,0.28)">
+              <Text color="red.200" fontSize="sm">{eventsError}</Text>
+            </Box>
+          )}
+
+          <Box overflowX="auto">
+            <Table size="sm" variant="simple">
+              <Thead>
+                <Tr>
+                  <Th color="whiteAlpha.800">Severity</Th>
+                  <Th color="whiteAlpha.800">Status</Th>
+                  <Th color="whiteAlpha.800">Service</Th>
+                  <Th color="whiteAlpha.800">Type</Th>
+                  <Th color="whiteAlpha.800">Message</Th>
+                  <Th color="whiteAlpha.800">Source</Th>
+                  <Th color="whiteAlpha.800">Count</Th>
+                  <Th color="whiteAlpha.800">Last Seen</Th>
+                  <Th color="whiteAlpha.800">Action</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {!eventsLoading && eventsRows.length === 0 && (
+                  <Tr>
+                    <Td colSpan={9} color="whiteAlpha.700">No events found for current filters.</Td>
+                  </Tr>
+                )}
+                {eventsRows.map((row) => (
+                  <Tr key={row.id}>
+                    <Td>
+                      <StatusChip status={row.severity || "info"} color={row.severity === "critical" ? "red" : row.severity === "high" ? "orange" : row.severity === "medium" ? "yellow" : "blue"} />
+                    </Td>
+                    <Td>
+                      <StatusChip status={row.status || "open"} color={row.status === "resolved" ? "green" : row.status === "acknowledged" ? "purple" : "red"} />
+                    </Td>
+                    <Td color="whiteAlpha.900">{row.service_key || "-"}</Td>
+                    <Td color="whiteAlpha.800">{row.event_type || "-"}</Td>
+                    <Td maxW="360px" color="whiteAlpha.900">
+                      <Text noOfLines={2}>{row.message || "-"}</Text>
+                    </Td>
+                    <Td color="whiteAlpha.700">{row.source || "-"}</Td>
+                    <Td color="whiteAlpha.900">{row.occurrence_count ?? 1}</Td>
+                    <Td color="whiteAlpha.700">
+                      {row.last_seen_at ? new Date(row.last_seen_at).toLocaleString() : "-"}
+                    </Td>
+                    <Td>
+                      <HStack spacing={2}>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          borderColor="rgba(255,255,255,0.25)"
+                          isDisabled={row.status === "acknowledged" || row.status === "resolved" || eventActionBusy[row.id]}
+                          onClick={() => updateEventStatus(row.id, "acknowledged")}
+                        >
+                          Ack
+                        </Button>
+                        <Button
+                          size="xs"
+                          colorScheme="green"
+                          isDisabled={row.status === "resolved" || eventActionBusy[row.id]}
+                          onClick={() => updateEventStatus(row.id, "resolved")}
+                        >
+                          Resolve
+                        </Button>
+                      </HStack>
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

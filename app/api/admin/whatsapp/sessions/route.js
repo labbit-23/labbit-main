@@ -20,6 +20,16 @@ function phoneCandidates(phone) {
   return phoneVariantsIndia(phone);
 }
 
+function sessionPhoneKey(phone) {
+  return toCanonicalIndiaPhone(phone) || digitsOnly(phone) || String(phone || "").trim();
+}
+
+function normalizeSearchTerm(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.slice(0, 80);
+}
+
 function pickBestPatient({ byPhone = [], byId = null }) {
   const sorted = [...byPhone].sort((a, b) => {
     const at = new Date(a?.created_at || 0).getTime();
@@ -162,35 +172,59 @@ async function enrichLiteSessions(rows = []) {
   });
 }
 
-async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60 }) {
-  let query = supabase
-    .from("chat_sessions")
-    .select("*")
-    .order("last_message_at", { ascending: false })
-    .limit(5000);
-
-  if (labIds.length > 0) {
-    query = query.in("lab_id", labIds);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    throw error;
-  }
-
-  const deduped = buildLiteSessions(data || []);
+async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTerm = "" }) {
   const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
-  const sliced = deduped.slice(safeOffset, safeOffset + pageLimit);
-  const enriched = await enrichLiteSessions(sliced);
+  const safeLimit = Number.isFinite(pageLimit) ? Math.min(Math.max(pageLimit, 20), 200) : 60;
+  const targetCount = safeOffset + safeLimit + 1;
+  const overFetch = Math.max(150, safeLimit * 8);
+  const baseStart = Math.max(0, safeOffset * 2);
+  const normalizedSearch = normalizeSearchTerm(searchTerm);
+
+  const fetchChunk = async (start) => {
+    let query = supabase
+      .from("chat_sessions")
+      .select("id,lab_id,phone,patient_id,patient_name,status,current_state,unread_count,last_message_at,last_user_message_at,created_at,updated_at")
+      .order("last_message_at", { ascending: false })
+      .range(start, start + overFetch - 1);
+    if (labIds.length > 0) {
+      query = query.in("lab_id", labIds);
+    }
+    if (normalizedSearch) {
+      const safe = normalizedSearch.replace(/[%_,]/g, " ");
+      query = query.or(`phone.ilike.%${safe}%,patient_name.ilike.%${safe}%`);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  };
+
+  // Keep DB round-trips very low (1 call in most cases, max 2).
+  const firstRows = await fetchChunk(baseStart);
+  let combinedRows = firstRows;
+  let deduped = buildLiteSessions(combinedRows);
+  let secondRows = [];
+
+  if (deduped.length < targetCount && firstRows.length === overFetch) {
+    secondRows = await fetchChunk(baseStart + overFetch);
+    combinedRows = [...firstRows, ...secondRows];
+    deduped = buildLiteSessions(combinedRows);
+  }
+
+  const sliced = deduped.slice(safeOffset, safeOffset + safeLimit);
+  // Keep "lite" truly lite: avoid patient enrichment fan-out on list polling.
+  // Full enrichment is still provided by messages endpoint when a contact is opened.
+  const enriched = sliced;
   const nextOffset = safeOffset + sliced.length;
+  const likelyMoreFromSource = firstRows.length === overFetch || secondRows.length === overFetch;
+  const hasMore = deduped.length > nextOffset || (deduped.length <= nextOffset && likelyMoreFromSource);
 
   return {
     sessions: enriched,
     pagination: {
       next_offset: nextOffset,
-      has_more: deduped.length > nextOffset,
-      page_size: pageLimit,
-      total_count: deduped.length
+      has_more: hasMore,
+      page_size: safeLimit,
+      total_count: hasMore ? nextOffset + 1 : nextOffset
     }
   };
 }
@@ -211,9 +245,15 @@ export async function GET(request) {
     const offsetParam = Number(request.nextUrl.searchParams.get("offset") || 0);
     const limitParam = Number(request.nextUrl.searchParams.get("limit") || 60);
     const pageLimit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 20), 200) : 60;
+    const searchTerm = String(request.nextUrl.searchParams.get("search") || "").trim();
 
     if (liteMode) {
-      const liteResponse = await buildLitePage({ labIds, offset: offsetParam, pageLimit });
+      const liteResponse = await buildLitePage({
+        labIds,
+        offset: offsetParam,
+        pageLimit,
+        searchTerm
+      });
       return NextResponse.json(liteResponse, { status: 200 });
     }
 

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { cookies } from "next/headers";
 import { ironOptions as sessionOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 
@@ -42,7 +41,11 @@ async function getCentreIdsByLabs(labIds) {
     .in("lab_id", labIds);
   if (!secondTry.error) return (secondTry.data || []).map((row) => row.id);
 
-  throw new Error(firstTry.error?.message || secondTry.error?.message || "Could not resolve collection centres");
+  console.warn("[notifications/summary] Could not resolve collection centres", {
+    first: firstTry.error?.message || null,
+    second: secondTry.error?.message || null
+  });
+  return [];
 }
 
 async function getAssignedCentreIds(executiveId) {
@@ -62,11 +65,38 @@ function normalizedWhatsappUnread(session) {
     : 0;
 }
 
-export async function GET() {
+function parseNotifyTargets(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").toLowerCase()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item || "").toLowerCase()).filter(Boolean);
+      }
+    } catch {
+      // Non-JSON text fallback handled below.
+    }
+
+    return raw
+      .replace(/^\{|\}$/g, "")
+      .split(/[,\s]+/)
+      .map((item) => item.replace(/^"+|"+$/g, "").trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+export async function GET(request) {
+  const response = NextResponse.next();
   try {
-    const cookieStore = await cookies();
-    const session = await getIronSession(cookieStore, sessionOptions);
-    const user = session?.user;
+    const sessionData = await getIronSession(request, response, sessionOptions);
+    const user = sessionData?.user;
     if (!user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -101,14 +131,19 @@ export async function GET() {
       counts.whatsapp_unread = (sessions || [])
         .reduce((sum, s) => sum + normalizedWhatsappUnread(s), 0);
 
-      const { data: adminNotifyStatuses, error: adminStatusError } = await supabase
+      // Robust path: handle mixed notify_to formats without JSONB operator errors.
+      let adminStatusCodes = [];
+      const { data: statusRows, error: statusRowsError } = await supabase
         .from("visit_statuses")
-        .select("code")
-        .contains("notify_to", ["admin"]);
-
-      if (adminStatusError) throw adminStatusError;
-
-      const adminStatusCodes = (adminNotifyStatuses || []).map((row) => row.code).filter(Boolean);
+        .select("code, notify_to");
+      if (statusRowsError) {
+        console.warn("[notifications/summary] visit_statuses lookup failed", statusRowsError.message);
+      } else {
+        adminStatusCodes = (statusRows || [])
+          .filter((row) => parseNotifyTargets(row?.notify_to).includes("admin"))
+          .map((row) => row?.code)
+          .filter(Boolean);
+      }
       if (adminStatusCodes.length > 0) {
         const today = new Date().toISOString().slice(0, 10);
         const { count: adminVisitCount, error: adminVisitError } = await supabase
@@ -116,8 +151,11 @@ export async function GET() {
           .select("id", { count: "exact", head: true })
           .in("status", adminStatusCodes)
           .gte("visit_date", today);
-        if (adminVisitError) throw adminVisitError;
-        counts.admin_visit_attention = adminVisitCount || 0;
+        if (adminVisitError) {
+          console.warn("[notifications/summary] visits admin attention lookup failed", adminVisitError.message);
+        } else {
+          counts.admin_visit_attention = adminVisitCount || 0;
+        }
       }
 
       const adminLabIds = await getLabIds(user.id);
@@ -213,9 +251,24 @@ export async function GET() {
       { status: 200 }
     );
   } catch (err) {
+    const emptyCounts = {
+      quickbook_pending: 0,
+      whatsapp_unread: 0,
+      pickups_samples_ready: 0,
+      pickups_samples_ready_urgent: 0,
+      admin_visit_attention: 0,
+      phlebo_assigned_active: 0,
+      phlebo_unassigned_available: 0,
+    };
+    console.error("[notifications/summary] failed", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
-      { status: 500 }
+      {
+        roleKey: "",
+        counts: emptyCounts,
+        generated_at: new Date().toISOString(),
+        error: err.message || "Internal server error"
+      },
+      { status: 200 }
     );
   }
 }

@@ -259,6 +259,38 @@ function extractBusinessNumberFromPayload(payload) {
   return candidates.find((value) => typeof value === "string" && value.trim()) || null;
 }
 
+function humanizeMachineToken(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function looksLikeMachineToken(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  if (/\s/.test(raw)) return false;
+  return /^[A-Za-z0-9_-]{3,}$/.test(raw);
+}
+
+function extractTemplateTextParams(template = {}) {
+  const components = Array.isArray(template?.components) ? template.components : [];
+  const bodyComponent = components.find((item) => String(item?.type || "").toLowerCase() === "body");
+  const parameters = Array.isArray(bodyComponent?.parameters) ? bodyComponent.parameters : [];
+  return parameters
+    .map((param) => {
+      if (!param || typeof param !== "object") return null;
+      if (String(param.type || "").toLowerCase() === "text") return String(param.text || "").trim();
+      if (typeof param.text === "string") return String(param.text || "").trim();
+      return null;
+    })
+    .filter(Boolean);
+}
+
 function getDisplayMessageText(msg, botLabelMap) {
   if (!msg) return "";
 
@@ -309,30 +341,39 @@ function getDisplayMessageText(msg, botLabelMap) {
     if (slotMap?.[rawMessage]) {
       return decodeMessageEntities(`Selected time slot: ${slotMap[rawMessage]}`);
     }
-
-  return decodeMessageEntities(rawMessage);
-}
-
-function shouldUpdateSelectedSession(currentSession, nextSession) {
-  if (!currentSession && !nextSession) return false;
-  if (!currentSession || !nextSession) return true;
-
-  return [
-    "id",
-    "phone",
-    "patient_name",
-    "status",
-    "unread_count",
-    "last_message_at",
-    "contact_type",
-    "matched_patient_count"
-  ].some((key) => String(currentSession?.[key] ?? "") !== String(nextSession?.[key] ?? ""));
-}
+    return decodeMessageEntities(rawMessage);
+  }
 
   if (!isBotOutbound) return decodeMessageEntities(rawMessage);
 
   const requestPayload = msg?.payload?.request;
   if (requestPayload && typeof requestPayload === "object") {
+    if (requestPayload.type === "text" && requestPayload.text?.body) {
+      return decodeMessageEntities(requestPayload.text.body);
+    }
+
+    if (requestPayload.type === "document" && requestPayload.document) {
+      const caption = String(requestPayload.document.caption || "").trim();
+      const filename = String(requestPayload.document.filename || "").trim();
+      if (caption) return decodeMessageEntities(caption);
+      if (filename) return decodeMessageEntities(`Document sent: ${filename}`);
+      return "Document sent";
+    }
+
+    if (requestPayload.type === "template") {
+      const templateName =
+        requestPayload?.template?.name ||
+        requestPayload?.template_name ||
+        rawMessage;
+      const templateParams = extractTemplateTextParams(requestPayload?.template || {});
+      const pretty = humanizeMachineToken(templateName);
+      if (templateParams.length > 0) {
+        const paramText = templateParams.map((item) => `- ${item}`).join("\n");
+        return decodeMessageEntities(`${pretty || "Template message sent"}\n${paramText}`);
+      }
+      return decodeMessageEntities(pretty || "Template message sent");
+    }
+
     if (requestPayload.type === "interactive" && requestPayload.interactive) {
       const interactive = requestPayload.interactive;
       const baseText = interactive?.body?.text || "";
@@ -366,7 +407,28 @@ function shouldUpdateSelectedSession(currentSession, nextSession) {
     }
   }
 
-  return decodeMessageEntities(botLabelMap?.[rawMessage] || rawMessage);
+  const mapped = botLabelMap?.[rawMessage];
+  if (mapped) return decodeMessageEntities(mapped);
+  if (looksLikeMachineToken(rawMessage)) {
+    return decodeMessageEntities(humanizeMachineToken(rawMessage));
+  }
+  return decodeMessageEntities(rawMessage);
+}
+
+function shouldUpdateSelectedSession(currentSession, nextSession) {
+  if (!currentSession && !nextSession) return false;
+  if (!currentSession || !nextSession) return true;
+
+  return [
+    "id",
+    "phone",
+    "patient_name",
+    "status",
+    "unread_count",
+    "last_message_at",
+    "contact_type",
+    "matched_patient_count"
+  ].some((key) => String(currentSession?.[key] ?? "") !== String(nextSession?.[key] ?? ""));
 }
 
 function getMessageMedia(msg) {
@@ -445,7 +507,24 @@ async function fetchJsonWithRetry(url, options = {}, retries = 1) {
       const response = await fetch(url, options);
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || `Request failed (${response.status})`);
+        if (response.status === 401 || response.status === 403) {
+          if (typeof window !== "undefined") {
+            const next = `${window.location.pathname}${window.location.search || ""}`;
+            const loginUrl = `/login?next=${encodeURIComponent(next)}`;
+            window.location.replace(loginUrl);
+          }
+          const authError = new Error(`Session expired (${response.status})`);
+          authError.status = response.status;
+          authError.url = url;
+          throw authError;
+        }
+        const detail = String(text || "").slice(0, 500);
+        const error = new Error(
+          `Request failed (${response.status}) ${url}${detail ? ` :: ${detail}` : ""}`
+        );
+        error.status = response.status;
+        error.url = url;
+        throw error;
       }
       return await response.json();
     } catch (err) {
@@ -574,6 +653,7 @@ export default function WhatsAppDashboard() {
   const autoRefreshInFlightRef = useRef(false);
   const selectedSessionRef = useRef(null);
   const messagesRef = useRef([]);
+  const sessionsRef = useRef([]);
   const sessionsSignatureRef = useRef("");
   const hasBootstrappedSessionsRef = useRef(false);
   const previousUnreadBySessionRef = useRef(new Map());
@@ -599,6 +679,10 @@ export default function WhatsAppDashboard() {
     !msg?.payload?.sender?.id &&
     !msg?.payload?.sender?.name &&
     !isExecutiveAttentionAutoReply(msg);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -832,7 +916,7 @@ export default function WhatsAppDashboard() {
   };
 
   const fetchSessions = async (options = {}) => {
-    const { silent = false, append = false, offset = 0 } = options;
+    const { silent = false, append = false, offset = 0, searchOverride = null } = options;
     setError("");
     if (!silent && append) {
       setIsLoadingOlderSessions(true);
@@ -842,8 +926,13 @@ export default function WhatsAppDashboard() {
 
     try {
       const query = new URLSearchParams({ lite: "1" });
+      const searchTerm = typeof searchOverride === "string" ? searchOverride : search;
+      const normalizedSearch = String(searchTerm || "").trim();
       query.set("offset", String(offset));
-      query.set("limit", "60");
+      query.set("limit", "20");
+      if (normalizedSearch) {
+        query.set("search", normalizedSearch);
+      }
       const body = await fetchJsonWithRetry(`/api/admin/whatsapp/sessions?${query.toString()}`, {
         credentials: "include",
         cache: "no-store"
@@ -887,10 +976,11 @@ export default function WhatsAppDashboard() {
         );
       };
 
+      const currentSessions = sessionsRef.current || [];
       const mergedSessions = append
-        ? mergeSessionLists(sessions, nextSessions)
+        ? mergeSessionLists(currentSessions, nextSessions)
         : silent
-          ? mergeSessionLists(nextSessions, sessions)
+          ? mergeSessionLists(nextSessions, currentSessions)
           : nextSessions;
 
       const nextSignature = buildSessionsSignature(mergedSessions);
@@ -970,6 +1060,16 @@ export default function WhatsAppDashboard() {
     }
   };
 
+  useEffect(() => {
+    if (isUserLoading || !user) return undefined;
+    const handle = setTimeout(() => {
+      setOlderSessionsOffset(0);
+      setHasMoreSessions(false);
+      fetchSessions({ searchOverride: search });
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [search, isUserLoading, user]);
+
   const fetchAgentPresence = async ({ silent = false } = {}) => {
     try {
       const body = await fetchJsonWithRetry("/api/admin/whatsapp/agent-presence", {
@@ -1018,11 +1118,20 @@ export default function WhatsAppDashboard() {
       }, 1);
       const incoming = body.messages || [];
       if (appendOlder) {
+        let appendedCount = 0;
         setMessages((prev) => {
           const existingIds = new Set(prev.map((m) => m.id));
           const dedupedOlder = incoming.filter((m) => !existingIds.has(m.id));
+          appendedCount = dedupedOlder.length;
           return [...dedupedOlder, ...prev];
         });
+        // Safety: if backend returned only overlapping rows, force cursor to move backward.
+        if (appendedCount === 0 && oldestCursor) {
+          const fallbackMs = new Date(oldestCursor).getTime() - 1000;
+          if (Number.isFinite(fallbackMs)) {
+            setOldestCursor(new Date(fallbackMs).toISOString());
+          }
+        }
       } else if (since) {
         if (incoming.length > 0) {
           setMessages((prev) => {
@@ -1087,9 +1196,22 @@ export default function WhatsAppDashboard() {
         scrollToBottom();
         initialBottomReadyRef.current = true;
       }
-    } catch {
+    } catch (err) {
+      const errorDetail = {
+        phone: phone || null,
+        before: before || null,
+        since: since || null,
+        appendOlder: Boolean(appendOlder),
+        error: err?.message || String(err),
+        status: err?.status || null,
+        url: err?.url || null
+      };
+      console.error(`[whatsapp-ui] fetchMessages failed ${JSON.stringify(errorDetail)}`);
       if (!silent && !appendOlder && !since && messagesRef.current.length === 0) {
-        setMessageError("Failed to load messages. Please retry.");
+        const userFacing = err?.message
+          ? `Failed to load messages. ${err.message}`
+          : "Failed to load messages. Please retry.";
+        setMessageError(userFacing);
       }
     } finally {
       if (appendOlder && !silent) {
@@ -1229,6 +1351,7 @@ export default function WhatsAppDashboard() {
     }
     setMessages([]);
     messagesRef.current = [];
+    setSenderFilter("all");
     setMessageError("");
     setHasOlderMessages(false);
     setOldestCursor(null);
@@ -1238,8 +1361,9 @@ export default function WhatsAppDashboard() {
   };
 
   const handleLoadOlder = async () => {
-    if (!initialBottomReadyRef.current) return;
-    if (!selectedSession?.phone || !oldestCursor || !hasOlderMessages || isLoadingOlder || isLoadingMessages) {
+    const oldestLoadedAt = messagesRef.current?.[0]?.created_at || null;
+    const effectiveBefore = oldestLoadedAt || oldestCursor;
+    if (!selectedSession?.phone || !effectiveBefore || !hasOlderMessages || isLoadingOlder || isLoadingMessages) {
       return;
     }
 
@@ -1247,7 +1371,7 @@ export default function WhatsAppDashboard() {
     const previousHeight = scrollEl?.scrollHeight || 0;
     const previousTop = scrollEl?.scrollTop || 0;
     isPrependingRef.current = true;
-    await fetchMessages(selectedSession.phone, { before: oldestCursor, appendOlder: true });
+    await fetchMessages(selectedSession.phone, { before: effectiveBefore, appendOlder: true });
     requestAnimationFrame(() => {
       const nextEl = getMessageScrollElement();
       if (!nextEl) return;
@@ -1266,6 +1390,14 @@ export default function WhatsAppDashboard() {
       return;
     }
     await fetchSessions({ append: true, offset: olderSessionsOffset });
+  };
+
+  const handleConversationListScroll = async (event) => {
+    const el = event?.currentTarget;
+    if (!el) return;
+    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+    if (!nearBottom) return;
+    await handleLoadOlderSessions();
   };
 
   const handleCreateClickupTask = async (action = "followup") => {
@@ -1632,11 +1764,13 @@ export default function WhatsAppDashboard() {
   }, [search, sessions, tab]);
 
   const filteredMessages = useMemo(() => {
-    let filtered = messages.filter((msg) => msg?.direction !== "status");
+    const nonStatus = messages.filter((msg) => msg?.direction !== "status");
 
-    if (senderFilter === "all") return filtered;
+    if (senderFilter === "all") {
+      return nonStatus;
+    }
 
-    return filtered.filter((msg) => {
+    const scoped = nonStatus.filter((msg) => {
       // Always keep inbound (patient/user) messages visible for context.
       if (msg.direction !== "outbound") return true;
 
@@ -1645,7 +1779,14 @@ export default function WhatsAppDashboard() {
       if (senderFilter === "bot") return !hasAgent;
       return true;
     });
+    if (scoped.length > 0) return scoped;
+    return scoped;
   }, [messages, senderFilter]);
+
+  const hasOnlyStatusInWindow = useMemo(
+    () => messages.length > 0 && messages.every((msg) => msg?.direction === "status"),
+    [messages]
+  );
 
   const deliveryStatusByProviderMessageId = useMemo(() => {
     const map = new Map();
@@ -1963,7 +2104,7 @@ export default function WhatsAppDashboard() {
                 </div>
               </div>
             </div>
-            <div className="wa-conversationList">
+            <div className="wa-conversationList" onScroll={handleConversationListScroll}>
               {isLoadingSessions ? (
                 <div className="wa-empty">Loading conversations...</div>
               ) : filteredSessions.length === 0 ? (
@@ -2020,19 +2161,10 @@ export default function WhatsAppDashboard() {
                 })}
                 </>
               )}
+              {isLoadingOlderSessions && (
+                <div className="wa-empty">Loading older chats...</div>
+              )}
             </div>
-            {(hasMoreSessions || isLoadingOlderSessions) && (
-              <div className="wa-loadMoreWrap">
-                <button
-                  type="button"
-                  className="wa-loadMoreSessions"
-                  onClick={handleLoadOlderSessions}
-                  disabled={isLoadingOlderSessions}
-                >
-                  {isLoadingOlderSessions ? "Loading older chats..." : "Load older chats"}
-                </button>
-              </div>
-            )}
           </div>
 
           <div className={`wa-chatCol ${isMobileViewport && mobilePanel !== "chat" ? "is-mobile-hidden" : ""}`}>
@@ -2196,7 +2328,25 @@ export default function WhatsAppDashboard() {
 
             {error && <div className="wa-error">{error}</div>}
             {selectedSession && messageError && !isLoadingMessages && filteredMessages.length === 0 && (
-              <div className="wa-error">{messageError}</div>
+              <div className="wa-error">
+                <span>{messageError}</span>
+                <button
+                  type="button"
+                  className="wa-historyLoadBtn"
+                  onClick={async () => {
+                    setMessageError("");
+                    setMessages([]);
+                    messagesRef.current = [];
+                    setHasOlderMessages(false);
+                    setOldestCursor(null);
+                    setLatestCursor(null);
+                    await fetchMessages(selectedSession.phone);
+                  }}
+                  disabled={isLoadingMessages}
+                >
+                  Retry
+                </button>
+              </div>
             )}
             {!error && isLockedByAnotherAgent && (
               <div className="wa-inlineHint is-soft">
@@ -2206,11 +2356,12 @@ export default function WhatsAppDashboard() {
             </div>
 
                 <div className="wa-chatBody">
-                  <div
+                <div
                     className="wa-messageList"
                     ref={chatContainerRef}
                     onScroll={(e) => {
-                      if (e.target.scrollTop < 40 ) {
+                      const scrollTop = e.currentTarget?.scrollTop ?? 0;
+                      if (scrollTop <= 60) {
                         handleLoadOlder();
                       }
                     }}
@@ -2220,16 +2371,45 @@ export default function WhatsAppDashboard() {
                 ) : isLoadingMessages ? (
                   <div className="wa-empty">Loading messages...</div>
                 ) : filteredMessages.length === 0 ? (
-                  <div className="wa-empty">No messages for this filter.</div>
+                  <>
+                    <div className="wa-historyHint">
+                      {isLoadingOlder
+                        ? "Loading older messages..."
+                        : hasOlderMessages
+                          ? `Showing last ${historyWindowDays} days. Scroll up to load older history.`
+                          : "No older messages available yet for this chat."}
+                      <button
+                        type="button"
+                        className="wa-historyLoadBtn"
+                        onClick={handleLoadOlder}
+                        disabled={!hasOlderMessages || isLoadingOlder || isLoadingMessages}
+                      >
+                        Load older history
+                      </button>
+                    </div>
+                    <div className="wa-empty">
+                      {hasOnlyStatusInWindow
+                        ? "Recent activity is delivery status only. Load older history to see chat messages."
+                        : "No messages for this filter."}
+                    </div>
+                  </>
                 ) : (
                   <>
-                    {hasOlderMessages && (
-                      <div className="wa-historyHint">
-                        {isLoadingOlder
-                          ? "Loading older messages..."
-                          : `Showing last ${historyWindowDays} days. Scroll up to load older history.`}
-                      </div>
-                    )}
+                    <div className="wa-historyHint">
+                      {isLoadingOlder
+                        ? "Loading older messages..."
+                        : hasOlderMessages
+                          ? `Showing last ${historyWindowDays} days. Scroll up to load older history.`
+                          : "No older messages available yet for this chat."}
+                      <button
+                        type="button"
+                        className="wa-historyLoadBtn"
+                        onClick={handleLoadOlder}
+                        disabled={!hasOlderMessages || isLoadingOlder || isLoadingMessages}
+                      >
+                        Load older history
+                      </button>
+                    </div>
                     {filteredMessages.map((msg) => {
                       const outgoing = msg.direction === "outbound" || msg.direction === "status";
                       const isStatusNote = msg.direction === "status";
@@ -3380,6 +3560,20 @@ export default function WhatsAppDashboard() {
           color: #51657f;
           background: #f7faff;
           width: fit-content;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .wa-historyLoadBtn {
+          border: 1px solid #c3d2e5;
+          background: #fff;
+          color: #304d70;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 8px;
+          cursor: pointer;
         }
 
         .wa-msgRow.is-out {

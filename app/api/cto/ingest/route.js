@@ -31,6 +31,32 @@ function isValidStatus(status) {
   return ["healthy", "degraded", "down", "unknown"].includes(status);
 }
 
+const DEADLOCK_CODE = "40P01";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function upsertLatestWithRetry(rows, maxAttempts = 4) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const { error } = await supabase
+      .from("cto_service_latest")
+      .upsert(rows, { onConflict: "lab_id,service_key" });
+
+    if (!error) return null;
+
+    if (String(error.code || "") !== DEADLOCK_CODE || attempt === maxAttempts) {
+      return error;
+    }
+
+    const backoffMs = 120 * 2 ** (attempt - 1) + Math.floor(Math.random() * 120);
+    console.warn("[cto/ingest] deadlock detected, retrying", { attempt, backoffMs });
+    await sleep(backoffMs);
+  }
+
+  return { message: "Unknown upsert failure after retries" };
+}
+
 export async function POST(request) {
   try {
     const expectedToken = process.env.CTO_INGEST_TOKEN;
@@ -70,7 +96,10 @@ export async function POST(request) {
       }
     }
 
-    const logRows = services.map((service) => ({
+    // Keep DB write order deterministic across concurrent ingestors to reduce lock contention.
+    const servicesSorted = [...services].sort((a, b) => a.service_key.localeCompare(b.service_key));
+
+    const logRows = servicesSorted.map((service) => ({
       lab_id: labId,
       checked_at: checkedAt,
       source,
@@ -83,7 +112,7 @@ export async function POST(request) {
       payload: service.payload,
     }));
 
-    const latestRows = services.map((service) => ({
+    const latestRows = servicesSorted.map((service) => ({
       lab_id: labId,
       service_key: service.service_key,
       category: service.category,
@@ -103,9 +132,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Failed to insert service logs" }, { status: 500 });
     }
 
-    const { error: latestError } = await supabase
-      .from("cto_service_latest")
-      .upsert(latestRows, { onConflict: "lab_id,service_key" });
+    const latestError = await upsertLatestWithRetry(latestRows);
 
     if (latestError) {
       console.error("[cto/ingest] failed to upsert latest state", latestError);
