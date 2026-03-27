@@ -6,12 +6,12 @@ import {
   Box,
   Button,
   ButtonGroup,
-  Checkbox,
   Flex,
   Heading,
   HStack,
   IconButton,
   Input,
+  Switch,
   Modal,
   ModalBody,
   ModalCloseButton,
@@ -87,6 +87,9 @@ export default function ReportDispatchPage() {
 
   const phoneCacheRef = useRef(new Map());
   const dateCacheRef = useRef(new Map());
+  const headerDefaultAppliedRef = useRef(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [viewportResolved, setViewportResolved] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -100,6 +103,31 @@ export default function ReportDispatchPage() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      setIsMobileViewport(media.matches);
+      setViewportResolved(true);
+    };
+    apply();
+    const onChange = (event) => setIsMobileViewport(Boolean(event.matches));
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    }
+    media.addListener(onChange);
+    return () => media.removeListener(onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!viewportResolved) return;
+    if (headerDefaultAppliedRef.current) return;
+    setHeaderRequired(Boolean(isMobileViewport));
+    setActionMode(isMobileViewport ? "share" : "open");
+    headerDefaultAppliedRef.current = true;
+  }, [isMobileViewport, viewportResolved]);
 
   useEffect(() => {
     setDailyFilter("");
@@ -308,7 +336,7 @@ export default function ReportDispatchPage() {
     });
   }
 
-  function openDocument(reportScope, extra = {}) {
+  async function openDocument(reportScope, extra = {}) {
     if (!canDispatch) return;
 
     const reqid = currentReqid();
@@ -328,7 +356,47 @@ export default function ReportDispatchPage() {
       query.set(key, String(value));
     }
 
-    window.open(`/api/admin/reports/document?${query.toString()}`, "_blank", "noopener,noreferrer");
+    const reportUrl = `/api/admin/reports/document?${query.toString()}`;
+
+    if (
+      actionMode === "share" &&
+      typeof window !== "undefined" &&
+      typeof navigator !== "undefined" &&
+      typeof navigator.share === "function"
+    ) {
+      try {
+        const response = await fetch(reportUrl, { cache: "no-store" });
+        if (!response.ok) throw new Error("Unable to load report for sharing");
+        const blob = await response.blob();
+        const fileName = `${(reqno || reqid || "report").trim()}.pdf`;
+        const file = new File([blob], fileName, {
+          type: blob?.type || "application/pdf"
+        });
+
+        if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: `Report ${reqno || reqid || ""}`.trim(),
+            files: [file]
+          });
+          return;
+        }
+
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+        return;
+      } catch {
+        window.open(reportUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+    }
+
+    window.open(reportUrl, "_blank", "noopener,noreferrer");
   }
 
   function openTrend() {
@@ -447,11 +515,11 @@ export default function ReportDispatchPage() {
                   <ButtonGroup size="sm" isAttached variant="outline">
                     <Button
                       leftIcon={<ExternalLinkIcon />}
-                      colorScheme={actionMode === "open" ? "blue" : "gray"}
-                      variant={actionMode === "open" ? "solid" : "outline"}
-                      onClick={() => setActionMode("open")}
+                      colorScheme={(actionMode === "open" || actionMode === "share") ? "blue" : "gray"}
+                      variant={(actionMode === "open" || actionMode === "share") ? "solid" : "outline"}
+                      onClick={() => setActionMode(isMobileViewport ? "share" : "open")}
                     >
-                      Open
+                      {isMobileViewport ? "Share" : "Open"}
                     </Button>
                     <Button
                       leftIcon={<DownloadIcon />}
@@ -462,9 +530,10 @@ export default function ReportDispatchPage() {
                       Download
                     </Button>
                   </ButtonGroup>
-                  <Checkbox isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} size="sm">
+                  <HStack spacing={2}>
                     <Text fontSize="sm">Header</Text>
-                  </Checkbox>
+                    <Switch colorScheme="purple" size="md" isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} />
+                  </HStack>
                 </Flex>
               </Flex>
             </Flex>
