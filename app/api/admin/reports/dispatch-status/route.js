@@ -297,16 +297,19 @@ function hasConsumedPendingPrintOnce(logRows = []) {
   });
 }
 
-function buildDecision({ readyKeys, deliveredInfo, pendingPrintOnceConsumed, allowPendingPrintOnce }) {
+function buildDecision({ readyKeys, deliveredInfo, pendingPrintOnceConsumed, allowPendingPrintOnce, labTotal }) {
   const readySet = new Set(readyKeys);
   const deliveredSet = new Set(deliveredInfo.delivered_keys || []);
   const outstanding = Array.from(readySet).filter((key) => !deliveredSet.has(key));
 
   if (readySet.size === 0) {
+    const noLabTests = Number(labTotal || 0) === 0;
     return {
       mode: "skip",
-      reason_code: "NO_READY_LAB_REPORTS",
-      reason: "No approved lab tests are ready yet.",
+      reason_code: noLabTests ? "NO_LAB_TESTS" : "NO_READY_LAB_REPORTS",
+      reason: noLabTests
+        ? "No lab tests are available for this requisition."
+        : "No approved lab tests are ready yet.",
       can_print_full: false,
       can_print_delta: false,
       should_block_print: true,
@@ -458,7 +461,8 @@ export async function GET(request) {
       readyKeys: readyLabTestKeys,
       deliveredInfo,
       pendingPrintOnceConsumed,
-      allowPendingPrintOnce
+      allowPendingPrintOnce,
+      labTotal: Number(reportStatus?.lab_total || 0)
     });
 
     const pendingPrintUrl =
