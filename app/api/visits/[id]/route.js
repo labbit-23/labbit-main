@@ -132,8 +132,8 @@ export async function PUT(request, context) {
     return NextResponse.json({ error: "Missing visit ID" }, { status: 400 });
   }
 
-  // Use cookies() directly as per working example
-  const session = await getIronSession(cookies(), ironOptions);
+  const cookieStore = await cookies();
+  const session = await getIronSession(cookieStore, ironOptions);
   const user = session?.user || null;
 
   try {

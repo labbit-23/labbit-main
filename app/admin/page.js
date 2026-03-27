@@ -5,7 +5,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Box, Tabs, TabList, TabPanels, Tab, TabPanel,
   Button, useDisclosure, Flex, Text, Heading,
-  useToast, IconButton, Badge, Tooltip, HStack, Spacer
+  useToast, IconButton, Badge, Tooltip, HStack, Spacer, Icon
 } from "@chakra-ui/react";
 import { AddIcon, DownloadIcon, LinkIcon, RepeatIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
@@ -31,6 +31,17 @@ const WHATSAPP_ICON_URL =
 const CLICKUP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/clickup.svg";
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
+
+function ReportDispatchIcon(props) {
+  return (
+    <Icon viewBox="0 0 24 24" {...props}>
+      <path
+        fill="currentColor"
+        d="M7 2a2 2 0 0 0-2 2v5h2V4h10v5h2V4a2 2 0 0 0-2-2H7Zm-3 8a2 2 0 0 0-2 2v5h3v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4h3v-5a2 2 0 0 0-2-2H4Zm3 9v-6h10v6H7Zm8-3h-2v-2h-2v2H9v2h2v2h2v-2h2v-2Z"
+      />
+    </Icon>
+  );
+}
 
 function waitForPaint() {
   return new Promise((resolve) => {
@@ -563,6 +574,27 @@ const exportVisitsImage = async () => {
                       })}
                 />
               </Tooltip>
+              <Tooltip label="Report Dispatch">
+                <IconButton
+                  className="no-export"
+                  as="a"
+                  href="/admin/report-dispatch"
+                  aria-label="Open report dispatch"
+                  icon={<ReportDispatchIcon boxSize={5} />}
+                  size="md"
+                  variant="outline"
+                  {...(themeMode === "dark"
+                    ? {
+                        color: "white",
+                        bg: "rgba(255,255,255,0.08)",
+                        borderColor: "whiteAlpha.400",
+                        _hover: { bg: "rgba(255,255,255,0.18)" },
+                      }
+                    : {
+                        borderColor: "gray.300",
+                      })}
+                />
+              </Tooltip>
               <IconButton
                 className="no-export"
                 icon={<DownloadIcon />}
@@ -573,17 +605,9 @@ const exportVisitsImage = async () => {
               />
             </Flex>
 
-            <HStack spacing={2} mb={4} align="center" flexWrap="wrap">
-              <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
-                Agents Active: {onlineAgents}
-              </Badge>
-              <Badge colorScheme="yellow" borderRadius="full" px={3} py={1}>
-                Away: {awayAgents}
-              </Badge>
-              <Badge colorScheme="gray" borderRadius="full" px={3} py={1}>
-                Not Logged In: {offlineAgents}
-              </Badge>
-            </HStack>
+            <Text mb={4} fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.600"}>
+              Team presence: {onlineAgents} online, {awayAgents} away, {offlineAgents} offline
+            </Text>
 
             {errorMsg && (
               <Text color="red.400" mb={6}>

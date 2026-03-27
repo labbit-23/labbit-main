@@ -74,12 +74,7 @@ export default function PatientsTab({
     }
   }, [user, isUserLoading, isPatientUser, onPatientSelected]);
 
-  // Fetch visits for selected patient
-  console.log('selectedPatient in PatientsTab:', selectedPatient);
-
   useEffect(() => {
-    console.log("Visits fetch effect triggered for patient:", selectedPatient?.id);
-
     if (!selectedPatient?.id) {
       setVisits([]);
       setVisitsError(null);
@@ -93,7 +88,6 @@ export default function PatientsTab({
         const res = await fetch(`/api/visits?patient_id=${selectedPatient.id}`);
         if (!res.ok) throw new Error('Failed to fetch visits');
         const data = await res.json();
-        console.log("Fetched visits data:", data);  // Add this log
 
         setVisits(Array.isArray(data) ? data : []);
 

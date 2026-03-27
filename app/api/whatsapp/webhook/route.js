@@ -34,6 +34,7 @@ import {
 } from "@/lib/whatsapp/sender";
 import healthPackagesData from "@/lib/data/health-packages.json";
 import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
+import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 
 const BOT_START_KEYWORDS = new Set([
   "HI",
@@ -67,6 +68,28 @@ function normalizeCommandLikeInput(value) {
     .toUpperCase();
   const normalizedUnderscore = normalizedGreeting.replace(/\s+/g, "_");
   return { raw, normalized, normalizedGreeting, normalizedUnderscore };
+}
+
+function extractReadyLabTestKeys(reportStatus) {
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  const keys = [];
+  const seen = new Set();
+
+  for (const row of tests) {
+    const groupId = String(row?.GROUPID ?? row?.groupid ?? "").trim();
+    if (groupId !== "GDEP0001") continue;
+
+    const approvedFlag = String(row?.APPROVEDFLG ?? row?.approvedflg ?? "").trim();
+    const status = String(row?.REPORT_STATUS ?? row?.report_status ?? "").trim();
+    if (!(approvedFlag === "1" || status === "LAB_READY")) continue;
+
+    const key = String(row?.TESTID ?? row?.testid ?? row?.TESTNM ?? row?.testnm ?? "").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+
+  return keys;
 }
 
 function parseTemplates(templates) {
@@ -2123,12 +2146,89 @@ export async function POST(req) {
         break;
 
       case "SEND_DOCUMENT":
-        await sendDocumentMessage({
-          labId: session.lab_id,
-          phone,
-          documentUrl: result.documentUrl,
-          filename: result.filename
-        });
+        {
+          const dispatchStartedAt = Date.now();
+          const dispatchReqid =
+            String(nextContext.selected_report_reqid || result?.context?.selected_report_reqid || "").trim() || null;
+          const dispatchReqno =
+            String(result.reportStatusReqno || nextContext.selected_report_reqno || result?.context?.selected_report_reqno || "").trim() ||
+            null;
+          let readyLabTestKeys = [];
+
+          if (dispatchReqno) {
+            try {
+              const dispatchStatus = await getReportStatus(dispatchReqno);
+              readyLabTestKeys = extractReadyLabTestKeys(dispatchStatus);
+            } catch (statusErr) {
+              console.warn("[bot] dispatch breakup lookup skipped", {
+                reqno: dispatchReqno,
+                error: statusErr?.message || String(statusErr)
+              });
+            }
+          }
+
+          try {
+            const sendResponse = await sendDocumentMessage({
+              labId: session.lab_id,
+              phone,
+              documentUrl: result.documentUrl,
+              filename: result.filename
+            });
+
+            await logReportDispatch({
+              labId: session.lab_id,
+              actorName: "WhatsApp Bot",
+              actorRole: "bot",
+              sourcePage: "report_dispatch",
+              action: "send_whatsapp",
+              targetMode: "single",
+              reqid: dispatchReqid,
+              reqno: dispatchReqno,
+              phone,
+              reportType: "combined",
+              headerMode: "default",
+              status: "success",
+              resultCode: "BOT_SEND_OK",
+              resultMessage: "Report sent via bot flow",
+              providerMessageId: extractProviderMessageId(sendResponse),
+              requestPayload: {
+                document_url: result.documentUrl,
+                filename: result.filename,
+                reply_type: result.replyType || "SEND_DOCUMENT",
+                ready_lab_test_keys: readyLabTestKeys
+              },
+              responsePayload: sendResponse,
+              durationMs: Date.now() - dispatchStartedAt,
+              documentUrl: result.documentUrl
+            });
+          } catch (sendDocumentError) {
+            await logReportDispatch({
+              labId: session.lab_id,
+              actorName: "WhatsApp Bot",
+              actorRole: "bot",
+              sourcePage: "report_dispatch",
+              action: "send_whatsapp",
+              targetMode: "single",
+              reqid: dispatchReqid,
+              reqno: dispatchReqno,
+              phone,
+              reportType: "combined",
+              headerMode: "default",
+              status: "failed",
+              resultCode: "BOT_SEND_FAILED",
+              resultMessage: sendDocumentError?.message || "Unknown send error",
+              requestPayload: {
+                document_url: result.documentUrl,
+                filename: result.filename,
+                reply_type: result.replyType || "SEND_DOCUMENT",
+                ready_lab_test_keys: readyLabTestKeys
+              },
+              durationMs: Date.now() - dispatchStartedAt,
+              documentUrl: result.documentUrl
+            });
+            throw sendDocumentError;
+          }
+        }
         {
           let statusMessage = null;
           if (result.reportStatusReqno) {

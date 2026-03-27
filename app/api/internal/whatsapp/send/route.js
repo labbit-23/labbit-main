@@ -6,6 +6,7 @@ import {
   sendTemplateMessage,
   sendTextMessage
 } from "@/lib/whatsapp/sender";
+import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 
 function buildSender(sourceService) {
   const name = String(sourceService || "System").trim();
@@ -35,6 +36,23 @@ function normalizeKind(input = {}) {
   if (hasTemplateSignal) return "template";
 
   return "text";
+}
+
+function inferReportReqidFromUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return null;
+  const match = raw.match(/\/(?:report|reports|radiologyreport)\/([^/?#]+)/i);
+  return match?.[1] ? decodeURIComponent(String(match[1]).trim()) : null;
+}
+
+function isReportLikeDocumentUrl(url) {
+  const raw = String(url || "").toLowerCase();
+  return (
+    raw.includes("/report/") ||
+    raw.includes("/reports/") ||
+    raw.includes("/radiologyreport/") ||
+    raw.includes("/latest-report/")
+  );
 }
 
 function getAuthToken(request) {
@@ -152,14 +170,77 @@ export async function POST(request) {
       if (!documentUrl) {
         return NextResponse.json({ error: "Missing document_url/media_url/url" }, { status: 400 });
       }
-      await sendDocumentMessage({
-        labId: session.lab_id,
-        phone: session.phone,
-        documentUrl,
-        filename: String(body?.filename || "document.pdf"),
-        caption: String(body?.caption || ""),
-        sender
-      });
+      const reportLikeDispatch = isReportLikeDocumentUrl(documentUrl);
+      const dispatchStartedAt = Date.now();
+
+      try {
+        const sendResult = await sendDocumentMessage({
+          labId: session.lab_id,
+          phone: session.phone,
+          documentUrl,
+          filename: String(body?.filename || "document.pdf"),
+          caption: String(body?.caption || ""),
+          sender
+        });
+
+        if (reportLikeDispatch) {
+          const readyLabTestKeys = Array.isArray(body?.ready_lab_test_keys) ? body.ready_lab_test_keys : [];
+          await logReportDispatch({
+            labId: session.lab_id,
+            actorName: sourceService,
+            actorRole: sourceService.toLowerCase().includes("bot") ? "bot" : "system",
+            sourcePage: "report_dispatch",
+            action: "send_whatsapp",
+            targetMode: "single",
+            reqid: inferReportReqidFromUrl(documentUrl),
+            reqno: String(body?.reqno || "").trim() || null,
+            phone: session.phone,
+            reportType: "combined",
+            headerMode: "default",
+            status: "success",
+            resultCode: "INTERNAL_SEND_OK",
+            resultMessage: "Report sent via internal whatsapp endpoint",
+            providerMessageId: extractProviderMessageId(sendResult),
+            requestPayload: {
+              source_service: sourceService,
+              document_url: documentUrl,
+              ready_lab_test_keys: readyLabTestKeys
+            },
+            responsePayload: sendResult,
+            durationMs: Date.now() - dispatchStartedAt,
+            documentUrl
+          });
+        }
+      } catch (sendError) {
+        if (reportLikeDispatch) {
+          const readyLabTestKeys = Array.isArray(body?.ready_lab_test_keys) ? body.ready_lab_test_keys : [];
+          await logReportDispatch({
+            labId: session.lab_id,
+            actorName: sourceService,
+            actorRole: sourceService.toLowerCase().includes("bot") ? "bot" : "system",
+            sourcePage: "report_dispatch",
+            action: "send_whatsapp",
+            targetMode: "single",
+            reqid: inferReportReqidFromUrl(documentUrl),
+            reqno: String(body?.reqno || "").trim() || null,
+            phone: session.phone,
+            reportType: "combined",
+            headerMode: "default",
+            status: "failed",
+            resultCode: "INTERNAL_SEND_FAILED",
+            resultMessage: sendError?.message || "Unknown send error",
+            requestPayload: {
+              source_service: sourceService,
+              document_url: documentUrl,
+              ready_lab_test_keys: readyLabTestKeys
+            },
+            durationMs: Date.now() - dispatchStartedAt,
+            documentUrl
+          });
+        }
+        throw sendError;
+      }
+
       await touchSession(session.id);
       return NextResponse.json({ success: true, ok: true, kind: "document" }, { status: 200 });
     }

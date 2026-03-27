@@ -3,9 +3,17 @@ import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 import { phoneVariantsIndia } from "@/lib/phone";
-import { getLatestReportUrl, getReportStatus, getReportUrl } from "@/lib/neosoft/client";
+import {
+  getLatestReportUrl,
+  getReportStatus,
+  getReportStatusByReqid,
+  getReportUrl,
+  getTrendReportUrl
+} from "@/lib/neosoft/client";
 import { lookupReportSelection } from "@/lib/neosoft/reportSelection";
 import { sendDocumentMessage, sendTextMessage } from "@/lib/whatsapp/sender";
+import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
+import { cookies } from "next/headers";
 
 const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
 
@@ -58,6 +66,47 @@ function getPendingLabTestNames(reportStatus) {
     })
     .map((row) => String(getStatusRowValue(row, "TESTNM", "testnm", "test_name", "TEST_NAME") || "").trim())
     .filter(Boolean);
+}
+
+function getReadyLabTestKeys(reportStatus) {
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  const seen = new Set();
+  const keys = [];
+
+  for (const row of tests) {
+    const groupId = String(getStatusRowValue(row, "GROUPID", "groupid") || "").trim();
+    if (groupId !== "GDEP0001") continue;
+
+    const approvalFlag = String(getStatusRowValue(row, "APPROVEDFLG", "approvedflg") || "").trim();
+    const status = String(getStatusRowValue(row, "REPORT_STATUS", "report_status") || "").trim();
+    if (!(approvalFlag === "1" || status === "LAB_READY")) continue;
+
+    const key =
+      String(getStatusRowValue(row, "TESTID", "testid") || "").trim() ||
+      String(getStatusRowValue(row, "TESTNM", "testnm", "TEST_NAME", "test_name") || "").trim();
+
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+
+  return keys;
+}
+
+function extractMrnoFromStatus(reportStatus) {
+  const topLevel = String(
+    getStatusRowValue(reportStatus, "MRNO", "mrno", "CREGNO", "cregno", "UHID", "uhid") || ""
+  ).trim();
+  if (topLevel) return topLevel;
+
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  for (const row of tests) {
+    const mrno = String(
+      getStatusRowValue(row, "MRNO", "mrno", "CREGNO", "cregno", "UHID", "uhid") || ""
+    ).trim();
+    if (mrno) return mrno;
+  }
+  return null;
 }
 
 function buildReportStatusMessage(reportStatus) {
@@ -179,9 +228,9 @@ async function isReachablePdfDocument(url) {
 }
 
 export async function GET(request) {
-  const response = NextResponse.next();
   try {
-    const sessionData = await getIronSession(request, response, ironOptions);
+    const cookieStore = await cookies();
+    const sessionData = await getIronSession(cookieStore, ironOptions);
     const user = sessionData?.user;
     if (!user || !canUseWhatsappInbox(user)) {
       return new Response("Forbidden", { status: 403 });
@@ -198,9 +247,9 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const response = NextResponse.next();
   try {
-    const sessionData = await getIronSession(request, response, ironOptions);
+    const cookieStore = await cookies();
+    const sessionData = await getIronSession(cookieStore, ironOptions);
     const user = sessionData?.user;
     if (!user || !canUseWhatsappInbox(user)) {
       return new Response("Forbidden", { status: 403 });
@@ -212,7 +261,7 @@ export async function POST(request) {
     const reqid = String(body?.reqid || "").trim();
     const reqno = String(body?.reqno || "").trim();
 
-    if (!phone || !["send_report", "send_status", "send_report_and_status", "preview_status", "send_latest_report"].includes(action)) {
+    if (!phone || !["send_report", "send_status", "send_report_and_status", "preview_status", "send_latest_report", "send_latest_trend_report"].includes(action)) {
       return new Response("Invalid request", { status: 400 });
     }
 
@@ -249,12 +298,17 @@ export async function POST(request) {
       }
 
       let latestStatusMessage = null;
+      let latestReqid = null;
+      let latestReqno = null;
+      let latestReadyLabTestKeys = [];
       try {
         const { recentReports } = await lookupReportSelection(phone);
-        const latestReqno = String(recentReports?.[0]?.reqno || "").trim();
+        latestReqid = String(recentReports?.[0]?.reqid || "").trim() || null;
+        latestReqno = String(recentReports?.[0]?.reqno || "").trim() || null;
         if (latestReqno) {
           const reportStatus = await getReportStatus(latestReqno);
           latestStatusMessage = buildReportStatusMessage(reportStatus);
+          latestReadyLabTestKeys = getReadyLabTestKeys(reportStatus);
         }
       } catch (statusError) {
         // Non-blocking: latest report send should still proceed.
@@ -264,19 +318,189 @@ export async function POST(request) {
         });
       }
 
-      await sendDocumentMessage({
-        labId: chatSession.lab_id,
-        phone: chatSession.phone,
-        documentUrl: latestReportUrl,
-        filename: `SDRC_Latest_Report_${String(phone || "").replace(/\D/g, "").slice(-10) || "Patient"}.pdf`,
-        caption: buildLatestReportCaption(latestStatusMessage),
-        sender: {
-          id: user.id || null,
-          name: user.name || "Agent",
-          role: getRoleKey(user) || null,
-          userType: user.userType || null
+      const latestDispatchStartedAt = Date.now();
+      try {
+        const sendResult = await sendDocumentMessage({
+          labId: chatSession.lab_id,
+          phone: chatSession.phone,
+          documentUrl: latestReportUrl,
+          filename: `SDRC_Latest_Report_${String(phone || "").replace(/\D/g, "").slice(-10) || "Patient"}.pdf`,
+          caption: buildLatestReportCaption(latestStatusMessage),
+          sender: {
+            id: user.id || null,
+            name: user.name || "Agent",
+            role: getRoleKey(user) || null,
+            userType: user.userType || null
+          }
+        });
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: latestReqid,
+          reqno: latestReqno,
+          phone: chatSession.phone,
+          reportType: "combined",
+          headerMode: "default",
+          status: "success",
+          resultCode: "AGENT_SEND_OK",
+          resultMessage: "Latest report sent from inbox tools",
+          providerMessageId: extractProviderMessageId(sendResult),
+          requestPayload: {
+            action,
+            document_url: latestReportUrl,
+            ready_lab_test_keys: latestReadyLabTestKeys
+          },
+          responsePayload: sendResult,
+          durationMs: Date.now() - latestDispatchStartedAt,
+          documentUrl: latestReportUrl
+        });
+      } catch (sendError) {
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: latestReqid,
+          reqno: latestReqno,
+          phone: chatSession.phone,
+          reportType: "combined",
+          headerMode: "default",
+          status: "failed",
+          resultCode: "AGENT_SEND_FAILED",
+          resultMessage: sendError?.message || "Unknown send error",
+          requestPayload: {
+            action,
+            document_url: latestReportUrl,
+            ready_lab_test_keys: latestReadyLabTestKeys
+          },
+          durationMs: Date.now() - latestDispatchStartedAt,
+          documentUrl: latestReportUrl
+        });
+        throw sendError;
+      }
+
+      await supabase
+        .from("chat_sessions")
+        .update({ unread_count: 0, last_message_at: new Date(), updated_at: new Date() })
+        .eq("id", chatSession.id);
+
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
+    if (action === "send_latest_trend_report") {
+      let latestReqid = null;
+      let latestReqno = null;
+      let mrno = null;
+
+      try {
+        const { recentReports } = await lookupReportSelection(phone);
+        latestReqid = String(recentReports?.[0]?.reqid || "").trim() || null;
+        latestReqno = String(recentReports?.[0]?.reqno || "").trim() || null;
+        mrno = String(recentReports?.[0]?.mrno || "").trim() || null;
+        if (!latestReqno) {
+          return new Response("No requisition found for latest trend report.", { status: 400 });
         }
-      });
+        if (!mrno) {
+          const reportStatus = await getReportStatus(latestReqno);
+          mrno = extractMrnoFromStatus(reportStatus);
+        }
+        if (!mrno && latestReqid) {
+          const reportStatusByReqid = await getReportStatusByReqid(latestReqid);
+          mrno = extractMrnoFromStatus(reportStatusByReqid);
+        }
+      } catch (statusError) {
+        return new Response(
+          `Trend report lookup failed: ${statusError?.message || "Unknown NeoSoft error"}`,
+          { status: 400 }
+        );
+      }
+
+      if (!mrno) {
+        return new Response("No MRNO found to generate trend report.", { status: 400 });
+      }
+
+      const trendUrl = getTrendReportUrl(mrno);
+      const trendPdfAvailable = await isReachablePdfDocument(trendUrl);
+      if (!trendPdfAvailable) {
+        return new Response("Trend report PDF was not found for this patient.", { status: 400 });
+      }
+
+      const trendDispatchStartedAt = Date.now();
+      try {
+        const sendResult = await sendDocumentMessage({
+          labId: chatSession.lab_id,
+          phone: chatSession.phone,
+          documentUrl: trendUrl,
+          filename: `SDRC_Trend_Report_${mrno}.pdf`,
+          caption: "Please find your trend report attached.",
+          sender: {
+            id: user.id || null,
+            name: user.name || "Agent",
+            role: getRoleKey(user) || null,
+            userType: user.userType || null
+          }
+        });
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: latestReqid,
+          reqno: latestReqno,
+          phone: chatSession.phone,
+          reportType: "trend",
+          headerMode: "default",
+          status: "success",
+          resultCode: "AGENT_TREND_SEND_OK",
+          resultMessage: "Latest trend report sent from inbox tools",
+          providerMessageId: extractProviderMessageId(sendResult),
+          requestPayload: {
+            action,
+            mrno,
+            document_url: trendUrl
+          },
+          responsePayload: sendResult,
+          durationMs: Date.now() - trendDispatchStartedAt,
+          documentUrl: trendUrl
+        });
+      } catch (sendError) {
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: latestReqid,
+          reqno: latestReqno,
+          phone: chatSession.phone,
+          reportType: "trend",
+          headerMode: "default",
+          status: "failed",
+          resultCode: "AGENT_TREND_SEND_FAILED",
+          resultMessage: sendError?.message || "Unknown trend send error",
+          requestPayload: {
+            action,
+            mrno,
+            document_url: trendUrl
+          },
+          durationMs: Date.now() - trendDispatchStartedAt,
+          documentUrl: trendUrl
+        });
+        throw sendError;
+      }
 
       await supabase
         .from("chat_sessions")
@@ -294,19 +518,86 @@ export async function POST(request) {
         return new Response(`Report PDF was not found for requisition ${reqid}.`, { status: 400 });
       }
 
-      await sendDocumentMessage({
-        labId: chatSession.lab_id,
-        phone: chatSession.phone,
-        documentUrl: reportUrl,
-        filename: buildReportFilename({ reqid, reqno, patient_name: body?.patient_name || "" }),
-        caption: "Please find your report attached.",
-        sender: {
-          id: user.id || null,
-          name: user.name || "Agent",
-          role: getRoleKey(user) || null,
-          userType: user.userType || null
+      const reportDispatchStartedAt = Date.now();
+      let readyLabTestKeys = [];
+      if (reqno) {
+        try {
+          const reportStatus = await getReportStatus(reqno);
+          readyLabTestKeys = getReadyLabTestKeys(reportStatus);
+        } catch (statusErr) {
+          console.warn("[admin-report-tools] send_report test breakup lookup skipped", {
+            reqno,
+            error: statusErr?.message || String(statusErr)
+          });
         }
-      });
+      }
+      try {
+        const sendResult = await sendDocumentMessage({
+          labId: chatSession.lab_id,
+          phone: chatSession.phone,
+          documentUrl: reportUrl,
+          filename: buildReportFilename({ reqid, reqno, patient_name: body?.patient_name || "" }),
+          caption: "Please find your report attached.",
+          sender: {
+            id: user.id || null,
+            name: user.name || "Agent",
+            role: getRoleKey(user) || null,
+            userType: user.userType || null
+          }
+        });
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid,
+          reqno: reqno || null,
+          phone: chatSession.phone,
+          reportType: "combined",
+          headerMode: "default",
+          status: "success",
+          resultCode: "AGENT_SEND_OK",
+          resultMessage: "Report sent from inbox tools",
+          providerMessageId: extractProviderMessageId(sendResult),
+          requestPayload: {
+            action,
+            document_url: reportUrl,
+            ready_lab_test_keys: readyLabTestKeys
+          },
+          responsePayload: sendResult,
+          durationMs: Date.now() - reportDispatchStartedAt,
+          documentUrl: reportUrl
+        });
+      } catch (sendError) {
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid,
+          reqno: reqno || null,
+          phone: chatSession.phone,
+          reportType: "combined",
+          headerMode: "default",
+          status: "failed",
+          resultCode: "AGENT_SEND_FAILED",
+          resultMessage: sendError?.message || "Unknown send error",
+          requestPayload: {
+            action,
+            document_url: reportUrl,
+            ready_lab_test_keys: readyLabTestKeys
+          },
+          durationMs: Date.now() - reportDispatchStartedAt,
+          documentUrl: reportUrl
+        });
+        throw sendError;
+      }
     }
 
     if (action === "send_status" || action === "send_report_and_status") {

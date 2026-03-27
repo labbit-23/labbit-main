@@ -7,7 +7,8 @@ import { ironOptions as sessionOptions } from "@/lib/session";
 const ADMIN_ROLES = new Set(["admin", "manager", "director"]);
 
 async function getSessionUser() {
-  const session = await getIronSession(cookies(), sessionOptions);
+  const cookieStore = await cookies();
+  const session = await getIronSession(cookieStore, sessionOptions);
   return session?.user || null;
 }
 

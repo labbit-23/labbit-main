@@ -658,6 +658,7 @@ export default function WhatsAppDashboard() {
   const hasBootstrappedSessionsRef = useRef(false);
   const previousUnreadBySessionRef = useRef(new Map());
   const typingHeartbeatRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
 
   const scrollSelectedConversationIntoView = () => {
     if (typeof document === "undefined") return;
@@ -826,6 +827,7 @@ export default function WhatsAppDashboard() {
       return;
     }
     if (!selectedSession || messages.length === 0) return;
+    if (!shouldStickToBottomRef.current && initialBottomReadyRef.current) return;
     scrollToBottom();
   }, [messages, selectedSession]);
 
@@ -1195,6 +1197,7 @@ export default function WhatsAppDashboard() {
       if (!appendOlder && !since) {
         scrollToBottom();
         initialBottomReadyRef.current = true;
+        shouldStickToBottomRef.current = true;
       }
     } catch (err) {
       const errorDetail = {
@@ -1357,6 +1360,7 @@ export default function WhatsAppDashboard() {
     setOldestCursor(null);
     setLatestCursor(null);
     initialBottomReadyRef.current = false;
+    shouldStickToBottomRef.current = true;
     await fetchMessages(session.phone);
   };
 
@@ -1370,6 +1374,7 @@ export default function WhatsAppDashboard() {
     const scrollEl = getMessageScrollElement();
     const previousHeight = scrollEl?.scrollHeight || 0;
     const previousTop = scrollEl?.scrollTop || 0;
+    shouldStickToBottomRef.current = false;
     isPrependingRef.current = true;
     await fetchMessages(selectedSession.phone, { before: effectiveBefore, appendOlder: true });
     requestAnimationFrame(() => {
@@ -1603,6 +1608,55 @@ export default function WhatsAppDashboard() {
       await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
     } catch (err) {
       setError(err?.message || "Failed to send latest report.");
+    } finally {
+      setIsSendingReportTool(false);
+    }
+  };
+
+  const handleSendLatestTrendReport = async () => {
+    if (!selectedSession?.phone) {
+      setError("Select a conversation first.");
+      return;
+    }
+
+    if (!isWithin24(selectedSession)) {
+      setError("Cannot send reports after the 24-hour window has expired.");
+      return;
+    }
+
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(`Send latest trend report to ${selectedSession.patient_name || selectedSession.phone}?`);
+    if (!confirmed) {
+      setHint("Trend report send cancelled.");
+      return;
+    }
+
+    setError("");
+    setHint("");
+    setIsSendingReportTool(true);
+
+    try {
+      const response = await fetch("/api/admin/whatsapp/report-tools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "send_latest_trend_report",
+          phone: selectedSession.phone
+        })
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to send latest trend report.");
+      }
+
+      setHint("Latest trend report sent to the patient.");
+      await releaseTypingLock(selectedSession);
+      await Promise.all([fetchMessages(selectedSession.phone), fetchSessions()]);
+    } catch (err) {
+      setError(err?.message || "Failed to send latest trend report.");
     } finally {
       setIsSendingReportTool(false);
     }
@@ -2361,6 +2415,10 @@ export default function WhatsAppDashboard() {
                     ref={chatContainerRef}
                     onScroll={(e) => {
                       const scrollTop = e.currentTarget?.scrollTop ?? 0;
+                      const scrollHeight = e.currentTarget?.scrollHeight ?? 0;
+                      const clientHeight = e.currentTarget?.clientHeight ?? 0;
+                      const nearBottom = scrollTop + clientHeight >= scrollHeight - 80;
+                      shouldStickToBottomRef.current = nearBottom;
                       if (scrollTop <= 60) {
                         handleLoadOlder();
                       }
@@ -2596,6 +2654,15 @@ export default function WhatsAppDashboard() {
                   title="Send latest report"
                 >
                   🧾
+                </button>
+                <button
+                  type="button"
+                  className="wa-attachBtn"
+                  onClick={handleSendLatestTrendReport}
+                  disabled={!canReply || isSending || isUpdatingStatus || isSendingReportTool || isLockedByAnotherAgent}
+                  title="Send latest trend report"
+                >
+                  📈
                 </button>
 
                 <textarea

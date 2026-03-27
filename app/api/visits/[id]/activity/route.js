@@ -14,7 +14,8 @@ export async function GET(_request, context) {
     return NextResponse.json({ error: "Missing visit ID" }, { status: 400 });
   }
 
-  const session = await getIronSession(cookies(), ironOptions);
+  const cookieStore = await cookies();
+  const session = await getIronSession(cookieStore, ironOptions);
   const user = session?.user || null;
   const role = String(user?.executiveType || user?.userType || "").toLowerCase();
 
