@@ -190,14 +190,11 @@ export default function ReportDispatchPage() {
         json?.live_status?.patient_phone ||
         preferredPhone ||
         dailyPhone ||
-        selectedReportMeta?.phoneno ||
         ""
       )
         .replace(/\D/g, "")
         .slice(-10);
-      if (resolvedPhone) {
-        setPhoneInput(resolvedPhone);
-      }
+      setPhoneInput(resolvedPhone || "");
     } catch (err) {
       setError(err?.message || "Failed to load dispatch status");
     } finally {
@@ -207,6 +204,7 @@ export default function ReportDispatchPage() {
 
   async function handleLookup(e) {
     e.preventDefault();
+    setSelectedReportMeta(null);
     await lookupByReqno(reqnoInput, { preferredPhone: "" });
   }
 
@@ -349,18 +347,23 @@ export default function ReportDispatchPage() {
   const tone = toneByMode(decision?.mode);
   const actionLabel = actionMode === "download" ? "Download" : "Open";
 
-  const statusReqid = displayValue(status?.reqid || selectedReportMeta?.reqid);
-  const statusReqno = displayValue(status?.reqno || reqnoInput || selectedReportMeta?.reqno);
-  const statusPatient = displayValue(status?.live_status?.patient_name || selectedReportMeta?.patient_name);
-  const statusTestDate = displayValue(status?.live_status?.test_date || selectedReportMeta?.reqdt);
-  const statusPhone = displayValue(status?.live_status?.patient_phone || selectedReportMeta?.phoneno);
-  const statusMrno = displayValue(status?.live_status?.mrno || selectedReportMeta?.mrno);
+  const activeMeta =
+    String(selectedReportMeta?.reqno || "").trim() === String(status?.reqno || reqnoInput || "").trim()
+      ? selectedReportMeta
+      : null;
+
+  const statusReqid = displayValue(status?.reqid || activeMeta?.reqid);
+  const statusReqno = displayValue(status?.reqno || reqnoInput || activeMeta?.reqno);
+  const statusPatient = displayValue(status?.live_status?.patient_name || activeMeta?.patient_name);
+  const statusTestDate = displayValue(status?.live_status?.test_date || activeMeta?.reqdt);
+  const statusPhone = displayValue(status?.live_status?.patient_phone || activeMeta?.phoneno);
+  const statusMrno = displayValue(status?.live_status?.mrno || activeMeta?.mrno);
 
   return (
     <Box
-      h="100vh"
+      h={{ base: "auto", md: "100vh" }}
       w="100vw"
-      overflow="hidden"
+      overflow={{ base: "auto", md: "hidden" }}
       className={`dashboard-theme-shell ${themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}`}
       bg={themeMode === "dark" ? "var(--dashboard-shell-bg)" : "var(--dashboard-page-bg)"}
       color="var(--dashboard-page-text)"
@@ -375,7 +378,7 @@ export default function ReportDispatchPage() {
         onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
       />
 
-      <Flex align="stretch" justify="center" h="calc(100vh - 64px)" pt="64px" px={4} pb={4} overflow="hidden">
+      <Flex align="stretch" justify="center" h={{ base: "auto", md: "calc(100vh - 64px)" }} pt={{ base: "116px", md: "64px" }} px={[2, 4]} pb={[2, 4]} overflow={{ base: "visible", md: "hidden" }}>
         <Box
           w="full"
           maxW="7xl"
@@ -383,8 +386,8 @@ export default function ReportDispatchPage() {
           borderRadius="xl"
           px={[3, 5]}
           py={[3, 4]}
-          h="full"
-          overflow="hidden"
+          h={{ base: "auto", md: "full" }}
+          overflow={{ base: "visible", md: "hidden" }}
           display="flex"
           flexDirection="column"
           gap={3}
@@ -401,21 +404,21 @@ export default function ReportDispatchPage() {
             p={3}
             bg={themeMode === "dark" ? "rgba(19,22,30,0.96)" : "rgba(255,255,255,0.97)"}
           >
-            <Flex wrap="wrap" gap={2} align="center" justify="space-between">
+            <Flex direction={{ base: "column", md: "row" }} wrap="wrap" gap={2} align={{ base: "stretch", md: "center" }} justify="space-between">
               <form onSubmit={handleLookup}>
-                <HStack spacing={2}>
+                <Flex gap={2} wrap="wrap">
                   <Input
                     size="sm"
-                    w="240px"
+                    w={{ base: "full", md: "240px" }}
                     value={reqnoInput}
                     onChange={(e) => setReqnoInput(e.target.value)}
                     placeholder="REQNO"
                   />
-                  <Button type="submit" size="sm" colorScheme="blue" isLoading={loadingStatus}>Check Status</Button>
-                </HStack>
+                  <Button type="submit" size="sm" colorScheme="blue" isLoading={loadingStatus} w={{ base: "full", md: "auto" }}>Check Status</Button>
+                </Flex>
               </form>
 
-              <HStack spacing={2}>
+              <Flex gap={2} wrap="wrap" align="center">
                 <Text fontSize="sm" fontWeight="semibold">Output:</Text>
                 <ButtonGroup size="sm" isAttached variant="outline">
                   <Button
@@ -438,9 +441,9 @@ export default function ReportDispatchPage() {
                 <Checkbox isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} size="sm">
                   <Text fontSize="sm">Header</Text>
                 </Checkbox>
-              </HStack>
+              </Flex>
 
-              <HStack spacing={2}>
+              <Flex gap={2} wrap="wrap">
                 <Button size="sm" colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
                   {actionLabel} All
                 </Button>
@@ -461,44 +464,44 @@ export default function ReportDispatchPage() {
                 >
                   {actionLabel} Pending
                 </Button>
-              </HStack>
+              </Flex>
             </Flex>
           </Box>
 
           {error ? <Text color="red.400" fontSize="sm">{error}</Text> : null}
 
-          <Flex gap={3}>
+          <Flex gap={3} direction={{ base: "column", md: "row" }}>
             <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
               <Text fontWeight="semibold" mb={2}>Search by Mobile No</Text>
-              <HStack spacing={2}>
-                <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" maxW="220px" />
+              <Flex gap={2} wrap="wrap" align="center">
+                <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" maxW={{ base: "full", md: "220px" }} />
                 <Button size="sm" colorScheme="gray" onClick={handleOpenPhoneModal} isLoading={phoneLoading}>Requisition List</Button>
                 <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
                   Cached: {(Array.isArray(phoneReports) ? phoneReports.length : 0)}
                 </Text>
-              </HStack>
+              </Flex>
             </Box>
 
             <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
               <Text fontWeight="semibold" mb={2}>Date-wise Requisitions ({selectedDate})</Text>
-              <HStack spacing={2}>
+              <Flex gap={2} wrap="wrap" align="center">
                 <Button size="sm" colorScheme="gray" onClick={handleOpenDateModal} isLoading={dailyLoading}>Search</Button>
                 <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
                   Cached: {(Array.isArray(dailyRows) ? dailyRows.length : 0)}
                 </Text>
-              </HStack>
+              </Flex>
             </Box>
           </Flex>
 
-          <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1" minH={0} display="flex" flexDirection="column">
+          <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex={{ base: "unset", md: "1" }} minH={{ base: "auto", md: 0 }} display="flex" flexDirection="column">
             <HStack spacing={4} wrap="wrap" mb={2}>
-              <Text fontSize="sm"><strong>REQNO:</strong> {statusReqno}</Text>
-              <Text fontSize="sm"><strong>REQID:</strong> {statusReqid}</Text>
-              <Text fontSize="sm"><strong>Patient:</strong> {statusPatient}</Text>
-              <Text fontSize="sm"><strong>Date:</strong> {statusTestDate}</Text>
-              <Text fontSize="sm"><strong>Phone:</strong> {statusPhone}</Text>
-              <Text fontSize="sm"><strong>MRNO:</strong> {statusMrno}</Text>
-              <Text fontSize="sm"><strong>Status:</strong> <Badge ml={1} colorScheme={tone}>{status?.live_status?.overall_status || "-"}</Badge></Text>
+              <Text fontSize="sm">REQNO: <Text as="span" fontWeight="bold">{statusReqno}</Text></Text>
+              <Text fontSize="sm">REQID: <Text as="span" fontWeight="bold">{statusReqid}</Text></Text>
+              <Text fontSize="sm">Patient: <Text as="span" fontWeight="bold">{statusPatient}</Text></Text>
+              <Text fontSize="sm">Date: <Text as="span" fontWeight="bold">{statusTestDate}</Text></Text>
+              <Text fontSize="sm">Phone: <Text as="span" fontWeight="bold">{statusPhone}</Text></Text>
+              <Text fontSize="sm">MRNO: <Text as="span" fontWeight="bold">{statusMrno}</Text></Text>
+              <Text fontSize="sm">Status: <Badge ml={1} colorScheme={tone}>{status?.live_status?.overall_status || "-"}</Badge></Text>
             </HStack>
             <Text fontSize="xs" mb={1}>Ready Lab: {status?.live_status?.lab_ready || 0}/{status?.live_status?.lab_total || 0} | Ready Radiology: {status?.live_status?.radiology_ready || 0}/{status?.live_status?.radiology_total || 0}</Text>
             <Progress mb={2} value={readyPct} borderRadius="full" colorScheme={tone} />
