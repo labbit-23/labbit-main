@@ -20,6 +20,7 @@ import {
   ModalHeader,
   ModalOverlay,
   Progress,
+  SimpleGrid,
   Table,
   Tbody,
   Td,
@@ -30,7 +31,7 @@ import {
   useDisclosure,
   useToast
 } from "@chakra-ui/react";
-import { CalendarIcon, DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
+import { DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 
@@ -345,8 +346,6 @@ export default function ReportDispatchPage() {
 
   const decision = status?.decision || null;
   const tone = toneByMode(decision?.mode);
-  const actionLabel = actionMode === "download" ? "Download" : "Open";
-
   const activeMeta =
     String(selectedReportMeta?.reqno || "").trim() === String(status?.reqno || reqnoInput || "").trim()
       ? selectedReportMeta
@@ -361,9 +360,9 @@ export default function ReportDispatchPage() {
 
   return (
     <Box
-      h={{ base: "auto", md: "100vh" }}
+      minH="100vh"
       w="100vw"
-      overflow={{ base: "auto", md: "hidden" }}
+      overflow="auto"
       className={`dashboard-theme-shell ${themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}`}
       bg={themeMode === "dark" ? "var(--dashboard-shell-bg)" : "var(--dashboard-page-bg)"}
       color="var(--dashboard-page-text)"
@@ -378,7 +377,7 @@ export default function ReportDispatchPage() {
         onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
       />
 
-      <Flex align="stretch" justify="center" h={{ base: "auto", md: "calc(100vh - 64px)" }} pt={{ base: "116px", md: "64px" }} px={[2, 4]} pb={[2, 4]} overflow={{ base: "visible", md: "hidden" }}>
+      <Flex align="stretch" justify="center" pt={{ base: "116px", md: "64px" }} px={[2, 4]} pb={[2, 4]}>
         <Box
           w="full"
           maxW="7xl"
@@ -386,15 +385,13 @@ export default function ReportDispatchPage() {
           borderRadius="xl"
           px={[3, 5]}
           py={[3, 4]}
-          h={{ base: "auto", md: "full" }}
-          overflow={{ base: "visible", md: "hidden" }}
+          overflow="visible"
           display="flex"
           flexDirection="column"
           gap={3}
         >
           <Flex align="center" justify="space-between" wrap="wrap" gap={3}>
             <Heading className="dashboard-theme-heading" size="lg">Report Dispatch</Heading>
-            <Button as="a" href="/admin" size="sm" variant="outline">Back to Dashboard</Button>
           </Flex>
 
           <Box
@@ -404,103 +401,120 @@ export default function ReportDispatchPage() {
             p={3}
             bg={themeMode === "dark" ? "rgba(19,22,30,0.96)" : "rgba(255,255,255,0.97)"}
           >
-            <Flex direction={{ base: "column", md: "row" }} wrap="wrap" gap={2} align={{ base: "stretch", md: "center" }} justify="space-between">
-              <form onSubmit={handleLookup}>
-                <Flex gap={2} wrap="nowrap" align="center">
-                  <Input
-                    size="sm"
-                    flex="1"
-                    minW={0}
-                    w={{ base: "auto", md: "240px" }}
-                    value={reqnoInput}
-                    onChange={(e) => setReqnoInput(e.target.value)}
-                    placeholder="REQNO"
-                  />
-                  <Button type="submit" leftIcon={<SearchIcon />} size="sm" colorScheme="blue" isLoading={loadingStatus} flexShrink={0}>Check Status</Button>
+            <Flex direction="column" gap={2}>
+              <Flex direction={{ base: "column", xl: "row" }} gap={2} align={{ base: "stretch", xl: "center" }} justify="space-between">
+                <form onSubmit={handleLookup} style={{ width: "100%", minWidth: 0 }}>
+                  <Flex direction="column" gap={2} maxW={{ base: "full", xl: "700px" }}>
+                    <Flex gap={2} wrap="nowrap" align="center">
+                      <Input
+                        size="sm"
+                        flex="1"
+                        minW={0}
+                        maxW={{ base: "none", xl: "240px" }}
+                        value={reqnoInput}
+                        onChange={(e) => setReqnoInput(e.target.value)}
+                        placeholder="REQNO"
+                      />
+                      <Button type="submit" leftIcon={<SearchIcon />} size="sm" colorScheme="blue" isLoading={loadingStatus} flexShrink={0}>
+                        Check Status
+                      </Button>
+                    </Flex>
+                    <Button
+                      size="sm"
+                      leftIcon={<SearchIcon />}
+                      colorScheme="blue"
+                      onClick={handleOpenDateModal}
+                      isLoading={dailyLoading}
+                      flexShrink={0}
+                      w={{ base: "full", sm: "auto" }}
+                    >
+                      Requisitions of {selectedDate}
+                    </Button>
+                    <Text
+                      fontSize="xs"
+                      color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}
+                      whiteSpace="nowrap"
+                      alignSelf="center"
+                      display={{ base: "none", md: "block" }}
+                    >
+                      Cache: {(Array.isArray(dailyRows) ? dailyRows.length : 0)}
+                    </Text>
+                  </Flex>
+                </form>
+
+                <Flex gap={2} wrap={{ base: "wrap", lg: "nowrap" }} align="center" justify={{ base: "flex-start", xl: "flex-end" }}>
+                  <Text fontSize="sm" fontWeight="semibold" whiteSpace="nowrap">Output:</Text>
+                  <ButtonGroup size="sm" isAttached variant="outline">
+                    <Button
+                      leftIcon={<ExternalLinkIcon />}
+                      colorScheme={actionMode === "open" ? "blue" : "gray"}
+                      variant={actionMode === "open" ? "solid" : "outline"}
+                      onClick={() => setActionMode("open")}
+                    >
+                      Open
+                    </Button>
+                    <Button
+                      leftIcon={<DownloadIcon />}
+                      colorScheme={actionMode === "download" ? "blue" : "gray"}
+                      variant={actionMode === "download" ? "solid" : "outline"}
+                      onClick={() => setActionMode("download")}
+                    >
+                      Download
+                    </Button>
+                  </ButtonGroup>
+                  <Checkbox isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} size="sm">
+                    <Text fontSize="sm">Header</Text>
+                  </Checkbox>
                 </Flex>
-              </form>
-
-              <Flex gap={2} wrap="wrap" align="center">
-                <Text fontSize="sm" fontWeight="semibold">Output:</Text>
-                <ButtonGroup size="sm" isAttached variant="outline">
-                  <Button
-                    leftIcon={<ExternalLinkIcon />}
-                    colorScheme={actionMode === "open" ? "blue" : "gray"}
-                    variant={actionMode === "open" ? "solid" : "outline"}
-                    onClick={() => setActionMode("open")}
-                  >
-                    Open
-                  </Button>
-                  <Button
-                    leftIcon={<DownloadIcon />}
-                    colorScheme={actionMode === "download" ? "blue" : "gray"}
-                    variant={actionMode === "download" ? "solid" : "outline"}
-                    onClick={() => setActionMode("download")}
-                  >
-                    Download
-                  </Button>
-                </ButtonGroup>
-                <Checkbox isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} size="sm">
-                  <Text fontSize="sm">Header</Text>
-                </Checkbox>
-              </Flex>
-
-              <Flex gap={2} wrap="wrap" justify={{ base: "space-between", md: "flex-start" }} w={{ base: "full", md: "auto" }}>
-                <Button size="sm" minW={{ base: "48%", md: "auto" }} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
-                  {actionLabel} All
-                </Button>
-                <Button size="sm" minW={{ base: "48%", md: "auto" }} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
-                  {actionLabel} Lab
-                </Button>
-                <Button size="sm" minW={{ base: "48%", md: "auto" }} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
-                  {actionLabel} Radiology
-                </Button>
-                <Button size="sm" minW={{ base: "48%", md: "auto" }} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
-                  {actionLabel} Trend
-                </Button>
-                <Button
-                  size="sm"
-                  minW={{ base: "48%", md: "auto" }}
-                  colorScheme="yellow"
-                  onClick={() => openDocument("all", { printtype: "0" })}
-                  isDisabled={!hasStatus || !currentReqid() || !hasLab}
-                >
-                  {actionLabel} Pending
-                </Button>
               </Flex>
             </Flex>
           </Box>
 
           {error ? <Text color="red.400" fontSize="sm">{error}</Text> : null}
 
-          <Flex gap={3} direction={{ base: "column", md: "row" }}>
-            <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
+          <Flex gap={2} direction={{ base: "column", md: "row" }}>
+            <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
               <Text fontWeight="semibold" mb={2}>Search by Mobile No</Text>
               <Flex gap={2} wrap="nowrap" align="center">
                 <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} maxW={{ base: "none", md: "220px" }} />
-                <Button size="sm" leftIcon={<SearchIcon />} colorScheme="blue" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Requisition List</Button>
+                <Button size="sm" leftIcon={<SearchIcon />} colorScheme="blue" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
               </Flex>
               <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
                 Cached: {(Array.isArray(phoneReports) ? phoneReports.length : 0)}
               </Text>
             </Box>
 
-            <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
-              <Text fontWeight="semibold" mb={2}>Date-wise Requisitions ({selectedDate})</Text>
-              <Flex gap={2} wrap="nowrap" align="center">
-                <Button size="sm" leftIcon={<CalendarIcon />} variant="outline" isDisabled>
-                  {selectedDate}
+            <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
+              <Text fontWeight="semibold" mb={2}>Dispatch Actions</Text>
+              <Flex gap={2} wrap="wrap" align="center">
+                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
+                  All
                 </Button>
-                <Button size="sm" leftIcon={<SearchIcon />} colorScheme="blue" onClick={handleOpenDateModal} isLoading={dailyLoading}>Search</Button>
+                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
+                  Lab
+                </Button>
+                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
+                  Radiology
+                </Button>
+                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
+                  Trend
+                </Button>
+                <Button
+                  size="sm"
+                  leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />}
+                  minW={{ base: "48%", md: "108px" }}
+                  colorScheme="yellow"
+                  onClick={() => openDocument("all", { printtype: "0" })}
+                  isDisabled={!hasStatus || !currentReqid() || !hasLab}
+                >
+                  Pending
+                </Button>
               </Flex>
-              <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
-                Cached: {(Array.isArray(dailyRows) ? dailyRows.length : 0)}
-              </Text>
             </Box>
           </Flex>
 
-          <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={3} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex={{ base: "unset", md: "1" }} minH={{ base: "auto", md: 0 }} display="flex" flexDirection="column">
-            <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={3} mb={2}>
+          <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} display="flex" flexDirection="column">
+            <SimpleGrid columns={{ base: 2, sm: 3, lg: 5 }} spacing={2} mb={1}>
               <Box>
                 <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>REQNO</Text>
                 <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusReqno}</Text>
@@ -518,22 +532,20 @@ export default function ReportDispatchPage() {
                 <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusMrno}</Text>
               </Box>
               <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>REQID</Text>
-                <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusReqid}</Text>
-              </Box>
-              <Box>
                 <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Status</Text>
                 <Badge colorScheme={tone}>{status?.live_status?.overall_status || "-"}</Badge>
               </Box>
             </SimpleGrid>
-            <Text fontSize="xs" mb={1}>Ready Lab: {status?.live_status?.lab_ready || 0}/{status?.live_status?.lab_total || 0} | Ready Radiology: {status?.live_status?.radiology_ready || 0}/{status?.live_status?.radiology_total || 0}</Text>
-            <Progress mb={2} value={readyPct} borderRadius="full" colorScheme={tone} />
-            <Box overflow="auto" borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.200" : "gray.100"} borderRadius="md" flex="1" minH={0}>
+            <Flex justify="space-between" align="center" wrap="wrap" gap={2} mb={1}>
+              <Text fontSize="xs">Ready Lab: {status?.live_status?.lab_ready || 0}/{status?.live_status?.lab_total || 0} | Ready Radiology: {status?.live_status?.radiology_ready || 0}/{status?.live_status?.radiology_total || 0}</Text>
+              <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>{displayValue(decision?.reason)}</Text>
+            </Flex>
+            <Progress mb={1} value={readyPct} borderRadius="full" colorScheme={tone} />
+            <Box overflow="auto" borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" maxH={{ base: "320px", md: "500px" }}>
               <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
                 <Thead>
                   <Tr>
                     <Th>Test</Th>
-                    <Th>ID</Th>
                     <Th>Dept</Th>
                     <Th>Status</Th>
                     <Th>Dispatch</Th>
@@ -558,7 +570,6 @@ export default function ReportDispatchPage() {
                     return (
                       <Tr key={row?.key || `${row?.test_id || ""}_${row?.test_name || ""}`}>
                         <Td>{displayValue(row?.test_name)}</Td>
-                        <Td>{displayValue(row?.test_id)}</Td>
                         <Td textTransform="capitalize">{displayValue(row?.department)}</Td>
                         <Td>
                           <Badge colorScheme={statusColor}>
@@ -576,7 +587,6 @@ export default function ReportDispatchPage() {
                 </Tbody>
               </Table>
             </Box>
-            <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>{displayValue(decision?.reason)}</Text>
           </Box>
         </Box>
       </Flex>
