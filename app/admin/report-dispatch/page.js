@@ -32,6 +32,7 @@ import {
   useToast
 } from "@chakra-ui/react";
 import { DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
+import { FiShare2 } from "react-icons/fi";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 
@@ -357,6 +358,8 @@ export default function ReportDispatchPage() {
     }
 
     const reportUrl = `/api/admin/reports/document?${query.toString()}`;
+    const patientDisplayName = String(status?.live_status?.patient_name || selectedReportMeta?.patient_name || "patient").trim() || "patient";
+    const shareText = `Please find reports of ${patientDisplayName}.`;
 
     if (
       actionMode === "share" &&
@@ -376,6 +379,7 @@ export default function ReportDispatchPage() {
         if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
           await navigator.share({
             title: `Report ${reqno || reqid || ""}`.trim(),
+            text: shareText,
             files: [file]
           });
           return;
@@ -389,9 +393,22 @@ export default function ReportDispatchPage() {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(blobUrl);
+        toast({
+          title: "Downloaded",
+          description: "Direct file sharing is unavailable on this device. PDF downloaded instead.",
+          status: "info",
+          duration: 2200,
+          isClosable: true
+        });
         return;
       } catch {
-        window.open(reportUrl, "_blank", "noopener,noreferrer");
+        toast({
+          title: "Share failed",
+          description: "Could not share this report. Please try again.",
+          status: "error",
+          duration: 2200,
+          isClosable: true
+        });
         return;
       }
     }
@@ -425,6 +442,8 @@ export default function ReportDispatchPage() {
   const statusTestDate = displayValue(status?.live_status?.test_date || activeMeta?.reqdt);
   const statusPhone = displayValue(status?.live_status?.patient_phone || activeMeta?.phoneno);
   const statusMrno = displayValue(status?.live_status?.mrno || activeMeta?.mrno);
+  const outputPrimaryIcon =
+    actionMode === "download" ? <DownloadIcon /> : isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />;
 
   return (
     <Box
@@ -514,7 +533,7 @@ export default function ReportDispatchPage() {
                   <Text fontSize="sm" fontWeight="semibold" whiteSpace="nowrap">Output:</Text>
                   <ButtonGroup size="sm" isAttached variant="outline">
                     <Button
-                      leftIcon={<ExternalLinkIcon />}
+                      leftIcon={isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />}
                       colorScheme={(actionMode === "open" || actionMode === "share") ? "blue" : "gray"}
                       variant={(actionMode === "open" || actionMode === "share") ? "solid" : "outline"}
                       onClick={() => setActionMode(isMobileViewport ? "share" : "open")}
@@ -556,21 +575,21 @@ export default function ReportDispatchPage() {
             <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
               <Text fontWeight="semibold" mb={2}>Dispatch Actions</Text>
               <Flex gap={2} wrap="wrap" align="center">
-                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
+                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
                   All
                 </Button>
-                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
+                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
                   Lab
                 </Button>
-                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
+                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
                   Radiology
                 </Button>
-                <Button size="sm" leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />} minW={{ base: "48%", md: "108px" }} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
+                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
                   Trend
                 </Button>
                 <Button
                   size="sm"
-                  leftIcon={actionMode === "open" ? <ExternalLinkIcon /> : <DownloadIcon />}
+                  leftIcon={outputPrimaryIcon}
                   minW={{ base: "48%", md: "108px" }}
                   colorScheme="yellow"
                   onClick={() => openDocument("all", { printtype: "0" })}
