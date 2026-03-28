@@ -167,8 +167,25 @@ function isFreshService(service) {
   return Date.now() - checkedAt <= SERVICE_FRESHNESS_MS;
 }
 
+function parseServiceKey(serviceKey) {
+  const fullKey = String(serviceKey || "");
+  const match = fullKey.match(/^(.*)__([a-z0-9_-]+)$/i);
+  if (!match) {
+    return {
+      fullKey,
+      baseKey: fullKey,
+      nodeRole: null
+    };
+  }
+  return {
+    fullKey,
+    baseKey: match[1] || fullKey,
+    nodeRole: (match[2] || "").toLowerCase() || null
+  };
+}
+
 function domainTitleForService(service) {
-  const key = service?.service_key || "";
+  const key = parseServiceKey(service?.service_key).baseKey;
   const category = service?.category || "";
 
   if (category === "whatsapp" || key.startsWith("whatsapp_bot_")) return "WhatsApp Chatbot";
@@ -190,7 +207,8 @@ function domainTitleForService(service) {
 }
 
 function isWhatsappMetric(service) {
-  return service?.category === "whatsapp" || String(service?.service_key || "").startsWith("whatsapp_bot_");
+  const baseKey = parseServiceKey(service?.service_key).baseKey;
+  return service?.category === "whatsapp" || String(baseKey || "").startsWith("whatsapp_bot_");
 }
 
 function CtoDashboardPage() {
@@ -385,16 +403,34 @@ function CtoDashboardPage() {
   }, [latest.services]);
 
   const groupConfig = useMemo(() => {
-    return (latest.services || []).find((service) => service.service_key === "__group_config__")?.payload?.groups || [];
+    return (latest.services || [])
+      .filter((service) => String(service.service_key || "").startsWith("__group_config__"))
+      .flatMap((service) => (Array.isArray(service?.payload?.groups) ? service.payload.groups : []));
   }, [latest.services]);
 
   const smartDiagnosis = useMemo(() => {
     if (!groupConfig.length) return null;
-    const byKey = new Map(realServices.map((service) => [service.service_key, service]));
+    const byKey = new Map();
+    for (const service of realServices) {
+      const parsed = parseServiceKey(service.service_key);
+      if (!byKey.has(parsed.fullKey)) byKey.set(parsed.fullKey, []);
+      byKey.get(parsed.fullKey).push(service);
+      if (!byKey.has(parsed.baseKey)) byKey.set(parsed.baseKey, []);
+      byKey.get(parsed.baseKey).push(service);
+    }
 
     const matches = groupConfig
       .map((group) => {
-        const services = (group.services || []).map((key) => byKey.get(key)).filter(Boolean);
+        const servicesRaw = (group.services || [])
+          .flatMap((key) => byKey.get(String(key || "").trim()) || [])
+          .filter(Boolean);
+        const seen = new Set();
+        const services = servicesRaw.filter((service) => {
+          const uniq = `${service.service_key || ""}|${service.checked_at || ""}`;
+          if (seen.has(uniq)) return false;
+          seen.add(uniq);
+          return true;
+        });
         const triggered = evaluateFailureCondition(group.failure_condition, services);
         return {
           ...group,
@@ -497,7 +533,10 @@ function CtoDashboardPage() {
   const keySystemStatuses = useMemo(() => {
     const services = realServices;
     return keySystems.map((system) => {
-      const matches = services.filter((service) => system.service_keys.includes(service.service_key));
+      const matches = services.filter((service) => {
+        const parsed = parseServiceKey(service.service_key);
+        return system.service_keys.includes(parsed.fullKey) || system.service_keys.includes(parsed.baseKey);
+      });
       const freshMatches = matches.filter(isFreshService);
       const sourceMatches = freshMatches.length > 0 ? freshMatches : matches;
       const status = sourceMatches.length > 0 ? worstStatus(sourceMatches.map((service) => service.status)) : "unknown";

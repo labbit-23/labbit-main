@@ -2036,6 +2036,31 @@ export default function WhatsAppDashboard() {
   );
 
   const hasManyPatients = (session) => Number(session?.matched_patient_count || 0) > 1;
+  const currentSessionPhone = String(selectedSession?.phone || "").trim();
+
+  const handleCopyPhone = async (phoneValue) => {
+    const cleanPhone = String(phoneValue || "").trim();
+    if (!cleanPhone) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(cleanPhone);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = cleanPhone;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setError("");
+      setHint(`Copied: ${cleanPhone}`);
+      window.setTimeout(() => setHint(""), 1400);
+    } catch {
+      setError("Could not copy phone. Please copy manually.");
+    }
+  };
 
   const renderDbNamesPopover = (session, compact = false) => {
     if (!hasManyPatients(session)) return null;
@@ -2247,6 +2272,17 @@ export default function WhatsAppDashboard() {
                   <span className="wa-sessionName">
                     {selectedSession.patient_name || selectedSession.phone}
                   </span>
+                  {currentSessionPhone && (
+                    <button
+                      type="button"
+                      className="wa-sessionPhone"
+                      onClick={() => handleCopyPhone(currentSessionPhone)}
+                      title="Tap to copy phone number"
+                      aria-label={`Copy phone number ${currentSessionPhone}`}
+                    >
+                      {currentSessionPhone}
+                    </button>
+                  )}
                   {!isMobileViewport && renderDbNamesPopover(selectedSession, true)}
                   {!isMobileViewport && (
                     <span
@@ -3405,6 +3441,26 @@ export default function WhatsAppDashboard() {
           color: #f8fafc;
         }
 
+        .wa-sessionPhone {
+          border: 1px dashed rgba(148, 163, 184, 0.55);
+          background: rgba(148, 163, 184, 0.14);
+          color: #e2e8f0;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          padding: 3px 10px;
+          cursor: pointer;
+          max-width: 170px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .wa-sessionPhone:hover {
+          background: rgba(148, 163, 184, 0.22);
+        }
+
         .wa-identityWrap {
           position: relative;
           display: inline-flex;
@@ -4533,6 +4589,15 @@ export default function WhatsAppDashboard() {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+          }
+
+          .wa-sessionPhone {
+            max-width: calc(100vw - 56px);
+            font-size: 13px;
+            padding: 5px 10px;
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.32);
+            color: #ffffff;
           }
 
           .wa-mobileBackBtn {
