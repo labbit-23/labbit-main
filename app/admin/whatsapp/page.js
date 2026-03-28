@@ -1538,6 +1538,13 @@ export default function WhatsAppDashboard() {
       return;
     }
 
+    const maxAttachmentBytes = Number(process.env.NEXT_PUBLIC_WHATSAPP_ATTACHMENT_MAX_BYTES || 10 * 1024 * 1024);
+    if (Number(file.size || 0) > maxAttachmentBytes) {
+      const maxMb = Math.max(1, Math.round(maxAttachmentBytes / (1024 * 1024)));
+      setError(`Attachment is too large. Please keep file size under ${maxMb} MB.`);
+      return;
+    }
+
     const caption = window.prompt("Add caption (optional):", "") || "";
     const form = new FormData();
     form.append("phone", selectedSession.phone);
