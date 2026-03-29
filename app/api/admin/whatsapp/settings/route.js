@@ -75,6 +75,7 @@ function defaultBotFlowTemplates() {
         booking_slot_invalid: "Please choose a valid time slot from the menu.",
         booking_location_text_prompt: "Please enter your area/location.",
         feedback_redirect_text: "We value your feedback. Please share it here.",
+        thank_you_feedback_text: "You’re welcome. We’d love your feedback:",
         lab_timings_text: "Mon-Sat: 7:00 AM - 8:00 PM\nSunday: 7:00 AM - 2:00 PM"
       },
       links: {

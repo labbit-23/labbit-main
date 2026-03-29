@@ -10,6 +10,14 @@ import {
   GridItem,
   Heading,
   HStack,
+  Input,
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
   Progress,
   Select,
   SimpleGrid,
@@ -22,7 +30,8 @@ import {
   Thead,
   Tooltip,
   Tr,
-  VStack
+  VStack,
+  useDisclosure
 } from "@chakra-ui/react";
 import Link from "next/link";
 import RequireAuth from "../../components/RequireAuth";
@@ -61,6 +70,12 @@ const keySystems = [
   { service_keys: ["orthanc_main"], label: "Orthanc" },
 ];
 const SERVICE_FRESHNESS_MS = 10 * 60 * 1000;
+const TREND_RANGE_OPTIONS = [
+  { value: "7d", label: "7 Days" },
+  { value: "30d", label: "30 Days" },
+  { value: "12w", label: "12 Weeks" },
+  { value: "12m", label: "12 Months" },
+];
 
 function worstStatus(statuses) {
   if (statuses.includes("down")) return "down";
@@ -211,7 +226,36 @@ function isWhatsappMetric(service) {
   return service?.category === "whatsapp" || String(baseKey || "").startsWith("whatsapp_bot_");
 }
 
+function toChartY(value, height, padding) {
+  const clamped = Math.max(0, Math.min(100, Number(value || 0)));
+  const drawable = Math.max(1, height - padding * 2);
+  return padding + ((100 - clamped) / 100) * drawable;
+}
+
+function buildTrendPath(points, valueAccessor, width, height, padding) {
+  if (!Array.isArray(points) || points.length === 0) return "";
+  const step = points.length === 1 ? 0 : (width - padding * 2) / (points.length - 1);
+  let path = "";
+  let hasStarted = false;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const raw = valueAccessor(points[index], index);
+    const valid = Number.isFinite(raw);
+    if (!valid) {
+      hasStarted = false;
+      continue;
+    }
+    const x = points.length === 1 ? width / 2 : padding + step * index;
+    const y = toChartY(raw, height, padding);
+    path += `${hasStarted ? "L" : "M"} ${x} ${y} `;
+    hasStarted = true;
+  }
+
+  return path.trim();
+}
+
 function CtoDashboardPage() {
+  const smartReportModal = useDisclosure();
   const [latest, setLatest] = useState({ summary: { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }, services: [] });
   const [agentPresence, setAgentPresence] = useState([]);
   const [labs, setLabs] = useState([]);
@@ -221,6 +265,12 @@ function CtoDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState("");
+  const [trendRange, setTrendRange] = useState("30d");
+  const [trendServiceKey, setTrendServiceKey] = useState("");
+  const [trendData, setTrendData] = useState({ points: [], summary: {}, source: {} });
+  const [trendWowData, setTrendWowData] = useState({ points: [], summary: {}, source: {} });
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendError, setTrendError] = useState("");
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
   const [activeStatusFilter, setActiveStatusFilter] = useState("");
   const [eventsRows, setEventsRows] = useState([]);
@@ -229,6 +279,7 @@ function CtoDashboardPage() {
   const [eventsStatusFilter, setEventsStatusFilter] = useState("open");
   const [eventsSeverityFilter, setEventsSeverityFilter] = useState("");
   const [eventActionBusy, setEventActionBusy] = useState({});
+  const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const refreshRef = useRef(null);
 
   useEffect(() => {
@@ -306,6 +357,66 @@ function CtoDashboardPage() {
       refreshRef.current = null;
     };
   }, [selectedLabId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTrends() {
+      setTrendLoading(true);
+      setTrendError("");
+      try {
+        const params = new URLSearchParams({
+          range: trendRange,
+          ts: String(Date.now())
+        });
+        if (selectedLabId) params.set("lab_id", selectedLabId);
+        if (trendServiceKey) params.set("service_key", trendServiceKey);
+
+        const wowParams = new URLSearchParams({
+          range: "30d",
+          bucket: "day",
+          ts: String(Date.now())
+        });
+        if (selectedLabId) wowParams.set("lab_id", selectedLabId);
+        if (trendServiceKey) wowParams.set("service_key", trendServiceKey);
+
+        const [mainRes, wowRes] = await Promise.all([
+          fetch(`/api/cto/trends?${params.toString()}`, {
+            credentials: "include",
+            cache: "no-store"
+          }),
+          fetch(`/api/cto/trends?${wowParams.toString()}`, {
+            credentials: "include",
+            cache: "no-store"
+          })
+        ]);
+
+        const mainData = await mainRes.json().catch(() => ({}));
+        const wowData = await wowRes.json().catch(() => ({}));
+
+        if (!mainRes.ok) throw new Error(mainData.error || "Failed to load historical trends");
+        if (!wowRes.ok) throw new Error(wowData.error || "Failed to load week-over-week trends");
+
+        if (!cancelled) {
+          setTrendData(mainData);
+          setTrendWowData(wowData);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setTrendError(error.message || "Failed to load historical trends");
+          setTrendData({ points: [], summary: {}, source: {} });
+          setTrendWowData({ points: [], summary: {}, source: {} });
+        }
+      } finally {
+        if (!cancelled) setTrendLoading(false);
+      }
+    }
+
+    loadTrends();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLabId, trendRange, trendServiceKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -530,6 +641,106 @@ function CtoDashboardPage() {
     };
   }, [agentPresence]);
 
+  const trendPoints = useMemo(() => {
+    return Array.isArray(trendData?.points) ? trendData.points : [];
+  }, [trendData]);
+
+  const trendChartModel = useMemo(() => {
+    const points = [...trendPoints].sort((a, b) => String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || "")));
+    const maxLatency = points.reduce((max, point) => {
+      const value = Number(point?.avg_latency_ms);
+      return Number.isFinite(value) ? Math.max(max, value) : max;
+    }, 0);
+
+    const width = Math.max(760, points.length * 52);
+    const height = 260;
+    const padding = 26;
+
+    const healthyPath = buildTrendPath(points, (point) => {
+      const value = Number(point?.healthy_rate);
+      return Number.isFinite(value) ? value * 100 : null;
+    }, width, height, padding);
+    const downPath = buildTrendPath(points, (point) => {
+      const value = Number(point?.down_rate);
+      return Number.isFinite(value) ? value * 100 : null;
+    }, width, height, padding);
+    const latencyPath = buildTrendPath(points, (point) => {
+      const value = Number(point?.avg_latency_ms);
+      return Number.isFinite(value) && maxLatency > 0 ? (value / maxLatency) * 100 : null;
+    }, width, height, padding);
+
+    return {
+      points,
+      width,
+      height,
+      padding,
+      maxLatency,
+      healthyPath,
+      downPath,
+      latencyPath,
+      xLabels: {
+        start: points[0]?.bucket_label || "",
+        mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
+        end: points[points.length - 1]?.bucket_label || ""
+      }
+    };
+  }, [trendPoints]);
+
+  const trendWow = useMemo(() => {
+    const points = Array.isArray(trendWowData?.points) ? trendWowData.points : [];
+    const ordered = [...points].sort((a, b) => String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || "")));
+    const recent = ordered.slice(-14);
+    if (recent.length < 14) {
+      return {
+        hasData: false,
+        healthy_delta_pct_points: null,
+        down_delta_pct_points: null,
+        latency_delta_ms: null
+      };
+    }
+
+    const previousWeek = recent.slice(0, 7);
+    const currentWeek = recent.slice(7);
+
+    function average(list, accessor) {
+      const values = list
+        .map(accessor)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+      if (values.length === 0) return null;
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    const prevHealthy = average(previousWeek, (point) => Number(point?.healthy_rate) * 100);
+    const currHealthy = average(currentWeek, (point) => Number(point?.healthy_rate) * 100);
+    const prevDown = average(previousWeek, (point) => Number(point?.down_rate) * 100);
+    const currDown = average(currentWeek, (point) => Number(point?.down_rate) * 100);
+    const prevLatency = average(previousWeek, (point) => point?.avg_latency_ms);
+    const currLatency = average(currentWeek, (point) => point?.avg_latency_ms);
+
+    return {
+      hasData: true,
+      healthy_delta_pct_points:
+        Number.isFinite(currHealthy) && Number.isFinite(prevHealthy)
+          ? Number((currHealthy - prevHealthy).toFixed(1))
+          : null,
+      down_delta_pct_points:
+        Number.isFinite(currDown) && Number.isFinite(prevDown)
+          ? Number((currDown - prevDown).toFixed(1))
+          : null,
+      latency_delta_ms:
+        Number.isFinite(currLatency) && Number.isFinite(prevLatency)
+          ? Math.round(currLatency - prevLatency)
+          : null
+    };
+  }, [trendWowData]);
+
+  const trendServiceOptions = useMemo(() => {
+    return [...new Set(realServices.map((service) => service.service_key).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [realServices]);
+
   const keySystemStatuses = useMemo(() => {
     const services = realServices;
     return keySystems.map((system) => {
@@ -620,6 +831,40 @@ function CtoDashboardPage() {
       )}
     </HStack>
   );
+
+  function openSmartReportExperimental(mode = "open") {
+    const mrno = String(smartMrnoInput || "").trim();
+    if (!mrno) return;
+    const baseParams = {
+      mrno,
+      report_mode: "smart",
+      design_variant: "executive",
+      force: "1"
+    };
+    if (selectedLabId) baseParams.lab_id = String(selectedLabId);
+
+    if (mode === "download") {
+      const pdfQuery = new URLSearchParams({
+        ...baseParams,
+        format: "pdf",
+        download: "1"
+      });
+      const htmlQuery = new URLSearchParams({
+        ...baseParams,
+        format: "html",
+        download: "1"
+      });
+      window.open(`/api/smart-reports/trend-data?${pdfQuery.toString()}`, "_blank", "noopener,noreferrer");
+      window.open(`/api/smart-reports/trend-data?${htmlQuery.toString()}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const openQuery = new URLSearchParams({
+      ...baseParams,
+      format: "html"
+    });
+    window.open(`/api/smart-reports/trend-data?${openQuery.toString()}`, "_blank", "noopener,noreferrer");
+  }
 
   return (
     <Box
@@ -843,6 +1088,17 @@ function CtoDashboardPage() {
                 px={6}
               >
                 Bot Simulator
+              </Button>
+              <Button
+                variant="outline"
+                borderColor="rgba(244, 190, 126, 0.65)"
+                color="white"
+                _hover={{ bg: "rgba(244, 190, 126, 0.16)" }}
+                borderRadius="full"
+                px={6}
+                onClick={smartReportModal.onOpen}
+              >
+                SMART Report*
               </Button>
             </Flex>
           </Stack>
@@ -1284,6 +1540,184 @@ function CtoDashboardPage() {
         >
           <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
             <Box>
+              <Heading size="md" mb={1}>Historical Trends</Heading>
+              <Text color="whiteAlpha.700">Performance trendline for reliability and latency over time.</Text>
+            </Box>
+            <HStack spacing={2} flexWrap="wrap">
+              <Select
+                size="sm"
+                value={trendRange}
+                onChange={(e) => setTrendRange(e.target.value)}
+                maxW="170px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+              >
+                {TREND_RANGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                size="sm"
+                value={trendServiceKey}
+                onChange={(e) => setTrendServiceKey(e.target.value)}
+                maxW="280px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+              >
+                <option value="">All services</option>
+                {trendServiceOptions.map((serviceKey) => (
+                  <option key={serviceKey} value={serviceKey}>
+                    {serviceKey}
+                  </option>
+                ))}
+              </Select>
+            </HStack>
+          </Flex>
+
+          {trendError && (
+            <Box mb={4} p={3} borderRadius="14px" bg="rgba(248,113,113,0.12)" border="1px solid rgba(248,113,113,0.28)">
+              <Text color="red.200" fontSize="sm">{trendError}</Text>
+            </Box>
+          )}
+
+          <SimpleGrid columns={{ base: 1, md: 4 }} spacing={3} mb={4}>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total checks</Text>
+              <Text fontWeight="700">{trendData?.summary?.total_checks ?? 0}</Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy rate</Text>
+              <Text fontWeight="700">
+                {typeof trendData?.summary?.healthy_rate === "number" ? `${Math.round(trendData.summary.healthy_rate * 100)}%` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Down rate</Text>
+              <Text fontWeight="700">
+                {typeof trendData?.summary?.down_rate === "number" ? `${Math.round(trendData.summary.down_rate * 100)}%` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Avg latency</Text>
+              <Text fontWeight="700">
+                {typeof trendData?.summary?.avg_latency_ms === "number" ? `${Math.round(trendData.summary.avg_latency_ms)} ms` : "n/a"}
+              </Text>
+            </Box>
+          </SimpleGrid>
+
+          <HStack spacing={2} mb={4} flexWrap="wrap">
+            <Badge
+              borderRadius="full"
+              px={3}
+              py={1}
+              bg="rgba(16,185,129,0.18)"
+              color="green.200"
+            >
+              WoW Healthy: {trendWow.hasData && trendWow.healthy_delta_pct_points != null ? `${trendWow.healthy_delta_pct_points >= 0 ? "+" : ""}${trendWow.healthy_delta_pct_points} pp` : "n/a"}
+            </Badge>
+            <Badge
+              borderRadius="full"
+              px={3}
+              py={1}
+              bg="rgba(248,113,113,0.18)"
+              color="red.200"
+            >
+              WoW Down: {trendWow.hasData && trendWow.down_delta_pct_points != null ? `${trendWow.down_delta_pct_points >= 0 ? "+" : ""}${trendWow.down_delta_pct_points} pp` : "n/a"}
+            </Badge>
+            <Badge
+              borderRadius="full"
+              px={3}
+              py={1}
+              bg="rgba(56,189,248,0.18)"
+              color="blue.200"
+            >
+              WoW Latency: {trendWow.hasData && trendWow.latency_delta_ms != null ? `${trendWow.latency_delta_ms >= 0 ? "+" : ""}${trendWow.latency_delta_ms} ms` : "n/a"}
+            </Badge>
+          </HStack>
+
+          {trendLoading && (
+            <Text fontSize="sm" color="whiteAlpha.700">Loading trends...</Text>
+          )}
+
+          {!trendLoading && trendPoints.length === 0 && (
+            <Text fontSize="sm" color="whiteAlpha.700">No historical points yet. Run digest once data is ingested.</Text>
+          )}
+
+          {!trendLoading && trendPoints.length > 0 && (
+            <Box overflowX="auto" borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+              <HStack spacing={4} mb={2} flexWrap="wrap">
+                <HStack spacing={2}>
+                  <Box w={3} h={3} borderRadius="full" bg="#34d399" />
+                  <Text fontSize="xs" color="whiteAlpha.800">Healthy %</Text>
+                </HStack>
+                <HStack spacing={2}>
+                  <Box w={3} h={3} borderRadius="full" bg="#f87171" />
+                  <Text fontSize="xs" color="whiteAlpha.800">Down %</Text>
+                </HStack>
+                <HStack spacing={2}>
+                  <Box w={3} h={3} borderRadius="full" bg="#38bdf8" />
+                  <Text fontSize="xs" color="whiteAlpha.800">
+                    Avg latency (normalized{trendChartModel.maxLatency > 0 ? `, max ${Math.round(trendChartModel.maxLatency)} ms` : ""})
+                  </Text>
+                </HStack>
+              </HStack>
+
+              <svg
+                width={trendChartModel.width}
+                height={trendChartModel.height}
+                role="img"
+                aria-label="Historical trend chart"
+              >
+                {[0, 25, 50, 75, 100].map((level) => {
+                  const y = toChartY(level, trendChartModel.height, trendChartModel.padding);
+                  return (
+                    <g key={level}>
+                      <line
+                        x1={trendChartModel.padding}
+                        x2={trendChartModel.width - trendChartModel.padding}
+                        y1={y}
+                        y2={y}
+                        stroke="rgba(255,255,255,0.14)"
+                        strokeWidth="1"
+                        strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
+                      />
+                      <text
+                        x={6}
+                        y={y + 4}
+                        fill="rgba(255,255,255,0.58)"
+                        fontSize="10"
+                      >
+                        {level}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                <path d={trendChartModel.healthyPath} stroke="#34d399" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                <path d={trendChartModel.downPath} stroke="#f87171" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                <path d={trendChartModel.latencyPath} stroke="#38bdf8" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+              </svg>
+
+              <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
+                <Text noOfLines={1} maxW="32%">{trendChartModel.xLabels.start}</Text>
+                <Text noOfLines={1} maxW="32%" textAlign="center">{trendChartModel.xLabels.mid}</Text>
+                <Text noOfLines={1} maxW="32%" textAlign="right">{trendChartModel.xLabels.end}</Text>
+              </HStack>
+            </Box>
+          )}
+        </Box>
+
+        <Box
+          p={{ base: 5, md: 6 }}
+          borderRadius="28px"
+          bg="rgba(255,255,255,0.05)"
+          border="1px solid rgba(255,255,255,0.08)"
+          mb={5}
+        >
+          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
+            <Box>
               <Heading size="md" mb={1}>Ops Events</Heading>
               <Text color="whiteAlpha.700">Human-readable incident queue for CTO operations.</Text>
             </Box>
@@ -1391,6 +1825,46 @@ function CtoDashboardPage() {
           </Box>
         </Box>
       </Box>
+
+      <Modal isOpen={smartReportModal.isOpen} onClose={smartReportModal.onClose} isCentered>
+        <ModalOverlay bg="blackAlpha.600" />
+        <ModalContent bg="#111827" color="white" border="1px solid rgba(255,255,255,0.12)">
+          <ModalHeader>SMART Report* (Experimental)</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Text fontSize="sm" color="whiteAlpha.800" mb={2}>
+              Enter MRNO to open or download the Smart Trends PDF.
+            </Text>
+            <Input
+              value={smartMrnoInput}
+              onChange={(e) => setSmartMrnoInput(e.target.value)}
+              placeholder="MRNO"
+              bg="rgba(11, 19, 32, 0.72)"
+              borderColor="rgba(255,255,255,0.2)"
+            />
+          </ModalBody>
+          <ModalFooter>
+            <HStack spacing={2}>
+              <Button variant="ghost" onClick={smartReportModal.onClose}>Close</Button>
+              <Button
+                colorScheme="blue"
+                variant="outline"
+                onClick={() => openSmartReportExperimental("open")}
+                isDisabled={!String(smartMrnoInput || "").trim()}
+              >
+                Open PDF
+              </Button>
+              <Button
+                colorScheme="blue"
+                onClick={() => openSmartReportExperimental("download")}
+                isDisabled={!String(smartMrnoInput || "").trim()}
+              >
+                Download PDF
+              </Button>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 }

@@ -186,6 +186,7 @@ export default function ReportDispatchPage() {
   const hasLab = Number(status?.live_status?.lab_total || 0) > 0;
   const hasRadiology = Number(status?.live_status?.radiology_total || 0) > 0;
   const canTrend = Boolean(currentMrno());
+  const canSmartTrends = Boolean(currentMrno());
   const canDispatch = Boolean(currentReqid() || currentReqno());
 
   function findPhoneFromDailyRows(reqnoValue) {
@@ -429,6 +430,41 @@ export default function ReportDispatchPage() {
     window.open(`/api/admin/reports/trend?${query.toString()}`, "_blank", "noopener,noreferrer");
   }
 
+  function openSmartTrends() {
+    const mrno = currentMrno();
+    if (!mrno) return;
+
+    const baseParams = {
+      mrno,
+      report_mode: "trends",
+      design_variant: "executive",
+      reqid: currentReqid(),
+      reqno: currentReqno()
+    };
+
+    if (actionMode === "download") {
+      const pdfQuery = new URLSearchParams({
+        ...baseParams,
+        format: "pdf",
+        download: "1"
+      });
+      const htmlQuery = new URLSearchParams({
+        ...baseParams,
+        format: "html",
+        download: "1"
+      });
+      window.open(`/api/smart-reports/trend-data?${pdfQuery.toString()}`, "_blank", "noopener,noreferrer");
+      window.open(`/api/smart-reports/trend-data?${htmlQuery.toString()}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const openQuery = new URLSearchParams({
+      ...baseParams,
+      format: "html"
+    });
+    window.open(`/api/smart-reports/trend-data?${openQuery.toString()}`, "_blank", "noopener,noreferrer");
+  }
+
   const decision = status?.decision || null;
   const tone = toneByMode(decision?.mode);
   const activeMeta =
@@ -586,6 +622,9 @@ export default function ReportDispatchPage() {
                 </Button>
                 <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
                   Trend
+                </Button>
+                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "122px" }} colorScheme="purple" onClick={openSmartTrends} isDisabled={!hasStatus || !canSmartTrends}>
+                  SMART TRENDS
                 </Button>
                 <Button
                   size="sm"

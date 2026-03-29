@@ -874,9 +874,19 @@ export default function WhatsAppDashboard() {
 
   const getFirstSessionForTab = (list = []) => {
     if (!Array.isArray(list) || list.length === 0) return null;
-    if (tab === "open") return list.find((row) => String(row?.status || "").toLowerCase() !== "closed") || null;
-    if (tab === "unread") return list.find((row) => Number(row?.unread_count || 0) > 0) || null;
-    if (tab === "read") return list.find((row) => Number(row?.unread_count || 0) <= 0) || null;
+    if (tab === "unread") {
+      return list.find((row) => {
+        const status = String(row?.status || "").toLowerCase();
+        return Number(row?.unread_count || 0) > 0 && status !== "resolved" && status !== "closed";
+      }) || null;
+    }
+    if (tab === "unresolved") {
+      return list.find((row) => {
+        const status = String(row?.status || "").toLowerCase();
+        return status !== "resolved" && status !== "closed";
+      }) || null;
+    }
+    if (tab === "resolved") return list.find((row) => String(row?.status || "").toLowerCase() === "resolved") || null;
     return list[0] || null;
   };
 
@@ -1812,9 +1822,9 @@ export default function WhatsAppDashboard() {
       const status = String(session?.status || "").toLowerCase();
       const unreadCount = Number(session?.unread_count || 0);
 
-      if (tab === "open" && status === "closed") return false;
-      if (tab === "unread" && unreadCount <= 0) return false;
-      if (tab === "read" && unreadCount > 0) return false;
+      if (tab === "unread" && (unreadCount <= 0 || status === "resolved" || status === "closed")) return false;
+      if (tab === "unresolved" && (status === "resolved" || status === "closed")) return false;
+      if (tab === "resolved" && status !== "resolved") return false;
 
       if (!normalizedSearch) return true;
 
@@ -1823,6 +1833,18 @@ export default function WhatsAppDashboard() {
       return name.includes(normalizedSearch) || phone.includes(normalizedSearch);
     });
   }, [search, sessions, tab]);
+
+  const tabCounts = useMemo(() => {
+    const unread = sessions.filter((session) => {
+      const status = String(session?.status || "").toLowerCase();
+      return Number(session?.unread_count || 0) > 0 && status !== "resolved" && status !== "closed";
+    }).length;
+    const unresolved = sessions.filter((session) => {
+      const status = String(session?.status || "").toLowerCase();
+      return status !== "resolved" && status !== "closed";
+    }).length;
+    return { unread, unresolved };
+  }, [sessions]);
 
   const filteredMessages = useMemo(() => {
     const nonStatus = messages.filter((msg) => msg?.direction !== "status");
@@ -2159,14 +2181,22 @@ export default function WhatsAppDashboard() {
                 </div>
               </div>
               <div className="wa-tabs">
-                {["unread", "open", "read", "all"].map((value) => (
+                {[
+                  { key: "unread", label: "(Pending) Unread", count: tabCounts.unread, countClass: "is-red" },
+                  { key: "unresolved", label: "Unresolved", count: tabCounts.unresolved, countClass: "is-yellow" },
+                  { key: "resolved", label: "Resolved" },
+                  { key: "all", label: "All" }
+                ].map((item) => (
                   <button
-                    key={value}
+                    key={item.key}
                     type="button"
-                    className={tab === value ? "is-active" : ""}
-                    onClick={() => setTab(value)}
+                    className={tab === item.key ? "is-active" : ""}
+                    onClick={() => setTab(item.key)}
                   >
-                    {value}
+                    <span>{item.label}</span>
+                    {Number(item.count || 0) > 0 && (
+                      <span className={`wa-tabCount ${item.countClass || ""}`}>{item.count}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -3134,10 +3164,37 @@ export default function WhatsAppDashboard() {
           border-radius: 10px;
           height: 30px;
           padding: 0 10px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
           font-size: 12px;
           font-weight: 600;
           color: #f8fafc;
           cursor: pointer;
+        }
+
+        .wa-tabCount {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 16px;
+          height: 16px;
+          border-radius: 999px;
+          padding: 0 4px;
+          font-size: 10px;
+          line-height: 1;
+          font-weight: 700;
+          color: #fff;
+          background: #64748b;
+        }
+
+        .wa-tabCount.is-red {
+          background: #dc2626;
+        }
+
+        .wa-tabCount.is-yellow {
+          background: #ca8a04;
+          color: #111827;
         }
 
         .wa-tabs button.is-active,

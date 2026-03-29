@@ -251,6 +251,41 @@ pm2 start scripts/start-monitoring.sh --name labbit-monitoring-internal --interp
 pm2 save
 ```
 
+## 14. CTO Trend Digest + Log Compaction
+
+Run one daily compaction job after midnight IST so dashboard trends stay fast and raw logs do not grow forever.
+
+One-time setup:
+
+```sql
+-- Run in Supabase SQL editor
+-- file: docs/cto-trends-compaction.sql
+```
+
+Manual dry-run:
+
+```bash
+curl -fsS -X POST "https://lab.sdrc.in/api/cto/compact" \
+  -H "Authorization: Bearer ${CTO_INGEST_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"day":"2026-03-28","dry_run":true}'
+```
+
+Daily execution (digest yesterday + delete that day raw logs + keep only last 45 days raw):
+
+```bash
+curl -fsS -X POST "https://lab.sdrc.in/api/cto/compact" \
+  -H "Authorization: Bearer ${CTO_INGEST_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"drop_digested_day":true,"prune_raw_older_than_days":45}'
+```
+
+Suggested cron (IST 01:20 daily):
+
+```bash
+20 1 * * * /usr/bin/bash -lc 'source /opt/labbit-py/.env && curl -fsS -X POST "https://lab.sdrc.in/api/cto/compact" -H "Authorization: Bearer ${CTO_INGEST_TOKEN}" -H "Content-Type: application/json" -d "{\"drop_digested_day\":true,\"prune_raw_older_than_days\":45}" >> /opt/labbit-py/logs/cto-compact.log 2>&1'
+```
+
 ---
 
 If you update scripts/process names/paths, update this runbook in the same PR so operations never drift.

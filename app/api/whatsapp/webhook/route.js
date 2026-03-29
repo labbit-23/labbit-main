@@ -35,6 +35,7 @@ import {
 import healthPackagesData from "@/lib/data/health-packages.json";
 import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
+import { saveReportFeedback } from "@/lib/reportFeedback";
 
 const BOT_START_KEYWORDS = new Set([
   "HI",
@@ -57,6 +58,10 @@ const BOT_START_KEYWORDS = new Set([
   "BOOK_HOME_VISIT",
   "MORE_SERVICES"
 ]);
+const FEEDBACK_IDLE_DELAY_MS = 60 * 1000;
+const FEEDBACK_MAX_COMMENT_LEN = 500;
+const IST_EXECUTIVE_OPEN_HOUR = 7;
+const IST_EXECUTIVE_CLOSE_HOUR = 23;
 
 function normalizeCommandLikeInput(value) {
   const raw = String(value || "").trim();
@@ -68,6 +73,480 @@ function normalizeCommandLikeInput(value) {
     .toUpperCase();
   const normalizedUnderscore = normalizedGreeting.replace(/\s+/g, "_");
   return { raw, normalized, normalizedGreeting, normalizedUnderscore };
+}
+
+function isThankYouLikeInput(value) {
+  const { raw, normalizedGreeting } = normalizeCommandLikeInput(value);
+  const compact = normalizedGreeting.replace(/\s+/g, "");
+  if (!compact && !raw) return false;
+  if (raw.includes("🙏")) return true;
+  if (compact === "TY" || compact === "TQ" || compact === "TNX" || compact === "THX") return true;
+  if (compact.includes("THANKYOU") || compact.includes("THANKS")) return true;
+  return false;
+}
+
+function getIstHour(date = new Date()) {
+  try {
+    const hourText = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      hour12: false
+    }).format(date);
+    const hour = Number(hourText);
+    return Number.isFinite(hour) ? hour : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function isWithinExecutiveWorkingHours(now = new Date()) {
+  const hour = getIstHour(now);
+  return hour >= IST_EXECUTIVE_OPEN_HOUR && hour < IST_EXECUTIVE_CLOSE_HOUR;
+}
+
+function getFeedbackFlow(context) {
+  const flow = context?.feedback_flow || context?.post_report_feedback;
+  return flow && typeof flow === "object" ? flow : null;
+}
+
+function withFeedbackFlowContext(context, flow) {
+  const next = { ...(context || {}) };
+  delete next.post_report_feedback;
+  if (!flow) {
+    delete next.feedback_flow;
+    return next;
+  }
+  next.feedback_flow = flow;
+  return next;
+}
+
+function parseFeedbackRating(input) {
+  const text = String(input || "").trim();
+  if (!text) return null;
+  const exact = text.match(/^[1-5]$/);
+  if (exact) return Number(exact[0]);
+  const fallback = text.match(/\b([1-5])\b/);
+  return fallback ? Number(fallback[1]) : null;
+}
+
+function isHelpChoice(input) {
+  const text = String(input || "").trim().toUpperCase();
+  return ["HELP", "EXECUTIVE", "AGENT", "CONNECT", "TALK TO EXECUTIVE"].includes(text);
+}
+
+function isDoneChoice(input) {
+  const text = String(input || "").trim().toUpperCase();
+  return ["DONE", "CLOSE", "NO", "OK"].includes(text);
+}
+
+function isSkipChoice(input) {
+  const text = String(input || "").trim().toUpperCase();
+  return ["SKIP", "NONE", "NO COMMENTS", "NA", "N/A"].includes(text);
+}
+
+function feedbackRatingPromptText() {
+  return [
+    "We hope your report was delivered successfully.",
+    "Please rate your experience (1-5):",
+    "1 - Very Poor",
+    "2 - Poor",
+    "3 - Okay",
+    "4 - Good",
+    "5 - Excellent"
+  ].join("\n");
+}
+
+function feedbackActionPromptText() {
+  return [
+    "Would you like to connect to an executive?",
+    "Reply HELP to connect (during working hours) or DONE to finish."
+  ].join("\n");
+}
+
+function feedbackLowRatingPromptText() {
+  return [
+    "We're sorry your experience was not great.",
+    "What should we improve most?",
+    "Reply with one option:",
+    "1 - Delay",
+    "2 - Report clarity",
+    "3 - Staff support",
+    "4 - Other"
+  ].join("\n");
+}
+
+function parseLowRatingReason(input) {
+  const text = String(input || "").trim().toUpperCase();
+  if (!text) return null;
+  const map = {
+    "1": "delay",
+    "2": "report_clarity",
+    "3": "staff_support",
+    "4": "other"
+  };
+  if (map[text]) return map[text];
+  if (text.includes("DELAY")) return "delay";
+  if (text.includes("CLARITY") || text.includes("REPORT")) return "report_clarity";
+  if (text.includes("STAFF") || text.includes("SUPPORT")) return "staff_support";
+  if (text.includes("OTHER")) return "other";
+  return null;
+}
+
+function feedbackClosureText(labName) {
+  return `Marking this chat as closed. Say "Hi" to reopen the chat at any time, or "Help" to connect to an executive. Thank you for your patronage to ${labName || "our lab"}.`;
+}
+
+async function persistWhatsappFeedback({
+  session,
+  flow,
+  phone,
+  reqid,
+  reqno
+}) {
+  const saveResult = await saveReportFeedback({
+    reqid: String(reqid || flow?.reqid || "").trim() || null,
+    reqno: String(reqno || flow?.reqno || "").trim() || null,
+    labId: session?.lab_id || null,
+    patientPhone: digitsOnly(phone || "").slice(-10) || null,
+    rating: Number(flow?.rating || 0),
+    feedback: flow?.comment ? String(flow.comment).slice(0, FEEDBACK_MAX_COMMENT_LEN) : null,
+    source: "whatsapp",
+    actorUserId: null,
+    actorName: "WhatsApp Bot",
+    actorRole: "bot",
+    metadata: {
+      captured_via: flow?.trigger_source || "whatsapp_bot_feedback",
+      session_id: session?.id || null,
+      stage: flow?.stage || null,
+      rated_at: flow?.rated_at || null,
+      comment_at: flow?.comment_at || null,
+      low_rating_reason: flow?.low_rating_reason || null
+    }
+  });
+  if (!saveResult.ok) {
+    const error = saveResult.error || {};
+    console.error("[whatsapp-feedback] insert failed", {
+      code: error?.code || null,
+      message: error?.message || "Unknown error",
+      details: error?.details || null,
+      sessionId: session?.id || null
+    });
+    return { ok: false, reason: "insert_failed" };
+  }
+  return { ok: true };
+}
+
+function schedulePostReportFeedbackPrompt({
+  sessionId,
+  labId,
+  phone,
+  reqid,
+  reqno,
+  baselineInboundAt
+}) {
+  setTimeout(async () => {
+    try {
+      const { data: activeSession } = await supabase
+        .from("chat_sessions")
+        .select("id,lab_id,phone,status,context")
+        .eq("id", sessionId)
+        .maybeSingle();
+
+      if (!activeSession?.id) return;
+
+      const currentStatus = String(activeSession.status || "").toLowerCase();
+      if (["handoff", "pending", "resolved", "closed"].includes(currentStatus)) return;
+      if (getFeedbackFlow(activeSession.context)?.stage) return;
+
+      const { data: latestInbound } = await supabase
+        .from("whatsapp_messages")
+        .select("created_at")
+        .eq("lab_id", labId)
+        .eq("phone", phone)
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const baselineMs = new Date(baselineInboundAt || 0).getTime();
+      const latestInboundMs = new Date(latestInbound?.created_at || 0).getTime();
+      if (Number.isFinite(latestInboundMs) && Number.isFinite(baselineMs) && latestInboundMs > baselineMs + 1000) {
+        return;
+      }
+
+      await sendTextMessage({
+        labId: labId,
+        phone,
+        text: feedbackRatingPromptText()
+      });
+
+      const nextContext = withFeedbackFlowContext(activeSession.context, {
+        stage: "awaiting_rating",
+        reqid: reqid || null,
+        reqno: reqno || null,
+        prompted_at: new Date().toISOString()
+      });
+
+      await supabase
+        .from("chat_sessions")
+        .update({
+          context: nextContext,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", sessionId);
+    } catch (err) {
+      console.error("[whatsapp-feedback] schedule failed", {
+        sessionId,
+        error: err?.message || String(err)
+      });
+    }
+  }, FEEDBACK_IDLE_DELAY_MS);
+}
+
+async function handlePostReportFeedbackInbound({
+  session,
+  phone,
+  userInput,
+  lab,
+  templates
+}) {
+  const flow = getFeedbackFlow(session?.context);
+  if (!flow?.stage) return { handled: false };
+
+  const nowIso = new Date().toISOString();
+  const currentStage = String(flow.stage || "").toLowerCase();
+  const trimmedInput = String(userInput || "").trim();
+  const ratingInput = parseFeedbackRating(trimmedInput);
+  const needsExecutive = isHelpChoice(trimmedInput);
+  const doneChoice = isDoneChoice(trimmedInput);
+  const skipChoice = isSkipChoice(trimmedInput);
+  const botFlowConfig = templates?.bot_flow || {};
+  let actionFlow = flow;
+
+  const saveFeedbackAndMark = async (currentFlow) => {
+    if (currentFlow?.saved_at) return currentFlow;
+    const saveResult = await persistWhatsappFeedback({
+      session,
+      flow: currentFlow,
+      phone,
+      reqid: currentFlow?.reqid || null,
+      reqno: currentFlow?.reqno || null
+    });
+    if (!saveResult.ok) return currentFlow;
+    return {
+      ...currentFlow,
+      saved_at: nowIso
+    };
+  };
+
+  if (currentStage === "awaiting_rating") {
+    if (!ratingInput) {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "Please reply with a rating from 1 to 5."
+      });
+      return { handled: true };
+    }
+
+    const nextFlow = {
+      ...flow,
+      stage: ratingInput <= 3 ? "awaiting_low_rating_reason" : "awaiting_comment",
+      rating: ratingInput,
+      rated_at: nowIso
+    };
+    await supabase
+      .from("chat_sessions")
+      .update({
+        context: withFeedbackFlowContext(session.context, nextFlow),
+        updated_at: nowIso
+      })
+      .eq("id", session.id);
+
+    if (ratingInput <= 3) {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: feedbackLowRatingPromptText()
+      });
+    } else {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: `Thank you for rating us ${ratingInput}/5.\nPlease share your comments (optional).\nReply SKIP to continue.`
+      });
+    }
+    return { handled: true };
+  }
+
+  if (currentStage === "awaiting_low_rating_reason") {
+    const reason = parseLowRatingReason(trimmedInput);
+    if (!reason) {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "Please reply with 1, 2, 3 or 4."
+      });
+      return { handled: true };
+    }
+
+    const nextFlow = {
+      ...flow,
+      stage: "awaiting_comment",
+      low_rating_reason: reason,
+      low_rating_reason_at: nowIso
+    };
+    await supabase
+      .from("chat_sessions")
+      .update({
+        context: withFeedbackFlowContext(session.context, nextFlow),
+        updated_at: nowIso
+      })
+      .eq("id", session.id);
+
+    await sendTextMessage({
+      labId: session.lab_id,
+      phone,
+      text: "Thank you. Please share your comments (optional), or reply SKIP."
+    });
+    return { handled: true };
+  }
+
+  if (currentStage === "awaiting_comment") {
+    let nextFlow = { ...flow };
+    if (needsExecutive || doneChoice) {
+      nextFlow.stage = "awaiting_action";
+      nextFlow.comment = nextFlow.comment || null;
+    } else if (skipChoice) {
+      nextFlow.stage = "awaiting_action";
+      nextFlow.comment = null;
+      nextFlow.comment_at = nowIso;
+    } else if (trimmedInput) {
+      nextFlow.stage = "awaiting_action";
+      nextFlow.comment = trimmedInput.slice(0, FEEDBACK_MAX_COMMENT_LEN);
+      nextFlow.comment_at = nowIso;
+    } else {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "Please share your comments, or reply SKIP."
+      });
+      return { handled: true };
+    }
+
+    nextFlow = await saveFeedbackAndMark(nextFlow);
+    await supabase
+      .from("chat_sessions")
+      .update({
+        context: withFeedbackFlowContext(session.context, nextFlow),
+        updated_at: nowIso
+      })
+      .eq("id", session.id);
+    actionFlow = nextFlow;
+
+    if (needsExecutive || doneChoice) {
+      // Continue to action path in the same inbound turn for faster UX.
+    } else {
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: feedbackActionPromptText()
+      });
+      return { handled: true };
+    }
+  }
+
+  if (String(actionFlow?.stage || "").toLowerCase() !== "awaiting_action") {
+    actionFlow = { ...actionFlow, stage: "awaiting_action" };
+  }
+  const rating = Number(actionFlow?.rating || 0);
+
+  if (!needsExecutive && !doneChoice) {
+    await sendTextMessage({
+      labId: session.lab_id,
+      phone,
+      text: feedbackActionPromptText()
+    });
+    return { handled: true };
+  }
+
+  const persistedFlow = await saveFeedbackAndMark(actionFlow);
+  const clearedContext = withFeedbackFlowContext(session.context, null);
+
+  if (needsExecutive) {
+    if (isWithinExecutiveWorkingHours()) {
+      await handoffToHuman(session.id);
+      await supabase
+        .from("chat_sessions")
+        .update({
+          context: clearedContext,
+          updated_at: nowIso
+        })
+        .eq("id", session.id);
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text:
+          botFlowConfig?.texts?.handoff_open_text ||
+          "Connecting you to our executive. Please wait..."
+      });
+    } else {
+      await supabase
+        .from("chat_sessions")
+        .update({
+          context: clearedContext,
+          updated_at: nowIso
+        })
+        .eq("id", session.id);
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text:
+          botFlowConfig?.texts?.handoff_closed_text ||
+          "Our executives are currently offline. Reply HELP during working hours and we will connect you."
+      });
+    }
+    return { handled: true };
+  }
+
+  if (doneChoice) {
+    if (rating >= 4 && rating <= 5) {
+      await supabase
+        .from("chat_sessions")
+        .update({
+          status: "resolved",
+          current_state: "START",
+          unread_count: 0,
+          context: clearedContext,
+          updated_at: nowIso
+        })
+        .eq("id", session.id);
+
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: feedbackClosureText(lab?.name || "our lab")
+      });
+    } else {
+      await supabase
+        .from("chat_sessions")
+        .update({
+          context: clearedContext,
+          updated_at: nowIso
+        })
+        .eq("id", session.id);
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "Thank you for your feedback. Reply HELP to connect to an executive."
+      });
+    }
+    return { handled: true };
+  }
+
+  // Keep linter happy for persisted flow currently used for side effects.
+  void persistedFlow;
+  return { handled: false };
 }
 
 function extractReadyLabTestKeys(reportStatus) {
@@ -1406,6 +1885,17 @@ export async function POST(req) {
 
     let normalizedSessionStatus = String(session.status || "").toLowerCase();
 
+    const feedbackHandled = await handlePostReportFeedbackInbound({
+      session,
+      phone,
+      userInput,
+      lab,
+      templates
+    });
+    if (feedbackHandled?.handled) {
+      return Response.json({ success: true });
+    }
+
     if (["handoff", "pending", "resolved", "closed"].includes(normalizedSessionStatus) &&
       shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normalizedSessionStatus, session })) {
       session.status = "active";
@@ -1454,16 +1944,41 @@ export async function POST(req) {
     // --------------------------------------------------
 
     const botFlowConfig = templates?.bot_flow || {};
+    const smartReportEnabled = Boolean(
+      templates?.smart_report_enabled ?? botFlowConfig?.smart_report_enabled
+    );
     const packageCatalog = getPackageCatalog();
-    const feedbackUrl =
-      botFlowConfig?.links?.feedback_url ||
-      templates?.feedback_url ||
-      null;
     const reportNotifyNumber =
       botFlowConfig?.report_notify_number ||
       templates?.report_notify_number ||
       lab.alternate_whatsapp_number ||
       lab.internal_whatsapp_number;
+
+    if (isThankYouLikeInput(userInput)) {
+      const feedbackFlow = {
+        stage: "awaiting_rating",
+        trigger_source: "gratitude_feedback",
+        reqid: String(session?.context?.selected_report_reqid || "").trim() || null,
+        reqno: String(session?.context?.selected_report_reqno || "").trim() || null,
+        prompted_at: new Date().toISOString()
+      };
+
+      await supabase
+        .from("chat_sessions")
+        .update({
+          context: withFeedbackFlowContext(session?.context || {}, feedbackFlow),
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", session.id);
+
+      const intro = botFlowConfig?.texts?.thank_you_feedback_text || "You’re welcome. We’d love your feedback.";
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: `${intro}\n\n${feedbackRatingPromptText()}`
+      });
+      return Response.json({ success: true });
+    }
 
     if (!botShouldHandleStart) {
       // Route non-menu free-form messages to executive attention queue.
@@ -1485,6 +2000,12 @@ export async function POST(req) {
 
     let result = await processMessage(session, userInput, phone, {
       botFlowConfig,
+      smartReportEnabled,
+      publicBaseUrl:
+        process.env.PUBLIC_BASE_URL ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        "",
+      labId: session.lab_id,
       inboundLocation,
       inboundMedia,
       selectedReportTitle: message?.interactive?.list_reply?.title || null,
@@ -1919,16 +2440,25 @@ export async function POST(req) {
       }
 
       case "FEEDBACK_LINK": {
-        const feedbackText = feedbackUrl
-          ? (botFlowConfig?.texts?.feedback_redirect_text ||
-            `We value your feedback ❤️\nPlease share it here: ${feedbackUrl}`)
-          : (botFlowConfig?.texts?.feedback_fallback_text ||
-            "Please share your feedback with our team. Feedback link is currently unavailable.");
+        const feedbackFlow = {
+          stage: "awaiting_rating",
+          trigger_source: "more_services_feedback",
+          reqid: String(nextContext.selected_report_reqid || "").trim() || null,
+          reqno: String(nextContext.selected_report_reqno || "").trim() || null,
+          prompted_at: new Date().toISOString()
+        };
+
+        await updateSession(
+          session.id,
+          result.newState || session.current_state || "START",
+          withFeedbackFlowContext(nextContext, feedbackFlow),
+          messageTimestamp
+        );
 
         await sendTextMessage({
           labId: session.lab_id,
           phone,
-          text: feedbackText
+          text: feedbackRatingPromptText()
         });
         break;
       }
@@ -2260,6 +2790,14 @@ export async function POST(req) {
             phone
           });
         }
+        schedulePostReportFeedbackPrompt({
+          sessionId: session.id,
+          labId: session.lab_id,
+          phone,
+          reqid: dispatchReqid,
+          reqno: dispatchReqno,
+          baselineInboundAt: new Date().toISOString()
+        });
         break;
 
       case "TEXT":

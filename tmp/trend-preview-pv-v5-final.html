@@ -1,0 +1,2557 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart Trend Report</title>
+  <style>
+    :root {
+      --new-teal: #008f82;
+      --new-orange: #f26939;
+      --std-teal: #3a8c80;
+      --active-teal: #5cb8ac;
+      --grey: #808080;
+      --coral-red: #f46060;
+      --ink: #163334;
+      --surface: #f5faf9;
+      --card: #ffffff;
+      --line: #d7e9e6;
+      --ok: #1f8a5b;
+      --warn: #b76e00;
+      --bad: #b00020;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #e8f6f4 0%, #fdfdfd 45%, #f7fafb 100%);
+      color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      line-height: 1.35;
+    }
+    .page {
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 20px 18px 26px;
+    }
+    .page-break { page-break-before: always; }
+    .hero {
+      background:
+        radial-gradient(1100px 200px at 85% -20%, rgba(242, 105, 57, 0.26), transparent 60%),
+        linear-gradient(135deg, #0a6e66 0%, var(--new-teal) 42%, var(--std-teal) 100%);
+      color: #fff;
+      border-radius: 16px;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+      box-shadow: 0 12px 30px rgba(0, 143, 130, 0.25);
+      border: 1px solid rgba(255,255,255,0.16);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -10% -40% auto;
+      width: 300px;
+      height: 160px;
+      background: radial-gradient(circle at center, rgba(242,105,57,0.28), transparent 70%);
+      pointer-events: none;
+    }
+    .hero-top-logo {
+      width: 100%;
+      height: auto;
+      max-height: 86px;
+      object-fit: contain;
+      display: block;
+      margin: 0 0 8px;
+    }
+    .hero h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 0.01em; }
+    .hero p { margin: 4px 0; }
+    .hero-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .hero-meta div {
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 12px;
+      padding: 8px 10px;
+    }
+    .hero-meta span { display: block; font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.05em; }
+    .hero-meta strong { font-size: 14px; }
+    .block {
+      margin-top: 14px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    .block h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      color: var(--new-teal);
+    }
+    .muted { color: var(--grey); margin: 0; }
+
+    .insights {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .insight-item {
+      border: 1px solid #cce8e4;
+      border-left: 4px solid #c9dbd8;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fbfdfd;
+    }
+    .insight-high {
+      border-color: #f7cccc;
+      border-left-color: var(--coral-red);
+      background: #fff6f6;
+    }
+    .insight-medium {
+      border-color: #ffe1c7;
+      border-left-color: var(--new-orange);
+      background: #fffaf5;
+    }
+    .insight-low, .insight-positive {
+      border-color: #cce8e4;
+      border-left-color: #3a8c80;
+      background: #eefaf6;
+    }
+    .insight-item h5 { margin: 0 0 4px; font-size: 14px; }
+    .insight-item p { margin: 0; font-size: 13px; color: #34495e; }
+    .insight-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .insight-tag {
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      color: #fff;
+      background: #2f7b72;
+    }
+    .insight-tag-hidden {
+      visibility: hidden;
+      padding: 0;
+      min-width: 0;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+    }
+    .insight-sev {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: #4f5f63;
+    }
+    .followup-month-tag {
+      color: #8a5a17;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+    .insight-type-rule .insight-tag { background: #006d63; }
+    .insight-type-parameter .insight-tag { background: #f26939; }
+    .insight-type-priority_marker .insight-tag { background: #9e4a2f; }
+    .insight-type-category_risk .insight-tag { background: #2f7b72; }
+    .insight-type-followup_window .insight-tag { background: #7c5b2f; }
+    .insight-followup-strong {
+      border: 1px solid #ffd3b5;
+      border-left: 6px solid var(--new-orange);
+      background: linear-gradient(160deg, #fff6ef, #fff);
+      box-shadow: 0 1px 0 rgba(242, 105, 57, 0.2);
+    }
+    .insight-type-timeline .insight-tag { background: #6a7f7d; }
+    .insight-params {
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .insight-params li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-top: 1px dashed #d7e9e6;
+      padding-top: 6px;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    .insight-val {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-end;
+      min-width: 72px;
+      gap: 1px;
+      text-align: right;
+    }
+    .insight-params li strong {
+      font-size: 12px;
+      line-height: 1.1;
+    }
+    .insight-params li small {
+      font-size: 10px;
+      color: #8a959b;
+      line-height: 1.1;
+      font-weight: 500;
+    }
+    .insight-params li.p-high strong { color: #b00020; }
+    .insight-params li.p-low strong { color: #b76e00; }
+    .insight-params li.p-normal strong { color: #1f8a5b; }
+    .insight-params li span { color: #3c5158; }
+    .insight-params li em {
+      font-style: normal;
+      margin-left: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .insight-params li em.pm-ok { color: #1f8a5b; }
+    .insight-params li em.pm-watch { color: #9e4a2f; }
+    .followup-tests-inline {
+      margin: 8px 0 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #3f4f55;
+      font-weight: 600;
+    }
+    .followup-tests {
+      margin: 8px 0 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #3f4f55;
+      font-weight: 600;
+      background: #fff;
+      border: 1px dashed #d9e4e2;
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+
+    .trigger-tiles {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .trigger-tile {
+      border-radius: 12px;
+      padding: 10px;
+      border: 1px solid #c8ddda;
+      background: #f8fffd;
+    }
+    .trigger-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .icon-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 34px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--new-teal);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .trigger-tile ul { margin: 6px 0 0 16px; }
+    .trigger-tile p { margin: 0; font-size: 13px; color: #415f5e; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .summary-card {
+      border: 1px solid #ffd9ca;
+      border-radius: 12px;
+      padding: 10px;
+      background: linear-gradient(160deg, #fff9f6, #fff);
+    }
+    .summary-card h4 { margin: 0 0 8px; font-size: 14px; }
+    .pkg-icon-wrap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      margin-right: 6px;
+      vertical-align: -3px;
+      overflow: hidden;
+    }
+    .pkg-icon-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #fff;
+    }
+    .pkg-icon-fallback {
+      width: auto;
+      height: auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #1d4a45;
+    }
+    .count-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-top: 3px;
+    }
+    .card-top {
+      margin: 8px 0 0;
+      color: #995f49;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .detail-page {
+      padding-top: 26px;
+    }
+    .section-header {
+      background: linear-gradient(135deg, #e8fbf7, #f7fcfb);
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--new-teal);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .section-header.section-cardiac-lipid { border-left-color: #f26939; background: linear-gradient(135deg, #fff3ee, #fffaf8); }
+    .section-header.section-diabetes { border-left-color: #cf6a44; background: linear-gradient(135deg, #fff5ef, #fffdfb); }
+    .section-header.section-kidney { border-left-color: #7c6cc5; background: linear-gradient(135deg, #f4f2ff, #faf9ff); }
+    .section-header.section-liver { border-left-color: #d9863c; background: linear-gradient(135deg, #fff7ef, #fffcf8); }
+    .section-header.section-vitamins-minerals { border-left-color: #2f9d8f; background: linear-gradient(135deg, #ecfbf8, #f8fdfc); }
+    .section-header.section-hormonal-health,
+    .section-header.section-stress { border-left-color: #7365bf; background: linear-gradient(135deg, #f3f1ff, #fbfaff); }
+    .section-header.section-inflammation { border-left-color: #d94f4f; background: linear-gradient(135deg, #fff1f1, #fffafa); }
+    .section-header.section-cancer-screen { border-left-color: #8b4ea8; background: linear-gradient(135deg, #f8efff, #fcf8ff); }
+    .section-header.section-general-health { border-left-color: #4f9086; background: linear-gradient(135deg, #ecf9f7, #f9fdfc); }
+    .section-header h2 { margin: 0 0 4px; color: var(--new-teal); }
+    .section-header h2 .pkg-icon-wrap {
+      width: 20px;
+      height: 20px;
+      vertical-align: -4px;
+    }
+
+    .param-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      grid-auto-flow: row;
+      align-items: stretch;
+    }
+    .param-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .param-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .param-head h4 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+      min-height: 2.4em;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .param-head h4 .pkg-icon-wrap {
+      width: 16px;
+      height: 16px;
+      vertical-align: -2px;
+    }
+    .param-info {
+      margin: 0 0 8px;
+      font-size: 11px;
+      color: #5c7071;
+      line-height: 1.35;
+      min-height: 2.7em;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .flag {
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .flag-high { background: #fde8e8; border-color: #f8caca; color: var(--bad); }
+    .flag-low { background: #fff5df; border-color: #f6ddae; color: var(--warn); }
+    .flag-normal { background: #def7ec; border-color: #b8e8cf; color: var(--ok); }
+    .flag-unknown { background: #edf2f7; border-color: #dbe3ec; color: #516172; }
+
+    .param-kpis {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .param-kpis span {
+      display: block;
+      text-transform: uppercase;
+      font-size: 10px;
+      color: #5f7473;
+      letter-spacing: 0.04em;
+      margin-bottom: 2px;
+    }
+    .param-kpis strong { font-size: 13px; }
+    .trend-box {
+      width: 110px;
+      height: 34px;
+      border: 1px solid #d8ece7;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #f9fffe, #f2fbf9);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .trend-box svg {
+      width: 108px;
+      height: 32px;
+      display: block;
+    }
+
+    .ref-wrap { margin-bottom: 8px; position: relative; padding-top: 22px; }
+    .ref-value-tag {
+      position: absolute;
+      top: 0;
+      transform: translateX(-50%);
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      pointer-events: none;
+    }
+    .ref-value-tag span {
+      background: #173f3a;
+      color: #fff;
+      font-size: 10px;
+      line-height: 1;
+      padding: 3px 6px;
+      border-radius: 999px;
+      font-weight: 700;
+      border: 1px solid rgba(255,255,255,0.7);
+    }
+    .ref-value-tag i {
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #173f3a;
+      display: block;
+    }
+    .ref-track {
+      position: relative;
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: linear-gradient(90deg, #f7d9d9 0%, #fff4dd 30%, #dff4eb 55%, #fff4dd 75%, #f7d9d9 100%);
+      border: 1px solid #d8d8d8;
+    }
+    .ref-track.track-lower {
+      background: linear-gradient(90deg, #dff4eb 0%, #e8f8ef 40%, #fff4dd 68%, #f7d9d9 100%);
+    }
+    .ref-track.track-higher {
+      background: linear-gradient(90deg, #f7d9d9 0%, #fff4dd 35%, #e8f8ef 62%, #dff4eb 100%);
+    }
+    .ref-track.track-range {
+      background: linear-gradient(90deg, #f7d9d9 0%, #fff4dd 30%, #dff4eb 55%, #fff4dd 75%, #f7d9d9 100%);
+    }
+    .ref-optimal {
+      position: absolute;
+      left: 30%;
+      right: 30%;
+      top: 0;
+      bottom: 0;
+      background: rgba(92, 184, 172, 0.24);
+    }
+    .ref-marker {
+      position: absolute;
+      top: -4px;
+      width: 10px;
+      height: 20px;
+      margin-left: -5px;
+      border-radius: 5px;
+      border: 2px solid #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      background: var(--new-orange);
+    }
+    .ref-marker.flag-high { background: var(--coral-red); }
+    .ref-marker.flag-low { background: #f2b24d; }
+    .ref-marker.flag-normal { background: var(--active-teal); }
+
+    .ref-meta {
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #5f7473;
+      font-size: 11px;
+    }
+    .ref-text {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #5d6f72;
+      text-align: right;
+    }
+
+    .history-line {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding-bottom: 2px;
+      margin-top: auto;
+    }
+    .hist-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      border-radius: 999px;
+      padding: 3px 8px;
+      border: 1px solid #dcebe8;
+      background: #f9fffe;
+      font-size: 11px;
+      color: #395e5a;
+    }
+    .hist-chip b {
+      font-weight: 500;
+      color: #244d48;
+    }
+    .hist-chip i {
+      font-style: normal;
+      color: #7a4b3a;
+      font-weight: 700;
+    }
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .mini-table th, .mini-table td {
+      border-bottom: 1px solid #ecf2f2;
+      text-align: left;
+      padding: 5px 4px;
+      white-space: nowrap;
+    }
+    .mini-table th { color: #5a7471; font-weight: 700; }
+
+    .disclaimer {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #6e7676;
+      border-top: 1px dashed #c6d9d7;
+      padding-top: 8px;
+    }
+    .end-page {
+      padding-top: 18px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .end-og-link {
+      display: block;
+      text-decoration: none;
+    }
+    .end-og-img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: contain;
+      border-radius: 12px;
+      border: 1px solid #e2ece9;
+      margin-bottom: 10px;
+    }
+    .end-card {
+      width: 100%;
+      border: 1px solid #d8ece7;
+      border-left: 6px solid var(--new-orange);
+      border-radius: 14px;
+      background: #fff;
+      padding: 16px;
+    }
+    .end-page-trends .end-card-trends {
+      border-left-width: 8px;
+      border-left-color: #e8602e;
+      background: #fffaf5;
+      padding: 18px 18px 16px;
+    }
+    .end-page-trends .end-card-trends h2 {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #0e6d65;
+      letter-spacing: 0.01em;
+    }
+    .end-page-trends .end-next {
+      font-size: 16px;
+      font-weight: 700;
+      color: #7c4a1f;
+      background: #fff2e7;
+      border: 1px solid #ffd9c2;
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+    }
+    .end-page-trends .end-list {
+      gap: 8px;
+      font-size: 14px;
+      line-height: 1.4;
+      color: #254b48;
+    }
+    .end-page-trends .end-list li {
+      font-weight: 600;
+      background: #ffffff;
+      border: 1px solid #f0ddd0;
+      border-radius: 8px;
+      padding: 8px 10px;
+      list-style-position: inside;
+    }
+    .end-card h2 {
+      margin: 0 0 8px;
+      color: var(--new-teal);
+    }
+    .end-next {
+      margin: 0 0 10px;
+      color: #2f4f4b;
+      font-size: 14px;
+    }
+    .end-list {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 5px;
+      font-size: 13px;
+      color: #355552;
+    }
+    .end-foot {
+      margin: 12px 0 0;
+      font-size: 12px;
+      color: #5f7473;
+      border-top: 1px dashed #cbdedb;
+      padding-top: 8px;
+    }
+    .end-cta {
+      margin: 10px 0 0;
+      font-size: 12px;
+      color: #2f5753;
+      background: #eefaf7;
+      border: 1px solid #cfe8e1;
+      border-left: 4px solid var(--new-teal);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero-top-logo { max-height: 70px; margin-bottom: 6px; }
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .trigger-tiles { grid-template-columns: 1fr; }
+      .insights { grid-template-columns: 1fr; }
+      .param-grid { grid-template-columns: 1fr; }
+      .param-kpis { grid-template-columns: 1.05fr 0.95fr 1fr; gap: 6px; align-items: center; }
+      .param-kpis span { font-size: 9px; }
+      .param-kpis strong { font-size: 12px; }
+      .trend-box { width: 96px; height: 30px; }
+      .trend-box svg { width: 94px; height: 28px; }
+    }
+
+    @media print {
+      @page {
+        size: A4;
+        margin: 8mm 6.5mm;
+      }
+      body { background: #fff; }
+      .page { max-width: none; padding: 7mm 6.5mm; }
+      .page-break { page-break-before: always; }
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .end-page { page-break-before: always; }
+      .hero-top-logo { max-height: 62px; margin-bottom: 5px; }
+      .detail-page { padding-top: 8px; page-break-before: auto; }
+      .section-header {
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        page-break-after: avoid;
+        break-after: avoid-page;
+      }
+      .section-header h2 { font-size: 18px; margin: 0; }
+      .param-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        align-items: stretch;
+      }
+      .param-grid .param-card:first-child {
+        page-break-before: avoid;
+        break-before: avoid-page;
+      }
+      .param-card {
+        padding: 7px;
+        border-radius: 10px;
+      }
+      .param-head { margin-bottom: 5px; }
+      .param-head h4 { font-size: 13px; line-height: 1.2; }
+      .param-info {
+        display: -webkit-box;
+        font-size: 9px;
+        line-height: 1.25;
+        color: #586d70;
+        margin: 0 0 4px;
+        min-height: 0;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .param-kpis { gap: 6px; margin-bottom: 5px; }
+      .param-kpis span { font-size: 9px; margin-bottom: 1px; }
+      .param-kpis strong { font-size: 11px; }
+      .trend-box { width: 82px; height: 26px; }
+      .trend-box svg { width: 80px; height: 24px; }
+      .ref-wrap { margin-bottom: 5px; padding-top: 17px; }
+      .ref-value-tag span { font-size: 8px; padding: 2px 5px; }
+      .ref-track { height: 9px; }
+      .ref-marker { width: 8px; height: 15px; top: -3px; margin-left: -4px; }
+      .ref-meta { margin-top: 3px; font-size: 9px; }
+      .ref-text { margin-top: 3px; font-size: 9px; }
+      .history-line { gap: 4px; }
+      .hist-chip { padding: 2px 6px; font-size: 9px; }
+      .history-line .hist-chip:nth-child(n+4) { display: none; }
+      .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .insights { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .param-card, .block, .hero, .summary-card, .trigger-tile, .insight-item {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <section class="page summary-page">
+    <img class="hero-top-logo" src="https://www.sdrc.in/assets/sdrc-logo-full.png" alt="SDRC" />
+    <header class="hero">
+      <div>
+        <h1>Smart Trend Report</h1>
+        <p>PAVAN VIJAY JHAMNANI · 42 · Male</p>
+        <p>Risk Level: <strong>MEDIUM</strong></p>
+      </div>
+      <div class="hero-meta">
+        <div><span>First Registered</span><strong>30 Sept 2013</strong></div>
+        <div><span>Last Test</span><strong>20 Dec 2025</strong></div>
+        <div><span>Days Since Last Test</span><strong>99</strong></div>
+        <div><span>Follow-up Window</span><strong>Apr 2026</strong></div>
+      </div>
+    </header>
+
+    <div class="block">
+      <h2>Actionable Summary</h2>
+      <div class="insights"><div class="insight-item insight-high insight-type-category_risk ">
+        <div class="insight-top">
+          <span class="insight-tag insight-tag-hidden"></span>
+          <span class="insight-sev ">High Risk</span>
+        </div>
+        <h5><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>Cardiac Risk Evaluation</h5>
+        <p>Pattern-based risk rule triggered · 2 high</p>
+        
+        <ul class="insight-params"><li class="p-high">
+        <span>Total Cholesterol</span>
+        <div class="insight-val">
+          <strong>205 mg/dL</strong>
+          <small>20 Dec 25</small>
+        </div>
+      </li><li class="p-high">
+        <span>LDL Cholesterol</span>
+        <div class="insight-val">
+          <strong>129.6 mg/dL</strong>
+          <small>20 Dec 25</small>
+        </div>
+      </li></ul>
+      </div>
+<div class="insight-item insight-high insight-type-category_risk ">
+        <div class="insight-top">
+          <span class="insight-tag insight-tag-hidden"></span>
+          <span class="insight-sev ">High Risk</span>
+        </div>
+        <h5><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>Liver Risk Evaluation</h5>
+        <p>2 high</p>
+        
+        <ul class="insight-params"><li class="p-high">
+        <span>GOT (AST)</span>
+        <div class="insight-val">
+          <strong>102 U/L</strong>
+          <small>07 Nov 25</small>
+        </div>
+      </li><li class="p-high">
+        <span>GPT (ALT)</span>
+        <div class="insight-val">
+          <strong>71 U/L</strong>
+          <small>07 Nov 25</small>
+        </div>
+      </li></ul>
+      </div>
+<div class="insight-item insight-medium insight-type-category_risk ">
+        <div class="insight-top">
+          <span class="insight-tag insight-tag-hidden"></span>
+          <span class="insight-sev ">Watch</span>
+        </div>
+        <h5><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/diabetes.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🩸</span>
+  </span>Diabetes Risk Evaluation</h5>
+        <p>1 low</p>
+        
+        <ul class="insight-params"><li class="p-low">
+        <span>Glucose Random</span>
+        <div class="insight-val">
+          <strong>66 mg/dL</strong>
+          <small>07 Nov 25</small>
+        </div>
+      </li></ul>
+      </div>
+<div class="insight-item insight-medium insight-type-category_risk ">
+        <div class="insight-top">
+          <span class="insight-tag insight-tag-hidden"></span>
+          <span class="insight-sev ">Watch</span>
+        </div>
+        <h5><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>Inflammation Risk Evaluation</h5>
+        <p>1 high</p>
+        
+        <ul class="insight-params"><li class="p-high">
+        <span>C Reactive Proteins (CRP)</span>
+        <div class="insight-val">
+          <strong>40.9 mg/L</strong>
+          <small>07 Sept 24</small>
+        </div>
+      </li></ul>
+      </div>
+<div class="insight-item insight-positive insight-type-category_risk ">
+        <div class="insight-top">
+          <span class="insight-tag insight-tag-hidden"></span>
+          <span class="insight-sev ">On Track</span>
+        </div>
+        <h5><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/hormones.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚙️</span>
+  </span>Hormonal &amp; Stress Risk Evaluation</h5>
+        <p>1 priority marker</p>
+        
+        <ul class="insight-params"><li class="p-normal">
+        <span>Cortisol (8 AM)<em class="pm-ok">Priority Marker: On Track</em></span>
+        <div class="insight-val">
+          <strong>13 µg/dL</strong>
+          <small>20 Dec 25</small>
+        </div>
+      </li></ul>
+      </div>
+<div class="insight-item insight-medium insight-type-followup_window insight-followup-strong">
+        <div class="insight-top">
+          <span class="insight-tag insight-tag-hidden"></span>
+          <span class="insight-sev followup-month-tag">Apr 2026</span>
+        </div>
+        <h5><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>Follow-up Window</h5>
+        <p>Recommended tests to re-check in your follow-up cycle.</p>
+        <p class="followup-tests-inline">Lipid Profile, Diabetes Panel, Liver Function Tests (LFT), CRP</p>
+        
+      </div></div>
+    </div>
+
+    <div class="block">
+      <h2>Triggered Rule Insights</h2>
+      <div class="trigger-tiles"><div class="trigger-tile severity-medium">
+        <div class="trigger-head"><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span><strong>Cardiac Risk Watch</strong></div>
+        <p>Lipid profile trend suggests cardiovascular risk needs follow-up.</p>
+        <ul><li>Lifestyle and physician review</li><li>Retest lipid profile in 3-6 months</li></ul>
+      </div></div>
+    </div>
+
+    <div class="block">
+      <h2>Summary by Type</h2>
+      <div class="summary-grid"><div class="summary-card">
+        <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>Cardiac</h4>
+        <div class="count-row"><span>Unfavourable</span><strong>2</strong></div>
+        <div class="count-row"><span>High</span><strong>2</strong></div>
+        <div class="count-row"><span>Low</span><strong>0</strong></div>
+        <div class="count-row"><span>Normal</span><strong>3</strong></div>
+        <div class="count-row"><span>Priority</span><strong>1</strong></div>
+        <p class="card-top">Total Cholesterol • LDL Cholesterol • Triglycerides • HDL Cholesterol</p>
+      </div>
+<div class="summary-card">
+        <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>Liver</h4>
+        <div class="count-row"><span>Unfavourable</span><strong>2</strong></div>
+        <div class="count-row"><span>High</span><strong>2</strong></div>
+        <div class="count-row"><span>Low</span><strong>1</strong></div>
+        <div class="count-row"><span>Normal</span><strong>1</strong></div>
+        <div class="count-row"><span>Priority</span><strong>0</strong></div>
+        <p class="card-top">GOT (AST) • GPT (ALT) • Bilirubin Total • GGTP (gamma-GT)</p>
+      </div>
+<div class="summary-card">
+        <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/diabetes.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🩸</span>
+  </span>Diet</h4>
+        <div class="count-row"><span>Unfavourable</span><strong>1</strong></div>
+        <div class="count-row"><span>High</span><strong>1</strong></div>
+        <div class="count-row"><span>Low</span><strong>1</strong></div>
+        <div class="count-row"><span>Normal</span><strong>9</strong></div>
+        <div class="count-row"><span>Priority</span><strong>0</strong></div>
+        <p class="card-top">Glucose Random • Fasting Glucose • Glycosylated Haemoglobin • Creatinine</p>
+      </div>
+<div class="summary-card">
+        <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/vitamins.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟡</span>
+  </span>Vitamins &amp; Minerals</h4>
+        <div class="count-row"><span>Unfavourable</span><strong>0</strong></div>
+        <div class="count-row"><span>High</span><strong>0</strong></div>
+        <div class="count-row"><span>Low</span><strong>0</strong></div>
+        <div class="count-row"><span>Normal</span><strong>5</strong></div>
+        <div class="count-row"><span>Priority</span><strong>0</strong></div>
+        <p class="card-top">Vitamin B12 • 25-OH Vitamin D (Calcidiol) • Iron • Ferritin</p>
+      </div></div>
+    </div>
+
+    <footer class="disclaimer">
+      This report is for statistical evaluation and trend awareness only. It is not for diagnostic use.
+      Do not change lifestyle, supplements, or medication based only on this report. Consult your treating clinician first.
+    </footer>
+  </section>
+  <section class="page detail-page">
+    <header class="section-header section-cardiac-lipid">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>Cardiac (Lipid)</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>Total Cholesterol</h4>
+      <span class="flag flag-high">High</span>
+    </div>
+    <p class="param-info">Total cholesterol in blood; useful for overall lipid risk evaluation.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>205 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 29.5,30.0 55.0,23.1 80.5,11.6 106.0,14.7" fill="none" stroke="#f46060" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:76.26%">
+      <span>205</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-high" style="left:76.26%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 1</span>
+      <span>Lower is better</span>
+      <span>High 200</span>
+    </div>
+    <div class="ref-text">Reference: *Desirable Level: Less than 200 <br />Borderline      : 200 - 240 <br />Undesirable     : Above 240</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>209</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>194</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>185</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>219</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>LDL Cholesterol</h4>
+      <span class="flag flag-high">High</span>
+    </div>
+    <p class="param-info">Low-density lipoprotein; higher levels can increase cardiovascular risk.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>129.6 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 29.5,14.3 55.0,30.0 80.5,7.3 106.0,11.3" fill="none" stroke="#f46060" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:75.23%">
+      <span>129.6</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-high" style="left:75.23%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Lower is better</span>
+      <span>High 129</span>
+    </div>
+    <div class="ref-text">Reference: * Optimal : Less than 100 <br />Near Optimal : 100 - 129 <br />Borderline High : 130 - 159 <br />High : 160 - 189 <br />Very High : Above 190</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>139.6</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>82.6</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>122.2</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>148</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>Triglycerides</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Blood fat linked with metabolic and cardiovascular risk when elevated.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>132 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,26.0 29.5,30.0 55.0,4.0 80.5,27.0 106.0,23.4" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:69.00%">
+      <span>132</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:69.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Lower is better</span>
+      <span>High 150</span>
+    </div>
+    <div class="ref-text">Reference: *Desirable Level : &lt; 150 <br />Borderline High : 150 - 199 <br />High : 200 - 499 <br />Very High : &gt; 500</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>87</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>377</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>49</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>100</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>HDL Cholesterol</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">High-density lipoprotein; generally protective for heart health.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>49 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,7.1 29.5,4.0 55.0,30.0 80.5,5.5 106.0,10.1" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:30.63%">
+      <span>49</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-higher">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:30.63%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 40</span>
+      <span>Higher is better</span>
+      <span>High 120</span>
+    </div>
+    <div class="ref-text">Reference: * Desirable Level : More than 60 <br />Optimal : 40 - 59 <br />Undesirable : Below 40</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>52</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>36</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>53</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>51</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/heart.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">❤️</span>
+  </span>Homocysteine</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Amino acid marker linked with vascular and nutritional risk profiling.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>10.98 µmol/L</strong></div>
+      <div></div>
+      <div><span>Last Updated</span><strong>26 Feb 2019</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:50.70%">
+      <span>10.98</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:50.70%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 5.46</span>
+      <span>Target range</span>
+      <span>High 16.2</span>
+    </div>
+    <div class="ref-text">Reference: Male: 5.46 - 16.20</div>
+  </div>
+    
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-diabetes">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/diabetes.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🩸</span>
+  </span>Diabetes</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/diabetes.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🩸</span>
+  </span>Glucose Random</h4>
+      <span class="flag flag-low">Low</span>
+    </div>
+    <p class="param-info">Blood sugar level at the time of sample collection.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>66 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 38.0,16.6 72.0,11.2 106.0,30.0" fill="none" stroke="#f2b24d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:22.14%">
+      <span>66</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-low" style="left:22.14%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 70</span>
+      <span>Target range</span>
+      <span>High 140</span>
+    </div>
+    <div class="ref-text">Reference: 70 - 140</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>04 Dec 2021</b>
+      <i>87</i>
+    </span>
+<span class="hist-chip">
+      <b>03 Apr 2015</b>
+      <i>81</i>
+    </span>
+<span class="hist-chip">
+      <b>13 Jun 2014</b>
+      <i>95</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/diabetes.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🩸</span>
+  </span>Fasting Glucose</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Fasting blood sugar level after an overnight fast.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>97 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,21.7 55.0,4.0 80.5,6.4 106.0,13.5" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:70.00%">
+      <span>97</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:70.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 70</span>
+      <span>Lower is better</span>
+      <span>High 100</span>
+    </div>
+    <div class="ref-text">Reference: 70 - 100               <br />Impaired Fasting: 100 - 125</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>103</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>105</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>90</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>83</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/diabetes.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🩸</span>
+  </span>Glycosylated Haemoglobin</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Average blood sugar control over the last ~3 months.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>5.5 %</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 29.5,15.1 55.0,7.7 80.5,30.0 106.0,11.4" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:69.12%">
+      <span>5.5</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:69.12%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 4</span>
+      <span>Lower is better</span>
+      <span>High 5.7</span>
+    </div>
+    <div class="ref-text">Reference: Up to 5.6 % : Normal  <br />5.7 - 6.4 % : Increased risk for Diabetes<br />&gt; 6.5 %     : Diabetic Range<br />&gt; 7.0 %     : Indicative of poor glycaemic control<br />&gt; 9.0 %     : Suggestive of uncontrolled diabetes</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>5</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>5.6</i>
+    </span>
+<span class="hist-chip">
+      <b>30 Nov 2022</b>
+      <i>5.4</i>
+    </span>
+<span class="hist-chip">
+      <b>26 Feb 2019</b>
+      <i>5.7</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-kidney">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/kidney.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟣</span>
+  </span>Kidney</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/kidney.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟣</span>
+  </span>Creatinine</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Kidney filtration marker; helps assess renal function.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>1.01 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,28.6 29.5,28.6 55.0,30.0 80.5,4.0 106.0,9.5" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:46.00%">
+      <span>1.01</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:46.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0.8</span>
+      <span>Lower is better</span>
+      <span>High 1.3</span>
+    </div>
+    <div class="ref-text">Reference: Male: 0.8 - 1.3</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>07 Nov 2025</b>
+      <i>1.05</i>
+    </span>
+<span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>0.86</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>0.87</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>0.87</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/kidney.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟣</span>
+  </span>Urea</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Protein waste marker used in routine kidney function assessment.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>16 mg/dL</strong></div>
+      <div></div>
+      <div><span>Last Updated</span><strong>07 Jan 2017</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:27.08%">
+      <span>16</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:27.08%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 15</span>
+      <span>Target range</span>
+      <span>High 39</span>
+    </div>
+    <div class="ref-text">Reference: 15 - 39</div>
+  </div>
+    
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/kidney.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟣</span>
+  </span>Uric Acid</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Purine metabolism marker; high values may relate to gout/metabolic risk.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>5.27 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,19.6 29.5,30.0 55.0,30.0 80.5,4.0 106.0,21.9" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:43.15%">
+      <span>5.27</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:43.15%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 3.6</span>
+      <span>Target range</span>
+      <span>High 8.2</span>
+    </div>
+    <div class="ref-text">Reference: Male: 3.6 - 8.2</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>07 Nov 2025</b>
+      <i>6.3</i>
+    </span>
+<span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>4.8</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>4.8</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>5.4</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-liver">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>Liver</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>GOT (AST)</h4>
+      <span class="flag flag-high">High</span>
+    </div>
+    <p class="param-info">Liver enzyme; elevation may indicate liver or muscle stress.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>102 U/L</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,29.7 55.0,30.0 80.5,28.5 106.0,4.0" fill="none" stroke="#f46060" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:100.00%">
+      <span>102</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-high" style="left:100.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Lower is better</span>
+      <span>High 35</span>
+    </div>
+    <div class="ref-text">Reference: Male: Up to 35</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>22</i>
+    </span>
+<span class="hist-chip">
+      <b>07 Sept 2024</b>
+      <i>17</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>18</i>
+    </span>
+<span class="hist-chip">
+      <b>16 Jan 2023</b>
+      <i>17</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>GPT (ALT)</h4>
+      <span class="flag flag-high">High</span>
+    </div>
+    <p class="param-info">Liver enzyme commonly used to track hepatocellular injury.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>71 U/L</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,29.4 55.0,26.5 80.5,23.6 106.0,4.0" fill="none" stroke="#f46060" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:100.00%">
+      <span>71</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-high" style="left:100.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Target range</span>
+      <span>High 45</span>
+    </div>
+    <div class="ref-text">Reference: Male: Up to 45</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>37</i>
+    </span>
+<span class="hist-chip">
+      <b>07 Sept 2024</b>
+      <i>32</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>27</i>
+    </span>
+<span class="hist-chip">
+      <b>16 Jan 2023</b>
+      <i>26</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>Bilirubin Total</h4>
+      <span class="flag flag-low">Low</span>
+    </div>
+    <p class="param-info">Pigment metabolism marker used in liver and hemolysis evaluation.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>0.24 mg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 29.5,15.5 55.0,11.9 80.5,25.2 106.0,30.0" fill="none" stroke="#f2b24d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>02 Jul 2023</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:21.67%">
+      <span>0.24</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-low" style="left:21.67%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0.3</span>
+      <span>Lower is better</span>
+      <span>High 1.2</span>
+    </div>
+    <div class="ref-text">Reference: 0.3 - 1.2</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>03 Aug 2022</b>
+      <i>0.32</i>
+    </span>
+<span class="hist-chip">
+      <b>29 Sept 2020</b>
+      <i>0.54</i>
+    </span>
+<span class="hist-chip">
+      <b>13 Mar 2018</b>
+      <i>0.48</i>
+    </span>
+<span class="hist-chip">
+      <b>08 Apr 2017</b>
+      <i>0.67</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/liver.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟠</span>
+  </span>GGTP (gamma-GT)</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Liver/biliary enzyme often used in alcohol and cholestatic assessment.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>23 U/L</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,7.1 29.5,30.0 55.0,17.8 80.5,4.0 106.0,23.9" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:37.00%">
+      <span>23</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:37.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 11</span>
+      <span>Lower is better</span>
+      <span>High 61</span>
+    </div>
+    <div class="ref-text">Reference: Male : 11 - 61</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>36</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>27</i>
+    </span>
+<span class="hist-chip">
+      <b>12 Nov 2022</b>
+      <i>19</i>
+    </span>
+<span class="hist-chip">
+      <b>03 Aug 2022</b>
+      <i>34</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-vitamins-minerals">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/vitamins.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟡</span>
+  </span>Vitamins &amp; Minerals</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/vitamins.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟡</span>
+  </span>Vitamin B12</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Vitamin B12 level important for blood and nerve function.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>454 pg/mL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,24.0 55.0,21.3 80.5,28.6 106.0,4.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:45.63%">
+      <span>454</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-higher">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:45.63%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 192</span>
+      <span>Higher is better</span>
+      <span>High 827</span>
+    </div>
+    <div class="ref-text">Reference: Deficient :  32 - 191<br />Normal : 192 - 827</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>219</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>289</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>263</i>
+    </span>
+<span class="hist-chip">
+      <b>05 Dec 2021</b>
+      <i>206</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/vitamins.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟡</span>
+  </span>25-OH Vitamin D (Calcidiol)</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Vitamin D status marker important for bone and immune health.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>43.7 ng/mL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,29.7 55.0,4.0 80.5,22.8 106.0,23.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>30 Nov 2024</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:34.79%">
+      <span>43.7</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-higher">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:34.79%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 30</span>
+      <span>Higher is better</span>
+      <span>High 100</span>
+    </div>
+    <div class="ref-text">Reference: Deficiency    : less than 20<br />Insufficiency : 20 - 30<br />Sufficiency   : 30 - 100<br />Recommended   : 50 - 100<br />Toxicity      : &gt; 100</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>44</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>72.9</i>
+    </span>
+<span class="hist-chip">
+      <b>05 Dec 2021</b>
+      <i>33.3</i>
+    </span>
+<span class="hist-chip">
+      <b>29 Sept 2020</b>
+      <i>32.9</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/iron.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧲</span>
+  </span>Iron</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Laboratory marker tracked over time for preventive trend-based health review.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>89 µg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,20.8 29.5,4.0 55.0,15.6 80.5,30.0 106.0,21.4" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:44.47%">
+      <span>89</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:44.47%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 45</span>
+      <span>Target range</span>
+      <span>High 158</span>
+    </div>
+    <div class="ref-text">Reference: Male: 45 - 158</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>01 May 2025</b>
+      <i>61</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>108</i>
+    </span>
+<span class="hist-chip">
+      <b>26 Feb 2019</b>
+      <i>146</i>
+    </span>
+<span class="hist-chip">
+      <b>03 Apr 2015</b>
+      <i>91</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/iron.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧲</span>
+  </span>Ferritin</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Laboratory marker tracked over time for preventive trend-based health review.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>78.9 ng/mL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,15.4 55.0,20.9 80.5,9.0 106.0,4.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:31.09%">
+      <span>78.9</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:31.09%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 24</span>
+      <span>Target range</span>
+      <span>High 475</span>
+    </div>
+    <div class="ref-text">Reference: Males : 24 - 425</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>01 May 2025</b>
+      <i>68.5</i>
+    </span>
+<span class="hist-chip">
+      <b>01 Jun 2022</b>
+      <i>43.91</i>
+    </span>
+<span class="hist-chip">
+      <b>26 Feb 2019</b>
+      <i>55.3</i>
+    </span>
+<span class="hist-chip">
+      <b>03 Apr 2015</b>
+      <i>25.19</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/minerals.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚪</span>
+  </span>Magnesium</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Essential mineral involved in muscle, nerve, and metabolic function.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>1.8 mg/dL</strong></div>
+      <div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:27.05%">
+      <span>1.8</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:27.05%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 1.77</span>
+      <span>Target range</span>
+      <span>High 2.5</span>
+    </div>
+    <div class="ref-text">Reference: 1.77 - 2.5</div>
+  </div>
+    
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-hormonal-health">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/hormones.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚙️</span>
+  </span>Hormonal Health</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/thyroid.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🦋</span>
+  </span>Thyroid Stimulating Hormone (TSH)</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Primary thyroid-control hormone used for thyroid screening.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>3.5 µIU/mL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,23.0 29.5,14.1 55.0,30.0 80.5,8.8 106.0,4.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:59.31%">
+      <span>3.5</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:59.31%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0.35</span>
+      <span>Target range</span>
+      <span>High 4.94</span>
+    </div>
+    <div class="ref-text">Reference: Adult: 0.3 - 4.5</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>3.03</i>
+    </span>
+<span class="hist-chip">
+      <b>08 Apr 2017</b>
+      <i>0.95</i>
+    </span>
+<span class="hist-chip">
+      <b>07 Jan 2017</b>
+      <i>2.51</i>
+    </span>
+<span class="hist-chip">
+      <b>13 Jun 2014</b>
+      <i>1.64</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/hormones.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚙️</span>
+  </span>Thyroxine (T4)</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Laboratory marker tracked over time for preventive trend-based health review.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>7.14 ug/dL</strong></div>
+      <div></div>
+      <div><span>Last Updated</span><strong>02 Jul 2023</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:41.57%">
+      <span>7.14</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:41.57%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 4.87</span>
+      <span>Target range</span>
+      <span>High 11.72</span>
+    </div>
+    <div class="ref-text">Reference: Adult:  4.87 - 11.72</div>
+  </div>
+    
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/hormones.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚙️</span>
+  </span>Testosterone</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Major androgen hormone involved in reproductive and metabolic health.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>334 ng/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 106.0,30.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:38.19%">
+      <span>334</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:38.19%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 171</span>
+      <span>Target range</span>
+      <span>High 789</span>
+    </div>
+    <div class="ref-text">Reference: 171 - 789</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>396</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-stress">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/hormones.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚙️</span>
+  </span>Stress</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/hormones.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">⚙️</span>
+  </span>Cortisol (8 AM)</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Stress hormone marker that follows a daily biological rhythm.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>13 µg/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,4.0 106.0,30.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>20 Dec 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:51.07%">
+      <span>13</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:51.07%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 4.5</span>
+      <span>Target range</span>
+      <span>High 20.8</span>
+    </div>
+    <div class="ref-text">Reference: 6 - 10 AM : 4.5  - 20.8</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>15.55</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-cancer-screen">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cancer.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟡</span>
+  </span>Cancer Screen</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cancer.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🟡</span>
+  </span>Total Prostatic Specific Antigen (PSA)</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Prostate-related screening marker used with clinical correlation.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>0.44 ng/mL</strong></div>
+      <div></div>
+      <div><span>Last Updated</span><strong>30 Nov 2024</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:30.50%">
+      <span>0.44</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:30.50%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Target range</span>
+      <span>High 4</span>
+    </div>
+    <div class="ref-text">Reference: Up to 4</div>
+  </div>
+    
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-inflammation">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>Inflammation</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>C Reactive Proteins (CRP)</h4>
+      <span class="flag flag-high">High</span>
+    </div>
+    <p class="param-info">Inflammation marker often used for infection/inflammatory activity tracking.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>40.9 mg/L</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,25.1 29.5,30.0 55.0,28.9 80.5,4.0 106.0,4.0" fill="none" stroke="#f46060" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Sept 2024</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:100.00%">
+      <span>40.9</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-lower">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-high" style="left:100.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Lower is better</span>
+      <span>High 3</span>
+    </div>
+    <div class="ref-text">Reference: Less than 3</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>16 Jan 2023</b>
+      <i>40.9</i>
+    </span>
+<span class="hist-chip">
+      <b>22 Apr 2019</b>
+      <i>5.75</i>
+    </span>
+<span class="hist-chip">
+      <b>13 Mar 2018</b>
+      <i>4.2</i>
+    </span>
+<span class="hist-chip">
+      <b>10 Aug 2017</b>
+      <i>11.1</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+<section class="page detail-page">
+    <header class="section-header section-general-health">
+      <h2><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>General Health</h2>
+    </header>
+    <div class="param-grid">
+      <article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>IgE</h4>
+      <span class="flag flag-high">High</span>
+    </div>
+    <p class="param-info">Allergy-associated antibody marker that may rise in atopic states.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>230.5 IU/mL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 106.0,4.0" fill="none" stroke="#f46060" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>22 Apr 2019</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:97.94%">
+      <span>230.5</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-high" style="left:97.94%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Target range</span>
+      <span>High 158</span>
+    </div>
+    <div class="ref-text">Reference: Adults: 0 - 158</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>28 Apr 2015</b>
+      <i>127.1</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>Haemoglobin</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Oxygen-carrying protein in red blood cells.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>13.7 gm/dL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,9.6 29.5,30.0 55.0,4.0 80.5,9.6 106.0,26.3" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:33.75%">
+      <span>13.7</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:33.75%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 13</span>
+      <span>Target range</span>
+      <span>High 17</span>
+    </div>
+    <div class="ref-text">Reference: Male : 13.0 - 17.0</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>01 May 2025</b>
+      <i>14.6</i>
+    </span>
+<span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>14.9</i>
+    </span>
+<span class="hist-chip">
+      <b>07 Sept 2024</b>
+      <i>13.5</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>14.6</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>WBC Count</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">White blood cell count indicating immune/infection activity.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>8.02 10^3/µL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,28.6 29.5,4.0 55.0,30.0 80.5,29.7 106.0,24.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:58.50%">
+      <span>8.02</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:58.50%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 4</span>
+      <span>Target range</span>
+      <span>High 10</span>
+    </div>
+    <div class="ref-text">Reference: 4.0 - 10.0</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>01 May 2025</b>
+      <i>6.59</i>
+    </span>
+<span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>6.52</i>
+    </span>
+<span class="hist-chip">
+      <b>07 Sept 2024</b>
+      <i>13.06</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>6.87</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>Platelet Count</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Clotting cell count important for bleeding and thrombotic risk.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>221 10^3/µL</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,21.6 29.5,30.0 55.0,4.0 80.5,25.4 106.0,10.5" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>07 Nov 2025</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:38.65%">
+      <span>221</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:38.65%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 150</span>
+      <span>Target range</span>
+      <span>High 410</span>
+    </div>
+    <div class="ref-text">Reference: Adult: 150 - 410</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>01 May 2025</b>
+      <i>198</i>
+    </span>
+<span class="hist-chip">
+      <b>30 Nov 2024</b>
+      <i>231</i>
+    </span>
+<span class="hist-chip">
+      <b>07 Sept 2024</b>
+      <i>191</i>
+    </span>
+<span class="hist-chip">
+      <b>02 Jul 2023</b>
+      <i>204</i>
+    </span></div>
+  </article>
+<article class="param-card">
+    <div class="param-head">
+      <h4><span class="pkg-icon-wrap" aria-hidden="true">
+    <img class="pkg-icon-img" data-report-icon="1" src="https://sdrc.in/assets/ads/icons/cbc.png" alt="" loading="eager" decoding="sync" onload="this.nextElementSibling.style.display='none';" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />
+    <span class="pkg-icon-fallback" style="display:none">🧪</span>
+  </span>E.S.R. - I Hr.</h4>
+      <span class="flag flag-normal">Normal</span>
+    </div>
+    <p class="param-info">Laboratory marker tracked over time for preventive trend-based health review.</p>
+    <div class="param-kpis">
+      <div><span>Latest</span><strong>10 mm I Hr</strong></div>
+      <div><span>Trend</span><div class="trend-box">
+    <svg viewBox="0 0 110 34" aria-label="Trend line">
+      <polyline points="4.0,30.0 29.5,30.0 55.0,12.7 80.5,30.0 106.0,4.0" fill="none" stroke="#5cb8ac" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  </div></div>
+      <div><span>Last Updated</span><strong>02 Jul 2023</strong></div>
+    </div>
+    <div class="ref-wrap">
+    <div class="ref-value-tag" style="left:75.00%">
+      <span>10</span>
+      <i></i>
+    </div>
+    <div class="ref-track track-range">
+      <div class="ref-optimal"></div>
+      <div class="ref-marker flag-normal" style="left:75.00%"></div>
+    </div>
+    <div class="ref-meta">
+      <span>Low 0</span>
+      <span>Target range</span>
+      <span>High 10</span>
+    </div>
+    <div class="ref-text">Reference: Male (18-50 Y): &lt;= 10</div>
+  </div>
+    <div class="history-line recent-history"><span class="hist-chip">
+      <b>05 Aug 2019</b>
+      <i>4</i>
+    </span>
+<span class="hist-chip">
+      <b>22 Apr 2019</b>
+      <i>8</i>
+    </span>
+<span class="hist-chip">
+      <b>26 Feb 2019</b>
+      <i>4</i>
+    </span>
+<span class="hist-chip">
+      <b>13 Mar 2018</b>
+      <i>4</i>
+    </span></div>
+  </article>
+    </div>
+  </section>
+  <section class="page end-page page-break end-page-trends">
+    <a class="end-og-link" href="https://wa.me/919849110001?text=Hi" target="_blank" rel="noopener noreferrer" aria-label="Open WhatsApp and say Hi">
+      <img class="end-og-img" src="https://www.sdrc.in/assets/og-sdrc.jpg" alt="SDRC" />
+    </a>
+    <div class="end-card end-card-trends">
+      <h2>Recommendations & Next Steps</h2>
+      <p class="end-next">Follow-up Window: <strong>Apr 2026</strong></p>
+      <ul class="end-list"><li>Cardiac Risk Evaluation: Pattern-based risk rule triggered · 2 high</li><li>Liver Risk Evaluation: 2 high</li><li>Diabetes Risk Evaluation: 1 low</li><li>Inflammation Risk Evaluation: 1 high</li><li>Hormonal &amp; Stress Risk Evaluation: 1 priority marker</li><li>Recommended repeat panel(s): Lipid Profile, Diabetes Panel, Liver Function Tests (LFT), CRP</li></ul>
+      <p class="end-foot">
+        This Smart Trend Report is for statistical trend awareness and preventive planning only, not diagnosis.
+        Always consult your clinician before changing medication, supplements, or treatment.
+      </p>
+      <p class="end-cta">Need help with follow-up? Reply with <strong>Hi</strong> to book home visits, lab visits, or preventive package guidance.</p>
+    </div>
+  </section>
+  <script>
+    window.__smartReportImagesReady = new Promise((resolve) => {
+      const icons = Array.from(document.querySelectorAll("img[data-report-icon='1']"));
+      if (!icons.length) { resolve(true); return; }
+      let done = 0;
+      let finished = false;
+      const mark = () => {
+        done += 1;
+        if (!finished && done >= icons.length) {
+          finished = true;
+          resolve(true);
+        }
+      };
+      icons.forEach((img) => {
+        if (img.complete) {
+          mark();
+          return;
+        }
+        img.addEventListener("load", mark, { once: true });
+        img.addEventListener("error", mark, { once: true });
+      });
+      setTimeout(() => {
+        if (!finished) resolve(true);
+      }, 2500);
+    });
+  </script>
+</body>
+</html>
