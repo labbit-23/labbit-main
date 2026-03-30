@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
-import { getTrendDataByMrno } from "@/lib/neosoft/client";
 import { normalizeNeosoftTrendPayload } from "@/lib/trendReports/normalizeNeosoft";
 import { evaluateTrendRules } from "@/lib/trendReports/ruleEngine";
 import { buildReportFacts } from "@/lib/trendReports/buildReportFacts";
@@ -17,6 +16,8 @@ const DEFAULT_SDRC_LAB_ID = String(
 ).trim();
 const DEFAULT_SDRC_COVER = "https://sdrc.in/assets/sdrc-services.png";
 const DEFAULT_SDRC_LOGO = "https://sdrc.in/assets/sdrc-logo.png";
+const NEOSOFT_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
+const TREND_FETCH_TIMEOUT_MS = Number(process.env.NEOSOFT_TIMEOUT_MS || 15000);
 
 function parseTemplates(raw) {
   if (!raw) return {};
@@ -36,6 +37,95 @@ function boolFlag(value, fallback = false) {
   if (["1", "true", "yes", "on", "enabled"].includes(text)) return true;
   if (["0", "false", "no", "off", "disabled"].includes(text)) return false;
   return fallback;
+}
+
+function hasUsablePayload(payload) {
+  if (Array.isArray(payload)) return payload.length > 0;
+  if (!payload || typeof payload !== "object") return false;
+  if (Array.isArray(payload?.table?.rows) && payload.table.rows.length > 0) return true;
+  if (Array.isArray(payload?.parameters) && payload.parameters.length > 0) return true;
+  if (Array.isArray(payload?.tests) && payload.tests.length > 0) return true;
+  if (Array.isArray(payload?.markers) && payload.markers.length > 0) return true;
+  if (Array.isArray(payload?.items) && payload.items.length > 0) return true;
+  return false;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TREND_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`NeoSoft trend data timed out after ${TREND_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchSmartTrendPayload(mrno) {
+  const cleanMrno = asText(mrno);
+  if (!cleanMrno) {
+    throw new Error("mrno is required");
+  }
+
+  const pythonTemplate = asText(
+    process.env.LABBIT_PY_TREND_DATA_URL_TEMPLATE ||
+    process.env.LABBIT_PY_GETTRENDSDATAAPI ||
+    process.env.LABBIT_PY_GET_TRENDS_DATA_API
+  );
+  const genericTemplate = asText(
+    process.env.NEOSOFT_TREND_DATA_URL_TEMPLATE ||
+    process.env.GETTRENDSDATAAPI ||
+    process.env.GET_TRENDS_DATA_API
+  );
+
+  const urls = [];
+  if (pythonTemplate) urls.push(pythonTemplate.replace("{mrno}", encodeURIComponent(cleanMrno)));
+  if (genericTemplate) urls.push(genericTemplate.replace("{mrno}", encodeURIComponent(cleanMrno)));
+  if (NEOSOFT_BASE_URL) {
+    urls.push(
+      `${NEOSOFT_BASE_URL}/trend-data/${encodeURIComponent(cleanMrno)}`,
+      `${NEOSOFT_BASE_URL}/trend-report-data/${encodeURIComponent(cleanMrno)}`,
+      `${NEOSOFT_BASE_URL}/trend-report-json/${encodeURIComponent(cleanMrno)}`
+    );
+  }
+
+  let lastError = null;
+  for (const endpoint of urls) {
+    try {
+      const res = await fetchWithTimeout(endpoint, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      if (res.status === 404) continue;
+      if (!res.ok) {
+        let detail = "";
+        try { detail = (await res.text()).slice(0, 240); } catch {}
+        lastError = new Error(`NeoSoft trend data failed: ${res.status}${detail ? ` | ${detail}` : ""}`);
+        continue;
+      }
+
+      const json = await res.json();
+      if (hasUsablePayload(json)) return json;
+      if (json && typeof json === "object" && hasUsablePayload(json.data)) return json.data;
+      if (
+        json &&
+        typeof json === "object" &&
+        json.standardized &&
+        Array.isArray(json.standardized.parameters) &&
+        json.standardized.parameters.length
+      ) {
+        return json.standardized;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("NeoSoft trend data endpoint not reachable");
 }
 
 async function resolveLabBrandAndFlag(labId) {
@@ -105,10 +195,10 @@ async function htmlToPdfBuffer(html) {
       printBackground: true,
       preferCSSPageSize: true,
       margin: {
-        top: "10mm",
-        right: "8mm",
-        bottom: "10mm",
-        left: "8mm"
+        top: "0mm",
+        right: "0mm",
+        bottom: "0mm",
+        left: "0mm"
       }
     });
     return pdfBuffer;
@@ -135,7 +225,7 @@ export async function GET(req) {
 
     const { smartReportEnabled, brand } = await resolveLabBrandAndFlag(labId);
 
-    const payload = await getTrendDataByMrno(mrno);
+    const payload = await fetchSmartTrendPayload(mrno);
     const normalized = normalizeNeosoftTrendPayload(payload, { asOfDate });
     const evaluation = evaluateTrendRules({ normalizedTrend: normalized, asOfDate });
     const brandResolved = {

@@ -610,33 +610,33 @@ export default function ReportDispatchPage() {
 
             <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
               <Text fontWeight="semibold" mb={2}>Dispatch Actions</Text>
-              <Flex gap={2} wrap="wrap" align="center">
-                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
+              <SimpleGrid columns={{ base: 2, md: 3 }} spacing={2}>
+                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
                   All
                 </Button>
-                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
+                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
                   Lab
                 </Button>
-                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
+                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
                   Radiology
                 </Button>
-                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "108px" }} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
+                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
                   Trend
                 </Button>
-                <Button size="sm" leftIcon={outputPrimaryIcon} minW={{ base: "48%", md: "122px" }} colorScheme="purple" onClick={openSmartTrends} isDisabled={!hasStatus || !canSmartTrends}>
+                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="purple" onClick={openSmartTrends} isDisabled={!hasStatus || !canSmartTrends}>
                   SMART TRENDS
                 </Button>
                 <Button
                   size="sm"
+                  w="full"
                   leftIcon={outputPrimaryIcon}
-                  minW={{ base: "48%", md: "108px" }}
                   colorScheme="yellow"
                   onClick={() => openDocument("all", { printtype: "0" })}
                   isDisabled={!hasStatus || !currentReqid() || !hasLab}
                 >
                   Pending
                 </Button>
-              </Flex>
+              </SimpleGrid>
             </Box>
           </Flex>
 

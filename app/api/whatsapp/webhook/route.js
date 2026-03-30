@@ -2676,11 +2676,13 @@ export async function POST(req) {
         break;
 
       case "SEND_DOCUMENT":
+        var dispatchReqid = null;
+        var dispatchReqno = null;
         {
           const dispatchStartedAt = Date.now();
-          const dispatchReqid =
+          dispatchReqid =
             String(nextContext.selected_report_reqid || result?.context?.selected_report_reqid || "").trim() || null;
-          const dispatchReqno =
+          dispatchReqno =
             String(result.reportStatusReqno || nextContext.selected_report_reqno || result?.context?.selected_report_reqno || "").trim() ||
             null;
           let readyLabTestKeys = [];

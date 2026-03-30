@@ -1,0 +1,45 @@
+{
+  "defaults": {
+    "sectionByName": {
+      "esr": "Inflammation",
+      "e s r i hr": "Inflammation"
+    }
+  },
+  "labs": {
+    "b539c161-1e2b-480b-9526-d4b37bd37b1e": {
+      "sectionByName": {
+        "random blood sugar": "Diabetes",
+        "glucose random": "Diabetes",
+        "glycosylated haemoglobin": "Diabetes",
+        "glycosylated hemoglobin": "Diabetes",
+        "hba1c": "Diabetes",
+        "prolactin": "Hormonal Health",
+        "folic acid": "Vitamins & Minerals",
+        "folate": "Vitamins & Minerals",
+        "thyroid peroxidase autoantibodies anti tpo ama": "Hormonal Health",
+        "free t3": "Hormonal Health",
+        "triiodothyronine free ft3": "Hormonal Health",
+        "tri iodothyronine t3": "Hormonal Health",
+        "free t4": "Hormonal Health",
+        "thyroxine free ft4": "Hormonal Health",
+        "thyroxine t4": "Hormonal Health",
+        "lipoprotein a": "Cardiac (Lipid)",
+        "apolipoprotein a1": "Cardiac (Lipid)",
+        "apolipoprotein b": "Cardiac (Lipid)",
+        "n terminal pro b type natriuretic peptide": "Cardiac (Lipid)",
+        "fasting insulin": "Diabetes",
+        "insulin": "Diabetes",
+        "homa ir index": "Diabetes",
+        "insulin resistance fasting homa": "Diabetes",
+        "e s r i hr": "Inflammation"
+      },
+      "betterByKey": {
+        "homa_ir_index": "lower_better",
+        "insulin": "lower_better",
+        "lipoprotein_a": "lower_better",
+        "apolipoprotein_a1": "higher_better",
+        "apolipoprotein_b": "lower_better"
+      }
+    }
+  }
+}
