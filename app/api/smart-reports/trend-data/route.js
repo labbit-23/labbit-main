@@ -193,11 +193,18 @@ async function htmlToPdfBuffer(html) {
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: `<div></div>`,
+      footerTemplate: `
+        <div style="width:100%; font-size:10px; color:#5c6f73; padding:0 8mm; box-sizing:border-box; text-align:right;">
+          <span class="pageNumber"></span>/<span class="totalPages"></span>
+        </div>
+      `,
       preferCSSPageSize: true,
       margin: {
         top: "0mm",
         right: "0mm",
-        bottom: "0mm",
+        bottom: "10mm",
         left: "0mm"
       }
     });
