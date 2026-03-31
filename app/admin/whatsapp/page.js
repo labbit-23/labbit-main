@@ -69,9 +69,14 @@ function formatMessageTime(value) {
   });
 }
 
-function isWithin24(session) {
-  if (!session?.last_user_message_at) return false;
-  const parsed = parseServerDate(session.last_user_message_at);
+function isWithin24(session, lastInboundAtOverride = null) {
+  const sourceTs =
+    lastInboundAtOverride ||
+    session?.last_user_message_at ||
+    session?.last_message_at ||
+    null;
+  if (!sourceTs) return false;
+  const parsed = parseServerDate(sourceTs);
   if (!parsed || Number.isNaN(parsed.getTime())) return false;
   const diff = Date.now() - parsed.getTime();
   return diff < 24 * 60 * 60 * 1000;
@@ -1543,7 +1548,7 @@ export default function WhatsAppDashboard() {
   const handleAttachmentUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!selectedSession?.phone || !file) return;
-    if (!isWithin24(selectedSession)) {
+    if (!selectedSessionWithin24) {
       setError("Cannot send attachments after the 24-hour window has expired.");
       return;
     }
@@ -1588,7 +1593,7 @@ export default function WhatsAppDashboard() {
       return;
     }
 
-    if (!isWithin24(selectedSession)) {
+    if (!selectedSessionWithin24) {
       setError("Cannot send reports after the 24-hour window has expired.");
       return;
     }
@@ -1636,7 +1641,7 @@ export default function WhatsAppDashboard() {
       return;
     }
 
-    if (!isWithin24(selectedSession)) {
+    if (!selectedSessionWithin24) {
       setError("Cannot send reports after the 24-hour window has expired.");
       return;
     }
@@ -1682,7 +1687,7 @@ export default function WhatsAppDashboard() {
   const handleSend = async (text) => {
     const content = toPlainComposerText(String(text ?? composerText ?? ""));
     if (!selectedSession || !content || isSending) return;
-    if (!isWithin24(selectedSession)) {
+    if (!selectedSessionWithin24) {
       setError("Cannot send messages after the 24-hour window has expired.");
       return;
     }
@@ -1847,23 +1852,24 @@ export default function WhatsAppDashboard() {
   }, [sessions]);
 
   const filteredMessages = useMemo(() => {
-    const nonStatus = messages.filter((msg) => msg?.direction !== "status");
+    return messages.filter((msg) => {
+      // Keep only resolution internal notes visible from status stream.
+      if (msg?.direction === "status") {
+        const isInternal = Boolean(msg?.payload?.internal);
+        const action = String(msg?.payload?.action || "").toLowerCase();
+        return isInternal && action === "resolve";
+      }
 
-    if (senderFilter === "all") {
-      return nonStatus;
-    }
+      if (senderFilter === "all") return true;
 
-    const scoped = nonStatus.filter((msg) => {
       // Always keep inbound (patient/user) messages visible for context.
-      if (msg.direction !== "outbound") return true;
+      if (msg?.direction !== "outbound") return true;
 
       const hasAgent = Boolean(msg?.payload?.sender?.id || msg?.payload?.sender?.name);
       if (senderFilter === "agent") return hasAgent;
       if (senderFilter === "bot") return !hasAgent;
       return true;
     });
-    if (scoped.length > 0) return scoped;
-    return scoped;
   }, [messages, senderFilter]);
 
   const hasOnlyStatusInWindow = useMemo(
@@ -2041,14 +2047,26 @@ export default function WhatsAppDashboard() {
     }
   };
 
+  const selectedLatestInboundAt = useMemo(() => {
+    if (!selectedSession?.phone) return null;
+    const newestInbound = [...messages]
+      .filter((m) => m?.direction === "inbound")
+      .sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime())[0];
+    return newestInbound?.created_at || null;
+  }, [messages, selectedSession?.phone]);
+
+  const selectedSessionWithin24 = selectedSession
+    ? isWithin24(selectedSession, selectedLatestInboundAt)
+    : false;
+
   const canReply = Boolean(
     selectedSession &&
-    isWithin24(selectedSession) &&
+    selectedSessionWithin24 &&
     !isSending &&
     !isUpdatingStatus &&
     !(sessionLock?.active && sessionLock.agent_id && sessionLock.agent_id !== user?.id)
   );
-  const isExpiredWindow = Boolean(selectedSession && !isWithin24(selectedSession));
+  const isExpiredWindow = Boolean(selectedSession && !selectedSessionWithin24);
   const shouldRecommendClose = Boolean(selectedSession && isExpiredWindow && selectedSession.status !== "closed");
   const isLockedByAnotherAgent = Boolean(
     selectedSession &&
@@ -2182,7 +2200,7 @@ export default function WhatsAppDashboard() {
               </div>
               <div className="wa-tabs">
                 {[
-                  { key: "unread", label: "(Pending) Unread", count: tabCounts.unread, countClass: "is-red" },
+                  { key: "unread", label: "Unread", count: tabCounts.unread, countClass: "is-red" },
                   { key: "unresolved", label: "Unresolved", count: tabCounts.unresolved, countClass: "is-yellow" },
                   { key: "resolved", label: "Resolved" },
                   { key: "all", label: "All" }
@@ -2327,8 +2345,8 @@ export default function WhatsAppDashboard() {
                         : "Patient"}
                     </span>
                   )}
-                  <span className={`wa-status ${isWithin24(selectedSession) ? "is-live" : "is-expired"}`}>
-                    {isWithin24(selectedSession) ? "24h live" : "24h expired"}
+                  <span className={`wa-status ${selectedSessionWithin24 ? "is-live" : "is-expired"}`}>
+                    {selectedSessionWithin24 ? "24h live" : "24h expired"}
                   </span>
                   <span
                     className={`wa-status ${
@@ -2638,7 +2656,7 @@ export default function WhatsAppDashboard() {
                 placeholder={
                   !selectedSession
                     ? "Select a conversation to start replying"
-                    : !isWithin24(selectedSession)
+                    : !selectedSessionWithin24
                       ? "Reply window expired. Use a template message to reopen."
                       : isSending
                         ? "Sending..."
@@ -2760,7 +2778,7 @@ export default function WhatsAppDashboard() {
                   placeholder={
                     !selectedSession
                       ? "Select a conversation to start replying"
-                      : !isWithin24(selectedSession)
+                      : !selectedSessionWithin24
                         ? "Reply window expired. Use a template message to reopen."
                         : isLockedByAnotherAgent
                           ? `${sessionLock?.agent_name || "Another agent"} is replying here right now`
@@ -4886,6 +4904,16 @@ export default function WhatsAppDashboard() {
             box-shadow: none;
           }
 
+          .wa-root.theme-light .wa-sessionPhone {
+            background: #fbf6ef;
+            border-color: #ccbca8;
+            color: #1f3552;
+          }
+
+          .wa-root.theme-light .wa-sessionPhone:hover {
+            background: #f3e9dd;
+          }
+
           .wa-root.theme-light .wa-status.is-live,
           .wa-root.theme-light .wa-status.is-expired,
           .wa-root.theme-light .wa-status.is-patient,
@@ -4920,6 +4948,13 @@ export default function WhatsAppDashboard() {
 
           .wa-root.theme-light .wa-customComposer textarea::placeholder {
             color: #6a7a90;
+          }
+
+          .wa-root.theme-light .wa-sendBtn,
+          .wa-root.theme-light .wa-attachBtn {
+            background: #0f7f85;
+            border-color: #0f7f85;
+            color: #ffffff;
           }
 
           .wa-root.theme-dark .wa-customComposer textarea {
@@ -5184,6 +5219,16 @@ export default function WhatsAppDashboard() {
 
         .wa-root.theme-light .wa-leftNumberMini {
           color: #5b6f88;
+        }
+
+        .wa-root.theme-light .wa-sessionPhone {
+          background: #fbf6ef;
+          border-color: #ccbca8;
+          color: #1f3552;
+        }
+
+        .wa-root.theme-light .wa-sessionPhone:hover {
+          background: #f3e9dd;
         }
 
         .wa-root.theme-light .wa-shortBtn {

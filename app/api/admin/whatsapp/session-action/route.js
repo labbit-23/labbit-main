@@ -74,7 +74,11 @@ export async function POST(request) {
             ...(session.context && typeof session.context === "object" ? session.context : {}),
             last_resolution_note: trimmedNote,
             last_resolution_at: new Date().toISOString(),
-            last_resolution_by: user.name || user.id || "Unknown"
+            last_resolution_by: user.name || user.id || "Unknown",
+            last_resolution_by_id: user.id || null,
+            last_resolution_by_role: getRoleKey(user) || null,
+            last_resolution_feedback_armed: true,
+            last_report_feedback_armed: false
           }
         : session.context;
 

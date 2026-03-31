@@ -20,6 +20,7 @@ import {
   sendReportHistoryTrendMenu,
   sendReportPostDownloadMenu,
   sendReportSelectionMenu,
+  sendFeedbackActionMenu,
   sendLocationMessage,
   sendLocationOptionsMenu,
   sendBranchLocationsMenu,
@@ -85,6 +86,46 @@ function isThankYouLikeInput(value) {
   return false;
 }
 
+function isMainMenuGreetingInput(value) {
+  const { normalized, normalizedGreeting, normalizedUnderscore } = normalizeCommandLikeInput(value);
+  const keys = new Set([
+    "HI",
+    "HII",
+    "HAI",
+    "HELLO",
+    "HEY",
+    "MENU",
+    "MAIN MENU",
+    "MAIN_MENU"
+  ]);
+  return (
+    keys.has(normalized) ||
+    keys.has(normalizedGreeting) ||
+    keys.has(normalizedUnderscore)
+  );
+}
+
+function canOfferPostReportFeedback(context = {}) {
+  const deliveredAt = String(context?.last_report_delivery_at || "").trim();
+  if (!deliveredAt) return false;
+  const deliveredMs = new Date(deliveredAt).getTime();
+  if (!Number.isFinite(deliveredMs)) return false;
+
+  // Keep feedback relevance tightly tied to recent report delivery.
+  const ageMs = Date.now() - deliveredMs;
+  return ageMs >= 0 && ageMs <= 24 * 60 * 60 * 1000;
+}
+
+function canOfferResolvedFeedback(context = {}) {
+  if (!context?.last_resolution_feedback_armed) return false;
+  const resolvedAt = String(context?.last_resolution_at || "").trim();
+  if (!resolvedAt) return false;
+  const resolvedMs = new Date(resolvedAt).getTime();
+  if (!Number.isFinite(resolvedMs)) return false;
+  const ageMs = Date.now() - resolvedMs;
+  return ageMs >= 0 && ageMs <= 7 * 24 * 60 * 60 * 1000;
+}
+
 function getIstHour(date = new Date()) {
   try {
     const hourText = new Intl.DateTimeFormat("en-GB", {
@@ -131,12 +172,12 @@ function parseFeedbackRating(input) {
 
 function isHelpChoice(input) {
   const text = String(input || "").trim().toUpperCase();
-  return ["HELP", "EXECUTIVE", "AGENT", "CONNECT", "TALK TO EXECUTIVE"].includes(text);
+  return ["HELP", "EXECUTIVE", "AGENT", "CONNECT", "TALK TO EXECUTIVE", "FEEDBACK_HELP"].includes(text);
 }
 
 function isDoneChoice(input) {
   const text = String(input || "").trim().toUpperCase();
-  return ["DONE", "CLOSE", "NO", "OK"].includes(text);
+  return ["DONE", "CLOSE", "NO", "OK", "FEEDBACK_DONE"].includes(text);
 }
 
 function isSkipChoice(input) {
@@ -153,13 +194,6 @@ function feedbackRatingPromptText() {
     "3 - Okay",
     "4 - Good",
     "5 - Excellent"
-  ].join("\n");
-}
-
-function feedbackActionPromptText() {
-  return [
-    "Would you like to connect to an executive?",
-    "Reply HELP to connect (during working hours) or DONE to finish."
   ].join("\n");
 }
 
@@ -220,7 +254,9 @@ async function persistWhatsappFeedback({
       stage: flow?.stage || null,
       rated_at: flow?.rated_at || null,
       comment_at: flow?.comment_at || null,
-      low_rating_reason: flow?.low_rating_reason || null
+      low_rating_reason: flow?.low_rating_reason || null,
+      resolution_by: session?.context?.last_resolution_by || null,
+      resolution_at: session?.context?.last_resolution_at || null
     }
   });
   if (!saveResult.ok) {
@@ -257,6 +293,8 @@ function schedulePostReportFeedbackPrompt({
       const currentStatus = String(activeSession.status || "").toLowerCase();
       if (["handoff", "pending", "resolved", "closed"].includes(currentStatus)) return;
       if (getFeedbackFlow(activeSession.context)?.stage) return;
+      if (!activeSession?.context?.last_report_feedback_armed) return;
+      if (!canOfferPostReportFeedback(activeSession.context || {})) return;
 
       const { data: latestInbound } = await supabase
         .from("whatsapp_messages")
@@ -282,6 +320,7 @@ function schedulePostReportFeedbackPrompt({
 
       const nextContext = withFeedbackFlowContext(activeSession.context, {
         stage: "awaiting_rating",
+        trigger_source: "report_delivery_feedback",
         reqid: reqid || null,
         reqno: reqno || null,
         prompted_at: new Date().toISOString()
@@ -316,6 +355,25 @@ async function handlePostReportFeedbackInbound({
   const nowIso = new Date().toISOString();
   const currentStage = String(flow.stage || "").toLowerCase();
   const trimmedInput = String(userInput || "").trim();
+  const { normalized, normalizedGreeting, normalizedUnderscore } = normalizeCommandLikeInput(trimmedInput);
+  const isEscapeIntent =
+    isMainMenuGreetingInput(trimmedInput) ||
+    BOT_START_KEYWORDS.has(normalized) ||
+    BOT_START_KEYWORDS.has(normalizedGreeting) ||
+    BOT_START_KEYWORDS.has(normalizedUnderscore) ||
+    Boolean(detectIntent(trimmedInput));
+
+  if (isEscapeIntent) {
+    await supabase
+      .from("chat_sessions")
+      .update({
+        context: withFeedbackFlowContext(session.context, null),
+        updated_at: nowIso
+      })
+      .eq("id", session.id);
+    return { handled: false };
+  }
+
   const ratingInput = parseFeedbackRating(trimmedInput);
   const needsExecutive = isHelpChoice(trimmedInput);
   const doneChoice = isDoneChoice(trimmedInput);
@@ -340,14 +398,7 @@ async function handlePostReportFeedbackInbound({
   };
 
   if (currentStage === "awaiting_rating") {
-    if (!ratingInput) {
-      await sendTextMessage({
-        labId: session.lab_id,
-        phone,
-        text: "Please reply with a rating from 1 to 5."
-      });
-      return { handled: true };
-    }
+    if (!ratingInput) return { handled: false };
 
     const nextFlow = {
       ...flow,
@@ -381,14 +432,7 @@ async function handlePostReportFeedbackInbound({
 
   if (currentStage === "awaiting_low_rating_reason") {
     const reason = parseLowRatingReason(trimmedInput);
-    if (!reason) {
-      await sendTextMessage({
-        labId: session.lab_id,
-        phone,
-        text: "Please reply with 1, 2, 3 or 4."
-      });
-      return { handled: true };
-    }
+    if (!reason) return { handled: false };
 
     const nextFlow = {
       ...flow,
@@ -426,12 +470,7 @@ async function handlePostReportFeedbackInbound({
       nextFlow.comment = trimmedInput.slice(0, FEEDBACK_MAX_COMMENT_LEN);
       nextFlow.comment_at = nowIso;
     } else {
-      await sendTextMessage({
-        labId: session.lab_id,
-        phone,
-        text: "Please share your comments, or reply SKIP."
-      });
-      return { handled: true };
+      return { handled: false };
     }
 
     nextFlow = await saveFeedbackAndMark(nextFlow);
@@ -447,10 +486,9 @@ async function handlePostReportFeedbackInbound({
     if (needsExecutive || doneChoice) {
       // Continue to action path in the same inbound turn for faster UX.
     } else {
-      await sendTextMessage({
+      await sendFeedbackActionMenu({
         labId: session.lab_id,
-        phone,
-        text: feedbackActionPromptText()
+        phone
       });
       return { handled: true };
     }
@@ -462,16 +500,19 @@ async function handlePostReportFeedbackInbound({
   const rating = Number(actionFlow?.rating || 0);
 
   if (!needsExecutive && !doneChoice) {
-    await sendTextMessage({
+    await sendFeedbackActionMenu({
       labId: session.lab_id,
-      phone,
-      text: feedbackActionPromptText()
+      phone
     });
     return { handled: true };
   }
 
   const persistedFlow = await saveFeedbackAndMark(actionFlow);
-  const clearedContext = withFeedbackFlowContext(session.context, null);
+  const clearedContext = {
+    ...withFeedbackFlowContext(session.context, null),
+    last_report_feedback_armed: false,
+    last_resolution_feedback_armed: false
+  };
 
   if (needsExecutive) {
     if (isWithinExecutiveWorkingHours()) {
@@ -503,13 +544,35 @@ async function handlePostReportFeedbackInbound({
         phone,
         text:
           botFlowConfig?.texts?.handoff_closed_text ||
-          "Our executives are currently offline. Reply HELP during working hours and we will connect you."
+          "Our executives are currently offline right now. Please try Connect Executive during working hours."
       });
     }
     return { handled: true };
   }
 
   if (doneChoice) {
+    const feedbackSource = String(actionFlow?.trigger_source || "").toLowerCase();
+    if (feedbackSource === "services_feedback" || feedbackSource === "agent_resolved_feedback") {
+      await supabase
+        .from("chat_sessions")
+        .update({
+          current_state: "START",
+          context: clearedContext,
+          updated_at: nowIso
+        })
+        .eq("id", session.id);
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "Thank you for your feedback."
+      });
+      await sendMainMenu({
+        labId: session.lab_id,
+        phone
+      });
+      return { handled: true };
+    }
+
     if (rating >= 4 && rating <= 5) {
       await supabase
         .from("chat_sessions")
@@ -538,7 +601,7 @@ async function handlePostReportFeedbackInbound({
       await sendTextMessage({
         labId: session.lab_id,
         phone,
-        text: "Thank you for your feedback. Reply HELP to connect to an executive."
+        text: "Thank you for your feedback."
       });
     }
     return { handled: true };
@@ -1885,6 +1948,28 @@ export async function POST(req) {
 
     let normalizedSessionStatus = String(session.status || "").toLowerCase();
 
+    const hasActiveFeedbackStage = Boolean(getFeedbackFlow(session?.context)?.stage);
+    if (
+      !hasActiveFeedbackStage &&
+      (session?.context?.last_report_feedback_armed || session?.context?.last_resolution_feedback_armed) &&
+      !isThankYouLikeInput(userInput)
+    ) {
+      const disarmedContext = {
+        ...(session.context || {}),
+        last_report_feedback_armed: false,
+        last_resolution_feedback_armed: false,
+        last_report_feedback_disarmed_at: new Date().toISOString()
+      };
+      await supabase
+        .from("chat_sessions")
+        .update({
+          context: disarmedContext,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", session.id);
+      session.context = disarmedContext;
+    }
+
     const feedbackHandled = await handlePostReportFeedbackInbound({
       session,
       phone,
@@ -1954,10 +2039,19 @@ export async function POST(req) {
       lab.alternate_whatsapp_number ||
       lab.internal_whatsapp_number;
 
-    if (isThankYouLikeInput(userInput)) {
+    if (
+      isThankYouLikeInput(userInput) &&
+      (
+        (session?.context?.last_report_feedback_armed && canOfferPostReportFeedback(session?.context || {})) ||
+        (session?.context?.last_resolution_feedback_armed && canOfferResolvedFeedback(session?.context || {}))
+      )
+    ) {
+      const triggerSource = session?.context?.last_report_feedback_armed
+        ? "report_delivery_feedback"
+        : "agent_resolved_feedback";
       const feedbackFlow = {
         stage: "awaiting_rating",
-        trigger_source: "gratitude_feedback",
+        trigger_source: triggerSource,
         reqid: String(session?.context?.selected_report_reqid || "").trim() || null,
         reqno: String(session?.context?.selected_report_reqno || "").trim() || null,
         prompted_at: new Date().toISOString()
@@ -2442,19 +2536,17 @@ export async function POST(req) {
       case "FEEDBACK_LINK": {
         const feedbackFlow = {
           stage: "awaiting_rating",
-          trigger_source: "more_services_feedback",
+          trigger_source: "services_feedback",
           reqid: String(nextContext.selected_report_reqid || "").trim() || null,
           reqno: String(nextContext.selected_report_reqno || "").trim() || null,
           prompted_at: new Date().toISOString()
         };
-
         await updateSession(
           session.id,
           result.newState || session.current_state || "START",
           withFeedbackFlowContext(nextContext, feedbackFlow),
           messageTimestamp
         );
-
         await sendTextMessage({
           labId: session.lab_id,
           phone,
@@ -2792,14 +2884,40 @@ export async function POST(req) {
             phone
           });
         }
-        schedulePostReportFeedbackPrompt({
-          sessionId: session.id,
-          labId: session.lab_id,
-          phone,
-          reqid: dispatchReqid,
-          reqno: dispatchReqno,
-          baselineInboundAt: new Date().toISOString()
-        });
+        const shouldPromptPostReportFeedback = Boolean(
+          result.sendReportActionsMenu ||
+          result.reportStatusReqno ||
+          result.latestReportPhone ||
+          dispatchReqid ||
+          dispatchReqno
+        );
+        if (shouldPromptPostReportFeedback) {
+          const reportFeedbackContext = withFeedbackFlowContext(
+            {
+              ...nextContext,
+              last_report_delivery_at: new Date().toISOString(),
+              last_report_delivery_reqid: dispatchReqid || null,
+              last_report_delivery_reqno: dispatchReqno || result.reportStatusReqno || null,
+              last_report_feedback_armed: true,
+              last_report_feedback_disarmed_at: null
+            },
+            null
+          );
+          await updateSession(
+            session.id,
+            result.newState || session.current_state || "START",
+            reportFeedbackContext,
+            new Date().toISOString()
+          );
+          schedulePostReportFeedbackPrompt({
+            sessionId: session.id,
+            labId: session.lab_id,
+            phone,
+            reqid: dispatchReqid,
+            reqno: dispatchReqno,
+            baselineInboundAt: new Date().toISOString()
+          });
+        }
         break;
 
       case "TEXT":
