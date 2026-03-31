@@ -86,9 +86,16 @@ export async function POST(req) {
       }
     });
 
+    const nextContext = {
+      ...(chatSession.context || {}),
+      ever_agent_intervened: true,
+      last_handled_by: "agent",
+      last_handled_at: new Date().toISOString()
+    };
+
     await supabase
       .from("chat_sessions")
-      .update({ unread_count: 0, last_message_at: new Date(), updated_at: new Date() })
+      .update({ context: nextContext, last_message_at: new Date(), updated_at: new Date() })
       .eq("id", chatSession.id);
 
     return NextResponse.json({ ok: true }, { status: 200 });

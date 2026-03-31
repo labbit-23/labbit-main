@@ -87,6 +87,12 @@ function isPendingSession(session) {
   return status === "pending" || status === "handoff" || status === "human_handover";
 }
 
+function hasAgentIntervention(session) {
+  const status = String(session?.status || "").toLowerCase();
+  if (["pending", "handoff", "human_handover", "resolved", "closed"].includes(status)) return true;
+  return Boolean(session?.context?.ever_agent_intervened);
+}
+
 function getSessionSignals(session) {
   const status = String(session?.status || "").toLowerCase();
   const items = [];
@@ -598,6 +604,7 @@ export default function WhatsAppDashboard() {
   const searchParams = useSearchParams();
 
   const [sessions, setSessions] = useState([]);
+  const [serverTabCounts, setServerTabCounts] = useState({ unread: 0, unresolved: 0, resolved: 0 });
   const [hasMoreSessions, setHasMoreSessions] = useState(false);
   const [olderSessionsOffset, setOlderSessionsOffset] = useState(0);
   const [messages, setMessages] = useState([]);
@@ -607,6 +614,7 @@ export default function WhatsAppDashboard() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("all");
   const [senderFilter, setSenderFilter] = useState("all");
+  const [conversationOwnerFilter, setConversationOwnerFilter] = useState("all");
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoadingOlderSessions, setIsLoadingOlderSessions] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -865,6 +873,11 @@ export default function WhatsAppDashboard() {
     setSessionLock(null);
   }, [tab, isMobileViewport]);
 
+  useEffect(() => {
+    if (isUserLoading || !user) return;
+    fetchSessions({ offset: 0 });
+  }, [tab]);
+
 
   const getMessageScrollElement = () => chatContainerRef.current || null;
   const scrollToBottom = () => {
@@ -881,15 +894,11 @@ export default function WhatsAppDashboard() {
     if (!Array.isArray(list) || list.length === 0) return null;
     if (tab === "unread") {
       return list.find((row) => {
-        const status = String(row?.status || "").toLowerCase();
-        return Number(row?.unread_count || 0) > 0 && status !== "resolved" && status !== "closed";
+        return Number(row?.unread_count || 0) > 0 && isPendingSession(row);
       }) || null;
     }
     if (tab === "unresolved") {
-      return list.find((row) => {
-        const status = String(row?.status || "").toLowerCase();
-        return status !== "resolved" && status !== "closed";
-      }) || null;
+      return list.find((row) => isPendingSession(row) && Number(row?.unread_count || 0) <= 0) || null;
     }
     if (tab === "resolved") return list.find((row) => String(row?.status || "").toLowerCase() === "resolved") || null;
     return list[0] || null;
@@ -945,8 +954,10 @@ export default function WhatsAppDashboard() {
       const query = new URLSearchParams({ lite: "1" });
       const searchTerm = typeof searchOverride === "string" ? searchOverride : search;
       const normalizedSearch = String(searchTerm || "").trim();
+      const view = String(tab || "all").toLowerCase();
       query.set("offset", String(offset));
       query.set("limit", "20");
+      query.set("view", view);
       if (normalizedSearch) {
         query.set("search", normalizedSearch);
       }
@@ -955,6 +966,13 @@ export default function WhatsAppDashboard() {
         cache: "no-store"
       }, 1);
       const nextSessions = body.sessions || [];
+      if (!append && body?.counts && typeof body.counts === "object") {
+        setServerTabCounts({
+          unread: Number(body.counts.unread || 0),
+          unresolved: Number(body.counts.unresolved || 0),
+          resolved: Number(body.counts.resolved || 0)
+        });
+      }
       const pagination = body.pagination || {};
       const unreadNow = new Map(nextSessions.map((row) => [row.id, Number(row?.unread_count || 0)]));
       if (!append && hasBootstrappedSessionsRef.current && notificationPermission === "granted" && typeof window !== "undefined") {
@@ -1032,10 +1050,30 @@ export default function WhatsAppDashboard() {
             prev.map((row) => (row.id === mergedSelected.id ? { ...row, patient_name: mergedSelected.patient_name } : row))
           );
         } else {
-          setSelectedSession(null);
-          setMessages([]);
-          setHasOlderMessages(false);
-          setOldestCursor(null);
+          const selectedPhone = canonicalPhone(selectedSession.phone);
+          const matchedByPhone = selectedPhone
+            ? mergedSessions.find((s) => canonicalPhone(s?.phone) === selectedPhone)
+            : null;
+
+          if (matchedByPhone) {
+            const mergedSelected = {
+              ...matchedByPhone,
+              patient_name:
+                matchedByPhone.patient_name ||
+                selectedSession.patient_name ||
+                matchedByPhone.phone ||
+                "Unknown"
+            };
+            if (shouldUpdateSelectedSession(selectedSessionRef.current, mergedSelected)) {
+              setSelectedSession(mergedSelected);
+            }
+          } else if (!silent) {
+            // Only clear on explicit (non-silent) refreshes; keep selection stable during background polling.
+            setSelectedSession(null);
+            setMessages([]);
+            setHasOlderMessages(false);
+            setOldestCursor(null);
+          }
         }
       } else if (mergedSessions.length > 0) {
         const requestedPhone = searchParams.get("phone");
@@ -1183,8 +1221,26 @@ export default function WhatsAppDashboard() {
         setMessageError("");
       }
       if (body.session) {
-        if (shouldUpdateSelectedSession(selectedSessionRef.current, body.session)) {
-          setSelectedSession(body.session);
+        const selectedPhone = canonicalPhone(body.session.phone);
+        const matchedRow = selectedPhone
+          ? (sessionsRef.current || []).find((row) => canonicalPhone(row?.phone) === selectedPhone)
+          : null;
+        const normalizedSession = matchedRow
+          ? {
+              ...matchedRow,
+              ...body.session,
+              id: matchedRow.id,
+              patient_name:
+                body.session.patient_name ||
+                matchedRow.patient_name ||
+                body.session.phone ||
+                matchedRow.phone ||
+                "Unknown"
+            }
+          : body.session;
+
+        if (shouldUpdateSelectedSession(selectedSessionRef.current, normalizedSession)) {
+          setSelectedSession(normalizedSession);
         }
         setSessions((prev) =>
           prev.map((row) => {
@@ -1826,10 +1882,13 @@ export default function WhatsAppDashboard() {
     return sessions.filter((session) => {
       const status = String(session?.status || "").toLowerCase();
       const unreadCount = Number(session?.unread_count || 0);
+      const isAgentOwned = hasAgentIntervention(session);
 
-      if (tab === "unread" && (unreadCount <= 0 || status === "resolved" || status === "closed")) return false;
-      if (tab === "unresolved" && (status === "resolved" || status === "closed")) return false;
+      if (tab === "unread" && (unreadCount <= 0 || !isPendingSession(session))) return false;
+      if (tab === "unresolved" && (!isPendingSession(session) || unreadCount > 0)) return false;
       if (tab === "resolved" && status !== "resolved") return false;
+      if (conversationOwnerFilter === "bot" && isAgentOwned) return false;
+      if (conversationOwnerFilter === "agent" && !isAgentOwned) return false;
 
       if (!normalizedSearch) return true;
 
@@ -1837,19 +1896,16 @@ export default function WhatsAppDashboard() {
       const phone = (session.phone || "").toLowerCase();
       return name.includes(normalizedSearch) || phone.includes(normalizedSearch);
     });
-  }, [search, sessions, tab]);
+  }, [search, sessions, tab, conversationOwnerFilter]);
 
   const tabCounts = useMemo(() => {
-    const unread = sessions.filter((session) => {
-      const status = String(session?.status || "").toLowerCase();
-      return Number(session?.unread_count || 0) > 0 && status !== "resolved" && status !== "closed";
-    }).length;
-    const unresolved = sessions.filter((session) => {
-      const status = String(session?.status || "").toLowerCase();
-      return status !== "resolved" && status !== "closed";
-    }).length;
-    return { unread, unresolved };
-  }, [sessions]);
+    const fallbackUnread = sessions.filter((session) => Number(session?.unread_count || 0) > 0 && isPendingSession(session)).length;
+    const fallbackUnresolved = sessions.filter((session) => isPendingSession(session) && Number(session?.unread_count || 0) <= 0).length;
+    return {
+      unread: Number(serverTabCounts?.unread ?? fallbackUnread),
+      unresolved: Number(serverTabCounts?.unresolved ?? fallbackUnresolved)
+    };
+  }, [sessions, serverTabCounts]);
 
   const filteredMessages = useMemo(() => {
     return messages.filter((msg) => {
@@ -2215,6 +2271,23 @@ export default function WhatsAppDashboard() {
                     {Number(item.count || 0) > 0 && (
                       <span className={`wa-tabCount ${item.countClass || ""}`}>{item.count}</span>
                     )}
+                  </button>
+                ))}
+              </div>
+
+              <div className="wa-tabs" style={{ marginTop: 8 }}>
+                {[
+                  { key: "all", label: "All" },
+                  { key: "bot", label: "Bot" },
+                  { key: "agent", label: "Agent" }
+                ].map((item) => (
+                  <button
+                    key={`owner-${item.key}`}
+                    type="button"
+                    className={conversationOwnerFilter === item.key ? "is-active" : ""}
+                    onClick={() => setConversationOwnerFilter(item.key)}
+                  >
+                    <span>{item.label}</span>
                   </button>
                 ))}
               </div>

@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabaseServer";
 import {
   getOrCreateSession,
+  createFreshSession,
   updateSession,
   handoffToHuman
 } from "@/lib/whatsapp/sessions";
@@ -37,6 +38,7 @@ import healthPackagesData from "@/lib/data/health-packages.json";
 import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 import { saveReportFeedback } from "@/lib/reportFeedback";
+import crypto from "node:crypto";
 
 const BOT_START_KEYWORDS = new Set([
   "HI",
@@ -63,6 +65,7 @@ const FEEDBACK_IDLE_DELAY_MS = 60 * 1000;
 const FEEDBACK_MAX_COMMENT_LEN = 500;
 const IST_EXECUTIVE_OPEN_HOUR = 7;
 const IST_EXECUTIVE_CLOSE_HOUR = 23;
+const AGENT_TAKEOVER_GREETING_GUARD_MINUTES = 5;
 
 function normalizeCommandLikeInput(value) {
   const raw = String(value || "").trim();
@@ -103,6 +106,16 @@ function isMainMenuGreetingInput(value) {
     keys.has(normalizedGreeting) ||
     keys.has(normalizedUnderscore)
   );
+}
+
+function isRecentAgentTakeover(session, windowMinutes = AGENT_TAKEOVER_GREETING_GUARD_MINUTES) {
+  const lastHandledBy = String(session?.context?.last_handled_by || "").toLowerCase();
+  const lastHandledAt = String(session?.context?.last_handled_at || "").trim();
+  if (lastHandledBy !== "agent" || !lastHandledAt) return false;
+  const handledMs = new Date(lastHandledAt).getTime();
+  if (!Number.isFinite(handledMs)) return false;
+  const ageMinutes = (Date.now() - handledMs) / (60 * 1000);
+  return ageMinutes >= 0 && ageMinutes < windowMinutes;
 }
 
 function canOfferPostReportFeedback(context = {}) {
@@ -178,6 +191,11 @@ function isHelpChoice(input) {
 function isDoneChoice(input) {
   const text = String(input || "").trim().toUpperCase();
   return ["DONE", "CLOSE", "NO", "OK", "FEEDBACK_DONE"].includes(text);
+}
+
+function isComplaintChoice(input) {
+  const text = String(input || "").trim().toUpperCase();
+  return ["FEEDBACK_COMPLAINT", "COMPLAINT", "RAISE COMPLAINT"].includes(text);
 }
 
 function isSkipChoice(input) {
@@ -272,6 +290,54 @@ async function persistWhatsappFeedback({
   return { ok: true };
 }
 
+async function createFeedbackComplaintEvent({
+  session,
+  phone,
+  flow,
+  lab
+}) {
+  const nowIso = new Date().toISOString();
+  const complaintText = String(flow?.comment || "").trim() || `Low rating ${Number(flow?.rating || 0)}/5`;
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update([
+      String(session?.lab_id || ""),
+      String(phone || ""),
+      String(flow?.reqno || ""),
+      String(flow?.rated_at || nowIso),
+      complaintText
+    ].join("|"))
+    .digest("hex");
+
+  try {
+    const { error } = await supabase.from("cto_events").insert({
+      lab_id: String(session?.lab_id || ""),
+      source: "whatsapp-feedback",
+      service_key: "whatsapp_feedback",
+      event_type: "customer_complaint",
+      severity: "high",
+      status: "open",
+      fingerprint,
+      message: `Customer complaint from ${String(phone || "").trim()} (${lab?.name || "lab"})`,
+      payload: {
+        patient_phone: String(phone || "").trim(),
+        rating: Number(flow?.rating || 0),
+        feedback: complaintText,
+        reqid: String(flow?.reqid || "").trim() || null,
+        reqno: String(flow?.reqno || "").trim() || null,
+        captured_via: String(flow?.trigger_source || "feedback_complaint").trim() || null
+      },
+      first_seen_at: nowIso,
+      last_seen_at: nowIso
+    });
+    if (error) {
+      console.error("[whatsapp-feedback] complaint event insert failed", error);
+    }
+  } catch (err) {
+    console.error("[whatsapp-feedback] complaint event error", err);
+  }
+}
+
 function schedulePostReportFeedbackPrompt({
   sessionId,
   labId,
@@ -291,7 +357,7 @@ function schedulePostReportFeedbackPrompt({
       if (!activeSession?.id) return;
 
       const currentStatus = String(activeSession.status || "").toLowerCase();
-      if (["handoff", "pending", "resolved", "closed"].includes(currentStatus)) return;
+      if (["resolved", "closed"].includes(currentStatus)) return;
       if (getFeedbackFlow(activeSession.context)?.stage) return;
       if (!activeSession?.context?.last_report_feedback_armed) return;
       if (!canOfferPostReportFeedback(activeSession.context || {})) return;
@@ -364,10 +430,16 @@ async function handlePostReportFeedbackInbound({
     Boolean(detectIntent(trimmedInput));
 
   if (isEscapeIntent) {
+    const clearedContext = {
+      ...withFeedbackFlowContext(session.context, null),
+      last_report_feedback_armed: false,
+      last_resolution_feedback_armed: false,
+      last_report_feedback_disarmed_at: nowIso
+    };
     await supabase
       .from("chat_sessions")
       .update({
-        context: withFeedbackFlowContext(session.context, null),
+        context: clearedContext,
         updated_at: nowIso
       })
       .eq("id", session.id);
@@ -377,6 +449,7 @@ async function handlePostReportFeedbackInbound({
   const ratingInput = parseFeedbackRating(trimmedInput);
   const needsExecutive = isHelpChoice(trimmedInput);
   const doneChoice = isDoneChoice(trimmedInput);
+  const complaintChoice = isComplaintChoice(trimmedInput);
   const skipChoice = isSkipChoice(trimmedInput);
   const botFlowConfig = templates?.bot_flow || {};
   let actionFlow = flow;
@@ -424,7 +497,7 @@ async function handlePostReportFeedbackInbound({
       await sendTextMessage({
         labId: session.lab_id,
         phone,
-        text: `Thank you for rating us ${ratingInput}/5.\nPlease share your comments (optional).\nReply SKIP to continue.`
+        text: `Thank you for rating us ${ratingInput}/5.\nPlease share your comments (optional).`
       });
     }
     return { handled: true };
@@ -458,6 +531,7 @@ async function handlePostReportFeedbackInbound({
 
   if (currentStage === "awaiting_comment") {
     let nextFlow = { ...flow };
+    const currentRating = Number(nextFlow?.rating || 0);
     if (needsExecutive || doneChoice) {
       nextFlow.stage = "awaiting_action";
       nextFlow.comment = nextFlow.comment || null;
@@ -483,12 +557,36 @@ async function handlePostReportFeedbackInbound({
       .eq("id", session.id);
     actionFlow = nextFlow;
 
+    if (currentRating >= 4 && !needsExecutive && !doneChoice) {
+      const clearedContext = {
+        ...withFeedbackFlowContext(session.context, null),
+        last_report_feedback_armed: false,
+        last_resolution_feedback_armed: false
+      };
+      await supabase
+        .from("chat_sessions")
+        .update({
+          current_state: "START",
+          context: clearedContext,
+          updated_at: nowIso
+        })
+        .eq("id", session.id);
+
+      await sendTextMessage({
+        labId: session.lab_id,
+        phone,
+        text: "Your feedback has been recorded. Thank you."
+      });
+      return { handled: true };
+    }
+
     if (needsExecutive || doneChoice) {
       // Continue to action path in the same inbound turn for faster UX.
     } else {
       await sendFeedbackActionMenu({
         labId: session.lab_id,
-        phone
+        phone,
+        variant: currentRating <= 3 ? "complaint" : "default"
       });
       return { handled: true };
     }
@@ -499,10 +597,12 @@ async function handlePostReportFeedbackInbound({
   }
   const rating = Number(actionFlow?.rating || 0);
 
-  if (!needsExecutive && !doneChoice) {
+  if (!needsExecutive && !doneChoice && !complaintChoice) {
+    const ratingForMenu = Number(actionFlow?.rating || 0);
     await sendFeedbackActionMenu({
       labId: session.lab_id,
-      phone
+      phone,
+      variant: ratingForMenu <= 3 ? "complaint" : "default"
     });
     return { handled: true };
   }
@@ -550,6 +650,29 @@ async function handlePostReportFeedbackInbound({
     return { handled: true };
   }
 
+  if (complaintChoice) {
+    await createFeedbackComplaintEvent({
+      session,
+      phone,
+      flow: actionFlow,
+      lab
+    });
+    await handoffToHuman(session.id);
+    await supabase
+      .from("chat_sessions")
+      .update({
+        context: clearedContext,
+        updated_at: nowIso
+      })
+      .eq("id", session.id);
+    await sendTextMessage({
+      labId: session.lab_id,
+      phone,
+      text: "Your complaint has been recorded. Our executive will connect with you shortly."
+    });
+    return { handled: true };
+  }
+
   if (doneChoice) {
     const feedbackSource = String(actionFlow?.trigger_source || "").toLowerCase();
     if (feedbackSource === "services_feedback" || feedbackSource === "agent_resolved_feedback") {
@@ -577,9 +700,7 @@ async function handlePostReportFeedbackInbound({
       await supabase
         .from("chat_sessions")
         .update({
-          status: "resolved",
           current_state: "START",
-          unread_count: 0,
           context: clearedContext,
           updated_at: nowIso
         })
@@ -966,6 +1087,10 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
   const { raw, normalized, normalizedGreeting, normalizedUnderscore } =
     normalizeCommandLikeInput(userInput);
   if (!raw) return false;
+  const greetingLikeInput =
+    ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized) ||
+    ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalizedGreeting) ||
+    /^(hi|hii|hai|hello|hey|menu)\b/i.test(raw);
 
   // Closed/resolved conversations should quickly re-enter bot flow on any fresh user text.
   // so users don't get stuck with silent replies.
@@ -983,10 +1108,10 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
     }
   }
 
-  if (
-    ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalized) ||
-    ["HI", "HII", "HAI", "HELLO", "HEY", "MENU", "MAIN MENU", "MAIN_MENU"].includes(normalizedGreeting)
-  ) {
+  if (greetingLikeInput) {
+    if (["handoff", "pending"].includes(String(normalizedSessionStatus || "").toLowerCase()) && isRecentAgentTakeover(session)) {
+      return false;
+    }
     return true;
   }
 
@@ -1005,7 +1130,7 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
     return true;
   }
 
-  return /^(hi|hii|hai|hello|hey|menu)\b/i.test(raw);
+  return false;
 }
 
 async function isReachablePdfDocument(url) {
@@ -1674,7 +1799,20 @@ export async function POST(req) {
     // 5️⃣ Get/Create Session
     // --------------------------------------------------
 
-    const session = await getOrCreateSession(phone);
+    let session = await getOrCreateSession(phone);
+    const initialSessionStatus = String(session?.status || "").toLowerCase();
+    const shouldStartFreshSession =
+      ["handoff", "pending", "resolved", "closed"].includes(initialSessionStatus) &&
+      isMainMenuGreetingInput(userInput) &&
+      !isRecentAgentTakeover(session) &&
+      !Boolean(getFeedbackFlow(session?.context)?.stage);
+
+    if (shouldStartFreshSession) {
+      session = await createFreshSession(phone, {
+        closeSessionId: session.id,
+        closeStatus: "closed"
+      });
+    }
 
     if (!session.country_code) {
       await supabase
@@ -1954,20 +2092,24 @@ export async function POST(req) {
       (session?.context?.last_report_feedback_armed || session?.context?.last_resolution_feedback_armed) &&
       !isThankYouLikeInput(userInput)
     ) {
-      const disarmedContext = {
-        ...(session.context || {}),
-        last_report_feedback_armed: false,
-        last_resolution_feedback_armed: false,
-        last_report_feedback_disarmed_at: new Date().toISOString()
-      };
+      const touchedContext = { ...(session.context || {}) };
+      // User moved on to another action. Close pending feedback loop instead of re-arming.
+      if (touchedContext.last_report_feedback_armed) {
+        touchedContext.last_report_feedback_armed = false;
+        touchedContext.last_report_feedback_disarmed_at = new Date().toISOString();
+      }
+      // Resolution-feedback is intent-sensitive; disarm it on unrelated input.
+      if (touchedContext.last_resolution_feedback_armed) {
+        touchedContext.last_resolution_feedback_armed = false;
+      }
       await supabase
         .from("chat_sessions")
         .update({
-          context: disarmedContext,
+          context: touchedContext,
           updated_at: new Date().toISOString()
         })
         .eq("id", session.id);
-      session.context = disarmedContext;
+      session.context = touchedContext;
     }
 
     const feedbackHandled = await handlePostReportFeedbackInbound({
@@ -1981,13 +2123,13 @@ export async function POST(req) {
       return Response.json({ success: true });
     }
 
-    if (["handoff", "pending", "resolved", "closed"].includes(normalizedSessionStatus) &&
-      shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normalizedSessionStatus, session })) {
-      session.status = "active";
+    const shouldResumeInCurrentTurn =
+      ["handoff", "pending", "resolved", "closed"].includes(normalizedSessionStatus) &&
+      shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normalizedSessionStatus, session });
+    const runtimeBotStatus = shouldResumeInCurrentTurn ? "active" : normalizedSessionStatus;
+    if (shouldResumeInCurrentTurn) {
       session.current_state = "START";
-      session.context = {};
-      normalizedSessionStatus = "active";
-      console.log("🤖 Resuming bot from human handoff mode.");
+      console.log("🤖 Resuming bot logic without auto-changing session status.");
     }
 
     const botShouldHandleStart = shouldActivateBotFromStart({
@@ -1996,9 +2138,9 @@ export async function POST(req) {
       userInput,
       inboundMedia
     });
-    const isAgentQueueStatus = ["handoff", "pending"].includes(normalizedSessionStatus);
+    const isAgentQueueStatus = ["handoff", "pending"].includes(runtimeBotStatus);
     const shouldIncrementUnread =
-      normalizedSessionStatus !== "closed" &&
+      runtimeBotStatus !== "closed" &&
       (isAgentQueueStatus || !botShouldHandleStart);
     if (shouldIncrementUnread) {
       const touchedAt = new Date();
@@ -2017,7 +2159,7 @@ export async function POST(req) {
     // 9️⃣ Human Handoff Mode
     // --------------------------------------------------
 
-    if (["handoff", "pending"].includes(normalizedSessionStatus)) {
+    if (["handoff", "pending"].includes(runtimeBotStatus)) {
       {
       console.log("👤 In human handoff mode.");
       return Response.json({ success: true });
@@ -2231,6 +2373,21 @@ export async function POST(req) {
     // --------------------------------------------------
 
     const nextContext = { ...(result.context || {}) };
+    const isBotHandledReply = String(result.replyType || "").toUpperCase() !== "INTERNAL_NOTIFY";
+    if (hasActiveFeedbackStage && isBotHandledReply) {
+      delete nextContext.feedback_flow;
+      delete nextContext.post_report_feedback;
+      nextContext.last_report_feedback_armed = false;
+      nextContext.last_resolution_feedback_armed = false;
+      nextContext.last_report_feedback_disarmed_at = new Date().toISOString();
+    }
+    if (isBotHandledReply) {
+      nextContext.last_handled_by = "bot";
+      nextContext.last_handled_at = new Date().toISOString();
+      if (typeof nextContext.ever_agent_intervened === "undefined") {
+        nextContext.ever_agent_intervened = Boolean(session?.context?.ever_agent_intervened);
+      }
+    }
     const shouldSendSimulationNotice =
       isSimulationRequest && !Boolean(session?.context?.__simulation_notice_sent);
     if (isSimulationRequest) {
@@ -2884,13 +3041,7 @@ export async function POST(req) {
             phone
           });
         }
-        const shouldPromptPostReportFeedback = Boolean(
-          result.sendReportActionsMenu ||
-          result.reportStatusReqno ||
-          result.latestReportPhone ||
-          dispatchReqid ||
-          dispatchReqno
-        );
+        const shouldPromptPostReportFeedback = true;
         if (shouldPromptPostReportFeedback) {
           const reportFeedbackContext = withFeedbackFlowContext(
             {

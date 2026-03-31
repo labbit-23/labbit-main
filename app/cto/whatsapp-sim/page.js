@@ -466,6 +466,13 @@ function SimulatorPage() {
           margin-bottom: 14px;
         }
 
+        .wsim-controls {
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          min-height: 70vh;
+        }
+
         .wsim-controls input,
         .wsim-controls textarea {
           width: 100%;
@@ -699,6 +706,11 @@ function SimulatorPage() {
         @media (max-width: 980px) {
           .wsim-grid {
             grid-template-columns: 1fr;
+          }
+
+          .wsim-controls {
+            justify-content: flex-start;
+            min-height: auto;
           }
 
           .wsim-chat {

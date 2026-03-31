@@ -71,6 +71,9 @@ export async function POST(request) {
     }
 
     const nextContext = { ...(chatSession.context || {}) };
+    nextContext.ever_agent_intervened = true;
+    nextContext.last_handled_by = "agent";
+    nextContext.last_handled_at = new Date().toISOString();
     if (notes) {
       nextContext.agent_handover_notes = notes;
     }

@@ -7,6 +7,12 @@ import { POST as webhookPost } from "@/app/api/whatsapp/webhook/route";
 
 export const dynamic = "force-dynamic";
 
+function isTransientFetchFailure(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  return message.includes("fetch failed") || details.includes("fetch failed");
+}
+
 function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
 }
@@ -188,6 +194,16 @@ export async function GET(request) {
     return NextResponse.json(transcript, { status: 200 });
   } catch (error) {
     console.error("[cto/whatsapp-sim] GET error", error);
+    if (isTransientFetchFailure(error)) {
+      return NextResponse.json(
+        {
+          sessions: [],
+          messages: [],
+          warning: "Transient upstream fetch failure while loading transcript."
+        },
+        { status: 200 }
+      );
+    }
     return NextResponse.json({ error: "Failed to load simulator transcript" }, { status: 500 });
   }
 }
@@ -223,7 +239,15 @@ export async function POST(request) {
 
     const webhookResponse = await webhookPost(forwardedRequest);
     const webhookJson = await webhookResponse.json().catch(() => ({}));
-    const transcript = await loadTranscript(phone);
+    let transcript = { sessions: [], messages: [] };
+    try {
+      transcript = await loadTranscript(phone);
+    } catch (transcriptError) {
+      console.error("[cto/whatsapp-sim] POST transcript load error", transcriptError);
+      if (!isTransientFetchFailure(transcriptError)) {
+        throw transcriptError;
+      }
+    }
 
     return NextResponse.json(
       {

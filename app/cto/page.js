@@ -279,6 +279,22 @@ function CtoDashboardPage() {
   const [eventsStatusFilter, setEventsStatusFilter] = useState("open");
   const [eventsSeverityFilter, setEventsSeverityFilter] = useState("");
   const [eventActionBusy, setEventActionBusy] = useState({});
+  const [feedbackPeriod, setFeedbackPeriod] = useState("month");
+  const [feedbackData, setFeedbackData] = useState({
+    summary: {},
+    points: [],
+    categories: [],
+    top_sources: [],
+    period: "month"
+  });
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackCategory, setFeedbackCategory] = useState("bot");
+  const feedbackDetailsModal = useDisclosure();
+  const [feedbackDetailsRows, setFeedbackDetailsRows] = useState([]);
+  const [feedbackDetailsLoading, setFeedbackDetailsLoading] = useState(false);
+  const [feedbackDetailsError, setFeedbackDetailsError] = useState("");
+  const [feedbackDetailsTitle, setFeedbackDetailsTitle] = useState("");
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const refreshRef = useRef(null);
 
@@ -451,6 +467,89 @@ function CtoDashboardPage() {
       cancelled = true;
     };
   }, [selectedLabId, eventsStatusFilter, eventsSeverityFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFeedback() {
+      setFeedbackLoading(true);
+      setFeedbackError("");
+      try {
+        const params = new URLSearchParams({
+          period: feedbackPeriod,
+          ts: String(Date.now())
+        });
+        if (selectedLabId) params.set("lab_id", selectedLabId);
+        const res = await fetch(`/api/cto/feedback?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store"
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || "Failed to load feedback analytics");
+        if (!cancelled) {
+          setFeedbackData({
+            summary: body?.summary || {},
+            points: Array.isArray(body?.points) ? body.points : [],
+            categories: Array.isArray(body?.categories) ? body.categories : [],
+            top_sources: Array.isArray(body?.top_sources) ? body.top_sources : [],
+            period: body?.period || feedbackPeriod
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFeedbackError(error.message || "Failed to load feedback analytics");
+          setFeedbackData({ summary: {}, points: [], categories: [], top_sources: [], period: feedbackPeriod });
+        }
+      } finally {
+        if (!cancelled) setFeedbackLoading(false);
+      }
+    }
+
+    loadFeedback();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLabId, feedbackPeriod]);
+
+  const selectedFeedbackCategory = useMemo(() => {
+    const categories = Array.isArray(feedbackData?.categories) ? feedbackData.categories : [];
+    return categories.find((row) => row?.key === feedbackCategory) || categories[0] || null;
+  }, [feedbackData?.categories, feedbackCategory]);
+
+  useEffect(() => {
+    if (!selectedFeedbackCategory?.key) return;
+    setFeedbackCategory(selectedFeedbackCategory.key);
+  }, [selectedFeedbackCategory?.key]);
+
+  async function openFeedbackDetails(point, category = selectedFeedbackCategory) {
+    if (!point?.key || !category?.key) return;
+    setFeedbackDetailsTitle(`${category.label} · ${point.label}`);
+    setFeedbackDetailsRows([]);
+    setFeedbackDetailsError("");
+    setFeedbackDetailsLoading(true);
+    feedbackDetailsModal.onOpen();
+    try {
+      const params = new URLSearchParams({
+        mode: "details",
+        period: feedbackPeriod,
+        category: category.key,
+        bucket_key: point.key,
+        ts: String(Date.now())
+      });
+      if (selectedLabId) params.set("lab_id", selectedLabId);
+      const res = await fetch(`/api/cto/feedback?${params.toString()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to load feedback details");
+      setFeedbackDetailsRows(Array.isArray(body?.rows) ? body.rows : []);
+    } catch (error) {
+      setFeedbackDetailsError(error.message || "Failed to load feedback details");
+    } finally {
+      setFeedbackDetailsLoading(false);
+    }
+  }
 
   async function updateEventStatus(eventId, status) {
     if (!eventId || !status) return;
@@ -1718,6 +1817,135 @@ function CtoDashboardPage() {
         >
           <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
             <Box>
+              <Heading size="md" mb={1}>Feedback Insights</Heading>
+              <Text color="whiteAlpha.700">Patient satisfaction trends by period.</Text>
+            </Box>
+            <HStack spacing={2}>
+              <Select
+                size="sm"
+                value={feedbackPeriod}
+                onChange={(e) => setFeedbackPeriod(e.target.value)}
+                maxW="170px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+              >
+                <option value="day">Day</option>
+                <option value="month">Month</option>
+                <option value="year">Year</option>
+              </Select>
+            </HStack>
+          </Flex>
+
+          {feedbackError && (
+            <Box mb={4} p={3} borderRadius="14px" bg="rgba(248,113,113,0.12)" border="1px solid rgba(248,113,113,0.28)">
+              <Text color="red.200" fontSize="sm">{feedbackError}</Text>
+            </Box>
+          )}
+
+          <SimpleGrid columns={{ base: 1, md: 4 }} spacing={3} mb={4}>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total feedback</Text>
+              <Text fontWeight="700">{feedbackData?.summary?.total_feedback ?? 0}</Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Avg rating</Text>
+              <Text fontWeight="700">
+                {typeof feedbackData?.summary?.avg_rating === "number" ? `${feedbackData.summary.avg_rating}/5` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Positive rate (4-5)</Text>
+              <Text fontWeight="700">
+                {typeof feedbackData?.summary?.positive_rate === "number" ? `${Math.round(feedbackData.summary.positive_rate * 100)}%` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Negative rate (1-2)</Text>
+              <Text fontWeight="700">
+                {typeof feedbackData?.summary?.negative_rate === "number" ? `${Math.round(feedbackData.summary.negative_rate * 100)}%` : "n/a"}
+              </Text>
+            </Box>
+          </SimpleGrid>
+
+          {feedbackLoading && (
+            <Text fontSize="sm" color="whiteAlpha.700">Loading feedback analytics...</Text>
+          )}
+
+          {!feedbackLoading && (
+            <Grid templateColumns={{ base: "1fr", lg: "1.2fr 1fr" }} gap={4}>
+              <Box borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+                <HStack spacing={2} mb={3} flexWrap="wrap">
+                  {(feedbackData?.categories || []).map((category) => (
+                    <Button
+                      key={category.key}
+                      size="xs"
+                      variant={feedbackCategory === category.key ? "solid" : "outline"}
+                      colorScheme={feedbackCategory === category.key ? "teal" : "whiteAlpha"}
+                      onClick={() => setFeedbackCategory(category.key)}
+                    >
+                      {category.label} ({category?.summary?.total_feedback || 0})
+                    </Button>
+                  ))}
+                </HStack>
+                <Text fontSize="sm" mb={3} color="whiteAlpha.900" fontWeight="600">Trend by {feedbackPeriod}</Text>
+                <Stack spacing={3}>
+                  {(selectedFeedbackCategory?.points || []).length ? selectedFeedbackCategory.points.slice(-12).map((point) => (
+                    <Box key={point.key}>
+                      <Flex justify="space-between" mb={1}>
+                        <Text fontSize="xs" color="whiteAlpha.700">{point.label}</Text>
+                        <Text fontSize="xs" color="whiteAlpha.700">
+                          {point.total} · {typeof point.avg_rating === "number" ? `${point.avg_rating}/5` : "n/a"}
+                        </Text>
+                      </Flex>
+                      <Progress
+                        value={typeof point.positive_rate === "number" ? Math.round(point.positive_rate * 100) : 0}
+                        colorScheme="green"
+                        borderRadius="full"
+                        bg="whiteAlpha.200"
+                        size="sm"
+                      />
+                      <Button
+                        mt={2}
+                        size="xs"
+                        variant="ghost"
+                        color="whiteAlpha.800"
+                        onClick={() => openFeedbackDetails(point, selectedFeedbackCategory)}
+                      >
+                        View details
+                      </Button>
+                    </Box>
+                  )) : (
+                    <Text fontSize="sm" color="whiteAlpha.700">No feedback data for selected category/period.</Text>
+                  )}
+                </Stack>
+              </Box>
+
+              <Box borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="sm" mb={3} color="whiteAlpha.900" fontWeight="600">Top feedback sources</Text>
+                <Stack spacing={2}>
+                  {feedbackData?.top_sources?.length ? feedbackData.top_sources.map((sourceRow) => (
+                    <Flex key={sourceRow.source} justify="space-between">
+                      <Text fontSize="sm" color="whiteAlpha.800">{sourceRow.source}</Text>
+                      <Text fontSize="sm" color="whiteAlpha.900">{sourceRow.count}</Text>
+                    </Flex>
+                  )) : (
+                    <Text fontSize="sm" color="whiteAlpha.700">No source breakdown yet.</Text>
+                  )}
+                </Stack>
+              </Box>
+            </Grid>
+          )}
+        </Box>
+
+        <Box
+          p={{ base: 5, md: 6 }}
+          borderRadius="28px"
+          bg="rgba(255,255,255,0.05)"
+          border="1px solid rgba(255,255,255,0.08)"
+          mb={5}
+        >
+          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
+            <Box>
               <Heading size="md" mb={1}>Ops Events</Heading>
               <Text color="whiteAlpha.700">Human-readable incident queue for CTO operations.</Text>
             </Box>
@@ -1862,6 +2090,61 @@ function CtoDashboardPage() {
                 Download PDF
               </Button>
             </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={feedbackDetailsModal.isOpen} onClose={feedbackDetailsModal.onClose} size="4xl" isCentered>
+        <ModalOverlay bg="blackAlpha.600" />
+        <ModalContent bg="#111827" color="white" border="1px solid rgba(255,255,255,0.12)">
+          <ModalHeader>{feedbackDetailsTitle || "Feedback details"}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {feedbackDetailsError && (
+              <Box mb={3} p={3} borderRadius="12px" bg="rgba(248,113,113,0.12)" border="1px solid rgba(248,113,113,0.28)">
+                <Text color="red.200" fontSize="sm">{feedbackDetailsError}</Text>
+              </Box>
+            )}
+            {feedbackDetailsLoading ? (
+              <Text fontSize="sm" color="whiteAlpha.700">Loading details...</Text>
+            ) : (
+              <Box overflowX="auto">
+                <Table size="sm" variant="simple">
+                  <Thead>
+                    <Tr>
+                      <Th color="whiteAlpha.800">Time</Th>
+                      <Th color="whiteAlpha.800">Phone</Th>
+                      <Th color="whiteAlpha.800">Rating</Th>
+                      <Th color="whiteAlpha.800">Source</Th>
+                      <Th color="whiteAlpha.800">Comment</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {feedbackDetailsRows.length === 0 && (
+                      <Tr>
+                        <Td colSpan={5} color="whiteAlpha.700">No feedback rows found for this bucket.</Td>
+                      </Tr>
+                    )}
+                    {feedbackDetailsRows.map((row) => (
+                      <Tr key={row.id || `${row.created_at}-${row.patient_phone}-${row.reqno || ""}`}>
+                        <Td color="whiteAlpha.800">
+                          {row.created_at ? new Date(row.created_at).toLocaleString() : "-"}
+                        </Td>
+                        <Td color="whiteAlpha.900">{row.patient_phone || "-"}</Td>
+                        <Td color="whiteAlpha.900">{row.rating || "-"}</Td>
+                        <Td color="whiteAlpha.800">{row.source || row.captured_via || "-"}</Td>
+                        <Td color="whiteAlpha.900">
+                          <Text noOfLines={3}>{row.feedback || "-"}</Text>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </Box>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" onClick={feedbackDetailsModal.onClose}>Close</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

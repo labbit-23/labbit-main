@@ -172,7 +172,7 @@ async function enrichLiteSessions(rows = []) {
   });
 }
 
-async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTerm = "" }) {
+async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTerm = "", statusFilter = "" }) {
   const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
   const safeLimit = Number.isFinite(pageLimit) ? Math.min(Math.max(pageLimit, 20), 200) : 60;
   const targetCount = safeOffset + safeLimit + 1;
@@ -180,10 +180,12 @@ async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTe
   const baseStart = Math.max(0, safeOffset * 2);
   const normalizedSearch = normalizeSearchTerm(searchTerm);
 
+  const normalizedStatus = String(statusFilter || "").trim().toLowerCase();
+
   const fetchChunk = async (start) => {
     let query = supabase
       .from("chat_sessions")
-      .select("id,lab_id,phone,patient_id,patient_name,status,current_state,unread_count,last_message_at,last_user_message_at,created_at,updated_at")
+      .select("id,lab_id,phone,patient_id,patient_name,status,current_state,unread_count,last_message_at,last_user_message_at,created_at,updated_at,context")
       .order("last_message_at", { ascending: false })
       .range(start, start + overFetch - 1);
     if (labIds.length > 0) {
@@ -192,6 +194,19 @@ async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTe
     if (normalizedSearch) {
       const safe = normalizedSearch.replace(/[%_,]/g, " ");
       query = query.or(`phone.ilike.%${safe}%,patient_name.ilike.%${safe}%`);
+    }
+    if (normalizedStatus === "unread") {
+      query = query
+        .in("status", ["pending", "handoff", "human_handover"])
+        .gt("unread_count", 0);
+    } else if (normalizedStatus === "unresolved") {
+      query = query
+        .in("status", ["pending", "handoff", "human_handover"])
+        .lte("unread_count", 0);
+    } else if (normalizedStatus === "resolved") {
+      query = query.eq("status", "resolved");
+    } else if (normalizedStatus === "closed") {
+      query = query.eq("status", "closed");
     }
     const { data, error } = await query;
     if (error) throw error;
@@ -229,6 +244,45 @@ async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTe
   };
 }
 
+async function fetchLiteCounts({ labIds = [] }) {
+  const applyLab = (query) => (labIds.length > 0 ? query.in("lab_id", labIds) : query);
+
+  const unreadQuery = applyLab(
+    supabase
+      .from("chat_sessions")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending", "handoff", "human_handover"])
+      .gt("unread_count", 0)
+  );
+
+  const unresolvedQuery = applyLab(
+    supabase
+      .from("chat_sessions")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending", "handoff", "human_handover"])
+      .lte("unread_count", 0)
+  );
+
+  const resolvedQuery = applyLab(
+    supabase
+      .from("chat_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "resolved")
+  );
+
+  const [unreadRes, unresolvedRes, resolvedRes] = await Promise.all([
+    unreadQuery,
+    unresolvedQuery,
+    resolvedQuery
+  ]);
+
+  return {
+    unread: Number(unreadRes?.count || 0),
+    unresolved: Number(unresolvedRes?.count || 0),
+    resolved: Number(resolvedRes?.count || 0)
+  };
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
 
@@ -246,15 +300,20 @@ export async function GET(request) {
     const limitParam = Number(request.nextUrl.searchParams.get("limit") || 60);
     const pageLimit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 20), 200) : 60;
     const searchTerm = String(request.nextUrl.searchParams.get("search") || "").trim();
+    const view = String(request.nextUrl.searchParams.get("view") || "all").trim().toLowerCase();
 
     if (liteMode) {
-      const liteResponse = await buildLitePage({
-        labIds,
-        offset: offsetParam,
-        pageLimit,
-        searchTerm
-      });
-      return NextResponse.json(liteResponse, { status: 200 });
+      const [liteResponse, counts] = await Promise.all([
+        buildLitePage({
+          labIds,
+          offset: offsetParam,
+          pageLimit,
+          searchTerm,
+          statusFilter: view
+        }),
+        fetchLiteCounts({ labIds })
+      ]);
+      return NextResponse.json({ ...liteResponse, counts }, { status: 200 });
     }
 
     let query = supabase

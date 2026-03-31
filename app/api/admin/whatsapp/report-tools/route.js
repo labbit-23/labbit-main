@@ -289,6 +289,12 @@ export async function POST(request) {
     const labIds = Array.isArray(user.labIds) ? user.labIds.filter(Boolean) : [];
     const chatSession = await getChatSessionForPhone(phone, labIds);
     if (!chatSession) return new Response("Session not found", { status: 404 });
+    const agentContext = {
+      ...(chatSession.context || {}),
+      ever_agent_intervened: true,
+      last_handled_by: "agent",
+      last_handled_at: new Date().toISOString()
+    };
 
     if (action === "send_latest_report") {
       const latestReportUrl = getLatestReportUrl(phone);
@@ -300,11 +306,13 @@ export async function POST(request) {
       let latestStatusMessage = null;
       let latestReqid = null;
       let latestReqno = null;
+      let latestPatientName = "";
       let latestReadyLabTestKeys = [];
       try {
         const { recentReports } = await lookupReportSelection(phone);
         latestReqid = String(recentReports?.[0]?.reqid || "").trim() || null;
         latestReqno = String(recentReports?.[0]?.reqno || "").trim() || null;
+        latestPatientName = String(recentReports?.[0]?.patient_name || "").trim();
         if (latestReqno) {
           const reportStatus = await getReportStatus(latestReqno);
           latestStatusMessage = buildReportStatusMessage(reportStatus);
@@ -324,7 +332,11 @@ export async function POST(request) {
           labId: chatSession.lab_id,
           phone: chatSession.phone,
           documentUrl: latestReportUrl,
-          filename: `SDRC_Latest_Report_${String(phone || "").replace(/\D/g, "").slice(-10) || "Patient"}.pdf`,
+          filename: buildReportFilename({
+            reqid: latestReqid || null,
+            reqno: latestReqno || null,
+            patient_name: latestPatientName || ""
+          }),
           caption: buildLatestReportCaption(latestStatusMessage),
           sender: {
             id: user.id || null,
@@ -389,7 +401,7 @@ export async function POST(request) {
 
       await supabase
         .from("chat_sessions")
-        .update({ unread_count: 0, last_message_at: new Date(), updated_at: new Date() })
+        .update({ context: agentContext, last_message_at: new Date(), updated_at: new Date() })
         .eq("id", chatSession.id);
 
       return NextResponse.json({ ok: true }, { status: 200 });
@@ -504,7 +516,7 @@ export async function POST(request) {
 
       await supabase
         .from("chat_sessions")
-        .update({ unread_count: 0, last_message_at: new Date(), updated_at: new Date() })
+        .update({ context: agentContext, last_message_at: new Date(), updated_at: new Date() })
         .eq("id", chatSession.id);
 
       return NextResponse.json({ ok: true }, { status: 200 });
@@ -634,7 +646,7 @@ export async function POST(request) {
 
     await supabase
       .from("chat_sessions")
-      .update({ unread_count: 0, last_message_at: new Date(), updated_at: new Date() })
+      .update({ context: agentContext, last_message_at: new Date(), updated_at: new Date() })
       .eq("id", chatSession.id);
 
     return NextResponse.json({ ok: true }, { status: 200 });
