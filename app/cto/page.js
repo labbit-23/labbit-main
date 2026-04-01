@@ -254,6 +254,43 @@ function buildTrendPath(points, valueAccessor, width, height, padding) {
   return path.trim();
 }
 
+function buildSparklineModel(points = []) {
+  const ordered = [...(Array.isArray(points) ? points : [])].sort((a, b) =>
+    String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || ""))
+  );
+  const width = 240;
+  const height = 72;
+  const padding = 8;
+  const healthyPath = buildTrendPath(
+    ordered,
+    (point) => {
+      const value = Number(point?.healthy_rate);
+      return Number.isFinite(value) ? value * 100 : null;
+    },
+    width,
+    height,
+    padding
+  );
+  const downPath = buildTrendPath(
+    ordered,
+    (point) => {
+      const value = Number(point?.down_rate);
+      return Number.isFinite(value) ? value * 100 : null;
+    },
+    width,
+    height,
+    padding
+  );
+
+  return {
+    width,
+    height,
+    healthyPath,
+    downPath,
+    hasPath: Boolean(healthyPath || downPath)
+  };
+}
+
 function CtoDashboardPage() {
   const smartReportModal = useDisclosure();
   const [latest, setLatest] = useState({ summary: { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }, services: [] });
@@ -744,6 +781,10 @@ function CtoDashboardPage() {
     return Array.isArray(trendData?.points) ? trendData.points : [];
   }, [trendData]);
 
+  const trendDomainBreakdown = useMemo(() => {
+    return Array.isArray(trendData?.domain_breakdown) ? trendData.domain_breakdown : [];
+  }, [trendData]);
+
   const trendChartModel = useMemo(() => {
     const points = [...trendPoints].sort((a, b) => String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || "")));
     const maxLatency = points.reduce((max, point) => {
@@ -777,6 +818,7 @@ function CtoDashboardPage() {
       healthyPath,
       downPath,
       latencyPath,
+      hasPath: Boolean(healthyPath || downPath || latencyPath),
       xLabels: {
         start: points[0]?.bucket_label || "",
         mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
@@ -1766,6 +1808,7 @@ function CtoDashboardPage() {
               <svg
                 width={trendChartModel.width}
                 height={trendChartModel.height}
+                viewBox={`0 0 ${trendChartModel.width} ${trendChartModel.height}`}
                 role="img"
                 aria-label="Historical trend chart"
               >
@@ -1799,11 +1842,67 @@ function CtoDashboardPage() {
                 <path d={trendChartModel.latencyPath} stroke="#38bdf8" strokeWidth="2.5" fill="none" strokeLinecap="round" />
               </svg>
 
+              {!trendChartModel.hasPath && (
+                <Text mt={2} fontSize="xs" color="whiteAlpha.700">
+                  Trend lines unavailable for current selection.
+                </Text>
+              )}
+
               <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
                 <Text noOfLines={1} maxW="32%">{trendChartModel.xLabels.start}</Text>
                 <Text noOfLines={1} maxW="32%" textAlign="center">{trendChartModel.xLabels.mid}</Text>
                 <Text noOfLines={1} maxW="32%" textAlign="right">{trendChartModel.xLabels.end}</Text>
               </HStack>
+            </Box>
+          )}
+
+          {!trendLoading && !trendServiceKey && trendDomainBreakdown.length > 0 && (
+            <Box mt={4}>
+              <Text fontSize="sm" mb={3} color="whiteAlpha.900" fontWeight="600">
+                Group Trends
+              </Text>
+              <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
+                {trendDomainBreakdown.map((group) => {
+                  const spark = buildSparklineModel(group?.points || []);
+                  return (
+                    <Box
+                      key={group.domain}
+                      p={3}
+                      borderRadius="14px"
+                      bg="rgba(255,255,255,0.04)"
+                      border="1px solid rgba(255,255,255,0.08)"
+                    >
+                      <Flex justify="space-between" align="center" mb={2}>
+                        <Text fontSize="sm" fontWeight="700" color="whiteAlpha.900">{group.domain}</Text>
+                        <Text fontSize="xs" color="whiteAlpha.700">
+                          {group?.summary?.total_checks || 0} checks
+                        </Text>
+                      </Flex>
+                      <HStack spacing={3} mb={2}>
+                        <Text fontSize="xs" color="green.200">
+                          Healthy {typeof group?.summary?.healthy_rate === "number" ? `${Math.round(group.summary.healthy_rate * 100)}%` : "n/a"}
+                        </Text>
+                        <Text fontSize="xs" color="red.200">
+                          Down {typeof group?.summary?.down_rate === "number" ? `${Math.round(group.summary.down_rate * 100)}%` : "n/a"}
+                        </Text>
+                      </HStack>
+                      <svg
+                        width={spark.width}
+                        height={spark.height}
+                        viewBox={`0 0 ${spark.width} ${spark.height}`}
+                        role="img"
+                        aria-label={`${group.domain} trend`}
+                      >
+                        <path d={spark.healthyPath} stroke="#34d399" strokeWidth="2" fill="none" strokeLinecap="round" />
+                        <path d={spark.downPath} stroke="#f87171" strokeWidth="2" fill="none" strokeLinecap="round" />
+                      </svg>
+                      {!spark.hasPath && (
+                        <Text fontSize="xs" color="whiteAlpha.700">No trend line yet</Text>
+                      )}
+                    </Box>
+                  );
+                })}
+              </SimpleGrid>
             </Box>
           )}
         </Box>

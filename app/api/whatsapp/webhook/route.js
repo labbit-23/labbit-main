@@ -63,6 +63,7 @@ const BOT_START_KEYWORDS = new Set([
 ]);
 const FEEDBACK_IDLE_DELAY_MS = 60 * 1000;
 const FEEDBACK_MAX_COMMENT_LEN = 500;
+const DELIVERY_FAILED_ACK_COOLDOWN_MS = 30 * 60 * 1000;
 const IST_EXECUTIVE_OPEN_HOUR = 7;
 const IST_EXECUTIVE_CLOSE_HOUR = 23;
 const AGENT_TAKEOVER_GREETING_GUARD_MINUTES = 5;
@@ -119,6 +120,7 @@ function isRecentAgentTakeover(session, windowMinutes = AGENT_TAKEOVER_GREETING_
 }
 
 function canOfferPostReportFeedback(context = {}) {
+  if (context?.suppress_feedback_once) return false;
   const deliveredAt = String(context?.last_report_delivery_at || "").trim();
   if (!deliveredAt) return false;
   const deliveredMs = new Date(deliveredAt).getTime();
@@ -130,6 +132,7 @@ function canOfferPostReportFeedback(context = {}) {
 }
 
 function canOfferResolvedFeedback(context = {}) {
+  if (context?.suppress_feedback_once) return false;
   if (!context?.last_resolution_feedback_armed) return false;
   const resolvedAt = String(context?.last_resolution_at || "").trim();
   if (!resolvedAt) return false;
@@ -415,6 +418,7 @@ async function handlePostReportFeedbackInbound({
   lab,
   templates
 }) {
+  if (session?.context?.suppress_feedback_once) return { handled: false };
   const flow = getFeedbackFlow(session?.context);
   if (!flow?.stage) return { handled: false };
 
@@ -873,12 +877,236 @@ async function persistWebhookStatusEvents({ body, statusEvents }) {
           raw_body: body
         }
       });
+
+      await handleDeliveryFailureStatusEvent({
+        labId,
+        phone,
+        providerMessageId,
+        statusCode,
+        errorObj,
+        statusTimestampIso: ts
+      });
     } catch (err) {
       console.error("[status-callback] persist failed", {
         error: err?.message || String(err),
         status
       });
     }
+  }
+}
+
+function isFailedDeliveryStatus(statusCode) {
+  return String(statusCode || "").trim().toLowerCase() === "failed";
+}
+
+function isDeliveryFailureAckCooldownActive(context = {}, nowMs = Date.now()) {
+  const lastAckAt = String(context?.last_delivery_failed_ack_at || "").trim();
+  if (!lastAckAt) return false;
+  const ackMs = new Date(lastAckAt).getTime();
+  if (!Number.isFinite(ackMs)) return false;
+  return nowMs - ackMs < DELIVERY_FAILED_ACK_COOLDOWN_MS;
+}
+
+async function fetchWhatsappTemplatesForLab(labId) {
+  if (!labId) return {};
+  try {
+    const { data } = await supabase
+      .from("labs_apis")
+      .select("templates")
+      .eq("lab_id", labId)
+      .eq("api_name", "whatsapp_outbound")
+      .maybeSingle();
+    return parseTemplates(data?.templates);
+  } catch {
+    return {};
+  }
+}
+
+async function fetchLabById(labId) {
+  if (!labId) return null;
+  try {
+    const { data } = await supabase
+      .from("labs")
+      .select("id,name,alternate_whatsapp_number,internal_whatsapp_number")
+      .eq("id", labId)
+      .maybeSingle();
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
+  const botFlow = templates?.bot_flow || {};
+  const candidate =
+    botFlow?.report_notify_number ||
+    templates?.report_notify_number ||
+    lab?.alternate_whatsapp_number ||
+    lab?.internal_whatsapp_number ||
+    "";
+  return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
+}
+
+function buildFailedDeliveryInternalNotifyText({
+  labName,
+  patientPhone,
+  providerMessageId,
+  statusTimestampIso,
+  errorObj
+}) {
+  return [
+    "FAILED DELIVERY: Send report to patient ASAP",
+    labName ? `Lab: ${labName}` : null,
+    patientPhone ? `Patient: ${patientPhone}` : null,
+    providerMessageId ? `Provider Message ID: ${providerMessageId}` : null,
+    statusTimestampIso ? `Failure Time: ${statusTimestampIso}` : null,
+    errorObj?.message ? `Meta Error: ${errorObj.message}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function getDeliveryFailureAckText(templates = {}) {
+  const botFlow = templates?.bot_flow || {};
+  return (
+    botFlow?.texts?.delivery_failed_ack_text ||
+    templates?.delivery_failed_ack_text ||
+    "We could not deliver your report document on WhatsApp due to a temporary Meta delivery issue. Our executive team has been alerted and will assist you shortly."
+  );
+}
+
+async function handleDeliveryFailureStatusEvent({
+  labId,
+  phone,
+  providerMessageId,
+  statusCode,
+  errorObj,
+  statusTimestampIso
+}) {
+  if (!labId || !phone || !isFailedDeliveryStatus(statusCode)) return;
+
+  const templates = await fetchWhatsappTemplatesForLab(labId);
+  const lab = await fetchLabById(labId);
+  const internalNotifyPhone = resolveInternalNotifyPhone({ templates, lab });
+  const normalizedPatientPhone = toCanonicalIndiaPhone(phone) || String(phone || "").replace(/\D/g, "");
+
+  // Guard against recursive escalation when notify destination itself has delivery issues.
+  if (internalNotifyPhone && normalizedPatientPhone && internalNotifyPhone === normalizedPatientPhone) {
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const { data: session } = await supabase
+    .from("chat_sessions")
+    .select("*")
+    .eq("lab_id", labId)
+    .in("phone", phoneVariantsIndia(phone))
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!session?.id) return;
+
+  const currentContext = session?.context && typeof session.context === "object" ? session.context : {};
+  const existingProviderFailureId = String(currentContext?.last_delivery_failure_provider_message_id || "").trim();
+  if (providerMessageId && providerMessageId === existingProviderFailureId) return;
+
+  const alreadyManualMode = ["handoff", "pending", "resolved", "closed"].includes(
+    String(session.status || "").toLowerCase()
+  );
+  const shouldAck = !isDeliveryFailureAckCooldownActive(currentContext, nowMs);
+  const nextContext = {
+    ...currentContext,
+    ever_agent_intervened: true,
+    last_handled_by: "system",
+    last_handled_at: nowIso,
+    last_delivery_failure_at: statusTimestampIso || nowIso,
+    last_delivery_failure_provider_message_id: providerMessageId || null,
+    last_delivery_failure_status: String(statusCode || "").toLowerCase() || "failed",
+    last_delivery_failure_error: errorObj
+      ? {
+          code: errorObj.code || null,
+          title: errorObj.title || null,
+          message: errorObj.message || null
+        }
+      : null,
+    suppress_feedback_once: true,
+    ...(shouldAck ? { last_delivery_failed_ack_at: nowIso } : {})
+  };
+
+  await supabase
+    .from("chat_sessions")
+    .update({
+      status: alreadyManualMode ? session.status : "handoff",
+      current_state: "HUMAN_HANDOVER",
+      unread_count: Number(session.unread_count || 0) + 1,
+      context: nextContext,
+      last_message_at: nowIso,
+      updated_at: nowIso
+    })
+    .eq("id", session.id);
+
+  const followupNotes = [
+    "Meta callback marked outbound report delivery as failed.",
+    `Phone: ${phone}`,
+    providerMessageId ? `Provider Message ID: ${providerMessageId}` : null,
+    errorObj?.message ? `Provider Error: ${errorObj.message}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    await createWhatsappFollowupClickupTask({
+      labId,
+      patientPhone: phone,
+      notes: followupNotes
+    });
+  } catch (clickupError) {
+    console.error("[status-callback] clickup followup failed", {
+      error: clickupError?.message || String(clickupError),
+      phone,
+      providerMessageId
+    });
+  }
+
+  if (internalNotifyPhone) {
+    try {
+      await sendTextMessage({
+        labId,
+        phone: internalNotifyPhone,
+        text: buildFailedDeliveryInternalNotifyText({
+          labName: String(lab?.name || "").trim() || null,
+          patientPhone: normalizedPatientPhone || phone,
+          providerMessageId,
+          statusTimestampIso: statusTimestampIso || nowIso,
+          errorObj
+        })
+      });
+    } catch (notifyErr) {
+      console.error("[status-callback] internal notify send failed", {
+        error: notifyErr?.message || String(notifyErr),
+        patientPhone: phone,
+        internalNotifyPhone,
+        providerMessageId
+      });
+    }
+  }
+
+  if (!shouldAck) return;
+
+  try {
+    await sendTextMessage({
+      labId,
+      phone,
+      text: getDeliveryFailureAckText(templates)
+    });
+  } catch (ackErr) {
+    console.error("[status-callback] delivery-failed ack send failed", {
+      error: ackErr?.message || String(ackErr),
+      phone,
+      providerMessageId
+    });
   }
 }
 
@@ -2085,6 +2313,7 @@ export async function POST(req) {
     }
 
     let normalizedSessionStatus = String(session.status || "").toLowerCase();
+    const feedbackSuppressedForDeliveryFailure = Boolean(session?.context?.suppress_feedback_once);
 
     const hasActiveFeedbackStage = Boolean(getFeedbackFlow(session?.context)?.stage);
     if (
@@ -2182,6 +2411,7 @@ export async function POST(req) {
       lab.internal_whatsapp_number;
 
     if (
+      !feedbackSuppressedForDeliveryFailure &&
       isThankYouLikeInput(userInput) &&
       (
         (session?.context?.last_report_feedback_armed && canOfferPostReportFeedback(session?.context || {})) ||
@@ -2691,6 +2921,14 @@ export async function POST(req) {
       }
 
       case "FEEDBACK_LINK": {
+        if (feedbackSuppressedForDeliveryFailure) {
+          await sendTextMessage({
+            labId: session.lab_id,
+            phone,
+            text: "Feedback will be available after report delivery is completed by our executive."
+          });
+          break;
+        }
         const feedbackFlow = {
           stage: "awaiting_rating",
           trigger_source: "services_feedback",
@@ -3041,11 +3279,12 @@ export async function POST(req) {
             phone
           });
         }
-        const shouldPromptPostReportFeedback = true;
+        const shouldPromptPostReportFeedback = !feedbackSuppressedForDeliveryFailure;
         if (shouldPromptPostReportFeedback) {
           const reportFeedbackContext = withFeedbackFlowContext(
             {
               ...nextContext,
+              suppress_feedback_once: false,
               last_report_delivery_at: new Date().toISOString(),
               last_report_delivery_reqid: dispatchReqid || null,
               last_report_delivery_reqno: dispatchReqno || result.reportStatusReqno || null,

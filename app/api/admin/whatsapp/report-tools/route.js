@@ -293,7 +293,8 @@ export async function POST(request) {
       ...(chatSession.context || {}),
       ever_agent_intervened: true,
       last_handled_by: "agent",
-      last_handled_at: new Date().toISOString()
+      last_handled_at: new Date().toISOString(),
+      suppress_feedback_once: false
     };
 
     if (action === "send_latest_report") {

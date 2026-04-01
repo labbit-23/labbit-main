@@ -146,57 +146,40 @@ function buildPointsFromDailyMap(dailyMap, granularity) {
     .map(([key, summary]) => finalizeBucket(key, granularity, summary));
 }
 
-function aggregateRawRowsToDaily(rows, serviceKeyFilter = "") {
-  const byDay = new Map();
-  const latenciesByDay = new Map();
-
-  for (const row of rows || []) {
-    if (!row?.checked_at) continue;
-    if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
-
-    const dayKey = formatDayKey(row.checked_at);
-    const entry = byDay.get(dayKey) || initializeBucket();
-
-    entry.total_checks += 1;
-    const status = String(row.status || "unknown");
-    if (status === "healthy") entry.healthy_count += 1;
-    else if (status === "degraded") entry.degraded_count += 1;
-    else if (status === "down") entry.down_count += 1;
-    else entry.unknown_count += 1;
-
-    if (typeof row.latency_ms === "number" && Number.isFinite(row.latency_ms)) {
-      entry.latency_sum += row.latency_ms;
-      entry.latency_sample_count += 1;
-      entry.max_latency_ms = entry.max_latency_ms == null ? row.latency_ms : Math.max(entry.max_latency_ms, row.latency_ms);
-      const list = latenciesByDay.get(dayKey) || [];
-      list.push(row.latency_ms);
-      latenciesByDay.set(dayKey, list);
-    }
-
-    entry.last_status = status;
-    byDay.set(dayKey, entry);
-  }
-
-  for (const [dayKey, list] of latenciesByDay.entries()) {
-    if (!list.length) continue;
-    list.sort((a, b) => a - b);
-    const idx = Math.max(0, Math.min(list.length - 1, Math.ceil(list.length * 0.95) - 1));
-    const entry = byDay.get(dayKey);
-    if (entry) entry.p95_latency_ms = list[idx];
-  }
-
-  return byDay;
+function parseServiceKey(serviceKey = "") {
+  const normalized = String(serviceKey || "").trim().toLowerCase();
+  const parts = normalized.split("__");
+  const baseKey = parts[0] || "";
+  return { normalized, baseKey };
 }
 
-function aggregateDigestRowsToDaily(rows, serviceKeyFilter = "") {
-  const byDay = new Map();
+function domainForServiceKey(serviceKey = "") {
+  const { baseKey } = parseServiceKey(serviceKey);
+  if (baseKey.startsWith("whatsapp_bot_")) return "WhatsApp Chatbot";
+  if (baseKey === "supabase_main") return "Database";
+  if (
+    baseKey === "orthanc_main" ||
+    baseKey.startsWith("mirth_") ||
+    baseKey === "tailscale_mirth"
+  ) {
+    return "Machine Interfacing";
+  }
+  if (baseKey.startsWith("tomcat_")) return "App Servers";
+  if (baseKey === "labbit_health") return "Core Platform";
+  return "Other";
+}
+
+function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "") {
+  const byServiceDay = new Map();
 
   for (const row of rows || []) {
-    if (!row?.day_date) continue;
+    if (!row?.day_date || !row?.service_key) continue;
     if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
     const dayKey = String(row.day_date).slice(0, 10);
+    const serviceKey = String(row.service_key);
+    const composedKey = `${serviceKey}::${dayKey}`;
 
-    const entry = byDay.get(dayKey) || initializeBucket();
+    const entry = byServiceDay.get(composedKey) || initializeBucket();
     mergeSummary(entry, {
       total_checks: row.total_checks || 0,
       healthy_count: row.healthy_count || 0,
@@ -210,11 +193,54 @@ function aggregateDigestRowsToDaily(rows, serviceKeyFilter = "") {
       status_transitions: row.status_transitions || 0,
       last_status: row.last_status
     });
-
-    byDay.set(dayKey, entry);
+    byServiceDay.set(composedKey, entry);
   }
 
-  return byDay;
+  return byServiceDay;
+}
+
+function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "") {
+  const byServiceDay = new Map();
+  const latenciesByServiceDay = new Map();
+
+  for (const row of rows || []) {
+    if (!row?.checked_at || !row?.service_key) continue;
+    if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
+
+    const dayKey = formatDayKey(row.checked_at);
+    const serviceKey = String(row.service_key);
+    const composedKey = `${serviceKey}::${dayKey}`;
+    const entry = byServiceDay.get(composedKey) || initializeBucket();
+
+    entry.total_checks += 1;
+    const status = String(row.status || "unknown");
+    if (status === "healthy") entry.healthy_count += 1;
+    else if (status === "degraded") entry.degraded_count += 1;
+    else if (status === "down") entry.down_count += 1;
+    else entry.unknown_count += 1;
+
+    if (typeof row.latency_ms === "number" && Number.isFinite(row.latency_ms)) {
+      entry.latency_sum += row.latency_ms;
+      entry.latency_sample_count += 1;
+      entry.max_latency_ms = entry.max_latency_ms == null ? row.latency_ms : Math.max(entry.max_latency_ms, row.latency_ms);
+      const list = latenciesByServiceDay.get(composedKey) || [];
+      list.push(row.latency_ms);
+      latenciesByServiceDay.set(composedKey, list);
+    }
+
+    entry.last_status = status;
+    byServiceDay.set(composedKey, entry);
+  }
+
+  for (const [composedKey, list] of latenciesByServiceDay.entries()) {
+    if (!list.length) continue;
+    list.sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(list.length - 1, Math.ceil(list.length * 0.95) - 1));
+    const entry = byServiceDay.get(composedKey);
+    if (entry) entry.p95_latency_ms = list[idx];
+  }
+
+  return byServiceDay;
 }
 
 function buildSummary(points = []) {
@@ -347,16 +373,48 @@ export async function GET(request) {
     }
 
     const rawRows = Array.isArray(rawData) ? rawData : [];
-    const dailyDigestMap = aggregateDigestRowsToDaily(digestRows, serviceKey);
-    const dailyRawMap = aggregateRawRowsToDaily(rawRows, serviceKey);
+    const digestServiceDay = aggregateDigestRowsToServiceDay(digestRows, serviceKey);
+    const rawServiceDay = aggregateRawRowsToServiceDay(rawRows, serviceKey);
 
-    // Raw rows override same-day digest rows to keep in-progress days accurate.
-    for (const [dayKey, summary] of dailyRawMap.entries()) {
-      dailyDigestMap.set(dayKey, summary);
+    // Raw rows override same-day service digest rows to keep in-progress windows accurate.
+    const mergedServiceDay = new Map(digestServiceDay);
+    for (const [serviceDayKey, summary] of rawServiceDay.entries()) {
+      mergedServiceDay.set(serviceDayKey, summary);
+    }
+
+    const mergedDailyMap = new Map();
+    const domainDailyMap = new Map();
+    for (const [serviceDayKey, summary] of mergedServiceDay.entries()) {
+      const [serviceKeyFromRow, dayKey] = String(serviceDayKey).split("::");
+      if (!serviceKeyFromRow || !dayKey) continue;
+
+      const daySummary = mergedDailyMap.get(dayKey) || initializeBucket();
+      mergeSummary(daySummary, summary);
+      mergedDailyMap.set(dayKey, daySummary);
+
+      const domainKey = domainForServiceKey(serviceKeyFromRow);
+      const domainMap = domainDailyMap.get(domainKey) || new Map();
+      const domainDaySummary = domainMap.get(dayKey) || initializeBucket();
+      mergeSummary(domainDaySummary, summary);
+      domainMap.set(dayKey, domainDaySummary);
+      domainDailyMap.set(domainKey, domainMap);
     }
 
     const bucketType = ["day", "week", "month"].includes(granularity) ? granularity : preset.granularity;
-    const points = buildPointsFromDailyMap(dailyDigestMap, bucketType);
+    const points = buildPointsFromDailyMap(mergedDailyMap, bucketType);
+    const domainBreakdown = serviceKey
+      ? []
+      : [...domainDailyMap.entries()]
+          .map(([domain, dailyMap]) => {
+            const domainPoints = buildPointsFromDailyMap(dailyMap, bucketType);
+            return {
+              domain,
+              points: domainPoints,
+              summary: buildSummary(domainPoints)
+            };
+          })
+          .sort((a, b) => Number(b?.summary?.total_checks || 0) - Number(a?.summary?.total_checks || 0))
+          .slice(0, 8);
 
     return NextResponse.json(
       {
@@ -365,6 +423,7 @@ export async function GET(request) {
         range: rangeInput,
         bucket: bucketType,
         points,
+        domain_breakdown: domainBreakdown,
         summary: buildSummary(points),
         source: {
           digest_available: digestAvailable,

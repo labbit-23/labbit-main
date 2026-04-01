@@ -142,10 +142,9 @@ export async function GET(request) {
     const { data, error } = await query;
     if (error) {
       console.error("[cto/feedback] fetch error", error);
-      return NextResponse.json({ error: "Failed to load feedback analytics" }, { status: 500 });
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = !error && Array.isArray(data) ? data : [];
     const requestedCategory = normalizeText(request.nextUrl.searchParams.get("category"));
     const requestedBucket = String(request.nextUrl.searchParams.get("bucket_key") || "").trim();
 
