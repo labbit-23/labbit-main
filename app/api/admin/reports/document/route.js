@@ -79,9 +79,14 @@ export async function GET(request) {
       header_mode: isPlain ? "plain" : "default",
       without_header_background: isPlain ? "true" : "false"
     };
-    const reportUrl = reportScope === "lab"
+    const reportUrl = reportScope === "all"
       ? getReportUrl(reqid, {
           reqno,
+          printtype,
+          ...commonFlags
+        })
+      : reportScope === "lab"
+      ? getReportsUrl(reqid, reqno, {
           printtype,
           ...commonFlags
         })
