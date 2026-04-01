@@ -370,68 +370,20 @@ export default function ReportDispatchPage() {
     ) {
       try {
         const response = await fetch(reportUrl, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Unable to load report for sharing (${response.status})`);
-        }
-        const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+        if (!response.ok) throw new Error("Unable to load report for sharing");
         const blob = await response.blob();
-        const blobType = String(blob?.type || "").toLowerCase();
         const fileName = `${(reqno || reqid || "report").trim()}.pdf`;
         const file = new File([blob], fileName, {
-          type: blobType || contentType || "application/pdf"
+          type: blob?.type || "application/pdf"
         });
-        const canShareFiles =
-          typeof navigator.canShare === "function" &&
-          navigator.canShare({ files: [file] });
-        const absoluteReportUrl = new URL(reportUrl, window.location.origin).toString();
 
-        if (canShareFiles) {
-          try {
-            await navigator.share({
-              title: `Report ${reqno || reqid || ""}`.trim(),
-              text: shareText,
-              files: [file]
-            });
-            return;
-          } catch (fileShareError) {
-            console.warn("[report-dispatch] file-share failed, trying URL share fallback", {
-              reqno,
-              reqid,
-              reportScope,
-              fileName,
-              blobBytes: Number(blob?.size || 0),
-              contentType,
-              blobType,
-              error: fileShareError?.message || String(fileShareError)
-            });
-          }
-        }
-
-        try {
+        if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
           await navigator.share({
             title: `Report ${reqno || reqid || ""}`.trim(),
-            text: `${shareText}\n${absoluteReportUrl}`.trim(),
-            url: absoluteReportUrl
-          });
-          toast({
-            title: "Link shared",
-            description: "File share was unavailable for this report, so report link was shared.",
-            status: "info",
-            duration: 2600,
-            isClosable: true
+            text: shareText,
+            files: [file]
           });
           return;
-        } catch (urlShareError) {
-          console.warn("[report-dispatch] URL-share failed, falling back to download", {
-            reqno,
-            reqid,
-            reportScope,
-            fileName,
-            blobBytes: Number(blob?.size || 0),
-            contentType,
-            blobType,
-            error: urlShareError?.message || String(urlShareError)
-          });
         }
 
         const blobUrl = URL.createObjectURL(blob);
@@ -450,18 +402,12 @@ export default function ReportDispatchPage() {
           isClosable: true
         });
         return;
-      } catch (err) {
-        console.error("[report-dispatch] share failed", {
-          reqno,
-          reqid,
-          reportScope,
-          error: err?.message || String(err)
-        });
+      } catch {
         toast({
           title: "Share failed",
-          description: err?.message || "Could not share this report. Please try again.",
+          description: "Could not share this report. Please try again.",
           status: "error",
-          duration: 2800,
+          duration: 2200,
           isClosable: true
         });
         return;
