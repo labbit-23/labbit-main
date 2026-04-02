@@ -491,7 +491,6 @@ export default function ReportDispatchPage() {
     const baseParams = {
       mrno,
       report_mode: "trends",
-      design_variant: "executive",
       reqid: currentReqid(),
       reqno: currentReqno()
     };
@@ -502,13 +501,7 @@ export default function ReportDispatchPage() {
         format: "pdf",
         download: "1"
       });
-      const htmlQuery = new URLSearchParams({
-        ...baseParams,
-        format: "html",
-        download: "1"
-      });
       window.open(`/api/smart-reports/trend-data?${pdfQuery.toString()}`, "_blank", "noopener,noreferrer");
-      window.open(`/api/smart-reports/trend-data?${htmlQuery.toString()}`, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -678,7 +671,7 @@ export default function ReportDispatchPage() {
                   Trend
                 </Button>
                 <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="purple" onClick={openSmartTrends} isDisabled={!hasStatus || !canSmartTrends}>
-                  SMART TRENDS
+                  Trends v2.0
                 </Button>
                 <Button
                   size="sm"

@@ -5,6 +5,7 @@ import {
   Box,
   Badge,
   Button,
+  IconButton,
   Flex,
   Grid,
   GridItem,
@@ -33,6 +34,7 @@ import {
   VStack,
   useDisclosure
 } from "@chakra-ui/react";
+import { ExternalLinkIcon, QuestionOutlineIcon, RepeatIcon, SettingsIcon } from "@chakra-ui/icons";
 import Link from "next/link";
 import RequireAuth from "../../components/RequireAuth";
 import ShortcutBar from "../../components/ShortcutBar";
@@ -199,6 +201,45 @@ function parseServiceKey(serviceKey) {
   };
 }
 
+function isVpsService(service) {
+  return parseServiceKey(service?.service_key).nodeRole === "vps";
+}
+
+function toFiniteNumber(value) {
+  if (value == null) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const cleaned = String(value).trim().replace("%", "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeMemoryMb(value) {
+  const numeric = toFiniteNumber(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  if (numeric >= 1024 * 1024) return numeric / (1024 * 1024); // bytes
+  if (numeric >= 1024 * 8) return numeric / 1024; // kilobytes
+  return numeric; // already MB-ish
+}
+
+function extractPayloadMetric(payload, keys = []) {
+  if (!payload || typeof payload !== "object") return null;
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      const value = payload[key];
+      const parsed = toFiniteNumber(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function pressureTone(value, { warn = 75, critical = 90 } = {}) {
+  if (!Number.isFinite(value)) return "gray";
+  if (value >= critical) return "red";
+  if (value >= warn) return "yellow";
+  return "green";
+}
+
 function domainTitleForService(service) {
   const key = parseServiceKey(service?.service_key).baseKey;
   const category = service?.category || "";
@@ -254,40 +295,78 @@ function buildTrendPath(points, valueAccessor, width, height, padding) {
   return path.trim();
 }
 
-function buildSparklineModel(points = []) {
+function compressTrendPoints(points = [], maxPoints = 28) {
   const ordered = [...(Array.isArray(points) ? points : [])].sort((a, b) =>
     String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || ""))
   );
-  const width = 240;
-  const height = 72;
-  const padding = 8;
-  const healthyPath = buildTrendPath(
-    ordered,
-    (point) => {
-      const value = Number(point?.healthy_rate);
-      return Number.isFinite(value) ? value * 100 : null;
-    },
-    width,
-    height,
-    padding
+  if (ordered.length <= maxPoints || maxPoints < 2) return ordered;
+
+  const bucketSize = ordered.length / maxPoints;
+  const compressed = [];
+
+  for (let bucketIndex = 0; bucketIndex < maxPoints; bucketIndex += 1) {
+    const start = Math.floor(bucketIndex * bucketSize);
+    const end = Math.max(start + 1, Math.floor((bucketIndex + 1) * bucketSize));
+    const slice = ordered.slice(start, end);
+    if (!slice.length) continue;
+
+    const avgFinite = (values) => {
+      const finite = values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+      if (!finite.length) return null;
+      return finite.reduce((sum, v) => sum + v, 0) / finite.length;
+    };
+
+    const first = slice[0];
+    const last = slice[slice.length - 1];
+    compressed.push({
+      ...first,
+      bucket_key: first?.bucket_key || `bucket_${bucketIndex}`,
+      bucket_label:
+        bucketIndex === 0
+          ? first?.bucket_label || first?.bucket_key || ""
+          : bucketIndex === maxPoints - 1
+            ? last?.bucket_label || last?.bucket_key || ""
+            : "",
+      healthy_rate: avgFinite(slice.map((point) => point?.healthy_rate)),
+      down_rate: avgFinite(slice.map((point) => point?.down_rate)),
+      avg_latency_ms: avgFinite(slice.map((point) => point?.avg_latency_ms)),
+      total_checks: slice.reduce((sum, point) => sum + Number(point?.total_checks || 0), 0),
+      healthy_count: slice.reduce((sum, point) => sum + Number(point?.healthy_count || 0), 0),
+      down_count: slice.reduce((sum, point) => sum + Number(point?.down_count || 0), 0),
+      degraded_count: slice.reduce((sum, point) => sum + Number(point?.degraded_count || 0), 0),
+      unknown_count: slice.reduce((sum, point) => sum + Number(point?.unknown_count || 0), 0)
+    });
+  }
+
+  return compressed;
+}
+
+function buildTrendChartModel(rawPoints = [], range = "30d") {
+  const orderedPoints = [...(Array.isArray(rawPoints) ? rawPoints : [])].sort((a, b) =>
+    String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || ""))
   );
-  const downPath = buildTrendPath(
-    ordered,
-    (point) => {
-      const value = Number(point?.down_rate);
-      return Number.isFinite(value) ? value * 100 : null;
-    },
-    width,
-    height,
-    padding
-  );
+  const points = compressTrendPoints(orderedPoints, range === "12m" ? 24 : 30);
+  const width = 560;
+  const height = 180;
+  const padding = 26;
+
+  const healthyPath = buildTrendPath(points, (point) => {
+    const value = Number(point?.healthy_rate);
+    return Number.isFinite(value) ? value * 100 : null;
+  }, width, height, padding);
 
   return {
+    points,
     width,
     height,
+    padding,
     healthyPath,
-    downPath,
-    hasPath: Boolean(healthyPath || downPath)
+    hasPath: Boolean(healthyPath),
+    xLabels: {
+      start: points[0]?.bucket_label || "",
+      mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
+      end: points[points.length - 1]?.bucket_label || ""
+    }
   };
 }
 
@@ -303,8 +382,10 @@ function CtoDashboardPage() {
   const [loadError, setLoadError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [trendRange, setTrendRange] = useState("30d");
-  const [trendServiceKey, setTrendServiceKey] = useState("");
-  const [trendData, setTrendData] = useState({ points: [], summary: {}, source: {} });
+  const [trendVpsServiceKey, setTrendVpsServiceKey] = useState("");
+  const [trendLocalServiceKey, setTrendLocalServiceKey] = useState("");
+  const [trendData, setTrendData] = useState({ points: [], summary: {}, source: {}, service_key: "" });
+  const [trendCompareData, setTrendCompareData] = useState({ points: [], summary: {}, source: {}, service_key: "" });
   const [trendWowData, setTrendWowData] = useState({ points: [], summary: {}, source: {} });
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
@@ -313,7 +394,7 @@ function CtoDashboardPage() {
   const [eventsRows, setEventsRows] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventsError, setEventsError] = useState("");
-  const [eventsStatusFilter, setEventsStatusFilter] = useState("open");
+  const [eventsStatusFilter, setEventsStatusFilter] = useState("");
   const [eventsSeverityFilter, setEventsSeverityFilter] = useState("");
   const [eventActionBusy, setEventActionBusy] = useState({});
   const [feedbackPeriod, setFeedbackPeriod] = useState("month");
@@ -333,6 +414,7 @@ function CtoDashboardPage() {
   const [feedbackDetailsError, setFeedbackDetailsError] = useState("");
   const [feedbackDetailsTitle, setFeedbackDetailsTitle] = useState("");
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
+  const [showVpsRunbook, setShowVpsRunbook] = useState(false);
   const refreshRef = useRef(null);
 
   useEffect(() => {
@@ -418,23 +500,37 @@ function CtoDashboardPage() {
       setTrendLoading(true);
       setTrendError("");
       try {
-        const params = new URLSearchParams({
+        const vpsParams = new URLSearchParams({
           range: trendRange,
+          node_role: "vps",
           ts: String(Date.now())
         });
-        if (selectedLabId) params.set("lab_id", selectedLabId);
-        if (trendServiceKey) params.set("service_key", trendServiceKey);
+        if (selectedLabId) vpsParams.set("lab_id", selectedLabId);
+        if (trendVpsServiceKey) vpsParams.set("service_key", trendVpsServiceKey);
+
+        const localParams = new URLSearchParams({
+          range: trendRange,
+          node_role: "local",
+          ts: String(Date.now())
+        });
+        if (selectedLabId) localParams.set("lab_id", selectedLabId);
+        if (trendLocalServiceKey) localParams.set("service_key", trendLocalServiceKey);
 
         const wowParams = new URLSearchParams({
           range: "30d",
           bucket: "day",
+          node_role: "vps",
           ts: String(Date.now())
         });
         if (selectedLabId) wowParams.set("lab_id", selectedLabId);
-        if (trendServiceKey) wowParams.set("service_key", trendServiceKey);
+        if (trendVpsServiceKey) wowParams.set("service_key", trendVpsServiceKey);
 
-        const [mainRes, wowRes] = await Promise.all([
-          fetch(`/api/cto/trends?${params.toString()}`, {
+        const fetches = [
+          fetch(`/api/cto/trends?${vpsParams.toString()}`, {
+            credentials: "include",
+            cache: "no-store"
+          }),
+          fetch(`/api/cto/trends?${localParams.toString()}`, {
             credentials: "include",
             cache: "no-store"
           }),
@@ -442,22 +538,34 @@ function CtoDashboardPage() {
             credentials: "include",
             cache: "no-store"
           })
-        ]);
+        ];
 
-        const mainData = await mainRes.json().catch(() => ({}));
+        const [vpsRes, localRes, wowRes] = await Promise.all(fetches);
+
+        const vpsData = await vpsRes.json().catch(() => ({}));
+        const localData = await localRes.json().catch(() => ({}));
         const wowData = await wowRes.json().catch(() => ({}));
 
-        if (!mainRes.ok) throw new Error(mainData.error || "Failed to load historical trends");
+        if (!vpsRes.ok) throw new Error(vpsData.error || "Failed to load VPS trends");
+        if (!localRes.ok) throw new Error(localData.error || "Failed to load local trends");
         if (!wowRes.ok) throw new Error(wowData.error || "Failed to load week-over-week trends");
 
         if (!cancelled) {
-          setTrendData(mainData);
+          setTrendData({
+            ...vpsData,
+            service_key: trendVpsServiceKey || ""
+          });
           setTrendWowData(wowData);
+          setTrendCompareData({
+            ...localData,
+            service_key: trendLocalServiceKey || ""
+          });
         }
       } catch (error) {
         if (!cancelled) {
           setTrendError(error.message || "Failed to load historical trends");
           setTrendData({ points: [], summary: {}, source: {} });
+          setTrendCompareData({ points: [], summary: {}, source: {}, service_key: "" });
           setTrendWowData({ points: [], summary: {}, source: {} });
         }
       } finally {
@@ -469,7 +577,7 @@ function CtoDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedLabId, trendRange, trendServiceKey]);
+  }, [selectedLabId, trendRange, trendVpsServiceKey, trendLocalServiceKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -780,52 +888,16 @@ function CtoDashboardPage() {
   const trendPoints = useMemo(() => {
     return Array.isArray(trendData?.points) ? trendData.points : [];
   }, [trendData]);
+  const trendComparePoints = useMemo(() => {
+    return Array.isArray(trendCompareData?.points) ? trendCompareData.points : [];
+  }, [trendCompareData]);
 
-  const trendDomainBreakdown = useMemo(() => {
-    return Array.isArray(trendData?.domain_breakdown) ? trendData.domain_breakdown : [];
+  const trendSource = useMemo(() => {
+    return trendData?.source || {};
   }, [trendData]);
 
-  const trendChartModel = useMemo(() => {
-    const points = [...trendPoints].sort((a, b) => String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || "")));
-    const maxLatency = points.reduce((max, point) => {
-      const value = Number(point?.avg_latency_ms);
-      return Number.isFinite(value) ? Math.max(max, value) : max;
-    }, 0);
-
-    const width = Math.max(760, points.length * 52);
-    const height = 260;
-    const padding = 26;
-
-    const healthyPath = buildTrendPath(points, (point) => {
-      const value = Number(point?.healthy_rate);
-      return Number.isFinite(value) ? value * 100 : null;
-    }, width, height, padding);
-    const downPath = buildTrendPath(points, (point) => {
-      const value = Number(point?.down_rate);
-      return Number.isFinite(value) ? value * 100 : null;
-    }, width, height, padding);
-    const latencyPath = buildTrendPath(points, (point) => {
-      const value = Number(point?.avg_latency_ms);
-      return Number.isFinite(value) && maxLatency > 0 ? (value / maxLatency) * 100 : null;
-    }, width, height, padding);
-
-    return {
-      points,
-      width,
-      height,
-      padding,
-      maxLatency,
-      healthyPath,
-      downPath,
-      latencyPath,
-      hasPath: Boolean(healthyPath || downPath || latencyPath),
-      xLabels: {
-        start: points[0]?.bucket_label || "",
-        mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
-        end: points[points.length - 1]?.bucket_label || ""
-      }
-    };
-  }, [trendPoints]);
+  const trendChartModel = useMemo(() => buildTrendChartModel(trendPoints, trendRange), [trendPoints, trendRange]);
+  const trendCompareChartModel = useMemo(() => buildTrendChartModel(trendComparePoints, trendRange), [trendComparePoints, trendRange]);
 
   const trendWow = useMemo(() => {
     const points = Array.isArray(trendWowData?.points) ? trendWowData.points : [];
@@ -834,6 +906,7 @@ function CtoDashboardPage() {
     if (recent.length < 14) {
       return {
         hasData: false,
+        reason: `Need 14 daily points (have ${recent.length})`,
         healthy_delta_pct_points: null,
         down_delta_pct_points: null,
         latency_delta_ms: null
@@ -859,27 +932,46 @@ function CtoDashboardPage() {
     const prevLatency = average(previousWeek, (point) => point?.avg_latency_ms);
     const currLatency = average(currentWeek, (point) => point?.avg_latency_ms);
 
+    const healthyDelta =
+      Number.isFinite(currHealthy) && Number.isFinite(prevHealthy)
+        ? Number((currHealthy - prevHealthy).toFixed(1))
+        : null;
+    const downDelta =
+      Number.isFinite(currDown) && Number.isFinite(prevDown)
+        ? Number((currDown - prevDown).toFixed(1))
+        : null;
+    const latencyDelta =
+      Number.isFinite(currLatency) && Number.isFinite(prevLatency)
+        ? Math.round(currLatency - prevLatency)
+        : null;
+
+    const hasAnyDelta = healthyDelta != null || downDelta != null || latencyDelta != null;
+
     return {
-      hasData: true,
+      hasData: hasAnyDelta,
+      reason: hasAnyDelta ? null : "Insufficient complete daily data in one of the two weeks",
       healthy_delta_pct_points:
-        Number.isFinite(currHealthy) && Number.isFinite(prevHealthy)
-          ? Number((currHealthy - prevHealthy).toFixed(1))
-          : null,
+        healthyDelta,
       down_delta_pct_points:
-        Number.isFinite(currDown) && Number.isFinite(prevDown)
-          ? Number((currDown - prevDown).toFixed(1))
-          : null,
+        downDelta,
       latency_delta_ms:
-        Number.isFinite(currLatency) && Number.isFinite(prevLatency)
-          ? Math.round(currLatency - prevLatency)
-          : null
+        latencyDelta
     };
   }, [trendWowData]);
 
-  const trendServiceOptions = useMemo(() => {
-    return [...new Set(realServices.map((service) => service.service_key).filter(Boolean))].sort((a, b) =>
-      a.localeCompare(b)
-    );
+  const trendVpsServiceOptions = useMemo(() => {
+    return [...new Set(
+      realServices
+        .map((service) => String(service.service_key || ""))
+        .filter((key) => key.toLowerCase().endsWith("__vps"))
+    )].sort((a, b) => a.localeCompare(b));
+  }, [realServices]);
+  const trendLocalServiceOptions = useMemo(() => {
+    return [...new Set(
+      realServices
+        .map((service) => String(service.service_key || ""))
+        .filter((key) => key.toLowerCase().endsWith("__local"))
+    )].sort((a, b) => a.localeCompare(b));
   }, [realServices]);
 
   const keySystemStatuses = useMemo(() => {
@@ -910,6 +1002,88 @@ function CtoDashboardPage() {
       };
     });
   }, [realServices]);
+
+  const vpsHealth = useMemo(() => {
+    const vpsServices = realServices.filter(isVpsService);
+    const byStatus = vpsServices.reduce(
+      (acc, service) => {
+        acc.total += 1;
+        acc[service.status] = (acc[service.status] || 0) + 1;
+        return acc;
+      },
+      { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }
+    );
+
+    let maxCpu = null;
+    let maxCpuService = null;
+    let maxProcessMemoryMb = null;
+    let maxProcessMemoryService = null;
+    let hostMemoryPct = null;
+    let hostSwapPct = null;
+    let hostDiskPct = null;
+    let hostLoad1 = null;
+    let hostCpuCores = null;
+    let hostLoadPerCorePct = null;
+
+    for (const service of vpsServices) {
+      const payload = service?.payload || {};
+      const cpu = extractPayloadMetric(payload, ["cpu", "cpu_pct", "cpu_percent", "cpu_usage_percent"]);
+      if (Number.isFinite(cpu) && (maxCpu == null || cpu > maxCpu)) {
+        maxCpu = cpu;
+        maxCpuService = service;
+      }
+
+      const memoryMb = normalizeMemoryMb(
+        extractPayloadMetric(payload, ["memory_mb", "mem_mb", "rss_mb", "memory", "rss"])
+      );
+      if (Number.isFinite(memoryMb) && (maxProcessMemoryMb == null || memoryMb > maxProcessMemoryMb)) {
+        maxProcessMemoryMb = memoryMb;
+        maxProcessMemoryService = service;
+      }
+
+      const memPct = extractPayloadMetric(payload, ["memory_pct", "mem_pct", "memory_percent", "ram_used_pct"]);
+      if (Number.isFinite(memPct) && (hostMemoryPct == null || memPct > hostMemoryPct)) hostMemoryPct = memPct;
+
+      const swapPct = extractPayloadMetric(payload, ["swap_pct", "swap_used_pct", "swap_percent"]);
+      if (Number.isFinite(swapPct) && (hostSwapPct == null || swapPct > hostSwapPct)) hostSwapPct = swapPct;
+
+      const diskPct = extractPayloadMetric(payload, ["disk_pct", "disk_used_pct", "disk_percent", "root_disk_pct"]);
+      if (Number.isFinite(diskPct) && (hostDiskPct == null || diskPct > hostDiskPct)) hostDiskPct = diskPct;
+
+      const load = extractPayloadMetric(payload, ["load_1", "load1", "loadavg_1"]);
+      if (Number.isFinite(load) && (hostLoad1 == null || load > hostLoad1)) hostLoad1 = load;
+
+      const cores = extractPayloadMetric(payload, ["cpu_cores", "cores"]);
+      if (Number.isFinite(cores) && (hostCpuCores == null || cores > hostCpuCores)) hostCpuCores = cores;
+
+      const loadPct = extractPayloadMetric(payload, ["load_1_per_core_pct", "load_per_core_pct"]);
+      if (Number.isFinite(loadPct) && (hostLoadPerCorePct == null || loadPct > hostLoadPerCorePct)) hostLoadPerCorePct = loadPct;
+    }
+
+    return {
+      services: vpsServices,
+      byStatus,
+      maxCpu,
+      maxCpuService,
+      maxProcessMemoryMb,
+      maxProcessMemoryService,
+      hostMemoryPct,
+      hostSwapPct,
+      hostDiskPct,
+      hostLoad1,
+      hostCpuCores,
+      hostLoadPerCorePct
+    };
+  }, [realServices]);
+
+  const hasVpsIncident = useMemo(
+    () => (vpsHealth.byStatus.down || 0) > 0 || (vpsHealth.byStatus.degraded || 0) > 0,
+    [vpsHealth.byStatus.degraded, vpsHealth.byStatus.down]
+  );
+
+  useEffect(() => {
+    if (hasVpsIncident) setShowVpsRunbook(true);
+  }, [hasVpsIncident]);
 
   const canSelectLab = isProductCto && labs.length > 1;
   const selectedLabName = useMemo(() => {
@@ -1132,23 +1306,26 @@ function CtoDashboardPage() {
               )}
             </Box>
             <Flex
+              direction="column"
               gap={2}
               px={3}
               py={2}
               borderRadius="28px"
               bg="rgba(255,255,255,0.05)"
               border="1px solid rgba(255,255,255,0.08)"
-              wrap="wrap"
-              maxW={{ base: "full", xl: "720px" }}
+              maxW={{ base: "full", xl: "1000px" }}
             >
-              {keySystemStatuses.map((system) => (
+              <Text fontSize="xs" color="whiteAlpha.700" px={1}>
+                Key Status
+              </Text>
+              <SimpleGrid columns={{ base: 2, md: 4 }} spacing={2}>
                 <Tooltip
-                  key={system.label}
+                  key="vps_health_tile"
                   hasArrow
                   placement="top"
                   bg="gray.900"
                   color="white"
-                  label={`${system.label}: ${system.status}${typeof system.latency_ms === "number" ? ` • ${system.latency_ms} ms` : ""}${system.message ? ` • ${system.message}` : ""}${system.matchCount ? ` • ${system.matchCount} checks` : ""}`}
+                  label={`VPS: ${(vpsHealth.byStatus.down || 0) > 0 ? `${vpsHealth.byStatus.down} down` : (vpsHealth.byStatus.degraded || 0) > 0 ? `${vpsHealth.byStatus.degraded} degraded` : "healthy"} • Mem ${Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"} • Disk ${Number.isFinite(vpsHealth.hostDiskPct) ? `${Math.round(vpsHealth.hostDiskPct)}%` : "n/a"}`}
                 >
                   <Flex
                     align="center"
@@ -1158,67 +1335,107 @@ function CtoDashboardPage() {
                     borderRadius="full"
                     bg="rgba(255,255,255,0.04)"
                     border="1px solid rgba(255,255,255,0.05)"
-                    cursor={system.primaryServiceKey ? "pointer" : "default"}
-                    minW="fit-content"
-                    onClick={() => {
-                      if (system.primaryServiceKey) setSelectedServiceKey(system.primaryServiceKey);
-                    }}
                   >
                     <Box
                       w={2.5}
                       h={2.5}
                       borderRadius="full"
                       bg={
-                        system.status === "healthy"
-                          ? "green.400"
-                          : system.status === "degraded"
-                          ? "yellow.300"
-                          : system.status === "down"
+                        (vpsHealth.byStatus.down || 0) > 0
                           ? "red.400"
-                          : "gray.400"
+                          : (vpsHealth.byStatus.degraded || 0) > 0
+                          ? "yellow.300"
+                          : "green.400"
                       }
                     />
-                    <Text fontSize="xs" color="whiteAlpha.900">
-                      {system.label}
+                    <Text fontSize="xs" color="whiteAlpha.900" noOfLines={1}>
+                      VPS
                     </Text>
                   </Flex>
                 </Tooltip>
-              ))}
+
+                {keySystemStatuses.map((system) => (
+                  <Tooltip
+                    key={system.label}
+                    hasArrow
+                    placement="top"
+                    bg="gray.900"
+                    color="white"
+                    label={`${system.label}: ${system.status}${typeof system.latency_ms === "number" ? ` • ${system.latency_ms} ms` : ""}${system.message ? ` • ${system.message}` : ""}${system.matchCount ? ` • ${system.matchCount} checks` : ""}`}
+                  >
+                    <Flex
+                      align="center"
+                      gap={2}
+                      px={3}
+                      py={1.5}
+                      borderRadius="full"
+                      bg="rgba(255,255,255,0.04)"
+                      border="1px solid rgba(255,255,255,0.05)"
+                      cursor={system.primaryServiceKey ? "pointer" : "default"}
+                      onClick={() => {
+                        if (system.primaryServiceKey) setSelectedServiceKey(system.primaryServiceKey);
+                      }}
+                    >
+                      <Box
+                        w={2.5}
+                        h={2.5}
+                        borderRadius="full"
+                        bg={
+                          system.status === "healthy"
+                            ? "green.400"
+                            : system.status === "degraded"
+                            ? "yellow.300"
+                            : system.status === "down"
+                            ? "red.400"
+                            : "gray.400"
+                        }
+                      />
+                      <Text fontSize="xs" color="whiteAlpha.900" noOfLines={1}>
+                        {system.label}
+                      </Text>
+                    </Flex>
+                  </Tooltip>
+                ))}
+              </SimpleGrid>
             </Flex>
-            <Flex gap={3} wrap="wrap" justify={{ base: "flex-start", xl: "flex-end" }}>
+            <SimpleGrid columns={{ base: 2, md: 3, xl: 5 }} spacing={2} minW={{ base: "100%", xl: "700px" }}>
               <Button
+                size="sm"
                 bg="white"
                 color="#0b1320"
                 _hover={{ bg: "gray.100" }}
                 borderRadius="full"
-                px={6}
+                leftIcon={<RepeatIcon />}
                 onClick={() => refreshRef.current?.()}
               >
                 Run Diagnostics
               </Button>
               <Button
+                size="sm"
                 as={Link}
                 href="/admin"
                 bg="rgba(126, 244, 215, 0.16)"
                 color="white"
                 _hover={{ bg: "rgba(126, 244, 215, 0.24)" }}
                 borderRadius="full"
-                px={6}
+                leftIcon={<SettingsIcon />}
               >
-                Admin Dashboard
+                Admin
               </Button>
               <Button
+                size="sm"
                 as={Link}
                 href="/admin/whatsapp"
                 bg="rgba(56, 189, 248, 0.16)"
                 color="white"
                 _hover={{ bg: "rgba(56, 189, 248, 0.24)" }}
                 borderRadius="full"
-                px={6}
+                leftIcon={<ExternalLinkIcon />}
               >
-                WhatsApp Inbox
+                Inbox
               </Button>
               <Button
+                size="sm"
                 as={Link}
                 href="/cto/whatsapp-sim"
                 variant="outline"
@@ -1226,22 +1443,23 @@ function CtoDashboardPage() {
                 color="white"
                 _hover={{ bg: "rgba(126, 244, 215, 0.16)" }}
                 borderRadius="full"
-                px={6}
+                leftIcon={<ExternalLinkIcon />}
               >
-                Bot Simulator
+                Simulator
               </Button>
               <Button
+                size="sm"
                 variant="outline"
                 borderColor="rgba(244, 190, 126, 0.65)"
                 color="white"
                 _hover={{ bg: "rgba(244, 190, 126, 0.16)" }}
                 borderRadius="full"
-                px={6}
+                leftIcon={<ExternalLinkIcon />}
                 onClick={smartReportModal.onOpen}
               >
                 SMART Report*
               </Button>
-            </Flex>
+            </SimpleGrid>
           </Stack>
         </Flex>
 
@@ -1329,6 +1547,138 @@ function CtoDashboardPage() {
           ))}
         </SimpleGrid>
 
+        <Box
+          mb={8}
+          p={{ base: 5, md: 6 }}
+          borderRadius="28px"
+          bg="rgba(8,15,28,0.82)"
+          border="1px solid rgba(56, 189, 248, 0.24)"
+          boxShadow="0 28px 80px rgba(0,0,0,0.22)"
+        >
+          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} flexWrap="wrap" mb={4}>
+            <Box>
+              <HStack spacing={2} mb={1}>
+                <Heading size="md">VPS Health</Heading>
+                <IconButton
+                  aria-label={showVpsRunbook ? "Hide incident runbook" : "Show incident runbook"}
+                  icon={<QuestionOutlineIcon />}
+                  size="xs"
+                  variant="outline"
+                  borderColor="rgba(255,255,255,0.28)"
+                  color="whiteAlpha.900"
+                  _hover={{ bg: "whiteAlpha.120" }}
+                  onClick={() => setShowVpsRunbook((prev) => !prev)}
+                />
+              </HStack>
+              <Text color="whiteAlpha.700" fontSize="sm">
+                Fast triage view for memory and host pressure across VPS services.
+              </Text>
+            </Box>
+            <HStack spacing={2}>
+              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : vpsHealth.byStatus.degraded > 0 ? "degraded" : "healthy")} borderRadius="full" px={3} py={1}>
+                {vpsHealth.byStatus.total} services
+              </Badge>
+              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : "healthy")} borderRadius="full" px={3} py={1}>
+                {vpsHealth.byStatus.down > 0 ? `${vpsHealth.byStatus.down} down` : "No down service"}
+              </Badge>
+              {hasVpsIncident && (
+                <Badge colorScheme="red" borderRadius="full" px={3} py={1}>
+                  Incident Mode
+                </Badge>
+              )}
+            </HStack>
+          </Flex>
+
+          <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
+            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Host Memory Pressure</Text>
+              <Text fontSize="2xl" fontWeight="800" color={pressureTone(vpsHealth.hostMemoryPct) === "red" ? "red.300" : pressureTone(vpsHealth.hostMemoryPct) === "yellow" ? "yellow.300" : pressureTone(vpsHealth.hostMemoryPct) === "green" ? "green.300" : "whiteAlpha.900"}>
+                {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.600" mt={1}>
+                Peak RAM usage seen in VPS payloads
+              </Text>
+            </Box>
+
+            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Process Memory Peak</Text>
+              <Text fontSize="2xl" fontWeight="800" color="cyan.200">
+                {Number.isFinite(vpsHealth.maxProcessMemoryMb) ? `${Math.round(vpsHealth.maxProcessMemoryMb)} MB` : "n/a"}
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.600" mt={1} noOfLines={1}>
+                {vpsHealth.maxProcessMemoryService?.label || vpsHealth.maxProcessMemoryService?.service_key || "Waiting for metrics"}
+              </Text>
+            </Box>
+
+            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>CPU Peak (Process)</Text>
+              <Text fontSize="2xl" fontWeight="800" color={pressureTone(vpsHealth.maxCpu, { warn: 60, critical: 85 }) === "red" ? "red.300" : pressureTone(vpsHealth.maxCpu, { warn: 60, critical: 85 }) === "yellow" ? "yellow.300" : pressureTone(vpsHealth.maxCpu, { warn: 60, critical: 85 }) === "green" ? "green.300" : "whiteAlpha.900"}>
+                {Number.isFinite(vpsHealth.maxCpu) ? `${Math.round(vpsHealth.maxCpu)}%` : "n/a"}
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.600" mt={1} noOfLines={1}>
+                {vpsHealth.maxCpuService?.label || vpsHealth.maxCpuService?.service_key || "Waiting for metrics"}
+              </Text>
+            </Box>
+
+            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Disk / Swap / Load</Text>
+              <VStack align="flex-start" spacing={1} mt={1}>
+                <Text fontSize="sm" color="whiteAlpha.900">
+                  Disk: {Number.isFinite(vpsHealth.hostDiskPct) ? `${Math.round(vpsHealth.hostDiskPct)}%` : "n/a"}
+                </Text>
+                <Text fontSize="sm" color="whiteAlpha.900">
+                  Swap: {Number.isFinite(vpsHealth.hostSwapPct) ? `${Math.round(vpsHealth.hostSwapPct)}%` : "n/a"}
+                </Text>
+                <Text fontSize="sm" color="whiteAlpha.900">
+                  Load(1m): {Number.isFinite(vpsHealth.hostLoad1) ? vpsHealth.hostLoad1.toFixed(2) : "n/a"}
+                  {Number.isFinite(vpsHealth.hostCpuCores) ? ` / ${Math.round(vpsHealth.hostCpuCores)} cores` : ""}
+                  {Number.isFinite(vpsHealth.hostLoadPerCorePct) ? ` (${Math.round(vpsHealth.hostLoadPerCorePct)}%)` : ""}
+                </Text>
+              </VStack>
+            </Box>
+          </SimpleGrid>
+
+          <HStack mt={4} spacing={2} flexWrap="wrap">
+            {keySystemStatuses
+              .filter((system) => system.label === "Supabase" || system.label === "Labbit")
+              .map((system) => (
+                <Badge
+                  key={system.label}
+                  borderRadius="full"
+                  px={3}
+                  py={1}
+                  colorScheme={statusColor(system.status)}
+                  variant="subtle"
+                >
+                  {system.label}: {system.status}
+                </Badge>
+              ))}
+            <Text fontSize="xs" color="whiteAlpha.650">
+              If these turn degraded/down with high memory or disk pressure, start incident triage from VPS first.
+            </Text>
+          </HStack>
+
+          {showVpsRunbook && (
+            <Box
+              mt={4}
+              p={4}
+              borderRadius="16px"
+              bg={hasVpsIncident ? "rgba(248, 113, 113, 0.12)" : "rgba(56, 189, 248, 0.10)"}
+              border={hasVpsIncident ? "1px solid rgba(248, 113, 113, 0.28)" : "1px solid rgba(56, 189, 248, 0.22)"}
+            >
+              <Text fontSize="sm" fontWeight="700" mb={2}>
+                Incident First Steps {hasVpsIncident ? "(Auto-opened)" : ""}
+              </Text>
+              <VStack align="flex-start" spacing={1.5}>
+                <Text fontSize="sm" color="whiteAlpha.900">1. Check <b>Supabase</b> and <b>Labbit</b> badges above. If either is down/degraded, start there.</Text>
+                <Text fontSize="sm" color="whiteAlpha.900">2. If Host Memory or Disk is high, reduce load first, then restart only the affected service.</Text>
+                <Text fontSize="sm" color="whiteAlpha.900">3. Open Service Detail for the worst service and read latest message + payload before taking action.</Text>
+                <Text fontSize="sm" color="whiteAlpha.900">4. If issue persists for 5+ minutes, escalate with timestamp and affected services.</Text>
+              </VStack>
+            </Box>
+          )}
+        </Box>
+
         {loadError && (
           <Box
             mb={6}
@@ -1341,8 +1691,70 @@ function CtoDashboardPage() {
           </Box>
         )}
 
-        <Grid templateColumns={{ base: "1fr", xl: "1.45fr 1fr" }} gap={5} mb={5}>
-          <GridItem>
+        <Grid templateColumns={{ base: "1fr" }} gap={4} mb={5}>
+          <GridItem order={1}>
+            <Box
+              p={{ base: 4, md: 5 }}
+              borderRadius="24px"
+              bg="linear-gradient(180deg, rgba(26,37,55,0.96) 0%, rgba(13,23,38,0.98) 100%)"
+              border="1px solid rgba(255,255,255,0.08)"
+            >
+              <HStack justify="space-between" mb={2} flexWrap="wrap">
+                <Heading size="sm">Priority Issues</Heading>
+                <Badge colorScheme={incidentFeed.length ? "red" : "green"} borderRadius="full" px={3} py={1}>
+                  {incidentFeed.length ? `${incidentFeed.length} active` : "No active issue"}
+                </Badge>
+              </HStack>
+              <Text color="whiteAlpha.700" mb={3} fontSize="sm">
+                Quick attention strip. Click an item to inspect details.
+              </Text>
+
+              {incidentFeed.length === 0 && !loading && (
+                <Box
+                  p={3}
+                  borderRadius="16px"
+                  bg="rgba(255,255,255,0.04)"
+                  border="1px solid rgba(255,255,255,0.08)"
+                >
+                  <Text fontSize="sm" color="whiteAlpha.760">No active degraded or down services.</Text>
+                </Box>
+              )}
+
+              {incidentFeed.length > 0 && (
+                <HStack spacing={3} overflowX="auto" pb={1} align="stretch">
+                  {incidentFeed.map((incident) => (
+                    <Box
+                      key={incident.service_key}
+                      minW={{ base: "260px", md: "300px" }}
+                      p={3}
+                      borderRadius="16px"
+                      bg={selectedService?.service_key === incident.service_key ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)"}
+                      border={selectedService?.service_key === incident.service_key ? "1px solid rgba(126,244,215,0.32)" : "1px solid rgba(255,255,255,0.08)"}
+                      cursor="pointer"
+                      _hover={{ bg: "rgba(255,255,255,0.07)" }}
+                      onClick={() => setSelectedServiceKey(incident.service_key)}
+                    >
+                      <HStack justify="space-between" mb={2}>
+                        <StatusChip
+                          status={incident.status}
+                          color={statusColor(incident.status)}
+                        />
+                        <Text fontSize="xs" color="whiteAlpha.600">
+                          {incident.category || "other"}
+                        </Text>
+                      </HStack>
+                      <Text fontWeight="700" mb={1} noOfLines={1}>{incident.label || incident.service_key}</Text>
+                      <Text fontSize="sm" color="whiteAlpha.760" noOfLines={2}>
+                        {incident.message || "Service needs review."}
+                      </Text>
+                    </Box>
+                  ))}
+                </HStack>
+              )}
+            </Box>
+          </GridItem>
+
+          <GridItem order={2}>
             <Box
               p={{ base: 5, md: 6 }}
               borderRadius="28px"
@@ -1487,60 +1899,6 @@ function CtoDashboardPage() {
               </SimpleGrid>
             </Box>
           </GridItem>
-
-          <GridItem>
-            <Box
-              p={{ base: 5, md: 6 }}
-              borderRadius="28px"
-              bg="linear-gradient(180deg, rgba(26,37,55,0.96) 0%, rgba(13,23,38,0.98) 100%)"
-              border="1px solid rgba(255,255,255,0.08)"
-              h="100%"
-            >
-              <Heading size="md" mb={1}>Priority Issues</Heading>
-              <Text color="whiteAlpha.700" mb={5}>
-                Click a card or status counter to inspect exactly what needs attention.
-              </Text>
-
-              <Stack spacing={4}>
-                {incidentFeed.length === 0 && !loading && (
-                  <Box
-                    p={4}
-                    borderRadius="20px"
-                    bg="rgba(255,255,255,0.04)"
-                    border="1px solid rgba(255,255,255,0.08)"
-                  >
-                    <Text fontSize="sm" color="whiteAlpha.760">No active degraded or down services.</Text>
-                  </Box>
-                )}
-                {incidentFeed.map((incident) => (
-                  <Box
-                    key={incident.service_key}
-                    p={4}
-                    borderRadius="20px"
-                    bg={selectedService?.service_key === incident.service_key ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)"}
-                    border={selectedService?.service_key === incident.service_key ? "1px solid rgba(126,244,215,0.32)" : "1px solid rgba(255,255,255,0.08)"}
-                    cursor="pointer"
-                    _hover={{ bg: "rgba(255,255,255,0.07)" }}
-                    onClick={() => setSelectedServiceKey(incident.service_key)}
-                  >
-                    <HStack justify="space-between" mb={2}>
-                      <StatusChip
-                        status={incident.status}
-                        color={statusColor(incident.status)}
-                      />
-                      <Text fontSize="xs" color="whiteAlpha.600">
-                        {incident.category || "other"}
-                      </Text>
-                    </HStack>
-                    <Text fontWeight="700" mb={2}>{incident.label || incident.service_key}</Text>
-                    <Text fontSize="sm" color="whiteAlpha.760">
-                      {incident.message || "Service needs review."}
-                    </Text>
-                  </Box>
-                ))}
-              </Stack>
-            </Box>
-          </GridItem>
         </Grid>
 
         <Grid templateColumns={{ base: "1fr", lg: "1.05fr 1fr" }} gap={5} mb={5}>
@@ -1682,9 +2040,9 @@ function CtoDashboardPage() {
           <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
             <Box>
               <Heading size="md" mb={1}>Historical Trends</Heading>
-              <Text color="whiteAlpha.700">Performance trendline for reliability and latency over time.</Text>
+              <Text color="whiteAlpha.700">Compact reliability trend over time.</Text>
             </Box>
-            <HStack spacing={2} flexWrap="wrap">
+            <HStack spacing={2}>
               <Select
                 size="sm"
                 value={trendRange}
@@ -1699,21 +2057,6 @@ function CtoDashboardPage() {
                   </option>
                 ))}
               </Select>
-              <Select
-                size="sm"
-                value={trendServiceKey}
-                onChange={(e) => setTrendServiceKey(e.target.value)}
-                maxW="280px"
-                bg="rgba(11, 19, 32, 0.72)"
-                borderColor="rgba(255,255,255,0.18)"
-              >
-                <option value="">All services</option>
-                {trendServiceOptions.map((serviceKey) => (
-                  <option key={serviceKey} value={serviceKey}>
-                    {serviceKey}
-                  </option>
-                ))}
-              </Select>
             </HStack>
           </Flex>
 
@@ -1723,7 +2066,7 @@ function CtoDashboardPage() {
             </Box>
           )}
 
-          <SimpleGrid columns={{ base: 1, md: 4 }} spacing={3} mb={4}>
+          <SimpleGrid columns={{ base: 2, md: 3, xl: 6 }} spacing={3} mb={4}>
             <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
               <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total checks</Text>
               <Text fontWeight="700">{trendData?.summary?.total_checks ?? 0}</Text>
@@ -1745,6 +2088,14 @@ function CtoDashboardPage() {
               <Text fontWeight="700">
                 {typeof trendData?.summary?.avg_latency_ms === "number" ? `${Math.round(trendData.summary.avg_latency_ms)} ms` : "n/a"}
               </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Digest rows</Text>
+              <Text fontWeight="700">{Number(trendSource?.digest_rows || 0)}</Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Raw rows</Text>
+              <Text fontWeight="700">{Number(trendSource?.raw_rows || 0)}</Text>
             </Box>
           </SimpleGrid>
 
@@ -1777,133 +2128,122 @@ function CtoDashboardPage() {
               WoW Latency: {trendWow.hasData && trendWow.latency_delta_ms != null ? `${trendWow.latency_delta_ms >= 0 ? "+" : ""}${trendWow.latency_delta_ms} ms` : "n/a"}
             </Badge>
           </HStack>
+          {!trendWow.hasData && trendWow.reason && (
+            <Text fontSize="xs" color="whiteAlpha.700" mb={4}>
+              WoW unavailable: {trendWow.reason}
+            </Text>
+          )}
+          {Number(trendSource?.digest_rows || 0) === 0 && (
+            <Text fontSize="xs" color="yellow.200" mb={4}>
+              Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
+            </Text>
+          )}
 
           {trendLoading && (
             <Text fontSize="sm" color="whiteAlpha.700">Loading trends...</Text>
           )}
 
-          {!trendLoading && trendPoints.length === 0 && (
+          {!trendLoading && trendPoints.length === 0 && trendComparePoints.length === 0 && (
             <Text fontSize="sm" color="whiteAlpha.700">No historical points yet. Run digest once data is ingested.</Text>
           )}
 
-          {!trendLoading && trendPoints.length > 0 && (
-            <Box overflowX="auto" borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
-              <HStack spacing={4} mb={2} flexWrap="wrap">
-                <HStack spacing={2}>
-                  <Box w={3} h={3} borderRadius="full" bg="#34d399" />
-                  <Text fontSize="xs" color="whiteAlpha.800">Healthy %</Text>
-                </HStack>
-                <HStack spacing={2}>
-                  <Box w={3} h={3} borderRadius="full" bg="#f87171" />
-                  <Text fontSize="xs" color="whiteAlpha.800">Down %</Text>
-                </HStack>
-                <HStack spacing={2}>
-                  <Box w={3} h={3} borderRadius="full" bg="#38bdf8" />
-                  <Text fontSize="xs" color="whiteAlpha.800">
-                    Avg latency (normalized{trendChartModel.maxLatency > 0 ? `, max ${Math.round(trendChartModel.maxLatency)} ms` : ""})
-                  </Text>
-                </HStack>
-              </HStack>
-
-              <svg
-                width={trendChartModel.width}
-                height={trendChartModel.height}
-                viewBox={`0 0 ${trendChartModel.width} ${trendChartModel.height}`}
-                role="img"
-                aria-label="Historical trend chart"
-              >
-                {[0, 25, 50, 75, 100].map((level) => {
-                  const y = toChartY(level, trendChartModel.height, trendChartModel.padding);
-                  return (
-                    <g key={level}>
-                      <line
-                        x1={trendChartModel.padding}
-                        x2={trendChartModel.width - trendChartModel.padding}
-                        y1={y}
-                        y2={y}
-                        stroke="rgba(255,255,255,0.14)"
-                        strokeWidth="1"
-                        strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
-                      />
-                      <text
-                        x={6}
-                        y={y + 4}
-                        fill="rgba(255,255,255,0.58)"
-                        fontSize="10"
-                      >
-                        {level}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                <path d={trendChartModel.healthyPath} stroke="#34d399" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-                <path d={trendChartModel.downPath} stroke="#f87171" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-                <path d={trendChartModel.latencyPath} stroke="#38bdf8" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-              </svg>
-
-              {!trendChartModel.hasPath && (
-                <Text mt={2} fontSize="xs" color="whiteAlpha.700">
-                  Trend lines unavailable for current selection.
-                </Text>
-              )}
-
-              <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
-                <Text noOfLines={1} maxW="32%">{trendChartModel.xLabels.start}</Text>
-                <Text noOfLines={1} maxW="32%" textAlign="center">{trendChartModel.xLabels.mid}</Text>
-                <Text noOfLines={1} maxW="32%" textAlign="right">{trendChartModel.xLabels.end}</Text>
-              </HStack>
-            </Box>
-          )}
-
-          {!trendLoading && !trendServiceKey && trendDomainBreakdown.length > 0 && (
-            <Box mt={4}>
-              <Text fontSize="sm" mb={3} color="whiteAlpha.900" fontWeight="600">
-                Group Trends
-              </Text>
-              <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
-                {trendDomainBreakdown.map((group) => {
-                  const spark = buildSparklineModel(group?.points || []);
-                  return (
-                    <Box
-                      key={group.domain}
-                      p={3}
-                      borderRadius="14px"
-                      bg="rgba(255,255,255,0.04)"
-                      border="1px solid rgba(255,255,255,0.08)"
-                    >
-                      <Flex justify="space-between" align="center" mb={2}>
-                        <Text fontSize="sm" fontWeight="700" color="whiteAlpha.900">{group.domain}</Text>
-                        <Text fontSize="xs" color="whiteAlpha.700">
-                          {group?.summary?.total_checks || 0} checks
-                        </Text>
-                      </Flex>
-                      <HStack spacing={3} mb={2}>
-                        <Text fontSize="xs" color="green.200">
-                          Healthy {typeof group?.summary?.healthy_rate === "number" ? `${Math.round(group.summary.healthy_rate * 100)}%` : "n/a"}
-                        </Text>
-                        <Text fontSize="xs" color="red.200">
-                          Down {typeof group?.summary?.down_rate === "number" ? `${Math.round(group.summary.down_rate * 100)}%` : "n/a"}
+          {!trendLoading && (trendPoints.length > 0 || trendComparePoints.length > 0) && (
+            <SimpleGrid columns={{ base: 1, xl: 2 }} spacing={3}>
+              {[
+                {
+                  key: trendVpsServiceKey || "all_vps",
+                  label: trendVpsServiceKey || "All VPS",
+                  model: trendChartModel,
+                  selectedServiceKey: trendVpsServiceKey,
+                  options: trendVpsServiceOptions,
+                  allLabel: "All VPS",
+                  onChange: (value) => setTrendVpsServiceKey(value),
+                },
+                {
+                  key: trendLocalServiceKey || "all_local",
+                  label: trendLocalServiceKey || "All Local",
+                  model: trendCompareChartModel,
+                  selectedServiceKey: trendLocalServiceKey,
+                  options: trendLocalServiceOptions,
+                  allLabel: "All Local",
+                  onChange: (value) => setTrendLocalServiceKey(value),
+                }
+              ]
+                .map((item) => (
+                  <Box key={item.key} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+                    <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
+                      <HStack spacing={2}>
+                        <Box w={3} h={3} borderRadius="full" bg="#34d399" />
+                        <Text fontSize="xs" color="whiteAlpha.900" fontWeight="700">
+                          {item.label}
                         </Text>
                       </HStack>
-                      <svg
-                        width={spark.width}
-                        height={spark.height}
-                        viewBox={`0 0 ${spark.width} ${spark.height}`}
-                        role="img"
-                        aria-label={`${group.domain} trend`}
+                      <Select
+                        size="xs"
+                        value={item.selectedServiceKey}
+                        onChange={(e) => item.onChange(e.target.value)}
+                        maxW={{ base: "100%", md: "280px" }}
+                        bg="rgba(11, 19, 32, 0.72)"
+                        borderColor="rgba(255,255,255,0.18)"
                       >
-                        <path d={spark.healthyPath} stroke="#34d399" strokeWidth="2" fill="none" strokeLinecap="round" />
-                        <path d={spark.downPath} stroke="#f87171" strokeWidth="2" fill="none" strokeLinecap="round" />
-                      </svg>
-                      {!spark.hasPath && (
-                        <Text fontSize="xs" color="whiteAlpha.700">No trend line yet</Text>
-                      )}
-                    </Box>
-                  );
-                })}
-              </SimpleGrid>
-            </Box>
+                        <option value="">{item.allLabel}</option>
+                        {item.options.map((serviceKey) => (
+                          <option key={serviceKey} value={serviceKey}>
+                            {serviceKey}
+                          </option>
+                        ))}
+                      </Select>
+                    </HStack>
+
+                    <svg
+                      width="100%"
+                      height={item.model.height}
+                      viewBox={`0 0 ${item.model.width} ${item.model.height}`}
+                      role="img"
+                      aria-label={`${item.label} historical trend chart`}
+                    >
+                      {[0, 25, 50, 75, 100].map((level) => {
+                        const y = toChartY(level, item.model.height, item.model.padding);
+                        return (
+                          <g key={level}>
+                            <line
+                              x1={item.model.padding}
+                              x2={item.model.width - item.model.padding}
+                              y1={y}
+                              y2={y}
+                              stroke="rgba(255,255,255,0.14)"
+                              strokeWidth="1"
+                              strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
+                            />
+                            <text
+                              x={6}
+                              y={y + 4}
+                              fill="rgba(255,255,255,0.58)"
+                              fontSize="10"
+                            >
+                              {level}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      <path d={item.model.healthyPath} stroke="#34d399" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                    </svg>
+
+                    {!item.model.hasPath && (
+                      <Text mt={2} fontSize="xs" color="whiteAlpha.700">
+                        Trend line unavailable for this selection and range.
+                      </Text>
+                    )}
+
+                    <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
+                      <Text noOfLines={1} maxW="32%">{item.model.xLabels.start}</Text>
+                      <Text noOfLines={1} maxW="32%" textAlign="center">{item.model.xLabels.mid}</Text>
+                      <Text noOfLines={1} maxW="32%" textAlign="right">{item.model.xLabels.end}</Text>
+                    </HStack>
+                  </Box>
+                ))}
+            </SimpleGrid>
           )}
         </Box>
 
@@ -2057,10 +2397,10 @@ function CtoDashboardPage() {
                 bg="rgba(11, 19, 32, 0.72)"
                 borderColor="rgba(255,255,255,0.18)"
               >
+                <option value="">All status</option>
                 <option value="open">Open</option>
                 <option value="acknowledged">Acknowledged</option>
                 <option value="resolved">Resolved</option>
-                <option value="">All status</option>
               </Select>
               <Select
                 size="sm"
@@ -2103,7 +2443,7 @@ function CtoDashboardPage() {
               <Tbody>
                 {!eventsLoading && eventsRows.length === 0 && (
                   <Tr>
-                    <Td colSpan={9} color="whiteAlpha.700">No events found for current filters.</Td>
+                    <Td colSpan={9} color="whiteAlpha.700">No events found. Events populate from complaint capture and `/api/cto/events` ingest.</Td>
                   </Tr>
                 )}
                 {eventsRows.map((row) => (

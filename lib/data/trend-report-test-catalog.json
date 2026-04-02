@@ -1,0 +1,961 @@
+{
+  "version": "2026-04-01",
+  "tests": [
+    {
+      "subcompid": "SCMP0118",
+      "subcomponent": "AEC",
+      "display_param": "Absolute Eosinophil Count (AEC)",
+      "section": "Inflammation",
+      "trend_behavior": "lower_better",
+      "description": "Absolute eosinophil count used in allergy and inflammation trend tracking."
+    },
+    {
+      "subcompid": "SCMP0345",
+      "subcomponent": "AMH",
+      "display_param": "Anti Mullerian Hormone",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Ovarian reserve marker used in reproductive endocrine assessment."
+    },
+    {
+      "subcompid": "SCMP0986",
+      "subcomponent": "APOLIPOPROTEIN- A1",
+      "display_param": "Apolipoprotein - A1",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "higher_better",
+      "description": "Protective lipid apoprotein marker used in cardiovascular risk profiling."
+    },
+    {
+      "subcompid": "SCMP0987",
+      "subcomponent": "APOLIPOPROTEIN- B",
+      "display_param": "Apolipoprotein - B",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "lower_better",
+      "description": "Atherogenic lipid apoprotein marker used for cardiovascular risk estimation."
+    },
+    {
+      "subcompid": "SCMP0080",
+      "subcomponent": "ASO Titre",
+      "display_param": "Antistreptolysin O Titre (ASO)",
+      "section": "Inflammation",
+      "trend_behavior": "context_only",
+      "description": "Post-streptococcal immune marker interpreted with clinical context."
+    },
+    {
+      "subcompid": "SCMP0227",
+      "subcomponent": "Anti Microsomal Antibodies (TPO)",
+      "display_param": "Thyroid peroxidase autoantibodies (Anti TPO/AMA)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Thyroid autoimmunity marker supporting autoimmune thyroid evaluation."
+    },
+    {
+      "subcompid": "SCMP0085",
+      "subcomponent": "Bilirubin Total",
+      "display_param": "Bilirubin Total",
+      "section": "Liver",
+      "trend_behavior": "lower_better",
+      "description": "Bilirubin marker used in liver and hemolysis trend assessment."
+    },
+    {
+      "subcompid": "SCMP1104",
+      "subcomponent": "C Reactive Protein CRP (Quantitative)",
+      "display_param": "C Reactive Protein CRP (Quantitative)",
+      "section": "Inflammation",
+      "trend_behavior": "lower_better",
+      "description": "Quantitative CRP marker for systemic inflammation trend review."
+    },
+    {
+      "subcompid": "SCMP0235",
+      "subcomponent": "CA 15.3",
+      "display_param": "CA 15.3",
+      "section": "Cancer Screen",
+      "trend_behavior": "context_only",
+      "description": "Tumor marker tracked over time and interpreted with oncology context."
+    },
+    {
+      "subcompid": "SCMP0236",
+      "subcomponent": "CA 19.9",
+      "display_param": "CA 19.9",
+      "section": "Cancer Screen",
+      "trend_behavior": "context_only",
+      "description": "Tumor marker tracked over time and interpreted with oncology context."
+    },
+    {
+      "subcompid": "SCMP0234",
+      "subcomponent": "CA-125",
+      "display_param": "CA-125",
+      "section": "Cancer Screen",
+      "trend_behavior": "context_only",
+      "description": "Tumor marker tracked over time and interpreted with oncology context."
+    },
+    {
+      "subcompid": "SCMP0237",
+      "subcomponent": "CEA",
+      "display_param": "CEA (Carcino Embryonic Antigen)",
+      "section": "Cancer Screen",
+      "trend_behavior": "context_only",
+      "description": "Tumor marker tracked over time and interpreted with oncology context."
+    },
+    {
+      "subcompid": "SCMP0081",
+      "subcomponent": "CRP",
+      "display_param": "C Reactive Proteins (CRP)",
+      "section": "Inflammation",
+      "trend_behavior": "lower_better",
+      "description": "Inflammation marker useful for infection and chronic inflammatory trend tracking."
+    },
+    {
+      "subcompid": "SCMP0365",
+      "subcomponent": "Cortisol",
+      "display_param": "Cortisol",
+      "section": "Stress",
+      "trend_behavior": "range_optimal",
+      "description": "Stress hormone marker interpreted by circadian timing and context."
+    },
+    {
+      "subcompid": "SCMP0241",
+      "subcomponent": "Cortisol (4 - 8 PM)",
+      "display_param": "Cortisol (4 - 8 PM)",
+      "section": "Stress",
+      "trend_behavior": "range_optimal",
+      "description": "Evening cortisol marker used for diurnal rhythm and endocrine review."
+    },
+    {
+      "subcompid": "SCMP0037",
+      "subcomponent": "Cortisol (6 - 10 AM)",
+      "display_param": "Cortisol (6 - 10 AM)",
+      "section": "Stress",
+      "trend_behavior": "range_optimal",
+      "description": "Morning cortisol marker used in endocrine and stress-axis evaluation."
+    },
+    {
+      "subcompid": "SCMP0095",
+      "subcomponent": "Creatinine - Serum",
+      "display_param": "Creatinine",
+      "section": "Kidney",
+      "trend_behavior": "lower_better",
+      "description": "Core renal filtration marker used for kidney function trend monitoring."
+    },
+    {
+      "subcompid": "SCMP0043",
+      "subcomponent": "E.S.R.",
+      "display_param": "E.S.R. - I Hr.",
+      "section": "Inflammation",
+      "trend_behavior": "context_only",
+      "description": "Nonspecific inflammation marker interpreted with symptom context."
+    },
+    {
+      "subcompid": "SCMP0244",
+      "subcomponent": "Estradiol - E2 (Oestrogen)",
+      "display_param": "Estradiol - E2",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Estrogen marker used in reproductive and endocrine cycle assessment."
+    },
+    {
+      "subcompid": "SCMP0093",
+      "subcomponent": "FBS",
+      "display_param": "Fasting Glucose",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Fasting glucose marker for baseline glycemic control monitoring."
+    },
+    {
+      "subcompid": "SCMP0175",
+      "subcomponent": "FSH",
+      "display_param": "Follicle-stimulating hormone (FSH)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Pituitary reproductive hormone marker for gonadal axis assessment."
+    },
+    {
+      "subcompid": "SCMP0039",
+      "subcomponent": "FT4",
+      "display_param": "Thyroxine Free (FT4)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Free thyroxine marker interpreted with TSH and thyroid profile."
+    },
+    {
+      "subcompid": "SCMP0245",
+      "subcomponent": "Ferritin",
+      "display_param": "Ferritin",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "Stored iron marker useful in iron deficiency and inflammation context."
+    },
+    {
+      "subcompid": "SCMP0247",
+      "subcomponent": "Folic Acid",
+      "display_param": "Folate",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "Folate marker for nutritional and hematologic trend review."
+    },
+    {
+      "subcompid": "SCMP0248",
+      "subcomponent": "Free T3",
+      "display_param": "Triiodothyronine Free (FT3)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Free triiodothyronine marker for thyroid function trend assessment."
+    },
+    {
+      "subcompid": "SCMP0249",
+      "subcomponent": "Free T4",
+      "display_param": "Thyroxine Free (FT4)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Free thyroxine marker for thyroid activity and therapy follow-up."
+    },
+    {
+      "subcompid": "SCMP0102",
+      "subcomponent": "GGTP",
+      "display_param": "GGTP (gamma-GT)",
+      "section": "Liver",
+      "trend_behavior": "lower_better",
+      "description": "Hepatobiliary enzyme marker used in liver and metabolic risk tracking."
+    },
+    {
+      "subcompid": "SCMP0306",
+      "subcomponent": "Glycosylated Haemoglobin",
+      "display_param": "Glycosylated Haemoglobin",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Long-term glycemic marker reflecting approximately 3-month glucose exposure."
+    },
+    {
+      "subcompid": "SCMP0047",
+      "subcomponent": "HDL Cholesterol",
+      "display_param": "HDL Cholesterol",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "higher_better",
+      "description": "Protective lipoprotein marker used in cardiovascular risk interpretation."
+    },
+    {
+      "subcompid": "SCMP1055",
+      "subcomponent": "HOMA - IR Index",
+      "display_param": "HOMA - IR Index",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Calculated insulin resistance index from fasting glucose and insulin."
+    },
+    {
+      "subcompid": "SCMP0016",
+      "subcomponent": "Haemoglobin",
+      "display_param": "Haemoglobin",
+      "section": "General Health",
+      "trend_behavior": "range_optimal",
+      "description": "Oxygen-carrying red-cell marker central to anemia assessment."
+    },
+    {
+      "subcompid": "SCMP1050",
+      "subcomponent": "High Sensitive CRP (hs CRP)",
+      "display_param": "High Sensitive CRP (hs CRP)",
+      "section": "Inflammation",
+      "trend_behavior": "lower_better",
+      "description": "High-sensitivity CRP marker used for low-grade inflammatory and cardiac risk trends."
+    },
+    {
+      "subcompid": "SCMP1106",
+      "subcomponent": "High sensitiveTroponin I",
+      "display_param": "High sensitive Troponin I",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "context_only",
+      "description": "Myocardial injury marker interpreted urgently with clinical presentation."
+    },
+    {
+      "subcompid": "SCMP0312",
+      "subcomponent": "Homocysteine",
+      "display_param": "Homocysteine",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "lower_better",
+      "description": "Cardiometabolic amino-acid marker linked to vascular risk profile."
+    },
+    {
+      "subcompid": "SCMP0212",
+      "subcomponent": "IgE",
+      "display_param": "IgE",
+      "section": "Inflammation",
+      "trend_behavior": "context_only",
+      "description": "Allergy-associated immunoglobulin interpreted with atopic symptom context."
+    },
+    {
+      "subcompid": "SCMP0900",
+      "subcomponent": "Insulin",
+      "display_param": "Insulin",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Insulin marker used with glucose values for metabolic trend interpretation."
+    },
+    {
+      "subcompid": "SCMP0351",
+      "subcomponent": "Insulin - Fasting",
+      "display_param": "Fasting Insulin",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Fasting insulin used for insulin resistance and metabolic monitoring."
+    },
+    {
+      "subcompid": "SCMP0352",
+      "subcomponent": "Insulin - PP",
+      "display_param": "Post Prandial Insulin",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Post-prandial insulin marker for meal-response metabolic evaluation."
+    },
+    {
+      "subcompid": "SCMP0190",
+      "subcomponent": "Iron - Serum",
+      "display_param": "Iron",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "Circulating serum iron marker used in iron-status interpretation."
+    },
+    {
+      "subcompid": "SCMP0048",
+      "subcomponent": "LDL Cholesterol",
+      "display_param": "LDL Cholesterol",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "lower_better",
+      "description": "Atherogenic lipoprotein marker central to cardiac risk monitoring."
+    },
+    {
+      "subcompid": "SCMP0176",
+      "subcomponent": "LH",
+      "display_param": "Luteinizing hormone (LH)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Pituitary gonadotropin marker used in reproductive endocrine assessment."
+    },
+    {
+      "subcompid": "SCMP0213",
+      "subcomponent": "Lipoprotein (a)",
+      "display_param": "Lipoprotein (a)",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "lower_better",
+      "description": "Inherited atherogenic lipoprotein marker for long-term vascular risk."
+    },
+    {
+      "subcompid": "SCMP0357",
+      "subcomponent": "Magnesium - Serum",
+      "display_param": "Magnesium",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "Electrolyte and cofactor marker relevant to neuromuscular and metabolic function."
+    },
+    {
+      "subcompid": "SCMP0537",
+      "subcomponent": "N-T PRO BNP",
+      "display_param": "N - Terminal Pro B - Type Natriuretic Peptide",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "context_only",
+      "description": "Cardiac stress marker interpreted with heart-failure clinical context."
+    },
+    {
+      "subcompid": "SCMP0094",
+      "subcomponent": "PLBS",
+      "display_param": "Post-Lunch / Post-Prandial Glucose",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Post-prandial glucose marker for glycemic excursion monitoring."
+    },
+    {
+      "subcompid": "SCMP0251",
+      "subcomponent": "PSA",
+      "display_param": "Total Prostatic Specific Antigen (PSA)",
+      "section": "Cancer Screen",
+      "trend_behavior": "context_only",
+      "description": "Prostate marker interpreted with age, symptoms, and clinical evaluation."
+    },
+    {
+      "subcompid": "SCMP0026",
+      "subcomponent": "Platelet Count",
+      "display_param": "Platelet Count",
+      "section": "General Health",
+      "trend_behavior": "range_optimal",
+      "description": "Platelet marker related to clotting, inflammation, and marrow response."
+    },
+    {
+      "subcompid": "SCMP0218",
+      "subcomponent": "Progesterone",
+      "display_param": "Progesterone",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Reproductive hormone marker interpreted by menstrual or treatment phase."
+    },
+    {
+      "subcompid": "SCMP0177",
+      "subcomponent": "Prolactin",
+      "display_param": "Prolactin",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Pituitary hormone marker used in reproductive and endocrine follow-up."
+    },
+    {
+      "subcompid": "SCMP0092",
+      "subcomponent": "RBS",
+      "display_param": "Glucose Random",
+      "section": "Diabetes",
+      "trend_behavior": "lower_better",
+      "description": "Random glucose marker for real-time glycemic status context."
+    },
+    {
+      "subcompid": "SCMP0100",
+      "subcomponent": "SGOT",
+      "display_param": "AST (GOT)",
+      "section": "Liver",
+      "trend_behavior": "lower_better",
+      "description": "AST enzyme marker used in liver and muscle stress interpretation."
+    },
+    {
+      "subcompid": "SCMP0101",
+      "subcomponent": "SGPT",
+      "display_param": "ALT (GPT)",
+      "section": "Liver",
+      "trend_behavior": "lower_better",
+      "description": "ALT enzyme marker for hepatocellular injury and liver trend review."
+    },
+    {
+      "subcompid": "SCMP0088",
+      "subcomponent": "T3",
+      "display_param": "Tri-iodothyronine (T3)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Triiodothyronine marker interpreted with TSH and T4 for thyroid status."
+    },
+    {
+      "subcompid": "SCMP0090",
+      "subcomponent": "T4",
+      "display_param": "Thyroxine (T4)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Thyroxine marker used in thyroid function and treatment monitoring."
+    },
+    {
+      "subcompid": "SCMP0089",
+      "subcomponent": "TSH",
+      "display_param": "Thyroid Stimulating Hormone (TSH)",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Primary thyroid-control marker for thyroid screening and follow-up."
+    },
+    {
+      "subcompid": "SCMP0305",
+      "subcomponent": "Testosterone",
+      "display_param": "Testosterone",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Androgen hormone marker for reproductive and metabolic endocrine assessment."
+    },
+    {
+      "subcompid": "SCMP0222",
+      "subcomponent": "Thyroglobulin",
+      "display_param": "Thyroglobulin",
+      "section": "Hormonal Health",
+      "trend_behavior": "range_optimal",
+      "description": "Thyroid protein marker interpreted in specific thyroid disease context."
+    },
+    {
+      "subcompid": "SCMP0045",
+      "subcomponent": "Total Cholesterol",
+      "display_param": "Total Cholesterol",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "lower_better",
+      "description": "Total cholesterol marker for baseline lipid and cardiometabolic risk."
+    },
+    {
+      "subcompid": "SCMP0046",
+      "subcomponent": "Triglycerides",
+      "display_param": "Triglycerides",
+      "section": "Cardiac (Lipid)",
+      "trend_behavior": "lower_better",
+      "description": "Triglyceride marker linked to metabolic syndrome and vascular risk."
+    },
+    {
+      "subcompid": "SCMP0160",
+      "subcomponent": "Urea - Serum",
+      "display_param": "Urea",
+      "section": "Kidney",
+      "trend_behavior": "lower_better",
+      "description": "Nitrogen-waste marker used in renal function and hydration context."
+    },
+    {
+      "subcompid": "SCMP0161",
+      "subcomponent": "Urea Nitrogen - Serum",
+      "display_param": "Urea Nitrogen (BUN)",
+      "section": "Kidney",
+      "trend_behavior": "lower_better",
+      "description": "BUN marker used with creatinine for renal trend interpretation."
+    },
+    {
+      "subcompid": "SCMP0162",
+      "subcomponent": "Uric Acid - Serum",
+      "display_param": "Uric Acid",
+      "section": "Kidney",
+      "trend_behavior": "lower_better",
+      "description": "Uric acid marker linked to renal handling, gout, and metabolic risk."
+    },
+    {
+      "subcompid": "SCMP1101",
+      "subcomponent": "Urine for Micro Albumin",
+      "display_param": "Urine for Micro Albumin",
+      "section": "Kidney",
+      "trend_behavior": "lower_better",
+      "description": "Microalbumin marker for early kidney damage and diabetic nephropathy risk."
+    },
+    {
+      "subcompid": "SCMP0083",
+      "subcomponent": "Vitamin B12",
+      "display_param": "Vitamin B12",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "Vitamin B12 marker for neurologic and hematologic nutritional status."
+    },
+    {
+      "subcompid": "SCMP0181",
+      "subcomponent": "Vitamin D",
+      "display_param": "25-OH Vitamin D Total (Calcidiol)",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "25-OH vitamin D marker for bone, immune, and metabolic health."
+    },
+    {
+      "subcompid": "SCMP0084",
+      "subcomponent": "Vitamin D Total",
+      "display_param": "Vitamin D 25-OH (Calcidiol)",
+      "section": "Vitamins & Minerals",
+      "trend_behavior": "range_optimal",
+      "description": "Calcidiol marker used for vitamin D sufficiency trend monitoring."
+    },
+    {
+      "subcompid": "SCMP0025",
+      "subcomponent": "WBC Count",
+      "display_param": "Total Leucocytes (WBC) Count",
+      "section": "General Health",
+      "trend_behavior": "range_optimal",
+      "description": "White-cell marker reflecting immune activity and infection response."
+    },
+    {
+      "subcompid": "SCMP0325",
+      "subcomponent": "us CRP",
+      "display_param": "Ultra Sensitive CRP",
+      "section": "Inflammation",
+      "trend_behavior": "lower_better",
+      "description": "Ultra-sensitive CRP marker for low-grade inflammation trend analysis."
+    },
+    {
+      "subcompid": "SCMP_AFP",
+      "subcomponent": "AFP",
+      "display_param": "AFP (Alpha Fetoprotein)",
+      "section": "Cancer Screen",
+      "trend_behavior": "context_only",
+      "description": "Tumor marker tracked over time and interpreted with oncology context."
+    }
+  ],
+  "section_icons": {
+    "Cardiac (Lipid)": "https://sdrc.in/assets/ads/icons/heart.png",
+    "Diabetes": "https://sdrc.in/assets/ads/icons/diabetes.png",
+    "Kidney": "https://sdrc.in/assets/ads/icons/kidney.png",
+    "Liver": "https://sdrc.in/assets/ads/icons/liver.png",
+    "Vitamins & Minerals": "https://sdrc.in/assets/ads/icons/vitamins.png",
+    "Hormonal Health": "https://sdrc.in/assets/ads/icons/hormones.png",
+    "Stress": "https://sdrc.in/assets/ads/icons/hormones.png",
+    "Inflammation": "https://sdrc.in/assets/ads/icons/cbc.png",
+    "General Health": "https://sdrc.in/assets/ads/icons/cbc.png",
+    "Cancer Screen": "https://sdrc.in/assets/ads/icons/cancer.png"
+  },
+  "summary_groups": [
+    {
+      "type": "Cardiac",
+      "sections": [
+        "Cardiac (Lipid)"
+      ],
+      "secondary_types": [],
+      "icon": "https://sdrc.in/assets/ads/icons/heart.png"
+    },
+    {
+      "type": "Liver",
+      "sections": [
+        "Liver"
+      ],
+      "secondary_types": [],
+      "icon": "https://sdrc.in/assets/ads/icons/liver.png"
+    },
+    {
+      "type": "Diet",
+      "sections": [
+        "Diabetes",
+        "General Health",
+        "Kidney"
+      ],
+      "secondary_types": [
+        "Diet"
+      ],
+      "icon": "https://sdrc.in/assets/ads/icons/diabetes.png"
+    },
+    {
+      "type": "Vitamins & Minerals",
+      "sections": [
+        "Vitamins & Minerals"
+      ],
+      "secondary_types": [],
+      "icon": "https://sdrc.in/assets/ads/icons/vitamins.png"
+    }
+  ],
+  "rule_icons": {
+    "lipid_cardiac_risk": "https://sdrc.in/assets/ads/icons/heart.png",
+    "diabetes_high_risk": "https://sdrc.in/assets/ads/icons/diabetes.png",
+    "prediabetes_watch": "https://sdrc.in/assets/ads/icons/diabetes.png",
+    "kidney_function_watch": "https://sdrc.in/assets/ads/icons/kidney.png",
+    "thyroid_concern": "https://sdrc.in/assets/ads/icons/thyroid.png",
+    "anemia_deficiency_pattern": "https://sdrc.in/assets/ads/icons/cbc.png"
+  },
+  "risk_rules": {
+    "stale_days_cutoff": 540,
+    "max_parameters_per_card": 5,
+    "max_followup_candidates_per_category": 6,
+    "max_followup_tests": 8,
+    "max_actionable_cards": 6,
+    "category_severity": {
+      "high_if_rule_triggered": true,
+      "high_if_high_count_gte": 2,
+      "medium_if_high_count_gte": 1,
+      "medium_if_low_count_gte": 1,
+      "positive_if_only_priority_normal": true
+    },
+    "summary_labels": {
+      "rule_triggered": "Pattern-based risk rule triggered",
+      "high_suffix": "high",
+      "low_suffix": "low",
+      "key_markers_suffix": "key markers",
+      "within_target": "within target range"
+    }
+  },
+  "priority_markers": [
+    {
+      "id": "apo_a1",
+      "pattern": "\\bapo[\\s-]?a1\\b"
+    },
+    {
+      "id": "apo_b",
+      "pattern": "\\bapo[\\s-]?b\\b"
+    },
+    {
+      "id": "apolipoprotein",
+      "pattern": "\\bapolipoprotein\\b"
+    },
+    {
+      "id": "insulin_resistance",
+      "pattern": "\\binsulin\\s*resistance\\b"
+    },
+    {
+      "id": "homa",
+      "pattern": "\\bhoma\\b"
+    },
+    {
+      "id": "cortisol",
+      "pattern": "\\bcortisol\\b"
+    },
+    {
+      "id": "homocysteine",
+      "pattern": "\\bhomocysteine\\b"
+    },
+    {
+      "id": "ntprobnp",
+      "pattern": "\\bnt[\\s-]?pro[\\s-]?bnp\\b"
+    },
+    {
+      "id": "probnp",
+      "pattern": "\\bpro[\\s-]?bnp\\b"
+    }
+  ],
+  "followup_panels": [
+    {
+      "panel": "Lipid Profile",
+      "sections": [
+        "Cardiac (Lipid)"
+      ],
+      "keywords": [
+        "ldl",
+        "hdl",
+        "cholesterol",
+        "triglyceride",
+        "apolipoprotein",
+        "homocysteine",
+        "nt pro",
+        "bnp"
+      ]
+    },
+    {
+      "panel": "Liver Function Tests (LFT)",
+      "sections": [
+        "Liver"
+      ],
+      "keywords": [
+        "ast",
+        "alt",
+        "gpt",
+        "got",
+        "ggt",
+        "bilirubin",
+        "liver"
+      ]
+    },
+    {
+      "panel": "Renal Function Tests (RFT)",
+      "sections": [
+        "Kidney"
+      ],
+      "keywords": [
+        "creatinine",
+        "urea",
+        "uric",
+        "egfr",
+        "renal"
+      ]
+    },
+    {
+      "panel": "Diabetes Panel",
+      "sections": [
+        "Diabetes"
+      ],
+      "keywords": [
+        "glucose",
+        "hba1c",
+        "insulin",
+        "homa"
+      ]
+    },
+    {
+      "panel": "Inflammation Markers",
+      "sections": [
+        "Inflammation"
+      ],
+      "keywords": [
+        "esr",
+        "crp",
+        "hs crp",
+        "us crp",
+        "inflammation"
+      ]
+    },
+    {
+      "panel": "IgE",
+      "sections": [],
+      "keywords": [
+        "ige"
+      ]
+    },
+    {
+      "panel": "Vitamin & Mineral Panel",
+      "sections": [
+        "Vitamins & Minerals"
+      ],
+      "keywords": [
+        "vitamin",
+        "mineral",
+        "b12",
+        "d3",
+        "calcidiol",
+        "magnesium",
+        "folate",
+        "folic"
+      ]
+    },
+    {
+      "panel": "Cancer Marker Panel",
+      "sections": [
+        "Cancer Screen"
+      ],
+      "keywords": [
+        "psa",
+        "cea",
+        "tumor",
+        "ca 125",
+        "ca-125",
+        "ca 15.3",
+        "ca-15.3",
+        "ca 19.9",
+        "ca-19.9"
+      ]
+    },
+    {
+      "panel": "Thyroid & Hormonal Panel",
+      "sections": [
+        "Hormonal Health",
+        "Stress"
+      ],
+      "keywords": [
+        "cortisol",
+        "thyroid",
+        "tsh",
+        "testosterone",
+        "hormone"
+      ]
+    }
+  ],
+  "trend_rules": [
+    {
+      "key": "diabetes_high_risk",
+      "severity": "high",
+      "mode": "all",
+      "conditions": [
+        {
+          "parameter": "hba1c",
+          "latest": {
+            "gte": 6.5
+          }
+        },
+        {
+          "parameter": "hba1c",
+          "direction": "rising"
+        }
+      ],
+      "recommended_actions": [
+        "Consult physician",
+        "Repeat diabetes panel in 3 months"
+      ],
+      "offer_code": "pkg_diabetes_monitoring",
+      "followup_days": 90
+    },
+    {
+      "key": "prediabetes_watch",
+      "severity": "medium",
+      "mode": "all",
+      "conditions": [
+        {
+          "parameter": "hba1c",
+          "latest": {
+            "gte": 5.7,
+            "lt": 6.5
+          }
+        },
+        {
+          "parameter": "hba1c",
+          "direction": "rising"
+        }
+      ],
+      "recommended_actions": [
+        "Lifestyle optimization",
+        "Retest HbA1c in 3-6 months"
+      ],
+      "offer_code": "pkg_preventive_metabolic",
+      "followup_days": 120
+    },
+    {
+      "key": "thyroid_concern",
+      "severity": "medium",
+      "mode": "any",
+      "conditions": [
+        {
+          "parameter": "tsh",
+          "out_of_range": true
+        },
+        {
+          "parameter": "tsh",
+          "direction": "rising",
+          "delta": {
+            "gte": 1
+          }
+        }
+      ],
+      "recommended_actions": [
+        "Endocrine follow-up",
+        "Repeat thyroid profile in 3 months"
+      ],
+      "offer_code": "pkg_thyroid_followup",
+      "followup_days": 90
+    },
+    {
+      "key": "anemia_deficiency_pattern",
+      "severity": "medium",
+      "mode": "any",
+      "conditions": [
+        {
+          "parameter": "hemoglobin",
+          "out_of_range": true
+        },
+        {
+          "parameter": "ferritin",
+          "out_of_range": true
+        },
+        {
+          "parameter": "hemoglobin",
+          "direction": "falling",
+          "delta": {
+            "lte": -0.5
+          }
+        }
+      ],
+      "recommended_actions": [
+        "Clinician review",
+        "Retest deficiency profile in 2-3 months"
+      ],
+      "offer_code": "pkg_anemia_profile",
+      "followup_days": 75
+    },
+    {
+      "key": "kidney_function_watch",
+      "severity": "high",
+      "mode": "any",
+      "conditions": [
+        {
+          "parameter": "creatinine",
+          "out_of_range": true
+        },
+        {
+          "parameter": "egfr",
+          "out_of_range": true
+        },
+        {
+          "parameter": "creatinine",
+          "direction": "rising",
+          "delta": {
+            "gte": 0.2
+          }
+        }
+      ],
+      "recommended_actions": [
+        "Physician review",
+        "Repeat kidney profile in 3 months"
+      ],
+      "offer_code": "pkg_renal_monitoring",
+      "followup_days": 90
+    },
+    {
+      "key": "lipid_cardiac_risk",
+      "severity": "medium",
+      "mode": "any",
+      "conditions": [
+        {
+          "parameter": "ldl",
+          "out_of_range": true
+        },
+        {
+          "parameter": "triglycerides",
+          "out_of_range": true
+        },
+        {
+          "parameter": "ldl",
+          "latest": {
+            "gte": 130
+          },
+          "direction": "rising",
+          "delta": {
+            "gte": 10
+          }
+        }
+      ],
+      "recommended_actions": [
+        "Lifestyle and physician review",
+        "Retest lipid profile in 3-6 months"
+      ],
+      "offer_code": "pkg_cardiac_risk",
+      "followup_days": 120
+    }
+  ],
+  "correlation_rules": [],
+  "compound_rules": []
+}

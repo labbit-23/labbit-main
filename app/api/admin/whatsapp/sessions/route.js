@@ -176,8 +176,11 @@ async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTe
   const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
   const safeLimit = Number.isFinite(pageLimit) ? Math.min(Math.max(pageLimit, 20), 200) : 60;
   const targetCount = safeOffset + safeLimit + 1;
-  const overFetch = Math.max(150, safeLimit * 8);
-  const baseStart = Math.max(0, safeOffset * 2);
+  // Offset is applied after phone-level dedupe. So source fetch must always
+  // begin from 0; otherwise offset gets applied twice and causes list gaps.
+  // Increase fetch window with targetCount to keep pagination stable.
+  const overFetch = Math.max(150, safeLimit * 8, targetCount * 3);
+  const baseStart = 0;
   const normalizedSearch = normalizeSearchTerm(searchTerm);
 
   const normalizedStatus = String(statusFilter || "").trim().toLowerCase();

@@ -76,6 +76,11 @@ curl -i https://api.sdrc.in/py/openapi.json
 curl -i https://api.sdrc.in/py/docs
 ```
 
+## 4A. Ops Collector Ownership
+
+Ops collector deployment is owned by `labbit-ops` (separate repo), not `labbit-main`.
+Run ops deploy scripts from `/opt/labbit-ops` only.
+
 ## 5. Deploy API Without Monitoring
 
 Recommended when we want `labbit-monitoring` disabled:

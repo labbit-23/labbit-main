@@ -169,12 +169,26 @@ function domainForServiceKey(serviceKey = "") {
   return "Other";
 }
 
-function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "") {
+function nodeGroupForServiceKey(serviceKey = "") {
+  const normalized = String(serviceKey || "").trim().toLowerCase();
+  if (normalized.endsWith("__vps")) return "VPS";
+  if (normalized.endsWith("__local")) return "Local";
+  return "Unspecified";
+}
+
+function matchesNodeRole(serviceKey = "", nodeRole = "") {
+  if (!nodeRole) return true;
+  const normalized = String(serviceKey || "").trim().toLowerCase();
+  return normalized.endsWith(`__${nodeRole}`);
+}
+
+function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "") {
   const byServiceDay = new Map();
 
   for (const row of rows || []) {
     if (!row?.day_date || !row?.service_key) continue;
     if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
+    if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
     const dayKey = String(row.day_date).slice(0, 10);
     const serviceKey = String(row.service_key);
     const composedKey = `${serviceKey}::${dayKey}`;
@@ -199,13 +213,14 @@ function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "") {
   return byServiceDay;
 }
 
-function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "") {
+function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "") {
   const byServiceDay = new Map();
   const latenciesByServiceDay = new Map();
 
   for (const row of rows || []) {
     if (!row?.checked_at || !row?.service_key) continue;
     if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
+    if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
 
     const dayKey = formatDayKey(row.checked_at);
     const serviceKey = String(row.service_key);
@@ -314,6 +329,8 @@ export async function GET(request) {
 
     const labId = requestedLabId || assignedLabIds[0] || null;
     const serviceKey = String(url.searchParams.get("service_key") || "").trim();
+    const nodeRole = String(url.searchParams.get("node_role") || "").trim().toLowerCase();
+    const nodeRoleFilter = ["vps", "local"].includes(nodeRole) ? nodeRole : "";
     const rangeInput = String(url.searchParams.get("range") || "30d").trim().toLowerCase();
     const preset = parseRangePreset(rangeInput);
     const granularity = String(url.searchParams.get("bucket") || preset.granularity).trim().toLowerCase();
@@ -349,17 +366,20 @@ export async function GET(request) {
       digestRows = Array.isArray(digestData) ? digestData : [];
     }
 
-    const rawWindowStart = digestAvailable
+    const hasDigestRows = digestAvailable && digestRows.length > 0;
+    const rawWindowStart = hasDigestRows
       ? addUtcDays(nowDay, -RECENT_RAW_DAYS)
       : startDay;
     const effectiveRawStart = rawWindowStart > startDay ? rawWindowStart : startDay;
+
+    const rawAscending = hasDigestRows;
 
     let rawQuery = supabase
       .from("cto_service_logs")
       .select("checked_at, service_key, status, latency_ms")
       .gte("checked_at", effectiveRawStart.toISOString())
       .lt("checked_at", endExclusive.toISOString())
-      .order("checked_at", { ascending: true })
+      .order("checked_at", { ascending: rawAscending })
       .limit(MAX_RAW_ROWS);
 
     if (labId) rawQuery = rawQuery.eq("lab_id", labId);
@@ -373,8 +393,8 @@ export async function GET(request) {
     }
 
     const rawRows = Array.isArray(rawData) ? rawData : [];
-    const digestServiceDay = aggregateDigestRowsToServiceDay(digestRows, serviceKey);
-    const rawServiceDay = aggregateRawRowsToServiceDay(rawRows, serviceKey);
+    const digestServiceDay = aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter);
+    const rawServiceDay = aggregateRawRowsToServiceDay(rawRows, serviceKey, nodeRoleFilter);
 
     // Raw rows override same-day service digest rows to keep in-progress windows accurate.
     const mergedServiceDay = new Map(digestServiceDay);
@@ -384,6 +404,7 @@ export async function GET(request) {
 
     const mergedDailyMap = new Map();
     const domainDailyMap = new Map();
+    const nodeDailyMap = new Map();
     for (const [serviceDayKey, summary] of mergedServiceDay.entries()) {
       const [serviceKeyFromRow, dayKey] = String(serviceDayKey).split("::");
       if (!serviceKeyFromRow || !dayKey) continue;
@@ -398,6 +419,13 @@ export async function GET(request) {
       mergeSummary(domainDaySummary, summary);
       domainMap.set(dayKey, domainDaySummary);
       domainDailyMap.set(domainKey, domainMap);
+
+      const nodeKey = nodeGroupForServiceKey(serviceKeyFromRow);
+      const nodeMap = nodeDailyMap.get(nodeKey) || new Map();
+      const nodeDaySummary = nodeMap.get(dayKey) || initializeBucket();
+      mergeSummary(nodeDaySummary, summary);
+      nodeMap.set(dayKey, nodeDaySummary);
+      nodeDailyMap.set(nodeKey, nodeMap);
     }
 
     const bucketType = ["day", "week", "month"].includes(granularity) ? granularity : preset.granularity;
@@ -415,20 +443,36 @@ export async function GET(request) {
           })
           .sort((a, b) => Number(b?.summary?.total_checks || 0) - Number(a?.summary?.total_checks || 0))
           .slice(0, 8);
+    const nodeBreakdown = serviceKey
+      ? []
+      : [...nodeDailyMap.entries()]
+          .map(([node, dailyMap]) => {
+            const nodePoints = buildPointsFromDailyMap(dailyMap, bucketType);
+            return {
+              node,
+              points: nodePoints,
+              summary: buildSummary(nodePoints)
+            };
+          })
+          .sort((a, b) => Number(b?.summary?.total_checks || 0) - Number(a?.summary?.total_checks || 0));
 
     return NextResponse.json(
       {
         lab_id: labId,
         service_key: serviceKey || null,
+        node_role: nodeRoleFilter || null,
         range: rangeInput,
         bucket: bucketType,
         points,
         domain_breakdown: domainBreakdown,
+        node_breakdown: nodeBreakdown,
         summary: buildSummary(points),
         source: {
           digest_available: digestAvailable,
+          digest_has_rows: hasDigestRows,
           digest_rows: digestRows.length,
           raw_rows: rawRows.length,
+          raw_order: rawAscending ? "asc" : "desc",
           raw_window_start: effectiveRawStart.toISOString(),
           raw_window_days: Math.round((endExclusive.getTime() - effectiveRawStart.getTime()) / (24 * 60 * 60 * 1000)),
           raw_truncated: rawRows.length >= MAX_RAW_ROWS

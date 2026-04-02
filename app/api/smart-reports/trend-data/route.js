@@ -18,6 +18,17 @@ const DEFAULT_SDRC_COVER = "https://sdrc.in/assets/sdrc-services.png";
 const DEFAULT_SDRC_LOGO = "https://sdrc.in/assets/sdrc-logo.png";
 const NEOSOFT_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
 const TREND_FETCH_TIMEOUT_MS = Number(process.env.NEOSOFT_TIMEOUT_MS || 15000);
+const TREND_REPORT_DEFAULT_DESIGN_VARIANT = String(
+  process.env.TREND_REPORT_DEFAULT_DESIGN_VARIANT ||
+  process.env.SMART_REPORT_DEFAULT_DESIGN_VARIANT ||
+  ""
+).trim().toLowerCase();
+
+function normalizedDesignVariant(value, fallback = "basic") {
+  const text = asText(value).toLowerCase();
+  if (text === "basic" || text === "executive") return text;
+  return fallback;
+}
 
 function parseTemplates(raw) {
   if (!raw) return {};
@@ -223,11 +234,13 @@ export async function GET(req) {
     const payload = await fetchSmartTrendPayload(mrno);
     const normalized = normalizeNeosoftTrendPayload(payload, { asOfDate });
     const evaluation = evaluateTrendRules({ normalizedTrend: normalized, asOfDate });
+    const envDesignVariant = normalizedDesignVariant(TREND_REPORT_DEFAULT_DESIGN_VARIANT, "");
     const brandResolved = {
       ...(brand || {}),
-      design_variant: ["basic", "executive"].includes(designVariant)
-        ? designVariant
-        : asText(brand?.design_variant || "basic").toLowerCase()
+      design_variant: normalizedDesignVariant(
+        designVariant,
+        normalizedDesignVariant(envDesignVariant, normalizedDesignVariant(brand?.design_variant, "basic"))
+      )
     };
 
     const resolvedReportMode = ["smart", "trends"].includes(requestedReportMode)
@@ -255,7 +268,9 @@ export async function GET(req) {
           headers: {
             "content-type": "application/pdf",
             "content-disposition": `${download ? "attachment" : "inline"}; filename=\"${baseName}.pdf\"`,
-            "cache-control": "no-store"
+            "cache-control": "no-store",
+            "x-report-mode": resolvedReportMode,
+            "x-design-variant": String(brandResolved?.design_variant || "")
           }
         });
       } catch (error) {
@@ -275,7 +290,9 @@ export async function GET(req) {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "content-disposition": `${download ? "attachment" : "inline"}; filename=\"${baseName}.html\"`,
-        "cache-control": "no-store"
+        "cache-control": "no-store",
+        "x-report-mode": resolvedReportMode,
+        "x-design-variant": String(brandResolved?.design_variant || "")
       }
     });
   } catch (error) {
