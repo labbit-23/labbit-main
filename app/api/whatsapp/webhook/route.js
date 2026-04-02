@@ -2493,7 +2493,7 @@ export async function POST(req) {
       if (!isPdfAvailable) {
         let statusMessage = null;
 
-        if (result.reportStatusReqno) {
+        if (!result.suppressReportStatusMessage && result.reportStatusReqno) {
           try {
             const reportStatus = await getReportStatus(result.reportStatusReqno);
             statusMessage = buildReportStatusMessage(reportStatus);
@@ -2503,7 +2503,7 @@ export async function POST(req) {
               error: error?.message || String(error)
             });
           }
-        } else if (result.latestReportPhone) {
+        } else if (!result.suppressReportStatusMessage && result.latestReportPhone) {
           statusMessage = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
         }
 
@@ -3250,7 +3250,7 @@ export async function POST(req) {
         }
         {
           let statusMessage = null;
-          if (result.reportStatusReqno) {
+          if (!result.suppressReportStatusMessage && result.reportStatusReqno) {
             try {
               const reportStatus = await getReportStatus(result.reportStatusReqno);
               statusMessage = buildReportStatusMessage(reportStatus);
@@ -3260,7 +3260,7 @@ export async function POST(req) {
                 error: error?.message || String(error)
               });
             }
-          } else if (result.latestReportPhone) {
+          } else if (!result.suppressReportStatusMessage && result.latestReportPhone) {
             statusMessage = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
           }
 
