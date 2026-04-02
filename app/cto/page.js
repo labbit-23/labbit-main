@@ -415,7 +415,21 @@ function CtoDashboardPage() {
   const [feedbackDetailsTitle, setFeedbackDetailsTitle] = useState("");
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const [showVpsRunbook, setShowVpsRunbook] = useState(false);
+  const [dashboardTab, setDashboardTab] = useState("cto");
   const refreshRef = useRef(null);
+  const vpsSectionRef = useRef(null);
+  const operationalSectionRef = useRef(null);
+  const detailSectionRef = useRef(null);
+  const trendsSectionRef = useRef(null);
+  const feedbackSectionRef = useRef(null);
+  const eventsSectionRef = useRef(null);
+
+  function drillToSection(sectionRef) {
+    setDashboardTab("cto");
+    setTimeout(() => {
+      sectionRef?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 20);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1003,6 +1017,32 @@ function CtoDashboardPage() {
     });
   }, [realServices]);
 
+  const serviceByBaseKey = useMemo(() => {
+    const map = new Map();
+    for (const service of realServices) {
+      const baseKey = parseServiceKey(service?.service_key).baseKey;
+      if (!baseKey || map.has(baseKey)) continue;
+      map.set(baseKey, service);
+    }
+    return map;
+  }, [realServices]);
+
+  const managementMetrics = useMemo(() => {
+    const botSla = serviceByBaseKey.get("whatsapp_bot_response_sla_1m");
+    const botChats24h = serviceByBaseKey.get("whatsapp_bot_chats_24h");
+    const openEvents = (eventsRows || []).filter((row) => String(row?.status || "open") !== "resolved").length;
+    const positiveRate = typeof feedbackData?.summary?.positive_rate === "number"
+      ? Math.round(feedbackData.summary.positive_rate * 100)
+      : null;
+
+    return {
+      botSlaWithin: botSla?.payload?.within_sla_pct ?? null,
+      botChats24h: botChats24h?.payload?.chat_sessions_24h ?? null,
+      openEvents,
+      positiveRate
+    };
+  }, [eventsRows, feedbackData?.summary?.positive_rate, serviceByBaseKey]);
+
   const vpsHealth = useMemo(() => {
     const vpsServices = realServices.filter(isVpsService);
     const byStatus = vpsServices.reduce(
@@ -1251,60 +1291,56 @@ function CtoDashboardPage() {
           </VStack>
 
           <Stack spacing={3} alignSelf={{ base: "stretch", xl: "flex-end" }} w={{ base: "full", xl: "auto" }}>
-            <Box
-              px={3}
-              py={2}
-              borderRadius="18px"
-              bg="rgba(255,255,255,0.05)"
-              border="1px solid rgba(255,255,255,0.08)"
-              minW={{ base: "100%", xl: "320px" }}
-              display={{ base: "block", md: "none" }}
-            >
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
-                Monitoring Lab
-              </Text>
-              <Select
-                value={selectedLabId}
-                onChange={(e) => {
-                  setSelectedServiceKey("");
-                  setSelectedLabId(e.target.value);
-                }}
-                isDisabled={!canSelectLab}
-                size="sm"
-                borderRadius="10px"
-                bg="rgba(11, 19, 32, 0.72)"
-                borderColor="rgba(255,255,255,0.18)"
-                color="white"
+            {canSelectLab && (
+              <Box
+                px={3}
+                py={2}
+                borderRadius="18px"
+                bg="rgba(255,255,255,0.05)"
+                border="1px solid rgba(255,255,255,0.08)"
+                minW={{ base: "100%", xl: "320px" }}
+                display={{ base: "block", md: "none" }}
               >
-                {labs.length === 0 && <option value="">Default Lab</option>}
-                {labs.map((lab) => (
-                  <option key={lab.id} value={String(lab.id)}>
-                    {lab.name || lab.id}
-                  </option>
-                ))}
-              </Select>
-              {isProductCto && selectedLabId && (
-                <HStack spacing={2} mt={2}>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    borderColor="rgba(255,255,255,0.28)"
-                    color="whiteAlpha.900"
-                    onClick={togglePinnedLab}
-                  >
-                    {pinnedLabId === selectedLabId ? "Unpin Lab" : "Pin Lab"}
-                  </Button>
-                  {pinnedLabId === selectedLabId && (
-                    <Text fontSize="xs" color="whiteAlpha.700">Pinned for this browser</Text>
-                  )}
-                </HStack>
-              )}
-              {!isProductCto && (
-                <Text fontSize="xs" color="whiteAlpha.700" mt={2}>
-                  Restricted to assigned lab scope
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
+                  Monitoring Lab
                 </Text>
-              )}
-            </Box>
+                <Select
+                  value={selectedLabId}
+                  onChange={(e) => {
+                    setSelectedServiceKey("");
+                    setSelectedLabId(e.target.value);
+                  }}
+                  size="sm"
+                  borderRadius="10px"
+                  bg="rgba(11, 19, 32, 0.72)"
+                  borderColor="rgba(255,255,255,0.18)"
+                  color="white"
+                >
+                  {labs.length === 0 && <option value="">Default Lab</option>}
+                  {labs.map((lab) => (
+                    <option key={lab.id} value={String(lab.id)}>
+                      {lab.name || lab.id}
+                    </option>
+                  ))}
+                </Select>
+                {isProductCto && selectedLabId && (
+                  <HStack spacing={2} mt={2}>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="rgba(255,255,255,0.28)"
+                      color="whiteAlpha.900"
+                      onClick={togglePinnedLab}
+                    >
+                      {pinnedLabId === selectedLabId ? "Unpin Lab" : "Pin Lab"}
+                    </Button>
+                    {pinnedLabId === selectedLabId && (
+                      <Text fontSize="xs" color="whiteAlpha.700">Pinned for this browser</Text>
+                    )}
+                  </HStack>
+                )}
+              </Box>
+            )}
             <Flex
               direction="column"
               gap={2}
@@ -1463,7 +1499,83 @@ function CtoDashboardPage() {
           </Stack>
         </Flex>
 
-        {smartDiagnosis && (
+        <HStack spacing={2} mb={5}>
+          <Button
+            size="sm"
+            borderRadius="full"
+            variant={dashboardTab === "cto" ? "solid" : "outline"}
+            colorScheme={dashboardTab === "cto" ? "teal" : "whiteAlpha"}
+            onClick={() => setDashboardTab("cto")}
+          >
+            CTO Ops
+          </Button>
+          <Button
+            size="sm"
+            borderRadius="full"
+            variant={dashboardTab === "management" ? "solid" : "outline"}
+            colorScheme={dashboardTab === "management" ? "teal" : "whiteAlpha"}
+            onClick={() => setDashboardTab("management")}
+          >
+            Management Metrics
+          </Button>
+        </HStack>
+
+        {dashboardTab === "management" && (
+          <Box
+            mb={6}
+            p={{ base: 5, md: 6 }}
+            borderRadius="26px"
+            bg="rgba(255,255,255,0.05)"
+            border="1px solid rgba(255,255,255,0.10)"
+          >
+            <Heading size="md" mb={1}>Management Metrics</Heading>
+            <Text color="whiteAlpha.700" mb={4}>Simplified executive view with drill-down into CTO details.</Text>
+            <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Service Reliability</Text>
+                <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1]?.value || "0"}/{heroStats[0]?.value || "0"}</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Tap to open Operational Domains</Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>VPS Capacity</Text>
+                <Text fontSize="2xl" fontWeight="800" color="cyan.200">
+                  {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Host memory pressure (tap for VPS Health)</Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(feedbackSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Patient Feedback</Text>
+                <Text fontSize="2xl" fontWeight="800" color="teal.200">
+                  {managementMetrics.positiveRate != null ? `${managementMetrics.positiveRate}%` : "n/a"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Positive rate (4-5)</Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Open Ops Events</Text>
+                <Text fontSize="2xl" fontWeight="800" color={managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>
+                  {managementMetrics.openEvents}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Tap to open Ops Events</Text>
+              </Box>
+            </SimpleGrid>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} mt={3}>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(detailSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>WhatsApp SLA (1m)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="blue.200">
+                  {managementMetrics.botSlaWithin != null ? `${Math.round(Number(managementMetrics.botSlaWithin))}%` : "n/a"}
+                </Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(trendsSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Bot Chats (24h)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="purple.200">
+                  {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
+                </Text>
+              </Box>
+            </SimpleGrid>
+          </Box>
+        )}
+
+        {dashboardTab === "cto" && smartDiagnosis && (
           <Box
             mb={6}
             p={4}
@@ -1514,6 +1626,8 @@ function CtoDashboardPage() {
           </Box>
         )}
 
+        {dashboardTab === "cto" && (
+        <>
         <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4} mb={8}>
           {heroStats.map((stat) => (
             <Tooltip key={stat.label} label={stat.note} hasArrow placement="top" bg="gray.900" color="white">
@@ -1548,6 +1662,7 @@ function CtoDashboardPage() {
         </SimpleGrid>
 
         <Box
+          ref={vpsSectionRef}
           mb={8}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
@@ -1721,11 +1836,19 @@ function CtoDashboardPage() {
               )}
 
               {incidentFeed.length > 0 && (
-                <HStack spacing={3} overflowX="auto" pb={1} align="stretch">
+                <Stack
+                  direction={{ base: "column", md: "row" }}
+                  spacing={3}
+                  overflowX={{ base: "visible", md: "auto" }}
+                  pb={1}
+                  align="stretch"
+                  w="full"
+                >
                   {incidentFeed.map((incident) => (
                     <Box
                       key={incident.service_key}
-                      minW={{ base: "260px", md: "300px" }}
+                      minW={{ base: "0", md: "300px" }}
+                      w={{ base: "full", md: "auto" }}
                       p={3}
                       borderRadius="16px"
                       bg={selectedService?.service_key === incident.service_key ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)"}
@@ -1749,13 +1872,14 @@ function CtoDashboardPage() {
                       </Text>
                     </Box>
                   ))}
-                </HStack>
+                </Stack>
               )}
             </Box>
           </GridItem>
 
           <GridItem order={2}>
             <Box
+              ref={operationalSectionRef}
               p={{ base: 5, md: 6 }}
               borderRadius="28px"
               bg="rgba(8,15,28,0.82)"
@@ -1850,6 +1974,8 @@ function CtoDashboardPage() {
                             px={3}
                             py={2}
                             borderRadius="14px"
+                            w="full"
+                            minW={0}
                             bg={
                               service.status === "down"
                                 ? "rgba(248,113,113,0.18)"
@@ -1880,9 +2006,11 @@ function CtoDashboardPage() {
                             }}
                             onClick={() => setSelectedServiceKey(service.service_key)}
                           >
-                            <Flex justify="space-between" align="center" gap={3}>
-                              <Text fontSize="sm">{service.label || service.service_key}</Text>
-                              <Text fontSize="xs" color="whiteAlpha.700">
+                            <Flex justify="space-between" align="center" gap={3} w="full" minW={0}>
+                              <Text fontSize="sm" flex="1" minW={0} noOfLines={1}>
+                                {service.label || service.service_key}
+                              </Text>
+                              <Text fontSize="xs" color="whiteAlpha.700" flexShrink={0} whiteSpace="nowrap">
                                 {isWhatsappMetric(service)
                                   ? (service.payload?.last_bot_message_ist || service.payload?.last_bot_report_sent_ist || "Activity")
                                   : typeof service.latency_ms === "number"
@@ -1904,6 +2032,7 @@ function CtoDashboardPage() {
         <Grid templateColumns={{ base: "1fr", lg: "1.05fr 1fr" }} gap={5} mb={5}>
           <GridItem>
             <Box
+              ref={detailSectionRef}
               p={{ base: 5, md: 6 }}
               borderRadius="28px"
               bg="rgba(255,255,255,0.05)"
@@ -2031,6 +2160,7 @@ function CtoDashboardPage() {
         </Grid>
 
         <Box
+          ref={trendsSectionRef}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
           bg="rgba(255,255,255,0.05)"
@@ -2248,6 +2378,7 @@ function CtoDashboardPage() {
         </Box>
 
         <Box
+          ref={feedbackSectionRef}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
           bg="rgba(255,255,255,0.05)"
@@ -2377,6 +2508,7 @@ function CtoDashboardPage() {
         </Box>
 
         <Box
+          ref={eventsSectionRef}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
           bg="rgba(255,255,255,0.05)"
@@ -2491,6 +2623,8 @@ function CtoDashboardPage() {
             </Table>
           </Box>
         </Box>
+        </>
+        )}
       </Box>
 
       <Modal isOpen={smartReportModal.isOpen} onClose={smartReportModal.onClose} isCentered>

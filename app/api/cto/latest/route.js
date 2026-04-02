@@ -102,6 +102,12 @@ function parseTimestamp(value) {
   return new Date(normalized);
 }
 
+function normalizePhoneKey(value) {
+  const digits = String(value || "").replace(/\D+/g, "");
+  if (!digits) return "";
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 function getIstMinutes(date = new Date()) {
   const parts = IST_TIME_ONLY_FORMATTER.formatToParts(date);
   const map = {};
@@ -241,7 +247,7 @@ function computeBotResponseSla({ rows = [], nowMs }) {
     timeoutCount,
     p95Ms,
     maxMs,
-    issueSamples: issueSamples.slice(-5).reverse(),
+    issueSamples: issueSamples.slice(-20).reverse(),
     lastInboundAt,
     lastInboundMinutesAgo
   };
@@ -319,6 +325,27 @@ async function loadWhatsappBotMetrics(labId) {
     rows: Array.isArray(slaRows) ? slaRows : [],
     nowMs: now
   });
+
+  const rawIssueSamples = Array.isArray(responseSla.issueSamples) ? responseSla.issueSamples : [];
+  const issuePhones = [...new Set(rawIssueSamples.map((sample) => String(sample?.phone || "").trim()).filter(Boolean))];
+  let issueSessionByPhoneKey = new Map();
+  if (issuePhones.length > 0) {
+    const { data: issueSessions } = await supabase
+      .from("chat_sessions")
+      .select("phone, status, current_state, updated_at, last_message_at")
+      .eq("lab_id", labId)
+      .in("phone", issuePhones)
+      .order("updated_at", { ascending: false })
+      .limit(500);
+
+    const map = new Map();
+    for (const session of issueSessions || []) {
+      const key = normalizePhoneKey(session?.phone);
+      if (!key || map.has(key)) continue;
+      map.set(key, session);
+    }
+    issueSessionByPhoneKey = map;
+  }
 
   const lastAnyOutboundAt = recent[0]?.created_at || monthly[0]?.created_at || null;
   const lastAnyOutboundDate = parseTimestamp(lastAnyOutboundAt);
@@ -433,14 +460,23 @@ async function loadWhatsappBotMetrics(labId) {
         replied_within_sla_1h: responseSla.withinSla,
         late_replies_1h: responseSla.breachCount,
         no_reply_1h: responseSla.timeoutCount,
-        issue_samples: (responseSla.issueSamples || []).map((sample) => ({
+        issue_samples: rawIssueSamples.map((sample) => {
+          const session = issueSessionByPhoneKey.get(normalizePhoneKey(sample?.phone));
+          const sessionStatus = String(session?.status || "").toLowerCase() || null;
+          const isAgentFlow = ["handoff", "pending", "resolved", "closed"].includes(sessionStatus);
+          return {
           phone: sample.phone,
           issue_type: sample.issue_type,
           inbound_ist: formatIstTime(sample.inbound_at),
           outbound_ist: formatIstTime(sample.outbound_at),
           response_delay_seconds: sample.response_delay_ms == null ? null : Math.round(sample.response_delay_ms / 1000),
-          inbound_text: sample.inbound_text
-        })),
+          inbound_text: sample.inbound_text,
+          chat_session_status: session?.status || null,
+          chat_state: session?.current_state || null,
+          chat_last_message_ist: formatIstTime(session?.last_message_at || session?.updated_at),
+          sent_to_agent_flow: isAgentFlow
+          };
+        }),
         p95_response_ms_1h: responseSla.p95Ms,
         max_response_ms_1h: responseSla.maxMs,
         last_inbound_at: responseSla.lastInboundAt,

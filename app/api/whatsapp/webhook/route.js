@@ -265,7 +265,7 @@ async function persistWhatsappFeedback({
     patientPhone: digitsOnly(phone || "").slice(-10) || null,
     rating: Number(flow?.rating || 0),
     feedback: flow?.comment ? String(flow.comment).slice(0, FEEDBACK_MAX_COMMENT_LEN) : null,
-    source: "whatsapp",
+    source: "whatsapp_bot",
     actorUserId: null,
     actorName: "WhatsApp Bot",
     actorRole: "bot",
