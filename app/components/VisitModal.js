@@ -153,8 +153,16 @@ export default function VisitModal({
         ? String(visitInitialData.time_slot.id || "")
         : String(visitInitialData?.time_slot || "");
     const visitAddress = String(visitInitialData?.address || initialAddress || "");
+    const visitExecutive =
+      visitInitialData?.executive_id && typeof visitInitialData.executive_id === "object"
+        ? String(visitInitialData.executive_id.id || "")
+        : String(visitInitialData?.executive_id || "");
+    const visitLab =
+      visitInitialData?.lab_id && typeof visitInitialData.lab_id === "object"
+        ? String(visitInitialData.lab_id.id || "")
+        : String(visitInitialData?.lab_id || "");
     const effectivePatientId = String(visitInitialData?.patient_id || patientId || "");
-    const initKey = [visitId, effectivePatientId, visitDate, visitTimeSlot, visitAddress].join("|");
+    const initKey = [visitId, effectivePatientId, visitDate, visitTimeSlot, visitAddress, visitExecutive, visitLab].join("|");
 
     // Prevent form re-initialization on unrelated parent re-renders.
     if (initFormKeyRef.current === initKey) return;
@@ -186,7 +194,6 @@ export default function VisitModal({
             : visitInitialData.tests
           : visitInitialData?.package_name || visitInitialData?.notes || "",
         prescription: visitInitialData?.prescription || "",
-        ...defaultValues,
       });
     } else {
       //console.log('UserID: ' + user.id + '\n DefaultExecutiveID: ' +  defaultExecutiveId)
@@ -195,14 +202,22 @@ export default function VisitModal({
 
       if (role === "phlebo") {
         initialExecutive = String(user.id);
+      } else if (visitInitialData?.executive_id) {
+        initialExecutive =
+          typeof visitInitialData.executive_id === "object"
+            ? String(visitInitialData.executive_id.id || "")
+            : String(visitInitialData.executive_id || "");
       } else if (defaultValues.executive_id) {
         initialExecutive = String(defaultValues.executive_id);
       }
       setFormData({
         id: null,
-        patient_id: patientId || "",
+        patient_id: visitInitialData?.patient_id || patientId || "",
         executive_id: initialExecutive,
-        lab_id: "",
+        lab_id:
+          visitInitialData?.lab_id && typeof visitInitialData.lab_id === "object"
+            ? String(visitInitialData.lab_id.id || "")
+            : String(visitInitialData?.lab_id || ""),
         visit_date: visitInitialData && visitInitialData.visit_date ? formatDate(visitInitialData.visit_date) : "",
         time_slot: visitInitialData && visitInitialData.time_slot
           ? typeof visitInitialData.time_slot === "object"
@@ -221,7 +236,6 @@ export default function VisitModal({
             : visitInitialData.tests
           : visitInitialData?.package_name || visitInitialData?.notes || "",
         prescription: "",
-        ...defaultValues,
       });
     }
   }, [isOpen, visitInitialData, patientId, defaultValues, initialAddress, role, user?.id]);
@@ -412,10 +426,6 @@ export default function VisitModal({
       });
     }
     onSubmit(formData);
-    toast({
-      title: formData.id ? "Visit updated successfully." : "Visit created successfully.",
-      status: "success",
-    });
   };
 
   const renderRow = (label, field, required = true) => (

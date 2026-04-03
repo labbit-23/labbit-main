@@ -79,6 +79,24 @@ function normalizeNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeStatusCode(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function shouldPromoteToBooked({ explicitStatus, statusValue, previousStatus, previousExecutiveId, effectiveExecutiveId }) {
+  if (!effectiveExecutiveId) return false;
+
+  const nextStatus = normalizeStatusCode(statusValue);
+  const prevStatus = normalizeStatusCode(previousStatus);
+
+  if (explicitStatus) {
+    return nextStatus === "unassigned" || !nextStatus;
+  }
+
+  const isNewAssignment = !previousExecutiveId && !!effectiveExecutiveId;
+  return isNewAssignment || prevStatus === "unassigned" || !prevStatus;
+}
+
 async function getNotifyRolesForStatus(statusCode) {
   if (!statusCode) return [];
 
@@ -374,11 +392,22 @@ export async function POST(request) {
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
     const locationText = visitData.location_text || "";
+    const hasExplicitStatus = Object.prototype.hasOwnProperty.call(visitData, "status");
 
     delete visitData.id;
     delete visitData.visit_code;
     delete visitData.force_assign;
     delete visitData.location_text;
+
+    if (shouldPromoteToBooked({
+      explicitStatus: hasExplicitStatus,
+      statusValue: visitData.status,
+      previousStatus: null,
+      previousExecutiveId: null,
+      effectiveExecutiveId: visitData.executive_id,
+    })) {
+      visitData.status = "booked";
+    }
 
     const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
 
@@ -467,6 +496,7 @@ export async function PUT(request) {
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
     const locationText = visitData.location_text || "";
+    const hasExplicitStatus = Object.prototype.hasOwnProperty.call(visitData, "status");
 
     if (!visitData.id) {
       return NextResponse.json(
@@ -489,8 +519,19 @@ export async function PUT(request) {
       );
     }
 
+    const effectiveExecutiveId = visitData.executive_id ?? prev.executive_id;
+    if (shouldPromoteToBooked({
+      explicitStatus: hasExplicitStatus,
+      statusValue: visitData.status,
+      previousStatus: prev.status,
+      previousExecutiveId: prev.executive_id,
+      effectiveExecutiveId,
+    })) {
+      visitData.status = "booked";
+    }
+
     const conflicts = await findTimeslotConflicts({
-      executiveId: visitData.executive_id ?? prev.executive_id,
+      executiveId: effectiveExecutiveId,
       visitDate: visitData.visit_date ?? prev.visit_date,
       timeSlotId: visitData.time_slot ?? prev.time_slot,
       excludeVisitId: visitData.id,

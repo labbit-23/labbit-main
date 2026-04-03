@@ -11,7 +11,36 @@ import {
 } from "@/lib/whatsapp/sender";
 
 const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
-const ALLOWED_FLOWS = new Set(["reports", "home_visit", "main_menu"]);
+const ALLOWED_FLOWS = new Set(["reports", "home_visit", "main_menu", "feedback"]);
+const FEEDBACK_RATING_PROMPT = [
+  "Please rate your experience (1-5):",
+  "1 - Very Poor",
+  "2 - Poor",
+  "3 - Okay",
+  "4 - Good",
+  "5 - Excellent"
+].join("\n");
+
+function buildNext7Dates() {
+  const list = [];
+  const today = new Date();
+
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    list.push({
+      iso: d.toISOString().slice(0, 10),
+      title: d.toLocaleDateString("en-IN", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short"
+      }),
+      description: i === 0 ? "Today" : i === 1 ? "Tomorrow" : ""
+    });
+  }
+
+  return list;
+}
 
 function getRoleKey(user) {
   if (!user) return "";
@@ -81,6 +110,16 @@ export async function POST(request) {
     let nextState = "START";
     if (flow === "reports") nextState = "REPORT_WAITING_INPUT";
     if (flow === "home_visit") nextState = "BOOKING_DATE";
+    if (flow === "feedback") {
+      nextContext.feedback_flow = {
+        stage: "awaiting_rating",
+        trigger_source: "agent_feedback_flow",
+        prompted_at: new Date().toISOString()
+      };
+      nextContext.suppress_feedback_once = false;
+      nextContext.last_report_feedback_armed = false;
+      nextContext.last_resolution_feedback_armed = false;
+    }
 
     await supabase
       .from("chat_sessions")
@@ -109,7 +148,17 @@ export async function POST(request) {
     if (flow === "reports") {
       await sendReportInputPrompt({ labId: chatSession.lab_id, phone: chatSession.phone });
     } else if (flow === "home_visit") {
-      await sendBookingDateMenu({ labId: chatSession.lab_id, phone: chatSession.phone });
+      await sendBookingDateMenu({
+        labId: chatSession.lab_id,
+        phone: chatSession.phone,
+        dates: buildNext7Dates()
+      });
+    } else if (flow === "feedback") {
+      await sendTextMessage({
+        labId: chatSession.lab_id,
+        phone: chatSession.phone,
+        text: FEEDBACK_RATING_PROMPT
+      });
     } else {
       await sendMainMenu({ labId: chatSession.lab_id, phone: chatSession.phone });
     }

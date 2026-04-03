@@ -21,6 +21,7 @@ export default function PatientsTab({
   defaultExecutiveId = null,         // <-- Add this!
   disablePhoneInput = false,
   quickbookContext = null,
+  onQuickbookCompleted = null,
   themeMode = 'light',
 }) {
   const toast = useToast();
@@ -56,6 +57,12 @@ export default function PatientsTab({
 
   const [hasAddresses, setHasAddresses] = useState(false);
   const [loadingLabels, setLoadingLabels] = useState(false);
+
+  const toTomorrowIsoDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
 
   // Auto-load logged-in patient info
   useEffect(() => {
@@ -148,7 +155,7 @@ export default function PatientsTab({
         isClosable: true
       });
 
-      // QuickBook: go straight to visit creation
+      // Booking Request: go straight to visit creation
       if (quickbookContext?.source === 'quickbook') {
         setVisitModalOpen(true);
       }
@@ -177,20 +184,34 @@ export default function PatientsTab({
 
     try {
       const isUpdate = Boolean(formData.id);
-      const url = isUpdate ? `/api/visits/${formData.id}` : '/api/visits';
-      const method = isUpdate ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const url = isUpdate ? `/api/visits/${formData.id}` : "/api/visits";
+      const method = isUpdate ? "PUT" : "POST";
+      const submitVisit = async (bodyPayload) => {
+        const response = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bodyPayload),
+        });
+        const data = await response.json().catch(() => null);
+        return { response, data };
+      };
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => null);
-        throw new Error(errData?.error || 'Failed to save visit');
+      let { response, data } = await submitVisit(payload);
+      if (!response.ok && response.status === 409 && data?.can_override) {
+        const conflictCount = Array.isArray(data?.conflicts) ? data.conflicts.length : 0;
+        const proceed = window.confirm(
+          `Executive already has ${conflictCount || "another"} visit in this slot. Save anyway?`
+        );
+        if (proceed) {
+          ({ response, data } = await submitVisit({ ...payload, force_assign: true }));
+        }
       }
 
-      const savedVisit = await res.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to save visit");
+      }
+
+      const savedVisit = data;
 
       setVisits((prev) =>
         isUpdate
@@ -201,6 +222,10 @@ export default function PatientsTab({
       setEditingVisit(null);
       setSelectedVisitId(savedVisit.id);
 
+      if (typeof fetchPatients === "function") {
+        await fetchPatients();
+      }
+
       toast({
         title: isUpdate ? 'Visit updated successfully' : 'Visit created successfully',
         status: 'success',
@@ -208,13 +233,16 @@ export default function PatientsTab({
         isClosable: true,
       });
 
-      // QuickBook: mark booking as processed
+      // Booking Request: mark booking as processed
       if (quickbookContext?.source === 'quickbook') {
         await fetch(`/api/quickbook/${quickbookContext.booking.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "PROCESSED", visit_id: savedVisit.id }),
         });
+        if (typeof onQuickbookCompleted === "function") {
+          onQuickbookCompleted(savedVisit);
+        }
       }
     } catch (error) {
       toast({
@@ -234,7 +262,7 @@ export default function PatientsTab({
   };
 
   const visitModalInitialData = useMemo(() => {
-    if (editingVisit && editingVisit.id) {
+    if (editingVisit) {
       return editingVisit;
     }
 
@@ -301,7 +329,7 @@ export default function PatientsTab({
           borderColor={themeMode === 'dark' ? "rgba(250,204,21,0.28)" : "yellow.200"}
         >
           <Text fontSize="sm" color={themeMode === 'dark' ? "yellow.200" : "yellow.800"} fontWeight="medium">
-            Processing QuickBook booking — please confirm patient details and create a visit.
+            Processing booking request — please confirm patient details and create a visit.
           </Text>
           <Text fontSize="xs" color={themeMode === 'dark' ? "yellow.100" : "yellow.700"} mt={1}>
             {[
@@ -389,8 +417,45 @@ export default function PatientsTab({
               visits={visits}
               selectedVisitId={selectedVisitId}
               onSelectVisit={setSelectedVisitId}
-              openVisitModal={(visit) => {
-                setEditingVisit(visit);
+              openVisitModal={(visit, options = {}) => {
+                if (options?.mode === "rebook") {
+                  const normalizedTimeSlot =
+                    (visit?.time_slot && typeof visit.time_slot === "object"
+                      ? visit.time_slot.id
+                      : null) ||
+                    visit?.time_slot_id ||
+                    visit?.time_slot ||
+                    "";
+                  const normalizedExecutiveId =
+                    (visit?.executive_id && typeof visit.executive_id === "object"
+                      ? visit.executive_id.id
+                      : null) ||
+                    visit?.executive_id ||
+                    visit?.executive?.id ||
+                    "";
+                  const normalizedLabId =
+                    (visit?.lab_id && typeof visit.lab_id === "object"
+                      ? visit.lab_id.id
+                      : null) ||
+                    visit?.lab_id ||
+                    visit?.lab?.id ||
+                    "";
+                  const rebookPayload = {
+                    ...visit,
+                    id: null,
+                    patient_id: visit?.patient_id || selectedPatient?.id || "",
+                    visit_date: toTomorrowIsoDate(),
+                    status: "unassigned",
+                    address_id: "",
+                    time_slot: normalizedTimeSlot ? String(normalizedTimeSlot) : "",
+                    executive_id: normalizedExecutiveId ? String(normalizedExecutiveId) : "",
+                    lab_id: normalizedLabId ? String(normalizedLabId) : "",
+                    rebook_source_visit_id: visit?.id || null,
+                  };
+                  setEditingVisit(rebookPayload);
+                } else {
+                  setEditingVisit(visit);
+                }
                 setVisitModalOpen(true);
               }}
               loading={loadingVisits}
@@ -415,7 +480,7 @@ export default function PatientsTab({
 
       {!isUserLoading && user?.userType && visitModalOpen && (
         <VisitModal
-          key={`${editingVisit?.id || 'new'}-${selectedPatient?.id || 'no-patient'}`}
+          key={`${editingVisit?.id || `new-${editingVisit?.rebook_source_visit_id || "plain"}`}-${selectedPatient?.id || 'no-patient'}`}
           isOpen={visitModalOpen}
           onClose={() => {
             setVisitModalOpen(false);

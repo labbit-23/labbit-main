@@ -911,6 +911,34 @@ function CtoDashboardPage() {
     ];
   }, [realServices]);
 
+  const statusServicePreview = useMemo(() => {
+    const bucket = {
+      healthy: [],
+      degraded: [],
+      down: [],
+      unknown: []
+    };
+    for (const service of realServices) {
+      const status = String(service?.status || "").toLowerCase();
+      if (!bucket[status]) continue;
+      bucket[status].push(service.label || service.service_key || "service");
+    }
+    const buildPreview = (statusKey) => {
+      const list = bucket[statusKey] || [];
+      if (list.length === 0) return "No services in this status.";
+      const unique = [...new Set(list)];
+      const head = unique.slice(0, 8).join(", ");
+      const remaining = unique.length - 8;
+      return remaining > 0 ? `${head} (+${remaining} more)` : head;
+    };
+    return {
+      healthy: buildPreview("healthy"),
+      degraded: buildPreview("degraded"),
+      down: buildPreview("down"),
+      unknown: buildPreview("unknown")
+    };
+  }, [realServices]);
+
   const filteredServices = useMemo(() => {
     if (!activeStatusFilter) return realServices;
     return realServices.filter((service) => service.status === activeStatusFilter);
@@ -1073,11 +1101,20 @@ function CtoDashboardPage() {
         const parsed = parseServiceKey(service.service_key);
         return system.service_keys.includes(parsed.fullKey) || system.service_keys.includes(parsed.baseKey);
       });
-      const freshMatches = matches.filter(isFreshService);
-      const sourceMatches = freshMatches.length > 0 ? freshMatches : matches;
-      const status = sourceMatches.length > 0 ? worstStatus(sourceMatches.map((service) => service.status)) : "unknown";
+      const isWhatsappBotSystem = String(system.label || "").toLowerCase() === "whatsapp bot";
+      const scopedMatches = isWhatsappBotSystem
+        ? matches.filter((service) => parseServiceKey(service.service_key).baseKey === "whatsapp_bot_response_sla_1m")
+        : matches;
+      const freshMatches = scopedMatches.filter(isFreshService);
+      const sourceMatches = freshMatches.length > 0 ? freshMatches : scopedMatches;
+      let status = sourceMatches.length > 0 ? worstStatus(sourceMatches.map((service) => service.status)) : "unknown";
+      if (isWhatsappBotSystem && status === "down") {
+        // For executive key tile, show SLA issues as degraded.
+        status = "degraded";
+      }
       const primaryMatch =
         sourceMatches.find((service) => service.status === status) ||
+        sourceMatches.find((service) => isWhatsappBotSystem && service.status === "down") ||
         sourceMatches[0] ||
         null;
 
@@ -1708,7 +1745,19 @@ function CtoDashboardPage() {
         <>
         <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4} mb={8}>
           {heroStats.map((stat) => (
-            <Tooltip key={stat.label} label={stat.note} hasArrow placement="top" bg="gray.900" color="white">
+            <Tooltip
+              key={stat.label}
+              label={
+                stat.filter
+                  ? `${stat.note}\n${statusServicePreview[stat.filter] || ""}`
+                  : stat.note
+              }
+              hasArrow
+              placement="top"
+              bg="gray.900"
+              color="white"
+              whiteSpace="pre-wrap"
+            >
               <Box
                 p={5}
                 borderRadius="24px"
@@ -1738,6 +1787,9 @@ function CtoDashboardPage() {
             </Tooltip>
           ))}
         </SimpleGrid>
+        <Text fontSize="xs" color="whiteAlpha.600" mb={6}>
+          Note: PM2 restart-based degrade/down uses rolling 24h restart counts; resolving an Ops Event does not immediately reset service health.
+        </Text>
 
         <Box
           ref={vpsSectionRef}

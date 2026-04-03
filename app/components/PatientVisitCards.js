@@ -84,7 +84,7 @@ export default function PatientVisitCards({
             visit={visit}
             isSelected={selectedVisitId === visit.id}
             onSelect={() => onSelectVisit(visit.id)}
-            openVisitModal={() => openVisitModal(visit)}
+            openVisitModal={(selectedVisit, options) => openVisitModal(selectedVisit || visit, options)}
             themeMode={themeMode}
           />
           {renderVisitDetails(visit)}
@@ -97,7 +97,7 @@ export default function PatientVisitCards({
             isPast
             isSelected={selectedVisitId === lastPastVisit.id}
             onSelect={() => onSelectVisit(lastPastVisit.id)}
-            openVisitModal={() => openVisitModal(lastPastVisit)}
+            openVisitModal={(selectedVisit, options) => openVisitModal(selectedVisit || lastPastVisit, options)}
             themeMode={themeMode}
           />
           {renderVisitDetails(lastPastVisit)}

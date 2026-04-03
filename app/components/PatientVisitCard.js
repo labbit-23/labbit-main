@@ -80,7 +80,7 @@ export default function PatientVisitCard({
               variant="solid"
               onClick={(e) => {
                 e.stopPropagation();
-                openVisitModal && openVisitModal();
+                openVisitModal && openVisitModal(visit, { mode: "rebook" });
               }}
             >
               Re-book

@@ -31,6 +31,7 @@ const WHATSAPP_ICON_URL =
 const CLICKUP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/clickup.svg";
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
+const BOOKING_HISTORY_PAGE_SIZE = 120;
 
 function ReportDispatchIcon(props) {
   return (
@@ -58,6 +59,9 @@ export default function AdminDashboard() {
   const [labs, setLabs] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
   const [quickbookings, setQuickbookings] = useState([]);
+  const [bookingRequestsLoading, setBookingRequestsLoading] = useState(false);
+  const [bookingRequestsLoadingMore, setBookingRequestsLoadingMore] = useState(false);
+  const [bookingRequestsHasMoreHistory, setBookingRequestsHasMoreHistory] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
@@ -76,6 +80,13 @@ export default function AdminDashboard() {
   const [loadingExecutiveModal, setLoadingExecutiveModal] = useState(false);
 
   const visitsTableRef = useRef();
+  const bookingFetchSeqRef = useRef(0);
+  const bookingHistoryOffsetRef = useRef(0);
+
+  const isPendingBookingRequest = useCallback((booking) => {
+    const status = String(booking?.status || "").trim().toLowerCase();
+    return status === "" || status === "pending";
+  }, []);
 
 const exportVisitsImage = async () => {
   if (!visitsTableRef.current) return;
@@ -180,6 +191,74 @@ const exportVisitsImage = async () => {
   const fetchBaseData = useCallback(async () => {
     setErrorMsg("");
     try {
+      const fetchBookingRequests = async ({ eagerPending = true, resetHistory = true } = {}) => {
+        const seq = bookingFetchSeqRef.current + 1;
+        bookingFetchSeqRef.current = seq;
+        if (resetHistory) {
+          setBookingRequestsLoading(true);
+          bookingHistoryOffsetRef.current = 0;
+        } else {
+          setBookingRequestsLoadingMore(true);
+        }
+
+        const bookingSelect = `
+          *,
+          time_slot:timeslot(id, slot_name, start_time, end_time)
+        `;
+
+        let pendingRows = [];
+        if (eagerPending) {
+          const { data: pendingData, error: pendingError } = await supabase
+            .from("quickbookings")
+            .select(bookingSelect)
+            .or("status.is.null,status.eq.,status.eq.pending,status.eq.PENDING")
+            .order("created_at", { ascending: false })
+            .limit(500);
+
+          if (pendingError) throw pendingError;
+          pendingRows = pendingData || [];
+          if (bookingFetchSeqRef.current === seq) {
+            setQuickbookings(pendingRows);
+          }
+        }
+
+        const from = bookingHistoryOffsetRef.current;
+        const to = from + BOOKING_HISTORY_PAGE_SIZE - 1;
+        const { data: historyData, error: historyError } = await supabase
+          .from("quickbookings")
+          .select(bookingSelect)
+          .order("created_at", { ascending: false })
+          .range(from, to);
+
+        if (historyError) throw historyError;
+        if (bookingFetchSeqRef.current === seq) {
+          const historyRows = (historyData || []).filter((row) => !isPendingBookingRequest(row));
+          const mergeById = (rows) => {
+            const byId = new Map();
+            for (const row of rows) {
+              if (!row?.id) continue;
+              byId.set(row.id, row);
+            }
+            return [...byId.values()].sort(
+              (a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+            );
+          };
+
+          if (resetHistory) {
+            setQuickbookings(mergeById([...pendingRows, ...historyRows]));
+          } else {
+            setQuickbookings((prev) => {
+              const prevPending = prev.filter(isPendingBookingRequest);
+              const prevHistory = prev.filter((row) => !isPendingBookingRequest(row));
+              return mergeById([...prevPending, ...prevHistory, ...historyRows]);
+            });
+          }
+
+          bookingHistoryOffsetRef.current = from + BOOKING_HISTORY_PAGE_SIZE;
+          setBookingRequestsHasMoreHistory((historyData || []).length === BOOKING_HISTORY_PAGE_SIZE);
+        }
+      };
+
       const apiExecutivesFetch = fetch("/api/executives").then((res) => {
         if (!res.ok) throw new Error("Failed to fetch executives");
         return res.json();
@@ -197,7 +276,6 @@ const exportVisitsImage = async () => {
         executivesData,
         { data: labsData, error: labsError },
         { data: timeSlotsData, error: timeSlotsError },
-        { data: quickbookData, error: quickbookError },
         { data: statusOptionsData, error: statusOptionsError },
         whatsappSessionsBody,
         agentPresenceBody
@@ -209,13 +287,6 @@ const exportVisitsImage = async () => {
           .select("id, slot_name, start_time, end_time")
           .order("start_time"),
         supabase
-          .from("quickbookings")
-          .select(`
-            *,
-            time_slot:timeslot(id, slot_name, start_time, end_time)
-          `)
-          .order("created_at", { ascending: false }),
-        supabase
           .from("visit_statuses")
           .select("code, label, color, order")
           .order("order"),
@@ -226,19 +297,19 @@ const exportVisitsImage = async () => {
       if (!executivesData) throw new Error("Failed to load executives");
       if (labsError) throw labsError;
       if (timeSlotsError) throw timeSlotsError;
-      if (quickbookError) throw quickbookError;
       if (statusOptionsError) throw statusOptionsError;
 
       setExecutives(executivesData || []);
       setLabs(labsData || []);
       setTimeSlots(timeSlotsData || []);
-      setQuickbookings(quickbookData || []);
       setStatusOptions(statusOptionsData || []);
 
       const unreadCount = ((whatsappSessionsBody?.sessions) || [])
         .reduce((acc, session) => acc + Number(session?.unread_count || 0), 0);
       setUnreadWhatsAppCount(unreadCount);
       setAgentPresence(Array.isArray(agentPresenceBody?.agents) ? agentPresenceBody.agents : []);
+
+      await fetchBookingRequests({ eagerPending: true, resetHistory: true });
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");
       toast({
@@ -246,8 +317,11 @@ const exportVisitsImage = async () => {
         description: error.message || "Unknown error",
         status: "error"
       });
+    } finally {
+      setBookingRequestsLoading(false);
+      setBookingRequestsLoadingMore(false);
     }
-  }, [toast]);
+  }, [toast, isPendingBookingRequest]);
 
   const fetchAll = useCallback(async () => {
     await Promise.all([fetchBaseData(), fetchVisitsData()]);
@@ -439,6 +513,26 @@ const exportVisitsImage = async () => {
     (v) => v.status !== "disabled"
   );
 
+  const adminTabBaseStyles = {
+    borderWidth: "1px",
+    borderColor: themeMode === "dark" ? "whiteAlpha.300" : "gray.300",
+    borderRadius: "md",
+    fontWeight: "semibold",
+    bg: themeMode === "dark" ? "blackAlpha.300" : "gray.100",
+    px: 4,
+    minH: "38px",
+    color: themeMode === "dark" ? "whiteAlpha.900" : "gray.800",
+    _hover: {
+      bg: themeMode === "dark" ? "whiteAlpha.200" : "gray.200"
+    },
+    _selected: {
+      bg: themeMode === "dark" ? "teal.300" : "teal.500",
+      color: themeMode === "dark" ? "gray.900" : "white",
+      borderColor: themeMode === "dark" ? "teal.300" : "teal.600",
+      boxShadow: themeMode === "dark" ? "none" : "0 1px 0 rgba(0,0,0,0.05)"
+    }
+  };
+
   const perExecVisitCounts = nonDisabledTodaysVisits.reduce((acc, v) => {
     const execId = v.executive?.id ?? (typeof v.executive_id === "object" ? v.executive_id?.id : v.executive_id);
     if (execId) {
@@ -477,6 +571,63 @@ const exportVisitsImage = async () => {
     }, 30000);
     return () => clearInterval(timer);
   }, [fetchBaseData]);
+
+  useEffect(() => {
+    if (tabIndex !== 2) return;
+    fetchBaseData().catch(() => {});
+  }, [tabIndex, fetchBaseData]);
+
+  const loadMoreBookingRequestHistory = useCallback(async () => {
+    setErrorMsg("");
+    try {
+      const seq = bookingFetchSeqRef.current + 1;
+      bookingFetchSeqRef.current = seq;
+      setBookingRequestsLoadingMore(true);
+
+      const bookingSelect = `
+        *,
+        time_slot:timeslot(id, slot_name, start_time, end_time)
+      `;
+      const from = bookingHistoryOffsetRef.current;
+      const to = from + BOOKING_HISTORY_PAGE_SIZE - 1;
+      const { data: historyData, error } = await supabase
+        .from("quickbookings")
+        .select(bookingSelect)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (error) throw error;
+      if (bookingFetchSeqRef.current !== seq) return;
+
+      const historyRows = (historyData || []).filter((row) => !isPendingBookingRequest(row));
+      const mergeById = (rows) => {
+        const byId = new Map();
+        for (const row of rows) {
+          if (!row?.id) continue;
+          byId.set(row.id, row);
+        }
+        return [...byId.values()].sort(
+          (a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+        );
+      };
+
+      setQuickbookings((prev) => {
+        const prevPending = prev.filter(isPendingBookingRequest);
+        const prevHistory = prev.filter((row) => !isPendingBookingRequest(row));
+        return mergeById([...prevPending, ...prevHistory, ...historyRows]);
+      });
+      bookingHistoryOffsetRef.current = from + BOOKING_HISTORY_PAGE_SIZE;
+      setBookingRequestsHasMoreHistory((historyData || []).length === BOOKING_HISTORY_PAGE_SIZE);
+    } catch (error) {
+      toast({
+        title: "Error Loading Booking Requests",
+        description: error.message || "Unknown error",
+        status: "error"
+      });
+    } finally {
+      setBookingRequestsLoadingMore(false);
+    }
+  }, [toast, isPendingBookingRequest]);
 
   return (
     <RequireAuth roles={["admin", "manager", "director"]}>
@@ -615,6 +766,24 @@ const exportVisitsImage = async () => {
               </Text>
             )}
 
+            <Box
+              mb={4}
+              px={4}
+              py={3}
+              borderRadius="lg"
+              borderWidth="2px"
+              borderColor={pendingQuickbookCount > 0 ? "red.400" : "green.400"}
+              bg={themeMode === "dark" ? "blackAlpha.300" : "white"}
+            >
+              <Text
+                fontSize={{ base: "md", md: "lg" }}
+                fontWeight="800"
+                color={pendingQuickbookCount > 0 ? "red.400" : "green.500"}
+              >
+                Unprocessed Booking Requests: {pendingQuickbookCount}
+              </Text>
+            </Box>
+
             <Box mb={6}>
               <DashboardMetrics hvExecutiveId={null} date={selectedDate} themeMode={themeMode} />
             </Box>
@@ -626,8 +795,20 @@ const exportVisitsImage = async () => {
               colorScheme="green"
               isLazy
             >
-              <TabList alignItems="center" gap={2}>
-                <Tab>
+              <TabList
+                alignItems="center"
+                gap={2}
+                borderWidth="1px"
+                borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
+                borderRadius="lg"
+                px={2}
+                py={2}
+                bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"}
+                mb={2}
+              >
+                <Tab
+                  {...adminTabBaseStyles}
+                >
                   Visits{" "}
                   {unassignedVisitCount > 0 && (
                     <Tooltip
@@ -659,17 +840,35 @@ const exportVisitsImage = async () => {
                     </Tooltip>
                   )}
                 </Tab>
-                <Tab>Patients</Tab>
-                <Tab>
-                  QuickBook{" "}
-                  {pendingQuickbookCount > 0 && (
-                    <Badge ml={2} colorScheme="red" borderRadius="full">
+                <Tab
+                  {...adminTabBaseStyles}
+                >
+                  Patients
+                </Tab>
+                <Tab
+                  {...adminTabBaseStyles}
+                >
+                  Booking Requests{" "}
+                  {bookingRequestsLoading ? (
+                    <Badge ml={2} colorScheme="orange" borderRadius="full" variant="solid">
+                      ...
+                    </Badge>
+                  ) : pendingQuickbookCount > 0 ? (
+                    <Badge ml={2} colorScheme="red" borderRadius="full" variant="solid">
                       {pendingQuickbookCount}
                     </Badge>
-                  )}
+                  ) : null}
                 </Tab>
-                <Tab>Executives</Tab>
-                <Tab>Collection Centres</Tab>
+                <Tab
+                  {...adminTabBaseStyles}
+                >
+                  Executives
+                </Tab>
+                <Tab
+                  {...adminTabBaseStyles}
+                >
+                  Collection Centres
+                </Tab>
                 <Spacer />
                 <HStack spacing={2} className="no-export">
                   <Tooltip label="Refresh visible tab">
@@ -758,7 +957,15 @@ const exportVisitsImage = async () => {
                 <TabPanel>
                   <QuickBookTab
                     quickbookings={quickbookings}
+                    isLoading={bookingRequestsLoading}
+                    isLoadingMore={bookingRequestsLoadingMore}
+                    hasMoreHistory={bookingRequestsHasMoreHistory}
+                    onLoadMoreHistory={loadMoreBookingRequestHistory}
                     onRefresh={fetchAll}
+                    onAcceptVisitComplete={async () => {
+                      setTabIndex(0);
+                      await fetchVisitsData();
+                    }}
                     themeMode={themeMode}
                   />
                 </TabPanel>

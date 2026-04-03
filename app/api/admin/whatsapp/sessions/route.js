@@ -195,8 +195,13 @@ async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTe
       query = query.in("lab_id", labIds);
     }
     if (normalizedSearch) {
-      const safe = normalizedSearch.replace(/[%_,]/g, " ");
-      query = query.or(`phone.ilike.%${safe}%,patient_name.ilike.%${safe}%`);
+      const searchDigits = digitsOnly(normalizedSearch);
+      if (searchDigits.length >= 7) {
+        query = query.in("phone", phoneCandidates(searchDigits));
+      } else {
+        const safe = normalizedSearch.replace(/[%_,]/g, " ");
+        query = query.ilike("patient_name", `%${safe}%`);
+      }
     }
     if (normalizedStatus === "unread") {
       query = query

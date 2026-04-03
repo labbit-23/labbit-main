@@ -3,8 +3,11 @@
 // =============================================
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
+import { supabase as supabaseServer } from "@/lib/supabaseServer";
 import { sendQuickbookPatientSms } from "@/lib/visitSms";
 import { createQuickbookClickupTask } from "@/lib/clickup";
+import { sendTextMessage } from "@/lib/whatsapp/sender";
+import { toCanonicalIndiaPhone } from "@/lib/phone";
 
 export const runtime = "nodejs";
 
@@ -12,6 +15,94 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim()
   );
+}
+
+function parseTemplates(templates) {
+  if (!templates) return {};
+  if (typeof templates === "string") {
+    try {
+      return JSON.parse(templates);
+    } catch {
+      return {};
+    }
+  }
+  return typeof templates === "object" ? templates : {};
+}
+
+function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
+  const botFlow = templates?.bot_flow || {};
+  const candidate =
+    botFlow?.report_notify_number ||
+    templates?.report_notify_number ||
+    lab?.alternate_whatsapp_number ||
+    lab?.internal_whatsapp_number ||
+    "";
+  return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
+}
+
+function buildBookingRequestNotifyText({ labName, bookingId, patientName, phone, packageName, date, slotLabel, area }) {
+  return [
+    "NEW BOOKING REQUEST",
+    labName ? `Lab: ${labName}` : null,
+    bookingId ? `Booking ID: ${bookingId}` : null,
+    patientName ? `Patient: ${patientName}` : null,
+    phone ? `Phone: ${phone}` : null,
+    packageName ? `Package/Test: ${packageName}` : null,
+    date ? `Date: ${date}` : null,
+    slotLabel ? `Time Slot: ${slotLabel}` : null,
+    area ? `Area/Location: ${area}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function sendInternalBookingRequestNotify({
+  labId,
+  bookingId,
+  patientName,
+  phone,
+  packageName,
+  date,
+  slotLabel,
+  area
+}) {
+  if (!labId || !supabaseServer) return;
+  try {
+    const [{ data: apiRow }, { data: labRow }] = await Promise.all([
+      supabaseServer
+        .from("labs_apis")
+        .select("templates")
+        .eq("lab_id", labId)
+        .eq("api_name", "whatsapp_outbound")
+        .maybeSingle(),
+      supabaseServer
+        .from("labs")
+        .select("name,alternate_whatsapp_number,internal_whatsapp_number")
+        .eq("id", labId)
+        .maybeSingle()
+    ]);
+
+    const templates = parseTemplates(apiRow?.templates);
+    const notifyPhone = resolveInternalNotifyPhone({ templates, lab: labRow || null });
+    if (!notifyPhone) return;
+
+    await sendTextMessage({
+      labId,
+      phone: notifyPhone,
+      text: buildBookingRequestNotifyText({
+        labName: String(labRow?.name || "").trim() || null,
+        bookingId,
+        patientName,
+        phone,
+        packageName,
+        date,
+        slotLabel,
+        area
+      })
+    });
+  } catch (error) {
+    console.error("[QuickBook Internal Notify Error]", error?.message || error);
+  }
 }
 
 async function resolveTimeslotDetails(timeslotInput) {
@@ -83,6 +174,7 @@ export async function POST(req) {
     }
 
     const resolvedTimeslot = await resolveTimeslotDetails(timeslot);
+    const resolvedLabId = String(body?.lab_id || body?.labId || process.env.DEFAULT_LAB_ID || "").trim();
 
     // 1️⃣ Insert booking into quickbookings table
     const baseInsert = {
@@ -95,7 +187,8 @@ export async function POST(req) {
       persons,
       whatsapp,
       agree,
-      prescription: prescription || null
+      prescription: prescription || null,
+      ...(isUuid(resolvedLabId) ? { lab_id: resolvedLabId } : {})
     };
 
     const locationInsert = {
@@ -212,6 +305,23 @@ export async function POST(req) {
     } catch (clickupErr) {
       console.error("Unexpected ClickUp quickbook task error:", clickupErr);
     }
+
+    // 4️⃣ Internal notify to fallback/report-notify number (best-effort)
+    await sendInternalBookingRequestNotify({
+      labId: booking.lab_id || (isUuid(resolvedLabId) ? resolvedLabId : null),
+      bookingId: booking.id || null,
+      patientName: booking.patient_name || patientName || null,
+      phone: booking.phone || phone || null,
+      packageName: booking.package_name || packageName || null,
+      date: booking.date || date || null,
+      slotLabel: resolvedTimeslot.label || null,
+      area:
+        booking.location_text ||
+        booking.location_address ||
+        booking.area ||
+        area ||
+        null
+    });
 
     return NextResponse.json({ success: true, booking }, { status: 200 });
 

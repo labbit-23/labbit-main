@@ -1,19 +1,37 @@
-//File: app/admin/components/QuickBookTab.js
-
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Box, Table, Thead, Tbody, Tr, Th, Td, Button,
-  Select, Badge, Spinner, Text, IconButton
+  Badge,
+  Box,
+  Button,
+  FormControl,
+  FormLabel,
+  HStack,
+  Input,
+  IconButton,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
+  Select,
+  Spinner,
+  Table,
+  Tbody,
+  Td,
+  Text,
+  Th,
+  Thead,
+  Tr,
+  VStack,
+  Wrap,
+  WrapItem
 } from "@chakra-ui/react";
-import PatientsTab from "@/app/components/PatientsTab";
-import { LinkIcon } from "@chakra-ui/icons"; // add at top of file
-import { EditIcon } from "@chakra-ui/icons"; // add at top of file
-import { CheckIcon } from "@chakra-ui/icons"; // add at top of file
-import { Icon } from "@chakra-ui/react";
-import { FiSave } from "react-icons/fi";
+import { EditIcon, LinkIcon } from "@chakra-ui/icons";
 import { FiNavigation } from "react-icons/fi";
+import PatientsTab from "@/app/components/PatientsTab";
 
 const REJECTION_REASONS = [
   { code: "too_far", label: "Too far" },
@@ -23,469 +41,524 @@ const REJECTION_REASONS = [
   { code: "other", label: "Other" }
 ];
 
-export default function QuickBookTab({ quickbookings = [], onRefresh, themeMode = "light" }) {
+function isPending(booking) {
+  const status = String(booking?.status || "").trim().toLowerCase();
+  return status === "" || status === "pending";
+}
+
+function formatDateShort(value) {
+  const raw = String(value || "").slice(0, 10);
+  if (!raw) return "-";
+  const d = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function extractAreaFromTextLocation(locationText) {
+  const raw = String(locationText || "").trim();
+  if (!raw) return "";
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      const q = url.searchParams.get("query") || url.searchParams.get("q") || "";
+      const normalized = decodeURIComponent(String(q || "")).replace(/\+/g, " ").trim();
+      if (normalized && !/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(normalized)) {
+        return normalized;
+      }
+    } catch {
+      return "";
+    }
+  }
+
+  if (/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(raw)) return "";
+  return raw;
+}
+
+function getAreaLabel(qb) {
+  return (
+    String(qb?.area || "").trim() ||
+    String(qb?.location_name || "").trim() ||
+    String(qb?.location_address || "").trim() ||
+    extractAreaFromTextLocation(qb?.location_text) ||
+    ((qb?.location_lat && qb?.location_lng) ? "Pin shared" : "Location pending")
+  );
+}
+
+function getQuickbookNavUrl(qb) {
+  if (qb?.location_lat && qb?.location_lng) {
+    return `https://www.google.com/maps/search/?api=1&query=${qb.location_lat},${qb.location_lng}`;
+  }
+
+  if (qb?.location_text && /^https?:\/\//i.test(qb.location_text)) {
+    return qb.location_text;
+  }
+
+  const query = qb?.location_text || qb?.location_address || qb?.area || "";
+  if (!query) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+export default function QuickBookTab({
+  quickbookings = [],
+  onRefresh,
+  onAcceptVisitComplete,
+  themeMode = "light",
+  isLoading = false,
+  isLoadingMore = false,
+  hasMoreHistory = false,
+  onLoadMoreHistory
+}) {
   const [processingQuickBook, setProcessingQuickBook] = useState(null);
-  const [saving, setSaving] = useState(null);
+  const [savingId, setSavingId] = useState(null);
   const [visitLists, setVisitLists] = useState({});
-  const [editedQuickBook, setEditedQuickBook] = useState({});
-  const [statusOptions, setStatusOptions] = useState([]);
+  const [editing, setEditing] = useState({});
   const [linkingVisitId, setLinkingVisitId] = useState(null);
-  const [editingStatusId, setEditingStatusId] = useState(null);
+  const [processedVisibleCount, setProcessedVisibleCount] = useState(30);
+  const [rejectingBooking, setRejectingBooking] = useState(null);
+  const [rejectCode, setRejectCode] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+  const [isRejectSaving, setIsRejectSaving] = useState(false);
 
-  const getQuickbookNavUrl = (qb) => {
-    if (qb?.location_lat && qb?.location_lng) {
-      return `https://www.google.com/maps/search/?api=1&query=${qb.location_lat},${qb.location_lng}`;
+  const isDark = themeMode === "dark";
+
+  const pendingQuickBooks = useMemo(
+    () => quickbookings.filter(isPending),
+    [quickbookings]
+  );
+  const nonPendingQuickBooks = useMemo(
+    () => quickbookings.filter((qb) => !isPending(qb)),
+    [quickbookings]
+  );
+
+  const visibleProcessed = nonPendingQuickBooks.slice(0, processedVisibleCount);
+  const hasMoreProcessedLoaded = nonPendingQuickBooks.length > processedVisibleCount;
+
+  const fetchVisitsForDate = async (date) => {
+    if (!date || visitLists[date]) return;
+    try {
+      const res = await fetch(`/api/visits?visit_date=${date}`);
+      if (!res.ok) throw new Error("Failed to fetch visits");
+      const data = await res.json();
+      setVisitLists((prev) => ({ ...prev, [date]: data }));
+    } catch (error) {
+      console.error("Error fetching visits for date", date, error);
     }
-
-    if (qb?.location_text && /^https?:\/\//i.test(qb.location_text)) {
-      return qb.location_text;
-    }
-
-    const query = qb?.location_text || qb?.location_address || qb?.area || "";
-    if (!query) return null;
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
   };
 
-  const getQuickbookLocationLabel = (qb) => {
-    if (qb?.location_lat && qb?.location_lng) return "Pin shared";
-    if (qb?.location_text) return qb.location_text;
-    if (qb?.location_address) return qb.location_address;
-    if (qb?.area) return qb.area;
-    return "No location";
+  const updateBooking = async (id, payload) => {
+    setSavingId(id);
+    try {
+      const res = await fetch(`/api/quickbook/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to update booking request");
+      }
+      onRefresh && onRefresh();
+      return true;
+    } catch (err) {
+      alert(err?.message || "Failed to update booking request");
+      return false;
+    } finally {
+      setSavingId(null);
+    }
   };
 
+  const openRejectModal = (qb) => {
+    setRejectingBooking(qb);
+    setRejectCode("");
+    setRejectReason("");
+  };
 
-  // Fetch status options (with color, label, code, order)
-  useEffect(() => {
-    fetch("/api/visits/status")
-      .then(res => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setStatusOptions(data);
-      })
-      .catch(console.error);
-  }, []);
+  const closeRejectModal = () => {
+    if (isRejectSaving) return;
+    setRejectingBooking(null);
+    setRejectCode("");
+    setRejectReason("");
+  };
 
+  const submitReject = async () => {
+    if (!rejectingBooking?.id || !rejectCode) return;
+    const selectedReason = REJECTION_REASONS.find((item) => item.code === rejectCode);
+    const reasonText =
+      rejectCode === "other"
+        ? String(rejectReason || "").trim()
+        : String(selectedReason?.label || "").trim();
+    if (!reasonText) return;
 
+    setIsRejectSaving(true);
+    try {
+      const ok = await updateBooking(rejectingBooking.id, {
+        status: "rejected",
+        rejection_code: rejectCode,
+        rejection_reason: reasonText
+      });
+      if (ok) {
+        closeRejectModal();
+      }
+    } finally {
+      setIsRejectSaving(false);
+    }
+  };
+
+  const handleSaveVisitLink = async (qb) => {
+    const visitId = String(editing[qb.id]?.visit_id || qb.visit_id || "").trim();
+    if (!visitId) {
+      alert("Select a visit first.");
+      return;
+    }
+
+    await updateBooking(qb.id, {
+      visit_id: visitId,
+      status: "booked",
+      rejection_code: null,
+      rejection_reason: null
+    });
+
+    setEditing((prev) => {
+      const copy = { ...prev };
+      delete copy[qb.id];
+      return copy;
+    });
+    setLinkingVisitId(null);
+  };
 
   if (processingQuickBook) {
     return (
       <PatientsTab
-        quickbookContext={{
-          source: "quickbook",
-          booking: processingQuickBook
-        }}
+        quickbookContext={{ source: "quickbook", booking: processingQuickBook }}
         fetchPatients={onRefresh}
+        onQuickbookCompleted={(savedVisit) => {
+          setProcessingQuickBook(null);
+          if (typeof onRefresh === "function") onRefresh();
+          if (typeof onAcceptVisitComplete === "function") {
+            onAcceptVisitComplete(savedVisit);
+          }
+        }}
         onPatientSelected={() => {}}
       />
     );
   }
 
   if (!quickbookings) return <Spinner />;
-  if (statusOptions.length === 0) return <Spinner />;
-
-  const getStatusCode = (qb) => String(qb?.status || "").trim().toLowerCase();
-  const pendingQuickBooks = quickbookings.filter((qb) => {
-    const status = getStatusCode(qb);
-    return status === "" || status === "pending";
-  });
-  const nonPendingQuickBooks = quickbookings.filter((qb) => {
-    const status = getStatusCode(qb);
-    return status !== "" && status !== "pending";
-  });
-  const disabledVisits = quickbookings.filter(qb => qb.status !== "PENDING" && qb.status !== "REJECTED");
-  const fetchVisitsForDate = async (date) => {
-    if (visitLists[date]) return; // Already fetched
-    try {
-      const res = await fetch(`/api/visits?visit_date=${date}`);
-      if (!res.ok) throw new Error("Failed to fetch visits");
-      const data = await res.json();
-      setVisitLists(prev => ({ ...prev, [date]: data }));
-    } catch (error) {
-      console.error("Error fetching visits for date", date, error);
-    }
-  };
-
- const isDark = themeMode === "dark";
-
- const renderTable = (list, faded = false) => (
-  <Table
-    size="sm"
-    bg={isDark ? (faded ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.03)") : (faded ? "gray.50" : "white")}
-    color={isDark ? "whiteAlpha.920" : "gray.800"}
-    opacity={faded ? 0.72 : 1}
-    mb={faded ? 0 : 8}
-  >
-    <Thead>
-      <Tr>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Patient</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Package</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Date</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Slot</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Location</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Assign Visit</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Rejection Reason</Th>
-        <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
-      </Tr>
-    </Thead>
-    <Tbody>
-      {list.map((qb) => {
-        const qbDate = qb.date?.slice(0, 10) || "";
-        const edit = editedQuickBook[qb.id] || {};
-        const rawStatus = edit.status ?? qb.status ?? "";
-        const statusValue = (edit.status ?? qb.status ?? "").toLowerCase();
-        const visitValue = edit.visit_id ?? qb.visit_id ?? "";
-        const rejectionCode = edit.rejection_code ?? qb.rejection_code ?? "";
-        const rejectionReasonText = edit.rejection_reason ?? qb.rejection_reason ?? "";
-        const isRejected = statusValue === "rejected";
-        const statusObj = statusOptions.find(opt => opt.code === statusValue);
-        const visitsForDate = visitLists[qbDate] || [];
-        const bookedStatus = statusOptions.find(opt => opt.code === "booked");
-        const statusToSave =
-          statusValue ||
-          (bookedStatus ? bookedStatus.code : statusOptions[0]?.code);
-
-        return (
-          <Tr key={qb.id}>
-            <Td fontWeight="bold">{qb.patient_name || "(No name)"}</Td>
-            <Td fontSize="sm">{qb.phone}</Td>
-            <Td fontSize="sm">{qb.package_name || "—"}</Td>
-            <Td fontSize="sm">{qbDate}</Td>
-            <Td fontSize="sm">{qb.time_slot?.slot_name || "—"}</Td>
-            <Td fontSize="sm" maxW="280px">
-              {getQuickbookLocationLabel(qb)}
-            </Td>
-            <Td>
-              {visitValue && !linkingVisitId ? (
-                <Badge mt={1} colorScheme="green">
-                  Assigned: {visitValue}
-                </Badge>
-              ) : linkingVisitId === qb.id ? (
-                <Select
-                  size="sm"
-                  value={visitValue}
-                  placeholder="Assign Visit"
-                  onChange={e => {
-                    const visit_id = e.target.value || "";
-                    setEditedQuickBook(prev => ({
-                      ...prev,
-                      [qb.id]: { ...(prev[qb.id] || {}), visit_id }
-                    }));
-                  }}
-                  isDisabled={isRejected}
-                  w="190px"
-                  onBlur={() => setLinkingVisitId(null)} // hide on blur
-                  autoFocus
-                >
-                  <option value="">—</option>
-                  {visitsForDate.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {(v.visit_code || v.id) + " — " + (v.patient?.name || "Unknown")}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Button
-                  size="sm"
-                  leftIcon={<LinkIcon />}
-                  onClick={() => {
-                    const date = qb.date?.slice(0, 10);
-                    if (date) fetchVisitsForDate(date);
-                    setLinkingVisitId(qb.id);
-                  }}
-                  title="Assign Visit to Quick Booking"
-                  {...(isDark
-                    ? {
-                        bg: "rgba(255,255,255,0.08)",
-                        color: "white",
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        _hover: { bg: "rgba(255,255,255,0.16)" },
-                      }
-                    : {})}
-                >
-                  Link Visit
-                </Button>
-              )}
-            </Td>
-
-            <Td>
-              {editingStatusId === qb.id ? (
-                <Select
-                  size="sm"
-                  value={statusValue}
-                  onChange={e => {
-                    const status = e.target.value;
-                    setEditedQuickBook(prev => ({
-                      ...prev,
-                      [qb.id]: {
-                        ...(prev[qb.id] || {}),
-                        status,
-                        ...(status !== "rejected"
-                          ? { rejection_code: "", rejection_reason: "" }
-                          : {})
-                      }
-                    }));
-                  }}
-                  w="120px"
-                  onBlur={() => setEditingStatusId(null)} // hide dropdown on blur
-                  autoFocus
-                >
-                  {statusOptions.map(opt => (
-                    <option key={opt.code} value={opt.code}>
-                      {opt.label}{opt.order >= 1 ? " ★" : ""}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  leftIcon={<EditIcon />}
-                  onClick={() => setEditingStatusId(qb.id)}
-                  title="Click to change status"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    background: isDark ? "rgba(255,255,255,0.08)" : "#f7f7fa",
-                    border: isDark ? "1px solid rgba(255,255,255,0.18)" : "1px solid #D3DCEE",
-                    color: isDark ? "#fff" : "#333",
-                    fontWeight: 600,
-                    paddingInline: "10px",
-                    borderRadius: "0.5em",
-                    cursor: "pointer"
-                  }}
-                  _hover={{
-                    background: isDark ? "rgba(255,255,255,0.16)" : "#e3f4fd",
-                    borderColor: isDark ? "rgba(255,255,255,0.28)" : "#90cdf4"
-                  }}
-                >
-                  {statusObj?.label || rawStatus}
-                </Button>
-              )}
-            </Td>
-            <Td minW="260px">
-              {isRejected ? (
-                <Box>
-                  <Select
-                    size="sm"
-                    value={rejectionCode}
-                    placeholder="Select rejection reason"
-                    onChange={(e) => {
-                      const code = e.target.value || "";
-                      const found = REJECTION_REASONS.find((item) => item.code === code);
-                      setEditedQuickBook((prev) => ({
-                        ...prev,
-                        [qb.id]: {
-                          ...(prev[qb.id] || {}),
-                          rejection_code: code,
-                          rejection_reason:
-                            code === "other"
-                              ? (prev[qb.id]?.rejection_reason || rejectionReasonText || "")
-                              : (found?.label || "")
-                        }
-                      }));
-                    }}
-                    mb={2}
-                  >
-                    {REJECTION_REASONS.map((item) => (
-                      <option key={item.code} value={item.code}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </Select>
-                  {(rejectionCode === "other" || !rejectionCode) && (
-                    <input
-                      value={rejectionReasonText}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setEditedQuickBook((prev) => ({
-                          ...prev,
-                          [qb.id]: {
-                            ...(prev[qb.id] || {}),
-                            rejection_reason: value
-                          }
-                        }));
-                      }}
-                      placeholder="Write rejection reason"
-                      style={{
-                        width: "100%",
-                        borderRadius: "8px",
-                        padding: "6px 8px",
-                        border: isDark ? "1px solid rgba(255,255,255,0.22)" : "1px solid #cbd5e1",
-                        background: isDark ? "rgba(255,255,255,0.05)" : "#fff",
-                        color: isDark ? "#fff" : "#0f172a"
-                      }}
-                    />
-                  )}
-                  {rejectionReasonText && (
-                    <Badge colorScheme="red" mt={2} whiteSpace="normal">
-                      {rejectionReasonText}
-                    </Badge>
-                  )}
-                </Box>
-              ) : (
-                <Text fontSize="sm" color={isDark ? "whiteAlpha.700" : "gray.500"}>
-                  —
-                </Text>
-              )}
-            </Td>
-
-            <Td>
-              {!faded && (
-                <>
-                  <IconButton
-                    size="sm"
-                    icon={<FiNavigation />}
-                    mr={2}
-                    {...(isDark
-                      ? {
-                          bg: "rgba(255,255,255,0.08)",
-                          color: "white",
-                          _hover: { bg: "rgba(255,255,255,0.16)" },
-                        }
-                      : {})}
-                    onClick={() => {
-                      const url = getQuickbookNavUrl(qb);
-                      if (!url) {
-                        alert("No location available for navigation.");
-                        return;
-                      }
-                      window.open(url, "_blank");
-                    }}
-                    aria-label="Navigate"
-                    title="Navigate"
-                  />
-                  <Button
-                    size="sm"
-                    mr={2}
-                    leftIcon={<EditIcon />}
-                    {...(isDark
-                      ? {
-                          bg: "rgba(255,255,255,0.08)",
-                          color: "white",
-                          border: "1px solid rgba(255,255,255,0.18)",
-                          _hover: { bg: "rgba(255,255,255,0.16)" },
-                        }
-                      : {})}
-                    onClick={async () => {
-                      const current = qb.location_lat && qb.location_lng
-                        ? `${qb.location_lat},${qb.location_lng}`
-                        : qb.location_text || qb.location_address || "";
-                      const input = window.prompt(
-                        "Set location (paste Google Maps link OR type 'lat,lng' OR plain address):",
-                        current
-                      );
-                      if (input === null) return;
-
-                      const trimmed = input.trim();
-                      if (!trimmed) return;
-
-                      const latLngMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-                      const payload = latLngMatch
-                        ? {
-                            location_source: "manual_admin",
-                            location_lat: Number(latLngMatch[1]),
-                            location_lng: Number(latLngMatch[2]),
-                            location_text: null
-                          }
-                        : {
-                            location_source: "manual_admin",
-                            location_text: trimmed
-                          };
-
-                      try {
-                        const res = await fetch(`/api/quickbook/${qb.id}`, {
-                          method: "PUT",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify(payload)
-                        });
-                        if (!res.ok) throw new Error("Failed to update location");
-                        onRefresh && onRefresh();
-                      } catch (err) {
-                        alert(err.message || "Failed to update location");
-                      }
-                    }}
-                  >
-                    Location
-                  </Button>
-                  <IconButton
-                    size="sm"
-                    icon={<FiSave />}
-                    colorScheme="blue"
-                    isLoading={saving === qb.id}
-                    onClick={async () => {
-                      setSaving(qb.id);
-                      try {
-                        const finalRejectionCode = statusToSave === "rejected" ? (rejectionCode || "other") : null;
-                        const finalRejectionReason =
-                          statusToSave === "rejected"
-                            ? (rejectionReasonText || REJECTION_REASONS.find((item) => item.code === finalRejectionCode)?.label || "Rejected")
-                            : null;
-                        const payload = {
-                          status: statusToSave,
-                          visit_id: visitValue || null,
-                          rejection_code: finalRejectionCode,
-                          rejection_reason: finalRejectionReason
-                        };
-                        const res = await fetch(`/api/quickbook/${qb.id}`, {
-                          method: "PUT",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify(payload),
-                        });
-                        if (!res.ok) throw new Error("Failed to update QuickBook");
-                        setEditedQuickBook(prev => {
-                          const copy = { ...prev };
-                          delete copy[qb.id];
-                          return copy;
-                        });
-                        onRefresh && onRefresh();
-                      } catch (err) {
-                        alert(err.message);
-                      } finally {
-                        setSaving(null);
-                      }
-                    }}
-                  >
-                  </IconButton>
-                  <Button
-                    size="sm"
-                    colorScheme="green"
-                    mr={2}
-                    isDisabled={isRejected || !!visitValue}
-                    onClick={() => setProcessingQuickBook(qb)}
-                  >
-                    Create Visit
-                  </Button>
-                </>
-              )}
-            </Td>
-          </Tr>
-        );
-      })}
-    </Tbody>
-  </Table>
-);
+  if (isLoading) {
+    return (
+      <HStack spacing={3} py={6}>
+        <Spinner />
+        <Text>Loading booking requests...</Text>
+      </HStack>
+    );
+  }
 
   return (
     <Box w="100%" overflowX="auto" py={4}>
-      {/* Pending section */}
-      {pendingQuickBooks.length > 0 && renderTable(pendingQuickBooks)}
+      {pendingQuickBooks.length > 0 && (
+        <Table size="sm" bg={isDark ? "rgba(255,255,255,0.03)" : "white"} color={isDark ? "whiteAlpha.920" : "gray.800"} mb={8}>
+          <Thead>
+            <Tr>
+              <Th>Patient</Th>
+              <Th>Request</Th>
+              <Th>Schedule</Th>
+              <Th>Area / Location</Th>
+              <Th>Link</Th>
+              <Th>Actions</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {pendingQuickBooks.map((qb) => {
+              const qbDate = String(qb?.date || "").slice(0, 10);
+              const visitValue = editing[qb.id]?.visit_id ?? qb.visit_id ?? "";
+              const visitsForDate = visitLists[qbDate] || [];
 
-      {/* Processed/Rejected, faded */}
+              return (
+                <Tr key={qb.id} verticalAlign="top">
+                  <Td minW="170px">
+                    <Text fontWeight="700">{qb.patient_name || "(No name)"}</Text>
+                    <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>{qb.phone || "-"}</Text>
+                  </Td>
+                  <Td minW="240px" maxW="320px">
+                    <Text fontWeight="600" whiteSpace="pre-wrap" wordBreak="break-word">
+                      {qb.package_name || "No package/tests provided"}
+                    </Text>
+                  </Td>
+                  <Td minW="150px">
+                    <Text>{formatDateShort(qbDate)}</Text>
+                    <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                      {qb.time_slot?.slot_name || "Slot pending"}
+                    </Text>
+                  </Td>
+                  <Td minW="220px" maxW="300px">
+                    <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
+                    {(qb?.location_lat && qb?.location_lng) && (
+                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.500"}>
+                        {qb.location_lat}, {qb.location_lng}
+                      </Text>
+                    )}
+                  </Td>
+                  <Td minW="170px">
+                    {visitValue && linkingVisitId !== qb.id ? (
+                      <Badge colorScheme="green" fontSize="10px">Linked</Badge>
+                    ) : (
+                      <VStack align="stretch" spacing={2}>
+                        <Button
+                          size="xs"
+                          leftIcon={<LinkIcon />}
+                          onClick={() => {
+                            if (qbDate) fetchVisitsForDate(qbDate);
+                            setLinkingVisitId((prev) => (prev === qb.id ? null : qb.id));
+                          }}
+                          px={2}
+                          minW="88px"
+                        >
+                          {linkingVisitId === qb.id ? "Hide" : "Link"}
+                        </Button>
+                        {linkingVisitId === qb.id && (
+                          <>
+                            <Select
+                              size="xs"
+                              value={visitValue}
+                              placeholder="Select visit"
+                              onChange={(e) => {
+                                const next = e.target.value || "";
+                                setEditing((prev) => ({
+                                  ...prev,
+                                  [qb.id]: { ...(prev[qb.id] || {}), visit_id: next }
+                                }));
+                              }}
+                            >
+                              {visitsForDate.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                  {(v.visit_code || v.id) + " - " + (v.patient?.name || "Unknown")}
+                                </option>
+                              ))}
+                            </Select>
+                            <Button
+                              size="xs"
+                              colorScheme="blue"
+                              onClick={() => handleSaveVisitLink(qb)}
+                              isLoading={savingId === qb.id}
+                              px={2}
+                            >
+                              Save
+                            </Button>
+                          </>
+                        )}
+                      </VStack>
+                    )}
+                  </Td>
+                  <Td minW="210px">
+                    <Wrap spacing={2}>
+                      <WrapItem>
+                        <IconButton
+                          size="xs"
+                          icon={<FiNavigation />}
+                          aria-label="Navigate"
+                          title="Navigate"
+                          onClick={() => {
+                            const url = getQuickbookNavUrl(qb);
+                            if (!url) {
+                              alert("No location available for navigation.");
+                              return;
+                            }
+                            window.open(url, "_blank");
+                          }}
+                        />
+                      </WrapItem>
+                      <WrapItem>
+                        <Button
+                          size="xs"
+                          leftIcon={<EditIcon />}
+                          onClick={async () => {
+                            const current = qb.location_lat && qb.location_lng
+                              ? `${qb.location_lat},${qb.location_lng}`
+                              : qb.location_text || qb.location_address || "";
+                            const input = window.prompt(
+                              "Set location (maps link OR lat,lng OR plain address):",
+                              current
+                            );
+                            if (input === null) return;
+                            const trimmed = input.trim();
+                            if (!trimmed) return;
+
+                            const latLngMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+                            const payload = latLngMatch
+                              ? {
+                                  location_source: "manual_admin",
+                                  location_lat: Number(latLngMatch[1]),
+                                  location_lng: Number(latLngMatch[2]),
+                                  location_text: null
+                                }
+                              : {
+                                  location_source: "manual_admin",
+                                  location_text: trimmed
+                                };
+                            await updateBooking(qb.id, payload);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </WrapItem>
+                      <WrapItem>
+                        <Button
+                          size="xs"
+                          colorScheme="green"
+                          isDisabled={Boolean(qb.visit_id)}
+                          onClick={() => setProcessingQuickBook(qb)}
+                        >
+                          Accept Visit
+                        </Button>
+                      </WrapItem>
+                      <WrapItem>
+                        <Button
+                          size="xs"
+                          colorScheme="red"
+                          variant="outline"
+                          onClick={() => openRejectModal(qb)}
+                        >
+                          Reject
+                        </Button>
+                      </WrapItem>
+                    </Wrap>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </Tbody>
+        </Table>
+      )}
+
       {nonPendingQuickBooks.length > 0 && (
         <Box mt={8}>
-          <Text fontSize="md" mb={2} color="gray.400" textAlign="left" fontWeight="bold">
-            Processed/Rejected QuickBookings
+          <Text fontSize="md" mb={2} color={isDark ? "whiteAlpha.700" : "gray.600"} fontWeight="bold">
+            Processed Booking Requests
           </Text>
-          {renderTable(nonPendingQuickBooks, true)}
+          <Table size="sm" bg={isDark ? "rgba(255,255,255,0.04)" : "gray.50"} color={isDark ? "whiteAlpha.840" : "gray.700"} opacity={0.9}>
+            <Thead>
+              <Tr>
+                <Th>Patient</Th>
+                <Th>Request</Th>
+                <Th>Schedule</Th>
+                <Th>Outcome</Th>
+                <Th>Area / Location</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {visibleProcessed.map((qb) => {
+                const status = String(qb?.status || "").trim().toLowerCase();
+                const statusLabel = status || "processed";
+                const rejectionReason = String(qb?.rejection_reason || "").trim();
+
+                return (
+                  <Tr key={qb.id}>
+                    <Td minW="160px">
+                      <Text fontWeight="700">{qb.patient_name || "(No name)"}</Text>
+                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>{qb.phone || "-"}</Text>
+                    </Td>
+                    <Td minW="220px" maxW="320px">
+                      <Text whiteSpace="pre-wrap" wordBreak="break-word">{qb.package_name || "-"}</Text>
+                    </Td>
+                    <Td minW="150px">
+                      <Text>{formatDateShort(qb.date)}</Text>
+                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                        {qb.time_slot?.slot_name || "Slot pending"}
+                      </Text>
+                    </Td>
+                    <Td minW="200px">
+                      <Badge colorScheme={status === "rejected" ? "red" : "green"}>{statusLabel}</Badge>
+                      {rejectionReason && (
+                        <Text mt={1} fontSize="xs" whiteSpace="pre-wrap" wordBreak="break-word">
+                          {rejectionReason}
+                        </Text>
+                      )}
+                    </Td>
+                    <Td minW="220px" maxW="300px">
+                      <Text whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </Tbody>
+          </Table>
+
+          <HStack mt={3} spacing={3}>
+            {hasMoreProcessedLoaded && (
+              <Button size="sm" variant="outline" onClick={() => setProcessedVisibleCount((prev) => prev + 30)}>
+                Show more loaded
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onLoadMoreHistory && onLoadMoreHistory()}
+              isLoading={isLoadingMore}
+              isDisabled={!hasMoreHistory || isLoadingMore}
+            >
+              {hasMoreHistory ? "Load older processed" : "No more processed requests"}
+            </Button>
+          </HStack>
         </Box>
       )}
 
-      {/* No data message */}
       {quickbookings.length === 0 && (
-        <Text>No quickbookings found 🎉</Text>
+        <Text>No booking requests found.</Text>
       )}
+
+      <Modal isOpen={Boolean(rejectingBooking)} onClose={closeRejectModal} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Reject Booking Request</ModalHeader>
+          <ModalBody>
+            <VStack align="stretch" spacing={3}>
+              <Text fontSize="sm">
+                {rejectingBooking?.patient_name || "Patient"} · {rejectingBooking?.phone || "-"}
+              </Text>
+
+              <FormControl isRequired>
+                <FormLabel mb={1}>Rejection reason</FormLabel>
+                <Select
+                  value={rejectCode}
+                  onChange={(e) => setRejectCode(e.target.value)}
+                  placeholder="Select reason"
+                >
+                  {REJECTION_REASONS.map((item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.label}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {rejectCode === "other" && (
+                <FormControl isRequired>
+                  <FormLabel mb={1}>Reason details</FormLabel>
+                  <Input
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Enter rejection reason"
+                  />
+                </FormControl>
+              )}
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button mr={3} variant="ghost" onClick={closeRejectModal} isDisabled={isRejectSaving}>
+              Cancel
+            </Button>
+            <Button
+              colorScheme="red"
+              onClick={submitReject}
+              isLoading={isRejectSaving}
+              isDisabled={!rejectCode || (rejectCode === "other" && !String(rejectReason || "").trim())}
+            >
+              Confirm Reject
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 }

@@ -207,6 +207,7 @@ export async function GET(request) {
 
     const phone = request.nextUrl.searchParams.get("phone");
     const phoneTail = phoneLast10(phone);
+    const legacyPhoneKeys = phoneCandidates(phoneTail);
     const before = request.nextUrl.searchParams.get("before");
     const since = request.nextUrl.searchParams.get("since");
     const limitParam = Number(request.nextUrl.searchParams.get("limit") || 80);
@@ -257,11 +258,11 @@ export async function GET(request) {
         return NextResponse.json({ error: "Failed to validate chat access" }, { status: 500 });
       }
 
-      if ((!fallbackRows || fallbackRows.length === 0) && phoneTail) {
+      if ((!fallbackRows || fallbackRows.length === 0) && legacyPhoneKeys.length > 0) {
         let fuzzyFallbackQuery = supabase
           .from("whatsapp_messages")
           .select("lab_id,phone,name,created_at")
-          .ilike("phone", `%${phoneTail}%`)
+          .in("phone", legacyPhoneKeys)
           .order("created_at", { ascending: false })
           .limit(1);
         if (labIds.length > 0) {
@@ -327,11 +328,11 @@ export async function GET(request) {
     let fetchedRows = messages || [];
 
     // Backward-compatible fallback for legacy phone formatting in old rows.
-    if (fetchedRows.length < pageLimit && phoneTail) {
+    if (fetchedRows.length < pageLimit && legacyPhoneKeys.length > 0) {
       let fuzzyMessagesQuery = supabase
         .from("whatsapp_messages")
         .select("*")
-        .ilike("phone", `%${phoneTail}%`);
+        .in("phone", legacyPhoneKeys);
       fuzzyMessagesQuery = applyLabScope(fuzzyMessagesQuery, { labIds, labId: chatSession.lab_id });
       if (before) {
         fuzzyMessagesQuery = fuzzyMessagesQuery
@@ -437,11 +438,11 @@ export async function GET(request) {
     }
 
     let { data: latestInboundRows } = await latestProfileNameQuery;
-    if ((!latestInboundRows || latestInboundRows.length === 0) && phoneTail) {
+    if ((!latestInboundRows || latestInboundRows.length === 0) && legacyPhoneKeys.length > 0) {
       let fuzzyInboundQuery = supabase
         .from("whatsapp_messages")
         .select("name,payload,created_at")
-        .ilike("phone", `%${phoneTail}%`)
+        .in("phone", legacyPhoneKeys)
         .eq("direction", "inbound")
         .order("created_at", { ascending: false })
         .limit(10);
@@ -613,11 +614,11 @@ export async function GET(request) {
         hasOlder = Boolean(olderRows?.length);
       }
 
-      if (!hasOlder && phoneTail) {
+      if (!hasOlder && legacyPhoneKeys.length > 0) {
         let fuzzyOlderQuery = supabase
           .from("whatsapp_messages")
           .select("id")
-          .ilike("phone", `%${phoneTail}%`)
+          .in("phone", legacyPhoneKeys)
           .lt("created_at", oldestLoadedAt)
           .limit(1);
         fuzzyOlderQuery = applyLabScope(fuzzyOlderQuery, { labIds, labId: chatSession.lab_id });
@@ -634,11 +635,11 @@ export async function GET(request) {
 
       const { data: anyRows } = await anyHistoryQuery;
       hasOlder = Boolean(anyRows?.length);
-      if (!hasOlder && phoneTail) {
+      if (!hasOlder && legacyPhoneKeys.length > 0) {
         let fuzzyAnyHistoryQuery = supabase
           .from("whatsapp_messages")
           .select("id")
-          .ilike("phone", `%${phoneTail}%`)
+          .in("phone", legacyPhoneKeys)
           .limit(1);
         fuzzyAnyHistoryQuery = applyLabScope(fuzzyAnyHistoryQuery, { labIds, labId: chatSession.lab_id });
         const { data: fuzzyAnyRows } = await fuzzyAnyHistoryQuery;

@@ -480,7 +480,6 @@ export async function GET(request) {
       .limit(MAX_RAW_ROWS);
 
     if (labId) rawQuery = rawQuery.eq("lab_id", labId);
-    if (serviceKey) rawQuery = rawQuery.eq("service_key", serviceKey);
 
     const { data: rawData, error: rawError } = await rawQuery;
 
@@ -527,7 +526,8 @@ export async function GET(request) {
 
     const bucketType = ["day", "week", "month"].includes(granularity) ? granularity : preset.granularity;
     const points = buildPointsFromDailyMap(mergedDailyMap, bucketType);
-    const hostPoints = buildHostPointsFromRawRows(rawRows, bucketType, serviceKey, nodeRoleFilter);
+    // Host pressure should reflect node-wide health even when a specific service filter is selected.
+    const hostPoints = buildHostPointsFromRawRows(rawRows, bucketType, "", nodeRoleFilter);
     const domainBreakdown = serviceKey
       ? []
       : [...domainDailyMap.entries()]

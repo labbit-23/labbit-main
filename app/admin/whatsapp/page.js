@@ -29,6 +29,14 @@ const DEFAULT_CHAT_SETTINGS = {
     { key: "/reports", label: "Report bot flow", type: "handover", flow: "reports" }
   ]
 };
+const RESOLVE_REASON_OPTIONS = [
+  { value: "query_resolved", label: "Query resolved" },
+  { value: "report_shared", label: "Report shared with patient" },
+  { value: "followup_completed", label: "Follow-up completed" },
+  { value: "duplicate_chat", label: "Duplicate chat" },
+  { value: "no_response", label: "No response from patient" },
+  { value: "other", label: "Other" }
+];
 
 function parseServerDate(value) {
   if (!value) return null;
@@ -629,8 +637,10 @@ export default function WhatsAppDashboard() {
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [isSendingReportTool, setIsSendingReportTool] = useState(false);
-  const [isSeedingBotFlow, setIsSeedingBotFlow] = useState(false);
   const [showBotFlowMenu, setShowBotFlowMenu] = useState(false);
+  const [showResolveMenu, setShowResolveMenu] = useState(false);
+  const [resolveReason, setResolveReason] = useState("");
+  const [resolveDetail, setResolveDetail] = useState("");
   const [openInfoSessionId, setOpenInfoSessionId] = useState(null);
   const [error, setError] = useState("");
   const [messageError, setMessageError] = useState("");
@@ -662,6 +672,8 @@ export default function WhatsAppDashboard() {
   const chatContainerRef = useRef(null);
   const isPrependingRef = useRef(false);
   const attachInputRef = useRef(null);
+  const botMenuWrapRef = useRef(null);
+  const resolveMenuRef = useRef(null);
   const initialBottomReadyRef = useRef(false);
   const autoRefreshInFlightRef = useRef(false);
   const selectedSessionRef = useRef(null);
@@ -847,7 +859,40 @@ export default function WhatsAppDashboard() {
   useEffect(() => {
     setOpenInfoSessionId(null);
     setShowBotFlowMenu(false);
+    setShowResolveMenu(false);
+    setResolveReason("");
+    setResolveDetail("");
   }, [selectedSession?.id]);
+
+  useEffect(() => {
+    if (!showBotFlowMenu) return undefined;
+    if (typeof window === "undefined") return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (!botMenuWrapRef.current) return;
+      if (!botMenuWrapRef.current.contains(event.target)) {
+        setShowBotFlowMenu(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => window.removeEventListener("mousedown", handleOutsideClick);
+  }, [showBotFlowMenu]);
+
+  useEffect(() => {
+    if (!showResolveMenu) return undefined;
+    if (typeof window === "undefined") return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (!resolveMenuRef.current) return;
+      if (!resolveMenuRef.current.contains(event.target)) {
+        setShowResolveMenu(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => window.removeEventListener("mousedown", handleOutsideClick);
+  }, [showResolveMenu]);
 
   useEffect(() => {
     selectedSessionRef.current = selectedSession || null;
@@ -1816,26 +1861,13 @@ export default function WhatsAppDashboard() {
     }
   };
 
-  const handleSessionAction = async (action) => {
+  const handleSessionAction = async (action, noteOverride = "", resolutionReasonOverride = "") => {
     if (!selectedSession?.id || isUpdatingStatus) return;
-    let note = "";
-
-    if (action === "resolve") {
-      const input =
-        typeof window === "undefined"
-          ? ""
-          : window.prompt("Add a closure statement for this resolution:", "");
-
-      if (input === null) {
-        setHint("Resolve cancelled.");
-        return;
-      }
-
-      note = String(input || "").trim();
-      if (!note) {
-        setError("Please add a closure statement before resolving this chat.");
-        return;
-      }
+    const note = String(noteOverride || "").trim();
+    const resolutionReason = String(resolutionReasonOverride || "").trim();
+    if (action === "resolve" && !note) {
+      setError("Please choose a resolution reason.");
+      return;
     }
 
     setError("");
@@ -1850,7 +1882,8 @@ export default function WhatsAppDashboard() {
         body: JSON.stringify({
           sessionId: selectedSession.id,
           action,
-          note
+          note,
+          resolution_reason: resolutionReason || null
         })
       });
 
@@ -1860,6 +1893,9 @@ export default function WhatsAppDashboard() {
       }
 
       if (action === "resolve") {
+        setShowResolveMenu(false);
+        setResolveReason("");
+        setResolveDetail("");
         setHint("Chat resolved and closure note saved.");
       }
 
@@ -1874,6 +1910,22 @@ export default function WhatsAppDashboard() {
     } finally {
       setIsUpdatingStatus(false);
     }
+  };
+
+  const handleResolveWithReason = async () => {
+    const selected = RESOLVE_REASON_OPTIONS.find((item) => item.value === resolveReason);
+    const reasonLabel = selected?.label || "";
+    const detail = String(resolveDetail || "").trim();
+    if (!reasonLabel) {
+      setError("Select a resolution reason first.");
+      return;
+    }
+    if (resolveReason === "other" && !detail) {
+      setError("Please add details for 'Other' resolution.");
+      return;
+    }
+    const note = detail ? `${reasonLabel} — ${detail}` : reasonLabel;
+    await handleSessionAction("resolve", note, resolveReason);
   };
 
   const filteredSessions = useMemo(() => {
@@ -2036,31 +2088,24 @@ export default function WhatsAppDashboard() {
     setComposerText(String(derived));
   };
 
-  const handleSeedBotFlow = async () => {
-    setError("");
-    setHint("");
-    setIsSeedingBotFlow(true);
-    try {
-      const response = await fetch("/api/admin/whatsapp/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "seed_bot_flow" })
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      setHint("Default bot flow inserted for this lab.");
-    } catch (err) {
-      setError(err?.message || "Failed to insert bot flow.");
-    } finally {
-      setIsSeedingBotFlow(false);
-    }
-  };
-
   const handleBotFlowInsert = async (flow) => {
     if (!selectedSession?.phone) {
       setError("Select a conversation first.");
+      return;
+    }
+    const flowLabel =
+      flow === "reports"
+        ? "Reports flow"
+        : flow === "home_visit"
+          ? "Home Visit flow"
+          : flow === "feedback"
+            ? "Feedback flow"
+            : "Main Menu";
+    const shouldSend = window.confirm(
+      `Send ${flowLabel} to ${selectedSession.patient_name || selectedSession.phone}?`
+    );
+    if (!shouldSend) {
+      setShowBotFlowMenu(false);
       return;
     }
 
@@ -2091,6 +2136,8 @@ export default function WhatsAppDashboard() {
           ? "Reports bot flow inserted into this chat."
           : flow === "home_visit"
           ? "Home visit bot flow inserted into this chat."
+          : flow === "feedback"
+          ? "Feedback flow inserted into this chat."
           : "Main menu bot flow inserted into this chat."
       );
       setComposerText("");
@@ -2275,30 +2322,32 @@ export default function WhatsAppDashboard() {
                 ))}
               </div>
 
-              <div className="wa-tabs" style={{ marginTop: 8 }}>
-                {[
-                  { key: "all", label: "All" },
-                  { key: "bot", label: "Bot" },
-                  { key: "agent", label: "Agent" }
-                ].map((item) => (
-                  <button
-                    key={`owner-${item.key}`}
-                    type="button"
-                    className={conversationOwnerFilter === item.key ? "is-active" : ""}
-                    onClick={() => setConversationOwnerFilter(item.key)}
-                  >
-                    <span>{item.label}</span>
-                  </button>
-                ))}
+              <div className="wa-ownerSearchRow">
+                <div className="wa-tabs wa-ownerTabs">
+                  {[
+                    { key: "all", label: "All" },
+                    { key: "bot", label: "Bot" },
+                    { key: "agent", label: "Agent" }
+                  ].map((item) => (
+                    <button
+                      key={`owner-${item.key}`}
+                      type="button"
+                      className={conversationOwnerFilter === item.key ? "is-active" : ""}
+                      onClick={() => setConversationOwnerFilter(item.key)}
+                    >
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {(showSearchBox || search || !isMobileViewport) && (
+                  <input
+                    className="wa-ownerSearchInput"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search patient or phone"
+                  />
+                )}
               </div>
-
-              {(showSearchBox || search) && (
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by patient or phone"
-                />
-              )}
 
               <div className={`wa-leftMeta ${showSidebarMeta ? "is-open" : ""}`}>
                 <div className="wa-stateLegend" aria-label="Chat state legend">
@@ -2495,7 +2544,7 @@ export default function WhatsAppDashboard() {
                     <button
                       type="button"
                       disabled={isUpdatingStatus || isLockedByAnotherAgent}
-                      onClick={() => handleSessionAction("resolve")}
+                      onClick={() => setShowResolveMenu((prev) => !prev)}
                       className={selectedSession.status === "resolved" ? "is-active" : ""}
                     >
                     Resolve
@@ -2529,7 +2578,7 @@ export default function WhatsAppDashboard() {
                   <button
                     type="button"
                     disabled={isUpdatingStatus}
-                    onClick={() => handleSessionAction("resolve")}
+                    onClick={() => setShowResolveMenu(true)}
                   >
                     Mark Resolved
                   </button>
@@ -2569,6 +2618,41 @@ export default function WhatsAppDashboard() {
             {!error && isLockedByAnotherAgent && (
               <div className="wa-inlineHint is-soft">
                 {sessionLock?.agent_name || "Another agent"} is actively typing in this chat. Reply tools stay locked until the typing claim expires.
+              </div>
+            )}
+            {showResolveMenu && selectedSession && (
+              <div className="wa-resolveMenu" ref={resolveMenuRef}>
+                <div className="wa-resolveMenuTitle">Resolve Chat</div>
+                <select
+                  value={resolveReason}
+                  onChange={(e) => setResolveReason(e.target.value)}
+                  disabled={isUpdatingStatus}
+                >
+                  <option value="">Select reason</option>
+                  {RESOLVE_REASON_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  value={resolveDetail}
+                  onChange={(e) => setResolveDetail(e.target.value)}
+                  placeholder={resolveReason === "other" ? "Details required" : "Optional detail"}
+                  disabled={isUpdatingStatus}
+                />
+                <div className="wa-resolveMenuActions">
+                  <button type="button" onClick={() => setShowResolveMenu(false)} disabled={isUpdatingStatus}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResolveWithReason}
+                    disabled={!resolveReason || (resolveReason === "other" && !String(resolveDetail || "").trim()) || isUpdatingStatus}
+                  >
+                    Confirm Resolve
+                  </button>
+                </div>
               </div>
             )}
             </div>
@@ -2755,7 +2839,7 @@ export default function WhatsAppDashboard() {
               />
 
               <div className="wa-customComposer">
-                <div className="wa-botMenuWrap">
+                <div className="wa-botMenuWrap" ref={botMenuWrapRef}>
                   <button
                     type="button"
                     className="wa-attachBtn"
@@ -2790,11 +2874,10 @@ export default function WhatsAppDashboard() {
                       </button>
                       <button
                         type="button"
-                        className="wa-botMenuItem is-secondary"
-                        onClick={handleSeedBotFlow}
-                        disabled={isSeedingBotFlow}
+                        className="wa-botMenuItem"
+                        onClick={() => handleBotFlowInsert("feedback")}
                       >
-                        {isSeedingBotFlow ? "Inserting Default Config..." : "Seed Default Config"}
+                        Feedback Flow
                       </button>
                     </div>
                   )}
@@ -3047,6 +3130,28 @@ export default function WhatsAppDashboard() {
         .wa-leftPanelTools input:focus {
           border-color: rgba(126, 244, 215, 0.55);
           box-shadow: 0 0 0 3px rgba(126, 244, 215, 0.12);
+        }
+
+        .wa-ownerSearchRow {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: nowrap;
+          justify-content: space-between;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .wa-ownerTabs {
+          flex: 0 1 auto;
+          min-width: 0;
+        }
+
+        .wa-ownerSearchInput {
+          flex: 0 0 220px;
+          width: 220px !important;
+          min-width: 160px;
+          max-width: 240px;
         }
 
         .wa-leftMeta {
@@ -3802,6 +3907,62 @@ export default function WhatsAppDashboard() {
 
         .wa-expiredActions button:disabled {
           opacity: 0.65;
+          cursor: not-allowed;
+        }
+
+        .wa-resolveMenu {
+          margin: 10px 12px 0;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 10px;
+          background: rgba(15, 27, 47, 0.92);
+          padding: 10px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .wa-resolveMenuTitle {
+          font-size: 12px;
+          font-weight: 700;
+          color: #f8fafc;
+        }
+
+        .wa-resolveMenu select,
+        .wa-resolveMenu textarea {
+          width: 100%;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px;
+          background: rgba(7, 12, 22, 0.55);
+          color: #f8fafc;
+          padding: 8px 10px;
+          font-size: 12px;
+          outline: none;
+        }
+
+        .wa-resolveMenu textarea {
+          min-height: 64px;
+          resize: vertical;
+        }
+
+        .wa-resolveMenuActions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        .wa-resolveMenuActions button {
+          height: 30px;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          background: rgba(255, 255, 255, 0.08);
+          color: #f8fafc;
+          padding: 0 10px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .wa-resolveMenuActions button:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
         }
 
@@ -5105,6 +5266,38 @@ export default function WhatsAppDashboard() {
             border: 1px solid #d5c8b8;
             background: #fbf8f3;
             color: #0f172a;
+          }
+
+          .wa-resolveMenu {
+            background: #fff;
+            border-color: #d3c4b1;
+          }
+
+          .wa-resolveMenuTitle {
+            color: #2b4668;
+          }
+
+          .wa-resolveMenu select,
+          .wa-resolveMenu textarea {
+            background: #fff;
+            border-color: #d3c4b1;
+            color: #2b4668;
+          }
+
+          .wa-resolveMenuActions button {
+            border-color: #d3c4b1;
+            background: #fbf6ef;
+            color: #2b4668;
+          }
+
+          .wa-ownerSearchRow {
+            flex-wrap: wrap;
+          }
+
+          .wa-ownerSearchInput {
+            width: 100% !important;
+            min-width: 100%;
+            max-width: 100%;
           }
 
           .wa-leftPanelTools input:focus {

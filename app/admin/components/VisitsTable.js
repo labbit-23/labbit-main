@@ -8,6 +8,7 @@ import {
   Text, Select, Box
 } from "@chakra-ui/react";
 import { EditIcon, DeleteIcon, AddIcon } from "@chakra-ui/icons";
+import { FiNavigation } from "react-icons/fi";
 
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
@@ -20,6 +21,23 @@ const hasLocationPin = (visit) =>
   typeof visit?.lat !== "undefined" &&
   visit?.lng !== null &&
   typeof visit?.lng !== "undefined";
+
+const hasLocationLink = (visit) =>
+  /^https?:\/\//i.test(String(visit?.location_text || "").trim()) ||
+  /^https?:\/\//i.test(String(visit?.address || "").trim());
+
+const getVisitLocationUrl = (visit) => {
+  if (hasLocationPin(visit)) {
+    return `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`;
+  }
+  if (hasLocationLink(visit)) {
+    const textUrl = String(visit.location_text || "").trim();
+    if (/^https?:\/\//i.test(textUrl)) return textUrl;
+    const addressUrl = String(visit.address || "").trim();
+    if (/^https?:\/\//i.test(addressUrl)) return addressUrl;
+  }
+  return null;
+};
 
 // Group active visits by executive and return disabled separately
 const groupVisitsByExecutive = (visits, executives) => {
@@ -177,6 +195,7 @@ export default function VisitsTable({
               <Tbody>
                 {visits.map((visit) => {
                   const isUnassigned = !visit.executive_id;
+                  const locationUrl = getVisitLocationUrl(visit);
                   return (
                     <Tr key={visit.id}>
                       {/* Patient info */}
@@ -192,10 +211,16 @@ export default function VisitsTable({
                           <Box fontWeight="bold">
                             {visit.address || "No Area"}
                           </Box>
-                          {hasLocationPin(visit) && (
-                            <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-                              PIN
-                            </Badge>
+                          {locationUrl && (
+                            <IconButton
+                              aria-label="Open location"
+                              title="Open location"
+                              icon={<FiNavigation />}
+                              size="xs"
+                              variant="ghost"
+                              colorScheme="teal"
+                              onClick={() => window.open(locationUrl, "_blank")}
+                            />
                           )}
                         </HStack>
                         <Box fontSize="sm" color={tableMutedText}>
@@ -291,7 +316,9 @@ export default function VisitsTable({
                 </Tr>
               </Thead>
               <Tbody>
-                {disabled.map((visit) => (
+                {disabled.map((visit) => {
+                  const locationUrl = getVisitLocationUrl(visit);
+                  return (
                   <Tr key={visit.id} opacity={0.65} bg={disabledRowBg}>
                     <Td borderColor={rowBorderColor}>
                       <Box>{visit.patient?.name ?? "Unknown"}</Box>
@@ -304,10 +331,16 @@ export default function VisitsTable({
                         <Box fontWeight="bold">
                           {visit.address || "No Area"}
                         </Box>
-                        {hasLocationPin(visit) && (
-                          <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-                            PIN
-                          </Badge>
+                        {locationUrl && (
+                          <IconButton
+                            aria-label="Open location"
+                            title="Open location"
+                            icon={<FiNavigation />}
+                            size="xs"
+                            variant="ghost"
+                            colorScheme="teal"
+                            onClick={() => window.open(locationUrl, "_blank")}
+                          />
                         )}
                       </HStack>
                       <Box fontSize="sm" color={tableMutedText}>
@@ -321,11 +354,12 @@ export default function VisitsTable({
                         DISABLED
                       </Badge>
                     </Td>
-                    <Td className="no-export" isNumeric borderColor={rowBorderColor}>
-                      {/* You can add re-enable or other actions here if needed */}
-                    </Td>
+                  <Td className="no-export" isNumeric borderColor={rowBorderColor}>
+                    {/* You can add re-enable or other actions here if needed */}
+                  </Td>
                   </Tr>
-                ))}
+                  );
+                })}
               </Tbody>
             </Table>
           </Box>

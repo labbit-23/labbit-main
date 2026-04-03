@@ -25,7 +25,7 @@ function notifyDiff(roleKey, prev, next) {
       showNotification("URGENT Pickup Lot", `${delta("pickups_samples_ready_urgent")} urgent pickup lot(s) added.`);
     }
     if (delta("quickbook_pending") > 0) {
-      showNotification("New QuickBook Request", `${delta("quickbook_pending")} new pending request(s).`);
+      showNotification("New Booking Request", `${delta("quickbook_pending")} new pending request(s).`);
     }
     if (delta("whatsapp_unread") > 0) {
       showNotification("WhatsApp Inbox Update", `${delta("whatsapp_unread")} new unread WhatsApp message(s).`);

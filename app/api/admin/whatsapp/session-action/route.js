@@ -32,13 +32,14 @@ export async function POST(request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { sessionId, action, note } = await request.json();
+    const { sessionId, action, note, resolution_reason } = await request.json();
 
     if (!sessionId || !action || !ACTION_TO_STATUS[action]) {
       return NextResponse.json({ error: "Invalid sessionId or action" }, { status: 400 });
     }
 
     const trimmedNote = String(note || "").trim();
+    const trimmedResolutionReason = String(resolution_reason || "").trim().toLowerCase();
     if (action === "resolve" && !trimmedNote) {
       return NextResponse.json({ error: "Closure statement is required to resolve a chat" }, { status: 400 });
     }
@@ -73,6 +74,7 @@ export async function POST(request) {
         ? {
             ...(session.context && typeof session.context === "object" ? session.context : {}),
             last_resolution_note: trimmedNote,
+            last_resolution_reason: trimmedResolutionReason || null,
             last_resolution_at: new Date().toISOString(),
             last_resolution_by: user.name || user.id || "Unknown",
             last_resolution_by_id: user.id || null,
@@ -115,7 +117,8 @@ export async function POST(request) {
           },
           internal: true,
           action: "resolve",
-          note: trimmedNote
+          note: trimmedNote,
+          resolution_reason: trimmedResolutionReason || null
         }
       });
 

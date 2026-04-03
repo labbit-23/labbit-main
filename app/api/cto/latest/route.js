@@ -513,6 +513,21 @@ function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
 }
 
+function normalizeServiceStatus(row) {
+  const status = String(row?.status || "").trim().toLowerCase() || "unknown";
+
+  // Treat all unknown states as degraded for operator clarity.
+  if (status === "unknown") {
+    return {
+      ...row,
+      status: "degraded",
+      message: row?.message || "Status unknown; treated as degraded"
+    };
+  }
+
+  return row;
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
 
@@ -565,7 +580,7 @@ export async function GET(request) {
       console.error("[cto/latest] whatsapp metrics error", metricError);
     }
 
-    const combinedRows = [...rows, ...whatsappMetrics];
+    const combinedRows = [...rows, ...whatsappMetrics].map(normalizeServiceStatus);
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;

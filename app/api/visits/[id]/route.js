@@ -76,6 +76,24 @@ function stripVisitGeoFields(payload) {
   return next;
 }
 
+function normalizeStatusCode(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function shouldPromoteToBooked({ explicitStatus, statusValue, previousStatus, previousExecutiveId, effectiveExecutiveId }) {
+  if (!effectiveExecutiveId) return false;
+
+  const nextStatus = normalizeStatusCode(statusValue);
+  const prevStatus = normalizeStatusCode(previousStatus);
+
+  if (explicitStatus) {
+    return nextStatus === "unassigned" || !nextStatus;
+  }
+
+  const isNewAssignment = !previousExecutiveId && !!effectiveExecutiveId;
+  return isNewAssignment || prevStatus === "unassigned" || !prevStatus;
+}
+
 async function notifyPatientWhatsappWithSmsFallback(visitId) {
   try {
     await sendPatientVisitWhatsapp(visitId);
@@ -177,6 +195,18 @@ export async function PUT(request, context) {
 
     if (oldErr) {
       return NextResponse.json({ error: oldErr.message }, { status: 404 });
+    }
+
+    const hasExplicitStatus = Object.prototype.hasOwnProperty.call(updateData, "status");
+    const effectiveExecutiveId = updateData.executive_id ?? oldVisit.executive_id;
+    if (shouldPromoteToBooked({
+      explicitStatus: hasExplicitStatus,
+      statusValue: updateData.status,
+      previousStatus: oldVisit.status,
+      previousExecutiveId: oldVisit.executive_id,
+      effectiveExecutiveId,
+    })) {
+      updateData.status = "booked";
     }
 
     // 2️⃣ Update the visit

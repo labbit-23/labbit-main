@@ -30,7 +30,7 @@ function getPrimaryCategory(variant) {
 
 export default function LandingPage() {
   const toast = useToast();
-  const { isOpen, onOpen, onClose } = useDisclosure(); // QuickBook
+  const { isOpen, onOpen, onClose } = useDisclosure(); // Booking Request
   const { isOpen: compareModalOpen, onOpen: onCompareOpen, onClose: onCompareClose } = useDisclosure();
 
   const [form, setForm] = useState({
@@ -185,7 +185,7 @@ export default function LandingPage() {
           </HStack>
           <HStack gap={3}>
             <Button onClick={handleQuickBookOpen} colorScheme="teal" borderRadius="full">
-              Quick Book
+              Booking Request
             </Button>
             <Button as={ChakraLink} href="/login" variant="outline" colorScheme="teal" borderRadius="full">Login / Signup</Button>
           </HStack>
@@ -271,7 +271,7 @@ export default function LandingPage() {
             <Flex align="center" w="100%" position="relative" px={2}>
               <Image src={SDRC_LOGO} alt="SDRC Logo" maxH="30px" />
               <Text fontWeight="bold" fontSize="lg" color="teal.600" position="absolute" left="50%" transform="translateX(-50%)">
-                Quick Book
+                Booking Request
               </Text>
             </Flex>
           </ModalHeader>

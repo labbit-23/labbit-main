@@ -29,7 +29,8 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: "Supabase server client unavailable" }, { status: 500 });
     }
 
-    const eventId = normalizeText(params?.eventId);
+    const routeParams = await params;
+    const eventId = normalizeText(routeParams?.eventId);
     if (!eventId) {
       return NextResponse.json({ error: "Missing event id" }, { status: 400 });
     }

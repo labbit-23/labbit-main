@@ -63,6 +63,7 @@ const BOT_START_KEYWORDS = new Set([
 ]);
 const FEEDBACK_IDLE_DELAY_MS = 60 * 1000;
 const FEEDBACK_MAX_COMMENT_LEN = 500;
+const FEEDBACK_REPEAT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 const DELIVERY_FAILED_ACK_COOLDOWN_MS = 30 * 60 * 1000;
 const IST_EXECUTIVE_OPEN_HOUR = 7;
 const IST_EXECUTIVE_CLOSE_HOUR = 23;
@@ -142,6 +143,55 @@ function canOfferResolvedFeedback(context = {}) {
   return ageMs >= 0 && ageMs <= 7 * 24 * 60 * 60 * 1000;
 }
 
+function isFeedbackCooldownActiveInContext(context = {}, nowMs = Date.now()) {
+  const markers = [
+    context?.feedback_last_submitted_at,
+    context?.last_feedback_submitted_at
+  ];
+  for (const marker of markers) {
+    const stamp = String(marker || "").trim();
+    if (!stamp) continue;
+    const markerMs = new Date(stamp).getTime();
+    if (!Number.isFinite(markerMs)) continue;
+    if (nowMs - markerMs < FEEDBACK_REPEAT_COOLDOWN_MS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function hasRecentWhatsappFeedback({ labId, phone, nowMs = Date.now() }) {
+  const patientPhone = digitsOnly(phone || "").slice(-10);
+  if (!labId || !patientPhone) return false;
+
+  const cutoffIso = new Date(nowMs - FEEDBACK_REPEAT_COOLDOWN_MS).toISOString();
+  const { data, error } = await supabase
+    .from("report_feedback")
+    .select("id,created_at")
+    .eq("lab_id", labId)
+    .eq("patient_phone", patientPhone)
+    .eq("source", "whatsapp_bot")
+    .gte("created_at", cutoffIso)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("[whatsapp-feedback] cooldown lookup failed", {
+      labId,
+      patientPhone,
+      message: error?.message || String(error)
+    });
+    return false;
+  }
+  return Boolean(data?.length);
+}
+
+async function canPromptFeedbackNow({ context = {}, labId, phone }) {
+  if (isFeedbackCooldownActiveInContext(context)) return false;
+  const hasRecent = await hasRecentWhatsappFeedback({ labId, phone });
+  return !hasRecent;
+}
+
 function getIstHour(date = new Date()) {
   try {
     const hourText = new Intl.DateTimeFormat("en-GB", {
@@ -183,7 +233,22 @@ function parseFeedbackRating(input) {
   const exact = text.match(/^[1-5]$/);
   if (exact) return Number(exact[0]);
   const fallback = text.match(/\b([1-5])\b/);
-  return fallback ? Number(fallback[1]) : null;
+  if (fallback) return Number(fallback[1]);
+
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return null;
+  if (normalized.includes("very poor")) return 1;
+  if (normalized === "poor" || normalized.includes(" poor")) return 2;
+  if (normalized.includes("okay") || normalized.includes("ok") || normalized.includes("average")) return 3;
+  if (normalized.includes("good")) return 4;
+  if (normalized.includes("excellent") || normalized.includes("great")) return 5;
+
+  return null;
 }
 
 function isHelpChoice(input) {
@@ -368,6 +433,7 @@ function schedulePostReportFeedbackPrompt({
       if (getFeedbackFlow(activeSession.context)?.stage) return;
       if (!activeSession?.context?.last_report_feedback_armed) return;
       if (!canOfferPostReportFeedback(activeSession.context || {})) return;
+      if (!(await canPromptFeedbackNow({ context: activeSession.context || {}, labId, phone }))) return;
 
       const { data: latestInbound } = await supabase
         .from("whatsapp_messages")
@@ -398,6 +464,7 @@ function schedulePostReportFeedbackPrompt({
         reqno: reqno || null,
         prompted_at: new Date().toISOString()
       });
+      nextContext.feedback_last_prompted_at = new Date().toISOString();
 
       await supabase
         .from("chat_sessions")
@@ -589,7 +656,8 @@ async function handlePostReportFeedbackInbound({
       const clearedContext = {
         ...withFeedbackFlowContext(session.context, null),
         last_report_feedback_armed: false,
-        last_resolution_feedback_armed: false
+        last_resolution_feedback_armed: false,
+        feedback_last_submitted_at: nowIso
       };
       await supabase
         .from("chat_sessions")
@@ -639,7 +707,8 @@ async function handlePostReportFeedbackInbound({
   const clearedContext = {
     ...withFeedbackFlowContext(session.context, null),
     last_report_feedback_armed: false,
-    last_resolution_feedback_armed: false
+    last_resolution_feedback_armed: false,
+    feedback_last_submitted_at: nowIso
   };
 
   if (needsExecutive) {
@@ -2444,6 +2513,7 @@ export async function POST(req) {
     if (
       !feedbackSuppressedForDeliveryFailure &&
       isThankYouLikeInput(userInput) &&
+      (await canPromptFeedbackNow({ context: session?.context || {}, labId: session.lab_id, phone })) &&
       (
         (session?.context?.last_report_feedback_armed && canOfferPostReportFeedback(session?.context || {})) ||
         (session?.context?.last_resolution_feedback_armed && canOfferResolvedFeedback(session?.context || {}))
@@ -2463,7 +2533,10 @@ export async function POST(req) {
       await supabase
         .from("chat_sessions")
         .update({
-          context: withFeedbackFlowContext(session?.context || {}, feedbackFlow),
+          context: {
+            ...withFeedbackFlowContext(session?.context || {}, feedbackFlow),
+            feedback_last_prompted_at: new Date().toISOString()
+          },
           updated_at: new Date().toISOString()
         })
         .eq("id", session.id);
@@ -2497,6 +2570,7 @@ export async function POST(req) {
 
     let result = await processMessage(session, userInput, phone, {
       botFlowConfig,
+      templates,
       smartReportEnabled,
       publicBaseUrl:
         process.env.PUBLIC_BASE_URL ||
@@ -2960,6 +3034,14 @@ export async function POST(req) {
           });
           break;
         }
+        if (!(await canPromptFeedbackNow({ context: session?.context || {}, labId: session.lab_id, phone }))) {
+          await sendTextMessage({
+            labId: session.lab_id,
+            phone,
+            text: "We already captured your feedback recently. Thank you."
+          });
+          break;
+        }
         const feedbackFlow = {
           stage: "awaiting_rating",
           trigger_source: "services_feedback",
@@ -2970,7 +3052,10 @@ export async function POST(req) {
         await updateSession(
           session.id,
           result.newState || session.current_state || "START",
-          withFeedbackFlowContext(nextContext, feedbackFlow),
+          {
+            ...withFeedbackFlowContext(nextContext, feedbackFlow),
+            feedback_last_prompted_at: new Date().toISOString()
+          },
           messageTimestamp
         );
         await sendTextMessage({
@@ -3328,7 +3413,9 @@ export async function POST(req) {
             phone
           });
         }
-        const shouldPromptPostReportFeedback = !feedbackSuppressedForDeliveryFailure;
+        const shouldPromptPostReportFeedback =
+          !feedbackSuppressedForDeliveryFailure &&
+          (await canPromptFeedbackNow({ context: nextContext || {}, labId: session.lab_id, phone }));
         if (shouldPromptPostReportFeedback) {
           const reportFeedbackContext = withFeedbackFlowContext(
             {
@@ -3338,7 +3425,8 @@ export async function POST(req) {
               last_report_delivery_reqid: dispatchReqid || null,
               last_report_delivery_reqno: dispatchReqno || result.reportStatusReqno || null,
               last_report_feedback_armed: true,
-              last_report_feedback_disarmed_at: null
+              last_report_feedback_disarmed_at: null,
+              feedback_last_prompted_at: new Date().toISOString()
             },
             null
           );
@@ -3360,6 +3448,14 @@ export async function POST(req) {
         break;
 
       case "TEXT":
+        await sendTextMessage({
+          labId: session.lab_id,
+          phone,
+          text: result.replyText
+        });
+        break;
+
+      case "CUSTOM_LINK_TEXT":
         await sendTextMessage({
           labId: session.lab_id,
           phone,
