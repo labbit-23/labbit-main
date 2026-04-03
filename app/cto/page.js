@@ -159,6 +159,30 @@ function redactSensitiveValue(key, value) {
   return String(scrubbed);
 }
 
+function formatBytesCompact(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  if (num < 1024) return `${Math.round(num)} B`;
+  const kb = num / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${Math.round(mb)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(gb < 10 ? 2 : 1)} GB`;
+}
+
+function formatPayloadValue(key, value) {
+  const lowerKey = String(key || "").toLowerCase();
+  const isMemoryLike = ["memory", "rss", "heap", "bytes", "pmem"].some((fragment) =>
+    lowerKey.includes(fragment)
+  );
+  if (isMemoryLike) {
+    const compact = formatBytesCompact(value);
+    if (compact) return compact;
+  }
+  return redactSensitiveValue(key, value);
+}
+
 function evaluateFailureCondition(condition, services) {
   const relevant = services.filter(Boolean);
   if (relevant.length === 0) return false;
@@ -362,6 +386,52 @@ function buildTrendChartModel(rawPoints = [], range = "30d") {
     padding,
     healthyPath,
     hasPath: Boolean(healthyPath),
+    xLabels: {
+      start: points[0]?.bucket_label || "",
+      mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
+      end: points[points.length - 1]?.bucket_label || ""
+    }
+  };
+}
+
+function buildHostTrendChartModel(rawPoints = []) {
+  const ordered = [...(Array.isArray(rawPoints) ? rawPoints : [])].sort((a, b) =>
+    String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || ""))
+  );
+  const points = ordered.length > 36
+    ? ordered.filter((_, idx) => idx % Math.ceil(ordered.length / 36) === 0)
+    : ordered;
+  const width = 560;
+  const height = 180;
+  const padding = 26;
+
+  const memoryPath = buildTrendPath(points, (point) => {
+    const value = Number(point?.host_memory_pct);
+    return Number.isFinite(value) ? value : null;
+  }, width, height, padding);
+  const diskPath = buildTrendPath(points, (point) => {
+    const value = Number(point?.host_disk_pct);
+    return Number.isFinite(value) ? value : null;
+  }, width, height, padding);
+  const swapPath = buildTrendPath(points, (point) => {
+    const value = Number(point?.host_swap_pct);
+    return Number.isFinite(value) ? value : null;
+  }, width, height, padding);
+  const loadPerCorePath = buildTrendPath(points, (point) => {
+    const value = Number(point?.host_load_per_core_pct);
+    return Number.isFinite(value) ? value : null;
+  }, width, height, padding);
+
+  return {
+    points,
+    width,
+    height,
+    padding,
+    memoryPath,
+    diskPath,
+    swapPath,
+    loadPerCorePath,
+    hasPath: Boolean(memoryPath || diskPath || swapPath || loadPerCorePath),
     xLabels: {
       start: points[0]?.bucket_label || "",
       mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
@@ -712,13 +782,19 @@ function CtoDashboardPage() {
 
   async function updateEventStatus(eventId, status) {
     if (!eventId || !status) return;
+    let note = null;
+    if (status === "resolved") {
+      const entered = window.prompt("Resolution note (optional):", "");
+      if (entered === null) return;
+      note = String(entered || "").trim() || null;
+    }
     setEventActionBusy((prev) => ({ ...prev, [eventId]: true }));
     try {
       const res = await fetch(`/api/cto/events/${encodeURIComponent(eventId)}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, note }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to update event");
@@ -912,6 +988,8 @@ function CtoDashboardPage() {
 
   const trendChartModel = useMemo(() => buildTrendChartModel(trendPoints, trendRange), [trendPoints, trendRange]);
   const trendCompareChartModel = useMemo(() => buildTrendChartModel(trendComparePoints, trendRange), [trendComparePoints, trendRange]);
+  const vpsHostTrendPoints = useMemo(() => (Array.isArray(trendData?.host_points) ? trendData.host_points : []), [trendData]);
+  const vpsHostTrendModel = useMemo(() => buildHostTrendChartModel(vpsHostTrendPoints), [vpsHostTrendPoints]);
 
   const trendWow = useMemo(() => {
     const points = Array.isArray(trendWowData?.points) ? trendWowData.points : [];
@@ -1753,6 +1831,56 @@ function CtoDashboardPage() {
             </Box>
           </SimpleGrid>
 
+          {!trendLoading && vpsHostTrendPoints.length > 0 && (
+            <Box mt={4} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+              <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
+                <Text fontSize="sm" color="whiteAlpha.900" fontWeight="700">
+                  VPS Host Pressure Trend
+                </Text>
+                <HStack spacing={3} color="whiteAlpha.700" fontSize="xs" flexWrap="wrap">
+                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#34d399" /><Text>Memory %</Text></HStack>
+                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#60a5fa" /><Text>Disk %</Text></HStack>
+                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#f59e0b" /><Text>Swap %</Text></HStack>
+                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#f87171" /><Text>Load/Core %</Text></HStack>
+                </HStack>
+              </HStack>
+
+              <svg
+                width="100%"
+                height={vpsHostTrendModel.height}
+                viewBox={`0 0 ${vpsHostTrendModel.width} ${vpsHostTrendModel.height}`}
+                role="img"
+                aria-label="VPS host pressure trend chart"
+              >
+                {[0, 25, 50, 75, 100].map((level) => {
+                  const y = toChartY(level, vpsHostTrendModel.height, vpsHostTrendModel.padding);
+                  return (
+                    <g key={level}>
+                      <line
+                        x1={vpsHostTrendModel.padding}
+                        x2={vpsHostTrendModel.width - vpsHostTrendModel.padding}
+                        y1={y}
+                        y2={y}
+                        stroke="rgba(255,255,255,0.14)"
+                        strokeWidth="1"
+                        strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
+                      />
+                    </g>
+                  );
+                })}
+                {vpsHostTrendModel.memoryPath && <path d={vpsHostTrendModel.memoryPath} stroke="#34d399" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
+                {vpsHostTrendModel.diskPath && <path d={vpsHostTrendModel.diskPath} stroke="#60a5fa" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
+                {vpsHostTrendModel.swapPath && <path d={vpsHostTrendModel.swapPath} stroke="#f59e0b" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
+                {vpsHostTrendModel.loadPerCorePath && <path d={vpsHostTrendModel.loadPerCorePath} stroke="#f87171" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
+              </svg>
+              <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
+                <Text noOfLines={1} maxW="32%">{vpsHostTrendModel.xLabels.start}</Text>
+                <Text noOfLines={1} maxW="32%" textAlign="center">{vpsHostTrendModel.xLabels.mid}</Text>
+                <Text noOfLines={1} maxW="32%" textAlign="right">{vpsHostTrendModel.xLabels.end}</Text>
+              </HStack>
+            </Box>
+          )}
+
           <HStack mt={4} spacing={2} flexWrap="wrap">
             {keySystemStatuses
               .filter((system) => system.label === "Supabase" || system.label === "Labbit")
@@ -2143,7 +2271,7 @@ function CtoDashboardPage() {
                         <Flex key={key} justify="space-between" gap={4}>
                           <Text fontSize="sm" color="whiteAlpha.700">{key}</Text>
                           <Text fontSize="sm" color="whiteAlpha.900" textAlign="right" noOfLines={2}>
-                            {redactSensitiveValue(key, value)}
+                            {formatPayloadValue(key, value)}
                           </Text>
                         </Flex>
                       ))}
@@ -2375,6 +2503,7 @@ function CtoDashboardPage() {
                 ))}
             </SimpleGrid>
           )}
+
         </Box>
 
         <Box
@@ -2592,7 +2721,11 @@ function CtoDashboardPage() {
                       <Text noOfLines={2}>{row.message || "-"}</Text>
                     </Td>
                     <Td color="whiteAlpha.700">{row.source || "-"}</Td>
-                    <Td color="whiteAlpha.900">{row.occurrence_count ?? 1}</Td>
+                    <Td color="whiteAlpha.900">
+                      {row.event_type === "pm2_restart_storm_24h" && Number.isFinite(Number(row?.payload?.restarts_24h))
+                        ? Number(row.payload.restarts_24h)
+                        : (row.occurrence_count ?? 1)}
+                    </Td>
                     <Td color="whiteAlpha.700">
                       {row.last_seen_at ? new Date(row.last_seen_at).toLocaleString() : "-"}
                     </Td>
@@ -2602,6 +2735,8 @@ function CtoDashboardPage() {
                           size="xs"
                           variant="outline"
                           borderColor="rgba(255,255,255,0.25)"
+                          color="whiteAlpha.900"
+                          _hover={{ bg: "whiteAlpha.120" }}
                           isDisabled={row.status === "acknowledged" || row.status === "resolved" || eventActionBusy[row.id]}
                           onClick={() => updateEventStatus(row.id, "acknowledged")}
                         >

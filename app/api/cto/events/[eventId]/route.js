@@ -42,7 +42,7 @@ export async function PATCH(request, { params }) {
 
     const { data: existing, error: existingError } = await supabase
       .from("cto_events")
-      .select("id, lab_id, status")
+      .select("id, lab_id, status, payload")
       .eq("id", eventId)
       .maybeSingle();
 
@@ -63,13 +63,21 @@ export async function PATCH(request, { params }) {
 
     const actor = normalizeText(user?.name || user?.id || "director");
     const nowIso = new Date().toISOString();
+    const note = normalizeText(body?.note);
+    const previousPayload =
+      existing?.payload && typeof existing.payload === "object" && !Array.isArray(existing.payload)
+        ? existing.payload
+        : {};
+    const nextPayload = {
+      ...previousPayload,
+      status_updated_at: nowIso,
+      status_updated_by: actor,
+      ...(nextStatus === "resolved" && note ? { resolution_note: note.slice(0, 800) } : {})
+    };
 
     const updatePayload = {
       status: nextStatus,
-      acknowledged_at: nextStatus === "acknowledged" ? nowIso : null,
-      acknowledged_by: nextStatus === "acknowledged" ? actor : null,
-      resolved_at: nextStatus === "resolved" ? nowIso : null,
-      resolved_by: nextStatus === "resolved" ? actor : null,
+      payload: nextPayload
     };
 
     const { data, error } = await supabase

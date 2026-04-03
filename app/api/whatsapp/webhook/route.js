@@ -419,12 +419,23 @@ async function handlePostReportFeedbackInbound({
   templates
 }) {
   if (session?.context?.suppress_feedback_once) return { handled: false };
-  const flow = getFeedbackFlow(session?.context);
+  const nowIso = new Date().toISOString();
+  const trimmedInput = String(userInput || "").trim();
+  const ratingInput = parseFeedbackRating(trimmedInput);
+  let flow = getFeedbackFlow(session?.context);
+  if (!flow?.stage && session?.context?.last_report_feedback_armed && ratingInput) {
+    // Accept direct rating replies even if feedback flow stage wasn't persisted yet.
+    flow = {
+      stage: "awaiting_rating",
+      trigger_source: "report_delivery_feedback",
+      reqid: String(session?.context?.selected_report_reqid || "").trim() || null,
+      reqno: String(session?.context?.selected_report_reqno || "").trim() || null,
+      prompted_at: nowIso
+    };
+  }
   if (!flow?.stage) return { handled: false };
 
-  const nowIso = new Date().toISOString();
   const currentStage = String(flow.stage || "").toLowerCase();
-  const trimmedInput = String(userInput || "").trim();
   const { normalized, normalizedGreeting, normalizedUnderscore } = normalizeCommandLikeInput(trimmedInput);
   const isEscapeIntent =
     isMainMenuGreetingInput(trimmedInput) ||
@@ -450,7 +461,6 @@ async function handlePostReportFeedbackInbound({
     return { handled: false };
   }
 
-  const ratingInput = parseFeedbackRating(trimmedInput);
   const needsExecutive = isHelpChoice(trimmedInput);
   const doneChoice = isDoneChoice(trimmedInput);
   const complaintChoice = isComplaintChoice(trimmedInput);
@@ -2316,10 +2326,17 @@ export async function POST(req) {
     const feedbackSuppressedForDeliveryFailure = Boolean(session?.context?.suppress_feedback_once);
 
     const hasActiveFeedbackStage = Boolean(getFeedbackFlow(session?.context)?.stage);
+    const isFeedbackResponseCandidate =
+      Boolean(parseFeedbackRating(userInput)) ||
+      isSkipChoice(userInput) ||
+      isDoneChoice(userInput) ||
+      isHelpChoice(userInput) ||
+      isComplaintChoice(userInput);
     if (
       !hasActiveFeedbackStage &&
       (session?.context?.last_report_feedback_armed || session?.context?.last_resolution_feedback_armed) &&
-      !isThankYouLikeInput(userInput)
+      !isThankYouLikeInput(userInput) &&
+      !isFeedbackResponseCandidate
     ) {
       const touchedContext = { ...(session.context || {}) };
       // User moved on to another action. Close pending feedback loop instead of re-arming.

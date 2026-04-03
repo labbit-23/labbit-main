@@ -132,7 +132,7 @@ export async function GET(request) {
       .from("report_feedback")
       .select("id,created_at,rating,source,lab_id,feedback,patient_phone,reqid,reqno,actor_name,actor_role,metadata")
       .gte("created_at", fromDate.toISOString())
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(10000);
 
     if (selectedLabId) {

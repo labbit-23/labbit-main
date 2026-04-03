@@ -84,6 +84,103 @@ function initializeBucket() {
   };
 }
 
+function extractPayloadMetric(payload, keys = []) {
+  if (!payload || typeof payload !== "object") return null;
+  for (const key of keys) {
+    const value = payload[key];
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+}
+
+function initializeHostBucket() {
+  return {
+    samples: 0,
+    memory_sum: 0,
+    memory_count: 0,
+    disk_sum: 0,
+    disk_count: 0,
+    swap_sum: 0,
+    swap_count: 0,
+    load_sum: 0,
+    load_count: 0,
+    load_per_core_sum: 0,
+    load_per_core_count: 0
+  };
+}
+
+function finalizeHostBucket(key, granularity, bucket) {
+  const avg = (sum, count) => (count > 0 ? Number((sum / count).toFixed(2)) : null);
+  return {
+    bucket_key: key,
+    bucket_label: bucketLabelFromKey(key, granularity),
+    samples: bucket.samples,
+    host_memory_pct: avg(bucket.memory_sum, bucket.memory_count),
+    host_disk_pct: avg(bucket.disk_sum, bucket.disk_count),
+    host_swap_pct: avg(bucket.swap_sum, bucket.swap_count),
+    host_load_1: avg(bucket.load_sum, bucket.load_count),
+    host_load_per_core_pct: avg(bucket.load_per_core_sum, bucket.load_per_core_count)
+  };
+}
+
+function buildHostPointsFromRawRows(rows, granularity, serviceKeyFilter = "", nodeRoleFilter = "") {
+  const bucketMap = new Map();
+
+  for (const row of rows || []) {
+    if (!row?.checked_at || !row?.service_key) continue;
+    if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
+    if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
+
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    const memory = extractPayloadMetric(payload, ["memory_pct", "mem_pct", "memory_percent", "ram_used_pct"]);
+    const disk = extractPayloadMetric(payload, ["disk_pct", "disk_used_pct", "disk_percent", "root_disk_pct"]);
+    const swap = extractPayloadMetric(payload, ["swap_pct", "swap_used_pct", "swap_percent"]);
+    const load1 = extractPayloadMetric(payload, ["load_1", "load1", "loadavg_1"]);
+    const loadPerCore = extractPayloadMetric(payload, ["load_1_per_core_pct", "load_per_core_pct"]);
+
+    if (
+      !Number.isFinite(memory) &&
+      !Number.isFinite(disk) &&
+      !Number.isFinite(swap) &&
+      !Number.isFinite(load1) &&
+      !Number.isFinite(loadPerCore)
+    ) {
+      continue;
+    }
+
+    const dayKey = formatDayKey(row.checked_at);
+    const key = granularity === "day" ? dayKey : bucketKeyFromDate(new Date(`${dayKey}T00:00:00.000Z`), granularity);
+    const bucket = bucketMap.get(key) || initializeHostBucket();
+    bucket.samples += 1;
+    if (Number.isFinite(memory)) {
+      bucket.memory_sum += memory;
+      bucket.memory_count += 1;
+    }
+    if (Number.isFinite(disk)) {
+      bucket.disk_sum += disk;
+      bucket.disk_count += 1;
+    }
+    if (Number.isFinite(swap)) {
+      bucket.swap_sum += swap;
+      bucket.swap_count += 1;
+    }
+    if (Number.isFinite(load1)) {
+      bucket.load_sum += load1;
+      bucket.load_count += 1;
+    }
+    if (Number.isFinite(loadPerCore)) {
+      bucket.load_per_core_sum += loadPerCore;
+      bucket.load_per_core_count += 1;
+    }
+    bucketMap.set(key, bucket);
+  }
+
+  return [...bucketMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, bucket]) => finalizeHostBucket(key, granularity, bucket));
+}
+
 function mergeSummary(target, source) {
   target.total_checks += source.total_checks || 0;
   target.healthy_count += source.healthy_count || 0;
@@ -376,7 +473,7 @@ export async function GET(request) {
 
     let rawQuery = supabase
       .from("cto_service_logs")
-      .select("checked_at, service_key, status, latency_ms")
+      .select("checked_at, service_key, status, latency_ms, payload")
       .gte("checked_at", effectiveRawStart.toISOString())
       .lt("checked_at", endExclusive.toISOString())
       .order("checked_at", { ascending: rawAscending })
@@ -430,6 +527,7 @@ export async function GET(request) {
 
     const bucketType = ["day", "week", "month"].includes(granularity) ? granularity : preset.granularity;
     const points = buildPointsFromDailyMap(mergedDailyMap, bucketType);
+    const hostPoints = buildHostPointsFromRawRows(rawRows, bucketType, serviceKey, nodeRoleFilter);
     const domainBreakdown = serviceKey
       ? []
       : [...domainDailyMap.entries()]
@@ -464,6 +562,7 @@ export async function GET(request) {
         range: rangeInput,
         bucket: bucketType,
         points,
+        host_points: hostPoints,
         domain_breakdown: domainBreakdown,
         node_breakdown: nodeBreakdown,
         summary: buildSummary(points),
