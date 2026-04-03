@@ -136,7 +136,8 @@ export async function GET(request) {
       .limit(10000);
 
     if (selectedLabId) {
-      query = query.eq("lab_id", selectedLabId);
+      // Include legacy/unscoped feedback rows where lab_id was not captured.
+      query = query.or(`lab_id.eq.${selectedLabId},lab_id.is.null`);
     }
 
     const { data, error } = await query;

@@ -258,6 +258,9 @@ async function persistWhatsappFeedback({
   reqid,
   reqno
 }) {
+  const dedupeKey =
+    String(flow?.dedupe_key || "").trim() ||
+    `wa_feedback:${String(session?.id || "session")}:${String(flow?.rated_at || new Date().toISOString())}`;
   const saveResult = await saveReportFeedback({
     reqid: String(reqid || flow?.reqid || "").trim() || null,
     reqno: String(reqno || flow?.reqno || "").trim() || null,
@@ -269,6 +272,7 @@ async function persistWhatsappFeedback({
     actorUserId: null,
     actorName: "WhatsApp Bot",
     actorRole: "bot",
+    dedupeKey,
     metadata: {
       captured_via: flow?.trigger_source || "whatsapp_bot_feedback",
       session_id: session?.id || null,
@@ -468,18 +472,24 @@ async function handlePostReportFeedbackInbound({
   const botFlowConfig = templates?.bot_flow || {};
   let actionFlow = flow;
 
-  const saveFeedbackAndMark = async (currentFlow) => {
-    if (currentFlow?.saved_at) return currentFlow;
+  const saveFeedbackAndMark = async (currentFlow, { force = false } = {}) => {
+    if (currentFlow?.saved_at && !force) return currentFlow;
+    const flowWithKey = {
+      ...currentFlow,
+      dedupe_key:
+        String(currentFlow?.dedupe_key || "").trim() ||
+        `wa_feedback:${String(session?.id || "session")}:${String(currentFlow?.rated_at || nowIso)}`
+    };
     const saveResult = await persistWhatsappFeedback({
       session,
-      flow: currentFlow,
+      flow: flowWithKey,
       phone,
-      reqid: currentFlow?.reqid || null,
-      reqno: currentFlow?.reqno || null
+      reqid: flowWithKey?.reqid || null,
+      reqno: flowWithKey?.reqno || null
     });
-    if (!saveResult.ok) return currentFlow;
+    if (!saveResult.ok) return flowWithKey;
     return {
-      ...currentFlow,
+      ...flowWithKey,
       saved_at: nowIso
     };
   };
@@ -491,12 +501,16 @@ async function handlePostReportFeedbackInbound({
       ...flow,
       stage: ratingInput <= 3 ? "awaiting_low_rating_reason" : "awaiting_comment",
       rating: ratingInput,
-      rated_at: nowIso
+      rated_at: nowIso,
+      dedupe_key:
+        String(flow?.dedupe_key || "").trim() ||
+        `wa_feedback:${String(session?.id || "session")}:${nowIso}`
     };
+    const persistedFlow = await saveFeedbackAndMark(nextFlow, { force: true });
     await supabase
       .from("chat_sessions")
       .update({
-        context: withFeedbackFlowContext(session.context, nextFlow),
+        context: withFeedbackFlowContext(session.context, persistedFlow),
         updated_at: nowIso
       })
       .eq("id", session.id);
@@ -561,7 +575,7 @@ async function handlePostReportFeedbackInbound({
       return { handled: false };
     }
 
-    nextFlow = await saveFeedbackAndMark(nextFlow);
+    nextFlow = await saveFeedbackAndMark(nextFlow, { force: true });
     await supabase
       .from("chat_sessions")
       .update({
@@ -621,7 +635,7 @@ async function handlePostReportFeedbackInbound({
     return { handled: true };
   }
 
-  const persistedFlow = await saveFeedbackAndMark(actionFlow);
+  const persistedFlow = await saveFeedbackAndMark(actionFlow, { force: true });
   const clearedContext = {
     ...withFeedbackFlowContext(session.context, null),
     last_report_feedback_armed: false,
@@ -3182,6 +3196,8 @@ export async function POST(req) {
       case "SEND_DOCUMENT":
         var dispatchReqid = null;
         var dispatchReqno = null;
+        let documentCaption = null;
+        let statusUsedAsCaption = false;
         {
           const dispatchStartedAt = Date.now();
           dispatchReqid =
@@ -3203,13 +3219,29 @@ export async function POST(req) {
             }
           }
 
+          if (!result.suppressReportStatusMessage && dispatchReqno) {
+            try {
+              const dispatchStatus = await getReportStatus(dispatchReqno);
+              documentCaption = buildReportStatusMessage(dispatchStatus);
+            } catch (statusErr) {
+              console.warn("[bot] status caption lookup skipped", {
+                reqno: dispatchReqno,
+                error: statusErr?.message || String(statusErr)
+              });
+            }
+          } else if (!result.suppressReportStatusMessage && result.latestReportPhone) {
+            documentCaption = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
+          }
+
           try {
             const sendResponse = await sendDocumentMessage({
               labId: session.lab_id,
               phone,
               documentUrl: result.documentUrl,
-              filename: result.filename
+              filename: result.filename,
+              caption: documentCaption || undefined
             });
+            statusUsedAsCaption = Boolean(documentCaption);
 
             await logReportDispatch({
               labId: session.lab_id,
@@ -3266,26 +3298,26 @@ export async function POST(req) {
           }
         }
         {
-          let statusMessage = null;
-          if (!result.suppressReportStatusMessage && result.reportStatusReqno) {
+          // If status is already used as document caption, do not send duplicate text.
+          if (!documentCaption && !result.suppressReportStatusMessage && result.reportStatusReqno) {
             try {
               const reportStatus = await getReportStatus(result.reportStatusReqno);
-              statusMessage = buildReportStatusMessage(reportStatus);
+              documentCaption = buildReportStatusMessage(reportStatus);
             } catch (error) {
               console.error("[report-status] follow-up send failed", {
                 reqno: result.reportStatusReqno,
                 error: error?.message || String(error)
               });
             }
-          } else if (!result.suppressReportStatusMessage && result.latestReportPhone) {
-            statusMessage = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
+          } else if (!documentCaption && !result.suppressReportStatusMessage && result.latestReportPhone) {
+            documentCaption = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
           }
 
-          if (statusMessage) {
+          if (documentCaption && !statusUsedAsCaption) {
             await sendTextMessage({
               labId: session.lab_id,
               phone,
-              text: statusMessage
+              text: documentCaption
             });
           }
         }
