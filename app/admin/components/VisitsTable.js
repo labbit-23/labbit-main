@@ -52,8 +52,18 @@ const groupVisitsByExecutive = (visits, executives) => {
     }
     let execId = visit.executive?.id ?? visit.executive_id ?? null;
     if (!groups.has(execId)) {
+      const visitExecFallback =
+        visit?.executive && visit?.executive?.id
+          ? {
+              id: visit.executive.id,
+              name: visit.executive.name || "Unknown",
+              phone: visit.executive.phone || null
+            }
+          : null;
       groups.set(execId, {
-        exec: execId ? execMap.get(execId) ?? { id: execId, name: "Unknown" } : null,
+        exec: execId
+          ? execMap.get(execId) ?? visitExecFallback ?? { id: execId, name: "Unknown" }
+          : null,
         visits: [],
       });
     }
