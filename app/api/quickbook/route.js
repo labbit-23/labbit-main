@@ -15,6 +15,14 @@ function getDbClient() {
   return supabaseServer || supabase;
 }
 
+function isMissingColumnError(error) {
+  const message = String(error?.message || "");
+  return (
+    /column .* does not exist/i.test(message) ||
+    /could not find the '.*' column .* schema cache/i.test(message)
+  );
+}
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim()
@@ -243,10 +251,21 @@ export async function POST(req) {
       .insert([{ ...baseInsert, ...locationInsert }])
       .select();
 
+    if (
+      insertResult.error &&
+      /'lab_id' column/i.test(String(insertResult.error?.message || ""))
+    ) {
+      delete baseInsert.lab_id;
+      insertResult = await db
+        .from("quickbookings")
+        .insert([{ ...baseInsert, ...locationInsert }])
+        .select();
+    }
+
     // Backward compatibility: table may not yet have some optional columns.
     if (
       insertResult.error &&
-      /column .* does not exist/i.test(insertResult.error.message || "")
+      isMissingColumnError(insertResult.error)
     ) {
       insertResult = await db
         .from("quickbookings")
@@ -270,7 +289,7 @@ export async function POST(req) {
 
     if (
       insertResult.error &&
-      /column .* does not exist/i.test(insertResult.error.message || "")
+      isMissingColumnError(insertResult.error)
     ) {
       insertResult = await db
         .from("quickbookings")
