@@ -261,7 +261,8 @@ export async function POST(req) {
             persons: baseInsert.persons,
             whatsapp: baseInsert.whatsapp,
             agree: baseInsert.agree,
-            prescription: baseInsert.prescription
+            prescription: baseInsert.prescription,
+            ...(baseInsert.lab_id ? { lab_id: baseInsert.lab_id } : {})
           }
         ])
         .select();
@@ -283,7 +284,8 @@ export async function POST(req) {
             timeslot: baseInsert.timeslot,
             persons: baseInsert.persons,
             whatsapp: baseInsert.whatsapp,
-            agree: baseInsert.agree
+            agree: baseInsert.agree,
+            ...(baseInsert.lab_id ? { lab_id: baseInsert.lab_id } : {})
           }
         ])
         .select();

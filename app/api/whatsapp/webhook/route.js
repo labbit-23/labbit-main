@@ -3157,6 +3157,7 @@ export async function POST(req) {
           body: JSON.stringify({
             patientName: profileName || "WhatsApp User",
             phone,
+            lab_id: session.lab_id || null,
             packageName: inferredPackageName,
             area: inferredArea,
             date: nextContext.selected_date_iso || nextContext.selected_date,
