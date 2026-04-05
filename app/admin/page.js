@@ -85,6 +85,10 @@ export default function AdminDashboard() {
   const bookingHistoryOffsetRef = useRef(0);
   const prevUnreadRef = useRef(0);
 
+  const handleTabChange = useCallback((nextIndex) => {
+    setTabIndex((prev) => (prev === nextIndex ? prev : nextIndex));
+  }, []);
+
   const isPendingBookingRequest = useCallback((booking) => {
     const status = String(booking?.status || "").trim().toLowerCase();
     return status === "" || status === "pending";
@@ -574,16 +578,10 @@ const exportVisitsImage = async () => {
 }
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      fetchBaseData().catch(() => {});
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [fetchBaseData]);
-
-  useEffect(() => {
     if (tabIndex !== 2) return;
+    if (bookingRequestsInitialized) return;
     fetchBaseData().catch(() => {});
-  }, [tabIndex, fetchBaseData]);
+  }, [tabIndex, bookingRequestsInitialized, fetchBaseData]);
 
   const loadMoreBookingRequestHistory = useCallback(async () => {
     setErrorMsg("");
@@ -805,10 +803,11 @@ const exportVisitsImage = async () => {
 
             <Tabs
               index={tabIndex}
-              onChange={setTabIndex}
+              onChange={handleTabChange}
               variant="enclosed"
               colorScheme="green"
               isLazy
+              lazyBehavior="keepMounted"
             >
               <TabList
                 alignItems="center"
@@ -976,7 +975,7 @@ const exportVisitsImage = async () => {
                     isLoadingMore={bookingRequestsLoadingMore}
                     hasMoreHistory={bookingRequestsHasMoreHistory}
                     onLoadMoreHistory={loadMoreBookingRequestHistory}
-                    onRefresh={fetchAll}
+                    onRefresh={fetchBaseData}
                     onAcceptVisitComplete={async () => {
                       setTabIndex(0);
                       await fetchVisitsData();
