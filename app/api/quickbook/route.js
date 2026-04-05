@@ -11,6 +11,10 @@ import { toCanonicalIndiaPhone } from "@/lib/phone";
 
 export const runtime = "nodejs";
 
+function getDbClient() {
+  return supabaseServer || supabase;
+}
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim()
@@ -108,9 +112,16 @@ async function sendInternalBookingRequestNotify({
 async function resolveTimeslotDetails(timeslotInput) {
   const raw = String(timeslotInput || "").trim();
   if (!raw) return { id: raw, label: raw };
+  const db = getDbClient();
+  if (!db) return { id: raw, label: raw };
+  const normalize = (value) =>
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
 
   if (isUuid(raw)) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("visit_time_slots")
       .select("id, slot_name")
       .eq("id", raw)
@@ -125,26 +136,53 @@ async function resolveTimeslotDetails(timeslotInput) {
     return { id: raw, label: data?.slot_name || raw };
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("visit_time_slots")
-    .select("id, slot_name")
-    .eq("slot_name", raw)
-    .limit(1)
-    .maybeSingle();
+    .select("id, slot_name, start_time, end_time")
+    .order("start_time", { ascending: true });
 
   if (error) {
     console.error("[Quickbook Slot Resolve Error]", error);
     return { id: raw, label: raw };
   }
 
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const normalizedCandidates = Array.from(
+    new Set([raw, ...lines, raw.replace(/\s+/g, " ")].map((item) => normalize(item)).filter(Boolean))
+  );
+
+  const matchedSlot = (data || []).find((slot) => {
+    const labels = [
+      slot?.slot_name || "",
+      slot?.start_time && slot?.end_time ? `${slot.start_time} - ${slot.end_time}` : "",
+      slot?.start_time && slot?.end_time ? `${slot.start_time}-${slot.end_time}` : ""
+    ]
+      .map((item) => normalize(item))
+      .filter(Boolean);
+
+    return labels.some((label) => normalizedCandidates.includes(label));
+  });
+
+  if (matchedSlot?.id) {
+    return {
+      id: matchedSlot.id,
+      label: matchedSlot.slot_name || lines[0] || raw
+    };
+  }
+
   return {
-    id: data?.id || raw,
-    label: data?.slot_name || raw
+    id: raw,
+    label: lines[0] || raw
   };
 }
 
 export async function POST(req) {
   try {
+    const db = getDbClient();
+    if (!db) {
+      return NextResponse.json({ error: "Database client unavailable" }, { status: 500 });
+    }
+
     const body = await req.json();
 
     const {
@@ -200,7 +238,7 @@ export async function POST(req) {
       location_lng: location_lng || null
     };
 
-    let insertResult = await supabase
+    let insertResult = await db
       .from("quickbookings")
       .insert([{ ...baseInsert, ...locationInsert }])
       .select();
@@ -210,7 +248,7 @@ export async function POST(req) {
       insertResult.error &&
       /column .* does not exist/i.test(insertResult.error.message || "")
     ) {
-      insertResult = await supabase
+      insertResult = await db
         .from("quickbookings")
         .insert([
           {
@@ -233,7 +271,7 @@ export async function POST(req) {
       insertResult.error &&
       /column .* does not exist/i.test(insertResult.error.message || "")
     ) {
-      insertResult = await supabase
+      insertResult = await db
         .from("quickbookings")
         .insert([
           {
@@ -254,7 +292,21 @@ export async function POST(req) {
     const { data, error } = insertResult;
 
     if (error) {
-      console.error("[Supabase Insert Error]", error);
+      console.error("[Supabase Insert Error]", {
+        message: error?.message || null,
+        code: error?.code || null,
+        details: error?.details || null,
+        hint: error?.hint || null,
+        payload: {
+          patientName,
+          phone,
+          packageName,
+          area,
+          date,
+          timeslot,
+          resolvedTimeslotId: resolvedTimeslot?.id || null
+        }
+      });
       try {
         const clickupResult = await createQuickbookClickupTask({
           booking: {

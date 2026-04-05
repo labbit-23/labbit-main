@@ -1430,9 +1430,6 @@ function shouldResumeBotFromHandoff({ message, userInput, inboundMedia, normaliz
   }
 
   if (greetingLikeInput) {
-    if (["handoff", "pending"].includes(String(normalizedSessionStatus || "").toLowerCase()) && isRecentAgentTakeover(session)) {
-      return false;
-    }
     return true;
   }
 
@@ -3211,6 +3208,29 @@ export async function POST(req) {
         } else {
           const quickbookErrorText = await quickbookResponse.text();
           console.error("❌ Quickbook failed:", quickbookResponse.status, quickbookErrorText);
+
+          if (reportNotifyNumber) {
+            try {
+              await sendTextMessage({
+                labId: session.lab_id,
+                phone: reportNotifyNumber,
+                text: [
+                  "BOOKING SUBMIT FAILED",
+                  `Patient: ${profileName || "WhatsApp User"}`,
+                  `Phone: ${phone}`,
+                  `Date: ${nextContext.selected_date_iso || nextContext.selected_date || "NA"}`,
+                  `Slot: ${nextContext.selected_slot || "NA"}`,
+                  `Area: ${nextContext.area || nextContext.location_text || nextContext.location_address || "NA"}`,
+                  `HTTP: ${quickbookResponse.status}`,
+                  quickbookErrorText ? `Error: ${String(quickbookErrorText).slice(0, 300)}` : null
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+              });
+            } catch (notifyErr) {
+              console.error("❌ Quickbook failure internal notify failed:", notifyErr);
+            }
+          }
 
           await sendTextMessage({
             labId: session.lab_id,
