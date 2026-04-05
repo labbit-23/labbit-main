@@ -69,7 +69,7 @@ export default function AdminDashboard() {
   const [futureUnassignedSummary, setFutureUnassignedSummary] = useState({ count: 0, byDate: {} });
   const [statusOptions, setStatusOptions] = useState([]);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
-  const [agentPresence, setAgentPresence] = useState([]);
+  const [whatsappBlink, setWhatsappBlink] = useState(false);
   const [themeMode, setThemeMode] = useState("light");
   const [collectionRefreshHandler, setCollectionRefreshHandler] = useState(null);
 
@@ -83,6 +83,7 @@ export default function AdminDashboard() {
   const visitsTableRef = useRef();
   const bookingFetchSeqRef = useRef(0);
   const bookingHistoryOffsetRef = useRef(0);
+  const prevUnreadRef = useRef(0);
 
   const isPendingBookingRequest = useCallback((booking) => {
     const status = String(booking?.status || "").trim().toLowerCase();
@@ -260,6 +261,8 @@ const exportVisitsImage = async () => {
         }
       };
 
+      const bookingRequestsPromise = fetchBookingRequests({ eagerPending: true, resetHistory: true });
+
       const apiExecutivesFetch = fetch("/api/executives").then((res) => {
         if (!res.ok) throw new Error("Failed to fetch executives");
         return res.json();
@@ -268,18 +271,13 @@ const exportVisitsImage = async () => {
         if (!res.ok) throw new Error("Failed to fetch WhatsApp sessions");
         return res.json();
       });
-      const agentPresenceFetch = fetch("/api/admin/whatsapp/agent-presence").then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch agent presence");
-        return res.json();
-      });
 
       const [
         executivesData,
         { data: labsData, error: labsError },
         { data: timeSlotsData, error: timeSlotsError },
         { data: statusOptionsData, error: statusOptionsError },
-        whatsappSessionsBody,
-        agentPresenceBody
+        whatsappSessionsBody
       ] = await Promise.all([
         apiExecutivesFetch,
         supabase.from("labs").select("id, name").order("name"),
@@ -291,8 +289,7 @@ const exportVisitsImage = async () => {
           .from("visit_statuses")
           .select("code, label, color, order")
           .order("order"),
-        whatsappSessionsFetch,
-        agentPresenceFetch
+        whatsappSessionsFetch
       ]);
 
       if (!executivesData) throw new Error("Failed to load executives");
@@ -308,9 +305,8 @@ const exportVisitsImage = async () => {
       const unreadCount = ((whatsappSessionsBody?.sessions) || [])
         .reduce((acc, session) => acc + Number(session?.unread_count || 0), 0);
       setUnreadWhatsAppCount(unreadCount);
-      setAgentPresence(Array.isArray(agentPresenceBody?.agents) ? agentPresenceBody.agents : []);
 
-      await fetchBookingRequests({ eagerPending: true, resetHistory: true });
+      await bookingRequestsPromise;
       setBookingRequestsInitialized(true);
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");
@@ -479,9 +475,6 @@ const exportVisitsImage = async () => {
     return normalized === "" || normalized === "pending";
   }).length;
   const showBookingRequestsLoadingState = !bookingRequestsInitialized || bookingRequestsLoading;
-  const onlineAgents = agentPresence.filter((a) => a.presence === "online").length;
-  const awayAgents = agentPresence.filter((a) => a.presence === "away").length;
-  const offlineAgents = agentPresence.filter((a) => a.presence === "offline").length;
   const darkActionButtonProps = themeMode === "dark"
     ? {
         bg: "rgba(255,255,255,0.10)",
@@ -673,6 +666,9 @@ const exportVisitsImage = async () => {
                 colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
                 variant={unreadWhatsAppCount > 0 ? "solid" : "outline"}
                 px={3}
+                transform={whatsappBlink ? "scale(1.05)" : "scale(1)"}
+                transition="transform 0.2s ease, box-shadow 0.2s ease"
+                boxShadow={whatsappBlink ? "0 0 0 3px rgba(245,101,101,0.35)" : undefined}
                 {...(themeMode === "dark" && unreadWhatsAppCount === 0 ? darkActionButtonProps : {})}
               >
                 <img
@@ -758,10 +754,6 @@ const exportVisitsImage = async () => {
                 {...darkActionButtonProps}
               />
             </Flex>
-
-            <Text mb={4} fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.600"}>
-              Team presence: {onlineAgents} online, {awayAgents} away, {offlineAgents} offline
-            </Text>
 
             {errorMsg && (
               <Text color="red.400" mb={6}>
@@ -1038,3 +1030,14 @@ const exportVisitsImage = async () => {
     </RequireAuth>
   );
 }
+  useEffect(() => {
+    const prev = Number(prevUnreadRef.current || 0);
+    const next = Number(unreadWhatsAppCount || 0);
+    if (next > prev) {
+      setWhatsappBlink(true);
+      const timer = setTimeout(() => setWhatsappBlink(false), 1800);
+      prevUnreadRef.current = next;
+      return () => clearTimeout(timer);
+    }
+    prevUnreadRef.current = next;
+  }, [unreadWhatsAppCount]);

@@ -188,14 +188,18 @@ export default function QuickBookTab({
       rejectCode === "other"
         ? String(rejectReason || "").trim()
         : String(selectedReason?.label || "").trim();
-    if (!reasonText) return;
+    if (!reasonText) {
+      alert("Reason details are required when selecting Other.");
+      return;
+    }
 
     setIsRejectSaving(true);
     try {
       const ok = await updateBooking(rejectingBooking.id, {
         status: "rejected",
         rejection_code: rejectCode,
-        rejection_reason: reasonText
+        rejection_reason: reasonText,
+        rejected_at: new Date().toISOString()
       });
       if (ok) {
         closeRejectModal();
