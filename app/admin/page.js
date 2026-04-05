@@ -342,6 +342,18 @@ const exportVisitsImage = async () => {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
 
+  useEffect(() => {
+    const prev = Number(prevUnreadRef.current || 0);
+    const next = Number(unreadWhatsAppCount || 0);
+    if (next > prev) {
+      setWhatsappBlink(true);
+      const timer = setTimeout(() => setWhatsappBlink(false), 1800);
+      prevUnreadRef.current = next;
+      return () => clearTimeout(timer);
+    }
+    prevUnreadRef.current = next;
+  }, [unreadWhatsAppCount]);
+
   const uniquePatients = React.useMemo(() => {
     const map = new Map();
     visits.forEach((v) => {
@@ -1030,14 +1042,3 @@ const exportVisitsImage = async () => {
     </RequireAuth>
   );
 }
-  useEffect(() => {
-    const prev = Number(prevUnreadRef.current || 0);
-    const next = Number(unreadWhatsAppCount || 0);
-    if (next > prev) {
-      setWhatsappBlink(true);
-      const timer = setTimeout(() => setWhatsappBlink(false), 1800);
-      prevUnreadRef.current = next;
-      return () => clearTimeout(timer);
-    }
-    prevUnreadRef.current = next;
-  }, [unreadWhatsAppCount]);
