@@ -7,9 +7,9 @@ This document defines the first implementation contract for the CTO dashboard mo
 - Python collector runs on the local machine that has Tailscale access.
 - Python reads monitoring targets from `services.ini`.
 - Python polls internal/private systems and normalizes results.
-- Python posts results to Labbit via a protected ingest API.
-- Labbit writes snapshots and latest state into Supabase.
-- CTO dashboard reads from Supabase through Labbit APIs.
+- Python posts results to Labit via a protected ingest API.
+- Labit writes snapshots and latest state into Supabase.
+- CTO dashboard reads from Supabase through Labit APIs.
 
 ## Python Layout
 
@@ -69,7 +69,7 @@ expected_status = 200
 type = http_json
 enabled = 1
 category = app
-label = Labbit Prod
+label = Labit Prod
 url = https://your-vercel-app.vercel.app/api/health
 method = GET
 expected_status = 200
@@ -180,7 +180,7 @@ Suggested rules:
 - `down`: connection failed, timed out, or invalid response
 - `unknown`: collector could not determine status
 
-## Labbit Ingest API
+## Labit Ingest API
 
 Suggested route:
 
@@ -195,7 +195,7 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
-Labbit should:
+Labit should:
 
 1. validate bearer token
 2. validate `lab_id`, `source`, `checked_at`, `services`
@@ -277,7 +277,7 @@ Minimum useful services to wire first:
 
 - Mirth base API
 - Orthanc system/status API
-- Labbit health endpoint
+- Labit health endpoint
 - local report lookup endpoint
 - local report-status endpoint
 - 2-3 important Tailscale nodes

@@ -63,7 +63,7 @@ function statusColor(status) {
 }
 
 const keySystems = [
-  { service_keys: ["labbit_health"], label: "Labbit" },
+  { service_keys: ["labbit_health"], label: "Labit" },
   { service_keys: ["whatsapp_bot_activity", "whatsapp_bot_response_sla_1m", "whatsapp_bot_chats_24h", "whatsapp_bot_reports_24h", "whatsapp_bot_last_report"], label: "WhatsApp Bot" },
   { service_keys: ["supabase_main"], label: "Supabase" },
   { service_keys: ["oracle_db"], label: "Oracle DB" },
@@ -1367,7 +1367,7 @@ function CtoDashboardPage() {
               CTO Control Plane
             </Badge>
             <Heading size="2xl" lineHeight="1.05" fontWeight="800">
-              Labbit Operations
+              Labit Operations
             </Heading>
             <Text color="whiteAlpha.760" fontSize="sm">
               {isProductCto ? "Product CTO view • multi-lab diagnostics" : "Lab-level diagnostics • restricted to assigned lab"}
@@ -1935,7 +1935,7 @@ function CtoDashboardPage() {
 
           <HStack mt={4} spacing={2} flexWrap="wrap">
             {keySystemStatuses
-              .filter((system) => system.label === "Supabase" || system.label === "Labbit")
+              .filter((system) => system.label === "Supabase" || system.label === "Labit")
               .map((system) => (
                 <Badge
                   key={system.label}
@@ -1965,7 +1965,7 @@ function CtoDashboardPage() {
                 Incident First Steps {hasVpsIncident ? "(Auto-opened)" : ""}
               </Text>
               <VStack align="flex-start" spacing={1.5}>
-                <Text fontSize="sm" color="whiteAlpha.900">1. Check <b>Supabase</b> and <b>Labbit</b> badges above. If either is down/degraded, start there.</Text>
+                <Text fontSize="sm" color="whiteAlpha.900">1. Check <b>Supabase</b> and <b>Labit</b> badges above. If either is down/degraded, start there.</Text>
                 <Text fontSize="sm" color="whiteAlpha.900">2. If Host Memory or Disk is high, reduce load first, then restart only the affected service.</Text>
                 <Text fontSize="sm" color="whiteAlpha.900">3. Open Service Detail for the worst service and read latest message + payload before taking action.</Text>
                 <Text fontSize="sm" color="whiteAlpha.900">4. If issue persists for 5+ minutes, escalate with timestamp and affected services.</Text>

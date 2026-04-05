@@ -181,7 +181,7 @@ export default function LandingPage() {
       <Box position="sticky" top="0" zIndex="1000" bg="white" boxShadow={scrolled ? "sm" : "none"}>
         <Flex justify="space-between" align="center" px={{ base: 2, md: 8 }} py={scrolled ? 1 : 3}>
           <HStack>
-            <Image src={LABBIT_LOGO} alt="Labbit Logo" maxH={scrolled ? "40px" : "60px"} />
+            <Image src={LABBIT_LOGO} alt="Labit Logo" maxH={scrolled ? "40px" : "60px"} />
           </HStack>
           <HStack gap={3}>
             <Button onClick={handleQuickBookOpen} colorScheme="teal" borderRadius="full">
@@ -196,7 +196,7 @@ export default function LandingPage() {
       <Box textAlign="center" mb={8}>
         <Heading size="2xl" color="teal.600">Welcome to SDRC!</Heading>
         <Text fontSize="lg" mt={2} color="gray.700">
-          <b style={{ color: "#00b1b9" }}>Seamless Home Blood Collection</b> and health checkups, powered by Labbit.
+          <b style={{ color: "#00b1b9" }}>Seamless Home Blood Collection</b> and health checkups, powered by Labit.
         </Text>
       </Box>
 

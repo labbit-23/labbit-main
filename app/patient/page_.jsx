@@ -86,7 +86,7 @@ export default function PatientDashboard() {
       {/* Header */}
       <Box as="header" mb={6} textAlign="center" borderBottom="1px solid" borderColor="gray.200" pb={4}>
         <Heading size="lg" color="brand.500" fontWeight="bold">
-          Labbit
+          Labit
         </Heading>
         <Text fontSize="sm" color="gray.600" mt={1}>
           Your health, our priority.

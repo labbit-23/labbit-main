@@ -26,17 +26,22 @@ export async function POST(request, context) {
       return NextResponse.json({ error: "Invalid status value" }, { status: 400 });
     }
 
-    // Update status in the database
+    const nextActive = status === "active";
+
+    // Update status + active in the database (keep them consistent)
     const { error } = await supabase
       .from("executives")
-      .update({ status })
+      .update({ status, active: nextActive })
       .eq("id", id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ message: `Status updated to ${status}` }, { status: 200 });
+    return NextResponse.json(
+      { message: `Status updated to ${status}`, status, active: nextActive },
+      { status: 200 }
+    );
 
   } catch (err) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

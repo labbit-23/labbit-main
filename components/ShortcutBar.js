@@ -155,7 +155,7 @@ export default function ShortcutBar({
 
     if (permission === "granted") {
       NotificationsHelper.showNotification("Notifications enabled", {
-        body: "You will now receive browser alerts from Labbit while this tab is active.",
+        body: "You will now receive browser alerts from Labit while this tab is active.",
       });
       toast({
         title: "Notifications enabled",
@@ -317,7 +317,7 @@ export default function ShortcutBar({
           >
             <Image
               src="/logo.png"
-              alt="Labbit Logo"
+              alt="Labit Logo"
               maxH={{ base: "28px", md: "36px" }}
               objectFit="contain"
               draggable={false}

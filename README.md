@@ -1,4 +1,4 @@
-# Labbit Home Sample Collection Platform
+# Labit Home Sample Collection Platform
 
 This project powers the home blood sample collection workflow for lab executives (HV Executives) and admin teams.
 
@@ -106,7 +106,7 @@ CTO log viewer design + schema:
 - `docs/cto-events-schema.sql`
 
 
-# Labbit Platform
+# Labit Platform
 
 A Next.js-based platform for home/sample blood collection, B2B sample logistics, and patient/lab management, built for high scalability, operational efficiency, and flexibility.
 
@@ -138,7 +138,7 @@ A Next.js-based platform for home/sample blood collection, B2B sample logistics,
 
 ## Project Overview
 
-Labbit is a platform for digital transformation of diagnostic operations―supporting both direct-to-patient home collection (B2C) and B2B (hospital/lab/clinic) sample pickup logistics.  
+Labit is a platform for digital transformation of diagnostic operations―supporting both direct-to-patient home collection (B2C) and B2B (hospital/lab/clinic) sample pickup logistics.  
 The system provides:
 
 - Effortless booking for patients/clients.

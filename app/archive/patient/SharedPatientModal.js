@@ -204,7 +204,7 @@ export default function SharedPatientModal({ isOpen, onClose, onSubmit }) {
             <VStack spacing={3} align="stretch">
               {/* ✅ Show different headings based on source */}
               {patients[0]?.id ? (
-                <Text fontWeight="bold">Patients found in Labbit:</Text>
+                <Text fontWeight="bold">Patients found in Labit:</Text>
               ) : (
                 <Text fontWeight="bold">Patient from external source:</Text>
               )}

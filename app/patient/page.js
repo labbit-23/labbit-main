@@ -34,7 +34,7 @@ export default function PatientDashboard() {
         >
           <VStack spacing={6} align="stretch">
             <Heading size="lg" color="teal.700" textAlign="center">
-              Welcome to Labbit
+              Welcome to Labit
             </Heading>
 
             {/* Patient selection and visit controls */}

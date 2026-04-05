@@ -274,7 +274,7 @@ export default function AdminDashboard() {
     <Box minH="100vh" p={[4, 8]} bg="gray.50">
       <Flex align="center" mb={8}>
         <Heading color="green.600" size="xl" fontWeight="extrabold">
-          Labbit Admin Dashboard
+          Labit Admin Dashboard
         </Heading>
         <Spacer />
         <Button

@@ -60,12 +60,12 @@ export default function CompareModal({ isOpen, onClose, compareMap = {}, singleV
       const link = document.createElement("a");
       
       // Prepare dynamic filename
-      let filename = `Labbit-comparison-${new Date().toISOString().slice(0,10)}.jpg`;
+      let filename = `Labit-comparison-${new Date().toISOString().slice(0,10)}.jpg`;
 
       if (singleVariant) {
         // sanitize package name to avoid problematic chars in filename
         const sanitizedName = singleVariant.pkgName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        filename = `Labbit-package-${sanitizedName}-${new Date().toISOString().slice(0,10)}.jpg`;
+        filename = `Labit-package-${sanitizedName}-${new Date().toISOString().slice(0,10)}.jpg`;
       }
       
       link.download = filename;

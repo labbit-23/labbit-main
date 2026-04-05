@@ -1,4 +1,4 @@
-# Labbit VPS Operations Runbook
+# Labit VPS Operations Runbook
 
 Last updated: March 26, 2026
 

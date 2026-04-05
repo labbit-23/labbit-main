@@ -621,7 +621,7 @@ export default function AdminDashboard() {
       {/* Header */}
       <Flex align="center" mb={8}>
         <Heading color="brand.600" size="xl" fontWeight="extrabold">
-          Labbit Admin Dashboard
+          Labit Admin Dashboard
         </Heading>
         <Spacer />
         <Button colorScheme="brand" onClick={() => { setEditingVisit(null); visitModal.onOpen(); }} leftIcon={<AddIcon />}>
@@ -891,7 +891,7 @@ export default function AdminDashboard() {
 
       {/* Footer */}
       <Box mt={12} textAlign="center" color="gray.500" fontSize="sm" userSelect="none">
-        Labbit Home Sample Collection Platform © {new Date().getFullYear()}
+        Labit Home Sample Collection Platform © {new Date().getFullYear()}
       </Box>
     </Box>
   );

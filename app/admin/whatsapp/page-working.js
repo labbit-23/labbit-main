@@ -14,7 +14,7 @@ import { useSearchParams } from "next/navigation";
 import { useUser } from "@/app/context/UserContext";
 
 const APP_LOGO = process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png";
-const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Labbit";
+const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Labit";
 const IST_TIMEZONE = "Asia/Kolkata";
 const HEADER_WHATSAPP_NUMBER =
   process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ||

@@ -123,7 +123,7 @@ export default function ReportDispatchKioskPage() {
   const [isPrinting, setIsPrinting] = useState(false);
   const [lastPrintInstruction, setLastPrintInstruction] = useState("");
   const [labMeta, setLabMeta] = useState({
-    name: process.env.NEXT_PUBLIC_APP_NAME || "Labbit",
+    name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
     logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
   });
 

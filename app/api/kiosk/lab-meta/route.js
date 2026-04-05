@@ -19,7 +19,7 @@ export async function GET() {
       return NextResponse.json(
         {
           id: null,
-          name: process.env.NEXT_PUBLIC_APP_NAME || "Labbit",
+          name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
           logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
         },
         { status: 200 }
@@ -37,7 +37,7 @@ export async function GET() {
     return NextResponse.json(
       {
         id: data?.id || labId,
-        name: data?.name || process.env.NEXT_PUBLIC_APP_NAME || "Labbit",
+        name: data?.name || process.env.NEXT_PUBLIC_APP_NAME || "Labit",
         logo_url: data?.logo_url || process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
       },
       { status: 200 }
@@ -46,7 +46,7 @@ export async function GET() {
     return NextResponse.json(
       {
         id: null,
-        name: process.env.NEXT_PUBLIC_APP_NAME || "Labbit",
+        name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
         logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png",
         error: error?.message || "Failed to load lab meta"
       },

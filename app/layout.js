@@ -6,7 +6,7 @@ import { UserProvider } from './context/UserContext'; // Adjust the import path 
 import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 
 export const metadata = {
-  title: "Labbit",
+  title: "Labit",
   icons: {
     icon: [
       { url: "/logo.png", type: "image/png" },

@@ -35,7 +35,7 @@ export default function PatientLookup({
 
   // Helper to get patient source label
   const getPatientSource = (patient) => {
-    if (patient.mrn) return 'Labbit';
+    if (patient.mrn) return 'Labit';
     if (patient.external_key) return patient.labName || 'External';
     return 'Unknown';
   };

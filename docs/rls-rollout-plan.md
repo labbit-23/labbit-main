@@ -1,10 +1,10 @@
-# Labbit RLS Rollout Plan
+# Labit RLS Rollout Plan
 
-This is a staged plan to prepare Labbit for Row Level Security without enabling it yet and breaking the current app.
+This is a staged plan to prepare Labit for Row Level Security without enabling it yet and breaking the current app.
 
 ## Current Reality
 
-Labbit is not yet in a state where Supabase RLS can safely become the primary access control for browser queries.
+Labit is not yet in a state where Supabase RLS can safely become the primary access control for browser queries.
 
 Why:
 

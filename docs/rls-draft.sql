@@ -1,4 +1,4 @@
--- Labbit RLS draft
+-- Labit RLS draft
 -- Do not run wholesale yet.
 -- This file is a policy starter pack for staged rollout.
 

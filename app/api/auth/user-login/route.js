@@ -31,6 +31,7 @@ export async function POST(req) {
         .from("executives")
         .select("*")
         .eq("phone", normalizedIdentifier)
+        .eq("active", true)
         .limit(2);
       if (error || !Array.isArray(data) || data.length === 0) {
         return NextResponse.json(
@@ -50,6 +51,7 @@ export async function POST(req) {
         .from("executives")
         .select("*")
         .ilike("email", normalizedIdentifier)
+        .eq("active", true)
         .limit(2);
       if (error || !Array.isArray(data) || data.length === 0) {
         return NextResponse.json(
@@ -68,6 +70,14 @@ export async function POST(req) {
         );
       }
       executive = data[0];
+    }
+
+    const normalizedStatus = String(executive?.status || "").trim().toLowerCase();
+    if (["inactive", "disabled", "blocked", "suspended"].includes(normalizedStatus)) {
+      return NextResponse.json(
+        { error: "This account is inactive. Please contact admin.", exists: true },
+        { status: 403 }
+      );
     }
 
     // Fetch assigned labs for executive (always, even if password is invalid)

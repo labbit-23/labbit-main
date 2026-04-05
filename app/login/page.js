@@ -548,9 +548,9 @@ export default function LoginPage() {
           <Center mb={5} cursor="pointer">
             <Link href="/" onClick={(e) => { e.preventDefault(); router.push('/'); }}>
               <HStack spacing={3}>
-                <Image src="/logo.png" alt="Labbit Logo" boxSize="54px" borderRadius="lg" />
+                <Image src="/logo.png" alt="Labit Logo" boxSize="54px" borderRadius="lg" />
                 <Heading color="teal.700" fontWeight="extrabold" fontSize="2xl" letterSpacing="wider">
-                  Labbit Login
+                  Labit Login
                 </Heading>
               </HStack>
             </Link>
@@ -725,7 +725,7 @@ export default function LoginPage() {
           </Tabs>
 
           <Text mt={10} fontSize="xs" color="gray.400" userSelect="none">
-            © {new Date().getFullYear()} Labbit. All rights reserved.
+            © {new Date().getFullYear()} Labit. All rights reserved.
           </Text>
         </Box>
       </Flex>

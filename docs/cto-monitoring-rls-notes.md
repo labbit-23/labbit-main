@@ -12,12 +12,12 @@ Use two layers of protection:
 ## Why
 
 The Python collector should not talk to Supabase directly for normal operation.
-Labbit ingest APIs should validate and write using the service role.
+Labit ingest APIs should validate and write using the service role.
 
 That means:
 
-- Python collector authenticates only to Labbit
-- Labbit writes monitoring rows with service-role permissions
+- Python collector authenticates only to Labit
+- Labit writes monitoring rows with service-role permissions
 - dashboard reads happen under user/session access rules
 
 ## Tables
@@ -52,7 +52,7 @@ Principle:
 Practical approach:
 
 1. Store executive lab memberships in `executives_labs`
-2. Put `labIds` into the session in Labbit
+2. Put `labIds` into the session in Labit
 3. For direct Supabase reads later, attach the user identity and lab scope
 4. Add RLS policies filtering monitoring tables by `lab_id`
 
@@ -74,14 +74,14 @@ using (
 );
 ```
 
-If you keep dashboard reads server-side through Labbit APIs, this can wait.
+If you keep dashboard reads server-side through Labit APIs, this can wait.
 
 ## Best Phase 1 Practice
 
 For now:
 
-- write using Labbit service-role only
-- read through Labbit APIs only
+- write using Labit service-role only
+- read through Labit APIs only
 - keep `lab_id` mandatory on every row
 
 That gives you:

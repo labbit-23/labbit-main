@@ -60,6 +60,7 @@ export default function AdminDashboard() {
   const [timeSlots, setTimeSlots] = useState([]);
   const [quickbookings, setQuickbookings] = useState([]);
   const [bookingRequestsLoading, setBookingRequestsLoading] = useState(false);
+  const [bookingRequestsInitialized, setBookingRequestsInitialized] = useState(false);
   const [bookingRequestsLoadingMore, setBookingRequestsLoadingMore] = useState(false);
   const [bookingRequestsHasMoreHistory, setBookingRequestsHasMoreHistory] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -107,7 +108,7 @@ const exportVisitsImage = async () => {
       scale: 2,
     });
     const link = document.createElement("a");
-    link.download = `Labbit-visits-${selectedDate}.jpg`;
+    link.download = `Labit-visits-${selectedDate}.jpg`;
     link.href = canvas.toDataURL("image/jpeg", 0.95);
     link.click();
   } catch (err) {
@@ -310,6 +311,7 @@ const exportVisitsImage = async () => {
       setAgentPresence(Array.isArray(agentPresenceBody?.agents) ? agentPresenceBody.agents : []);
 
       await fetchBookingRequests({ eagerPending: true, resetHistory: true });
+      setBookingRequestsInitialized(true);
     } catch (error) {
       setErrorMsg("Failed to load data. Please try again.");
       toast({
@@ -476,6 +478,7 @@ const exportVisitsImage = async () => {
     const normalized = String(qb?.status || "").trim().toLowerCase();
     return normalized === "" || normalized === "pending";
   }).length;
+  const showBookingRequestsLoadingState = !bookingRequestsInitialized || bookingRequestsLoading;
   const onlineAgents = agentPresence.filter((a) => a.presence === "online").length;
   const awayAgents = agentPresence.filter((a) => a.presence === "away").length;
   const offlineAgents = agentPresence.filter((a) => a.presence === "offline").length;
@@ -661,7 +664,7 @@ const exportVisitsImage = async () => {
           >
             <Flex align="center" mb={8} wrap="wrap" gap={3}>
               <Heading className="dashboard-theme-heading" size="xl" flex="1 1 auto">
-                Labbit Admin Dashboard
+                Labit Admin Dashboard
               </Heading>
               <Button
                 className="no-export"
@@ -772,15 +775,23 @@ const exportVisitsImage = async () => {
               py={3}
               borderRadius="lg"
               borderWidth="2px"
-              borderColor={pendingQuickbookCount > 0 ? "red.400" : "green.400"}
+              borderColor={
+                showBookingRequestsLoadingState
+                  ? (themeMode === "dark" ? "whiteAlpha.500" : "orange.300")
+                  : pendingQuickbookCount > 0 ? "red.400" : "green.400"
+              }
               bg={themeMode === "dark" ? "blackAlpha.300" : "white"}
             >
               <Text
                 fontSize={{ base: "md", md: "lg" }}
                 fontWeight="800"
-                color={pendingQuickbookCount > 0 ? "red.400" : "green.500"}
+                color={
+                  showBookingRequestsLoadingState
+                    ? (themeMode === "dark" ? "whiteAlpha.900" : "orange.500")
+                    : pendingQuickbookCount > 0 ? "red.400" : "green.500"
+                }
               >
-                Unprocessed Booking Requests: {pendingQuickbookCount}
+                Unprocessed Booking Requests: {showBookingRequestsLoadingState ? "..." : pendingQuickbookCount}
               </Text>
             </Box>
 
@@ -849,7 +860,7 @@ const exportVisitsImage = async () => {
                   {...adminTabBaseStyles}
                 >
                   Booking Requests{" "}
-                  {bookingRequestsLoading ? (
+                  {showBookingRequestsLoadingState ? (
                     <Badge ml={2} colorScheme="orange" borderRadius="full" variant="solid">
                       ...
                     </Badge>

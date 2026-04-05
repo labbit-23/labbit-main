@@ -145,8 +145,8 @@ where status = 'resolved'
 
 ## Security
 
-- Service-role writes only via Labbit API
-- Dashboard reads through Labbit server APIs
+- Service-role writes only via Labit API
+- Dashboard reads through Labit server APIs
 - Add RLS later for direct-table reads if needed
 
 ## Rollout Plan

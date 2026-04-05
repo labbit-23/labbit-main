@@ -70,7 +70,7 @@ export default function PatientDashboard({ initialPhone }) {
         >
           <VStack spacing={6} align="stretch">
             <Heading size="lg" color="teal.700" textAlign="center">
-              Welcome to Labbit
+              Welcome to Labit
             </Heading>
 
             {/* PatientsTab for switching/managing patient selection */}
