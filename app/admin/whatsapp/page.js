@@ -519,6 +519,43 @@ if (filedata) {
   return null;
 }
 
+function getInboundLocationPin(msg) {
+  if (!msg || msg.direction !== "inbound") return null;
+  if (String(msg.message || "").trim() !== "__LOCATION_PIN__") return null;
+
+  const rawLocation =
+    msg?.payload?.raw_message?.location ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.location ||
+    msg?.payload?.raw_body?.value?.messages?.[0]?.location ||
+    null;
+
+  const lat = Number(rawLocation?.latitude);
+  const lng = Number(rawLocation?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const name = String(rawLocation?.name || "").trim() || null;
+  const address = String(rawLocation?.address || "").trim() || null;
+  const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
+  const label = [name, address].filter(Boolean).join("\n");
+  const copyText = [
+    "Location Pin Shared",
+    label ? `Label: ${label}` : null,
+    `Coordinates: ${lat},${lng}`,
+    `Google Maps: ${mapsLink}`
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    lat,
+    lng,
+    name,
+    address,
+    mapsLink,
+    copyText
+  };
+}
+
 async function fetchJsonWithRetry(url, options = {}, retries = 1) {
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -2205,6 +2242,30 @@ export default function WhatsAppDashboard() {
     }
   };
 
+  const handleCopyText = async (textValue, successLabel = "Copied") => {
+    const text = String(textValue || "").trim();
+    if (!text) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setError("");
+      setHint(successLabel);
+      window.setTimeout(() => setHint(""), 1400);
+    } catch {
+      setError("Could not copy. Please copy manually.");
+    }
+  };
+
   const renderDbNamesPopover = (session, compact = false) => {
     if (!hasManyPatients(session)) return null;
     const rows = Array.isArray(session?.matched_patients) ? session.matched_patients : [];
@@ -2732,6 +2793,7 @@ export default function WhatsAppDashboard() {
                         ...msg,
                         sessionContext: selectedSession?.context || {}
                       };
+                      const inboundLocationPin = getInboundLocationPin(msgWithContext);
 
                       return (
                         <div
@@ -2771,7 +2833,43 @@ export default function WhatsAppDashboard() {
                                 </span>
                               )}
                             </div>
-                            <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
+                            {inboundLocationPin ? (
+                              <div className="wa-locationPinCard">
+                                <div className="wa-locationPinTitle">Location Pin Shared</div>
+                                {(inboundLocationPin.name || inboundLocationPin.address) && (
+                                  <div className="wa-locationPinLabel">
+                                    {[inboundLocationPin.name, inboundLocationPin.address].filter(Boolean).join(" - ")}
+                                  </div>
+                                )}
+                                <div className="wa-locationPinCoords">
+                                  {inboundLocationPin.lat}, {inboundLocationPin.lng}
+                                </div>
+                                <div className="wa-locationPinActions">
+                                  <a
+                                    href={inboundLocationPin.mapsLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="wa-locationPinLink"
+                                  >
+                                    Open Maps
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className="wa-locationPinCopy"
+                                    onClick={() =>
+                                      handleCopyText(
+                                        inboundLocationPin.copyText,
+                                        "Location details copied"
+                                      )
+                                    }
+                                  >
+                                    Copy Details
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
+                            )}
                             {media?.url && (
                               <div className="wa-msgAttachment">
                                 {media.type === "image" ? (
@@ -4173,6 +4271,49 @@ export default function WhatsAppDashboard() {
 
         .wa-msgBubble.is-out.is-bot .wa-msgText {
           font-size: 13px;
+        }
+
+        .wa-locationPinCard {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          border: 1px solid rgba(15, 127, 133, 0.25);
+          background: rgba(15, 127, 133, 0.08);
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+        }
+
+        .wa-locationPinTitle {
+          font-weight: 800;
+          font-size: 12px;
+        }
+
+        .wa-locationPinLabel,
+        .wa-locationPinCoords {
+          white-space: pre-wrap;
+          word-break: break-word;
+          opacity: 0.92;
+        }
+
+        .wa-locationPinActions {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .wa-locationPinLink,
+        .wa-locationPinCopy {
+          border: 1px solid rgba(15, 127, 133, 0.35);
+          background: rgba(255, 255, 255, 0.75);
+          color: #0f7f85;
+          border-radius: 999px;
+          padding: 4px 9px;
+          font-size: 11px;
+          font-weight: 700;
+          text-decoration: none;
+          cursor: pointer;
         }
 
         .wa-msgAttachment {
