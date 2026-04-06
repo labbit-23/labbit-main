@@ -275,11 +275,11 @@ function feedbackRatingPromptText() {
   return [
     "We hope your report was delivered successfully.",
     "Please rate your experience (1-5):",
-    "1 - Very Poor",
-    "2 - Poor",
-    "3 - Okay",
+    "5 - Excellent",
     "4 - Good",
-    "5 - Excellent"
+    "3 - Okay",
+    "2 - Poor",
+    "1 - Very Poor"
   ].join("\n");
 }
 
@@ -508,12 +508,16 @@ async function handlePostReportFeedbackInbound({
 
   const currentStage = String(flow.stage || "").toLowerCase();
   const { normalized, normalizedGreeting, normalizedUnderscore } = normalizeCommandLikeInput(trimmedInput);
-  const isEscapeIntent =
+  const isExplicitEscapeIntent =
     isMainMenuGreetingInput(trimmedInput) ||
     BOT_START_KEYWORDS.has(normalized) ||
     BOT_START_KEYWORDS.has(normalizedGreeting) ||
-    BOT_START_KEYWORDS.has(normalizedUnderscore) ||
-    Boolean(detectIntent(trimmedInput));
+    BOT_START_KEYWORDS.has(normalizedUnderscore);
+  const inferredIntent = Boolean(detectIntent(trimmedInput));
+  const isEscapeIntent =
+    currentStage === "awaiting_comment"
+      ? isExplicitEscapeIntent
+      : (isExplicitEscapeIntent || inferredIntent);
 
   if (isEscapeIntent) {
     const clearedContext = {

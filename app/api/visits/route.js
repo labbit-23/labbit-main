@@ -591,6 +591,20 @@ export async function PUT(request) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
     }
 
+    const nextExecutiveId = Object.prototype.hasOwnProperty.call(normalizedVisitData, "executive_id")
+      ? normalizedVisitData.executive_id
+      : prev.executive_id;
+    const nextTimeSlotId = Object.prototype.hasOwnProperty.call(normalizedVisitData, "time_slot")
+      ? normalizedVisitData.time_slot
+      : prev.time_slot;
+    const nextVisitDate = Object.prototype.hasOwnProperty.call(normalizedVisitData, "visit_date")
+      ? normalizedVisitData.visit_date
+      : prev.visit_date;
+
+    const isExecutiveChanged = prev.executive_id !== nextExecutiveId;
+    const isTimeslotChangedForPatient = prev.time_slot !== nextTimeSlotId;
+    const isVisitDateChanged = String(prev.visit_date || "") !== String(nextVisitDate || "");
+
     const statusChanged = prev.status !== data.status;
     const notifyRoles = statusChanged ? await getNotifyRolesForStatus(data.status) : [];
 
@@ -621,6 +635,14 @@ export async function PUT(request) {
         await sendPhleboVisitSms(data.id);
       } catch (e) {
         console.error(`Visit ${data.id}: Phlebo SMS failed:`, e?.message || e);
+      }
+    }
+
+    if (!statusChanged && (isExecutiveChanged || isTimeslotChangedForPatient || isVisitDateChanged)) {
+      try {
+        await notifyPatientWhatsappWithSmsFallback(data.id);
+      } catch (e) {
+        console.error(`Visit ${data.id}: Patient update notification failed:`, e?.message || e);
       }
     }
 

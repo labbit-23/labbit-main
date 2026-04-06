@@ -252,12 +252,29 @@ export async function PUT(request, context) {
       console.error("Failed to log visit update:", logErr.message);
     }
 
+    const nextExecutiveId = Object.prototype.hasOwnProperty.call(finalUpdateData, "executive_id")
+      ? finalUpdateData.executive_id
+      : oldVisit.executive_id;
+    const nextTimeSlotId = Object.prototype.hasOwnProperty.call(finalUpdateData, "time_slot")
+      ? finalUpdateData.time_slot
+      : oldVisit.time_slot;
+    const nextVisitDate = Object.prototype.hasOwnProperty.call(finalUpdateData, "visit_date")
+      ? finalUpdateData.visit_date
+      : oldVisit.visit_date;
+
+    const isExecutiveChanged = oldVisit.executive_id !== nextExecutiveId;
+    const isTimeslotChanged = oldVisit.time_slot !== nextTimeSlotId;
+    const isVisitDateChanged = String(oldVisit.visit_date || "") !== String(nextVisitDate || "");
+
+    const statusChanged = Object.prototype.hasOwnProperty.call(finalUpdateData, "status")
+      && finalUpdateData.status !== oldVisit.status;
+
     // 4️⃣ If status changed, check visit_statuses.notify_to for notifications
-    if (updateData.status && updateData.status !== oldVisit.status) {
+    if (statusChanged) {
       const { data: statusRow, error: statusErr } = await supabase
         .from("visit_statuses")
         .select("notify_to")
-        .eq("code", updateData.status)
+        .eq("code", finalUpdateData.status)
         .single();
 
       if (!statusErr && Array.isArray(statusRow?.notify_to)) {
@@ -275,6 +292,14 @@ export async function PUT(request, context) {
             console.error(`Failed to send ${role} SMS:`, smsErr);
           }
         }
+      }
+    }
+
+    if (!statusChanged && (isExecutiveChanged || isTimeslotChanged || isVisitDateChanged)) {
+      try {
+        await notifyPatientWhatsappWithSmsFallback(newVisit.id);
+      } catch (notifyErr) {
+        console.error(`Visit ${newVisit.id}: Patient update notification failed:`, notifyErr?.message || notifyErr);
       }
     }
 
