@@ -513,8 +513,106 @@ function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
 }
 
-function normalizeServiceStatus(row) {
+function parseIsoDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseRecentRunAt(payload = {}) {
+  if (!payload || typeof payload !== "object") return null;
+  const candidates = [
+    payload.last_success_at,
+    payload.last_run_at,
+    payload.last_completed_at,
+    payload.last_healthy_at,
+    payload.last_ok_at,
+    payload.last_check_at,
+    payload.last_exit_at
+  ];
+  for (const value of candidates) {
+    const parsed = parseIsoDate(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function isRunOnceService(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const key = String(row?.service_key || "").toLowerCase();
+
+  const explicitFlags = [
+    payload.run_once,
+    payload.is_run_once,
+    payload.is_scheduled_job
+  ].some((value) => value === true);
+
+  const modeFields = [
+    payload.run_mode,
+    payload.schedule_mode,
+    payload.schedule_type,
+    payload.execution_mode,
+    payload.process_mode,
+    payload.service_mode,
+    payload.kind
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean);
+
+  const modeHint = modeFields.some((value) =>
+    ["once", "daily", "cron", "scheduled", "oneshot", "one_shot", "batch"].some((hint) =>
+      value.includes(hint)
+    )
+  );
+
+  const keyHint = ["digest", "compact", "cron", "scheduler", "backfill"].some((hint) =>
+    key.includes(hint)
+  );
+
+  return explicitFlags || modeHint || keyHint;
+}
+
+function isStoppedLike(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const states = [
+    payload.pm2_status,
+    payload.process_status,
+    payload.process_state,
+    payload.status
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean);
+
+  const stateHint = states.some((value) =>
+    ["stopped", "stop", "exited", "idle"].some((hint) => value.includes(hint))
+  );
+  if (stateHint) return true;
+
+  const message = String(row?.message || "").toLowerCase();
+  return message.includes("stopped") || message.includes("exited");
+}
+
+function normalizeServiceStatus(row, nowMs = Date.now()) {
   const status = String(row?.status || "").trim().toLowerCase() || "unknown";
+  const runAt = parseRecentRunAt(row?.payload || {});
+  const ranWithin24h = runAt ? nowMs - runAt.getTime() <= 24 * 60 * 60 * 1000 : false;
+
+  // For one-shot scheduled jobs, PM2 "stopped" after a successful recent run is expected.
+  if (
+    isRunOnceService(row) &&
+    isStoppedLike(row) &&
+    ranWithin24h &&
+    ["unknown", "degraded", "down"].includes(status)
+  ) {
+    return {
+      ...row,
+      status: "healthy",
+      message:
+        row?.message ||
+        `Scheduled run completed recently (${runAt.toISOString()}); idle/stopped is expected for one-shot service.`
+    };
+  }
 
   // Treat all unknown states as degraded for operator clarity.
   if (status === "unknown") {
@@ -580,7 +678,8 @@ export async function GET(request) {
       console.error("[cto/latest] whatsapp metrics error", metricError);
     }
 
-    const combinedRows = [...rows, ...whatsappMetrics].map(normalizeServiceStatus);
+    const nowMs = Date.now();
+    const combinedRows = [...rows, ...whatsappMetrics].map((row) => normalizeServiceStatus(row, nowMs));
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;

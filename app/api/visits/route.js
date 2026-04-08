@@ -79,6 +79,37 @@ function normalizeNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function extractLatLngFromText(value) {
+  const text = String(value || "").trim();
+  if (!text) return { lat: null, lng: null };
+
+  // Plain "lat,lng" anywhere in text
+  const plainMatch = text.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (plainMatch) {
+    const lat = Number(plainMatch[1]);
+    const lng = Number(plainMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  // Google Maps short/long links can contain ?q=lat,lng or ?query=lat,lng
+  const queryMatch = text.match(/[?&](?:q|query)=(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i);
+  if (queryMatch) {
+    const lat = Number(queryMatch[1]);
+    const lng = Number(queryMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  // Google Maps paths often contain @lat,lng
+  const atMatch = text.match(/@(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (atMatch) {
+    const lat = Number(atMatch[1]);
+    const lng = Number(atMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  return { lat: null, lng: null };
+}
+
 function normalizeStatusCode(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -148,10 +179,18 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
   if (!patientId) return visitData;
 
   const incomingAddressId = visitData?.address_id || null;
-  const lat = normalizeNumber(visitData?.lat);
-  const lng = normalizeNumber(visitData?.lng);
+  let lat = normalizeNumber(visitData?.lat);
+  let lng = normalizeNumber(visitData?.lng);
   const areaText = String(visitData?.address || locationText || "").trim();
   const lineText = String(locationText || areaText || "").trim();
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    const parsed = extractLatLngFromText(`${areaText}\n${lineText}`);
+    if (Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng)) {
+      lat = parsed.lat;
+      lng = parsed.lng;
+    }
+  }
 
   if (incomingAddressId) {
     const { data: existingById } = await supabase
@@ -508,7 +547,7 @@ export async function PUT(request) {
     // Fetch previous visit details including status
     const { data: prev, error: prevErr } = await supabase
       .from("visits")
-      .select("executive_id, time_slot, status")
+      .select("executive_id, time_slot, status, visit_date")
       .eq("id", visitData.id)
       .single();
 

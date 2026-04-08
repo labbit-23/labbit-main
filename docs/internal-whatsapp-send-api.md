@@ -55,6 +55,44 @@ Also accepted aliases:
 - `template_name`, `templateName`, `campaign_name`, `campaignName`
 - `template_params`, `templateParams`
 
+### 1A) New Quick Booking Template (`website_booking`)
+
+Use this for website quickbook confirmation messages.
+
+Important:
+
+- The sender currently forwards template **name** (`template.name`), not numeric template id.
+- So pass `website_booking` as `template_name` / `campaignName`.
+- Your template has one body variable (`{{1}}`), so send exactly one entry in params.
+
+```json
+{
+  "lab_id": "b539c161-1e2b-480b-9526-d4b37bd37b1e",
+  "phone": "919949099249",
+  "message_type": "template",
+  "template_name": "website_booking",
+  "language_code": "en",
+  "template_params": [
+    "Name: Pav\nPhone: 919949099249\nDate: 08-04-2026\nTime: 09:00-09:30 AM\nArea: Test, Test\nPackage: Home Collection"
+  ],
+  "source_service": "website_quickbook"
+}
+```
+
+Equivalent Mtalkz-style payload (also accepted):
+
+```json
+{
+  "lab_id": "b539c161-1e2b-480b-9526-d4b37bd37b1e",
+  "destination": "919949099249",
+  "campaignName": "website_booking",
+  "templateParams": [
+    "Name: Pav\nPhone: 919949099249\nDate: 08-04-2026\nTime: 09:00-09:30 AM\nArea: Test, Test\nPackage: Home Collection"
+  ],
+  "source": "website_quickbook"
+}
+```
+
 ### 2) Text send
 
 ```json
@@ -111,3 +149,20 @@ Error:
 - Messages are sent through the unified WhatsApp sender and logged to `whatsapp_messages`.
 - `chat_sessions.last_message_at` is updated after send.
 - Existing working admin/inbox routes are unchanged.
+
+## Curl Example
+
+```bash
+curl -X POST "https://lab.sdrc.in/api/internal/whatsapp/send" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <WHATSAPP_INTERNAL_SEND_TOKEN>" \
+  -d '{
+    "lab_id":"b539c161-1e2b-480b-9526-d4b37bd37b1e",
+    "phone":"919949099249",
+    "message_type":"template",
+    "template_name":"website_booking",
+    "language_code":"en",
+    "template_params":["Name: Pav\nPhone: 919949099249\nDate: 08-04-2026\nTime: 09:00-09:30 AM\nArea: Test, Test\nPackage: Home Collection"],
+    "source_service":"website_quickbook"
+  }'
+```

@@ -8,7 +8,7 @@ import {
   Text, Select, Box
 } from "@chakra-ui/react";
 import { EditIcon, DeleteIcon, AddIcon } from "@chakra-ui/icons";
-import { FiNavigation } from "react-icons/fi";
+import { MdLocationOn } from "react-icons/md";
 
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
@@ -26,9 +26,41 @@ const hasLocationLink = (visit) =>
   /^https?:\/\//i.test(String(visit?.location_text || "").trim()) ||
   /^https?:\/\//i.test(String(visit?.address || "").trim());
 
+const extractLatLngFromText = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const plainMatch = text.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (plainMatch) {
+    const lat = Number(plainMatch[1]);
+    const lng = Number(plainMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  const queryMatch = text.match(/[?&](?:q|query)=(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i);
+  if (queryMatch) {
+    const lat = Number(queryMatch[1]);
+    const lng = Number(queryMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  const atMatch = text.match(/@(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (atMatch) {
+    const lat = Number(atMatch[1]);
+    const lng = Number(atMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  return null;
+};
+
 const getVisitLocationUrl = (visit) => {
   if (hasLocationPin(visit)) {
     return `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`;
+  }
+  const textCoords = extractLatLngFromText(visit?.location_text || visit?.address || "");
+  if (textCoords) {
+    return `https://www.google.com/maps/search/?api=1&query=${textCoords.lat},${textCoords.lng}`;
   }
   if (hasLocationLink(visit)) {
     const textUrl = String(visit.location_text || "").trim();
@@ -223,12 +255,12 @@ export default function VisitsTable({
                           </Box>
                           {locationUrl && (
                             <IconButton
-                              aria-label="Open location"
-                              title="Open location"
-                              icon={<FiNavigation />}
+                              aria-label="Open location pin"
+                              title="Location pin available - open in maps"
+                              icon={<MdLocationOn size={16} />}
                               size="xs"
-                              variant="ghost"
-                              colorScheme="teal"
+                              variant="solid"
+                              colorScheme="red"
                               onClick={() => window.open(locationUrl, "_blank")}
                             />
                           )}
@@ -343,12 +375,12 @@ export default function VisitsTable({
                         </Box>
                         {locationUrl && (
                           <IconButton
-                            aria-label="Open location"
-                            title="Open location"
-                            icon={<FiNavigation />}
+                            aria-label="Open location pin"
+                            title="Location pin available - open in maps"
+                            icon={<MdLocationOn size={16} />}
                             size="xs"
-                            variant="ghost"
-                            colorScheme="teal"
+                            variant="solid"
+                            colorScheme="red"
                             onClick={() => window.open(locationUrl, "_blank")}
                           />
                         )}

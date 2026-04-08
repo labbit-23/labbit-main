@@ -50,6 +50,41 @@ function waitForPaint() {
   });
 }
 
+function hasLatLngInText(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/.test(text)) return true;
+  if (/[?&](?:q|query)=(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i.test(text)) return true;
+  if (/@(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/.test(text)) return true;
+  return false;
+}
+
+function parseServerDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value !== "string") return new Date(value);
+  const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value);
+  const normalized = hasTimezone ? value : `${value.replace(" ", "T")}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isUnreadTodaySession(session) {
+  const status = String(session?.status || "").toLowerCase();
+  const unread = Number(session?.unread_count || 0);
+  if (!["pending", "handoff", "human_handover"].includes(status) || unread <= 0) return false;
+
+  const ts = parseServerDate(session?.last_user_message_at || session?.last_message_at || null);
+  if (!ts) return false;
+
+  const now = Date.now();
+  const createdMs = ts.getTime();
+  if (now - createdMs > 24 * 60 * 60 * 1000) return false;
+
+  const startOfToday = dayjs().startOf("day").valueOf();
+  return createdMs >= startOfToday;
+}
+
 export default function AdminDashboard() {
   const toast = useToast();
 
@@ -267,12 +302,28 @@ const exportVisitsImage = async () => {
 
       const bookingRequestsPromise = fetchBookingRequests({ eagerPending: true, resetHistory: true });
 
+      // Fetch unread WhatsApp count in lightweight mode and do not block
+      // quickbook/executive/lab loading on this call.
+      fetch("/api/admin/whatsapp/sessions?lite=1&view=unread&limit=200", {
+        credentials: "include",
+        cache: "no-store"
+      })
+        .then(async (res) => {
+          if (!res.ok) return null;
+          return res.json().catch(() => null);
+        })
+        .then((body) => {
+          const unreadCount = ((body?.sessions) || [])
+            .filter(isUnreadTodaySession)
+            .reduce((acc, session) => acc + Number(session?.unread_count || 0), 0);
+          setUnreadWhatsAppCount(unreadCount);
+        })
+        .catch(() => {
+          // Keep dashboard usable even if inbox summary fails.
+        });
+
       const apiExecutivesFetch = fetch("/api/executives").then((res) => {
         if (!res.ok) throw new Error("Failed to fetch executives");
-        return res.json();
-      });
-      const whatsappSessionsFetch = fetch("/api/admin/whatsapp/sessions").then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch WhatsApp sessions");
         return res.json();
       });
 
@@ -280,8 +331,7 @@ const exportVisitsImage = async () => {
         executivesData,
         { data: labsData, error: labsError },
         { data: timeSlotsData, error: timeSlotsError },
-        { data: statusOptionsData, error: statusOptionsError },
-        whatsappSessionsBody
+        { data: statusOptionsData, error: statusOptionsError }
       ] = await Promise.all([
         apiExecutivesFetch,
         supabase.from("labs").select("id, name").order("name"),
@@ -292,8 +342,7 @@ const exportVisitsImage = async () => {
         supabase
           .from("visit_statuses")
           .select("code, label, color, order")
-          .order("order"),
-        whatsappSessionsFetch
+          .order("order")
       ]);
 
       if (!executivesData) throw new Error("Failed to load executives");
@@ -305,10 +354,6 @@ const exportVisitsImage = async () => {
       setLabs(labsData || []);
       setTimeSlots(timeSlotsData || []);
       setStatusOptions(statusOptionsData || []);
-
-      const unreadCount = ((whatsappSessionsBody?.sessions) || [])
-        .reduce((acc, session) => acc + Number(session?.unread_count || 0), 0);
-      setUnreadWhatsAppCount(unreadCount);
 
       await bookingRequestsPromise;
       setBookingRequestsInitialized(true);
@@ -430,7 +475,38 @@ const exportVisitsImage = async () => {
         throw new Error(errData?.error || (method === "PUT" ? "Update failed" : "Create failed"));
       }
 
+      const savedVisit = await res.json().catch(() => null);
       toast({ title: method === "PUT" ? "Visit updated" : "Visit created", status: "success" });
+
+      const hadExplicitCoordinates =
+        formData?.lat !== null &&
+        typeof formData?.lat !== "undefined" &&
+        formData?.lat !== "" &&
+        formData?.lng !== null &&
+        typeof formData?.lng !== "undefined" &&
+        formData?.lng !== "";
+      const pastedHasCoordinates = hasLatLngInText(formData?.address || formData?.location_text || "");
+      const savedHasCoordinates =
+        savedVisit &&
+        savedVisit.lat !== null &&
+        typeof savedVisit.lat !== "undefined" &&
+        savedVisit.lng !== null &&
+        typeof savedVisit.lng !== "undefined";
+
+      if (!hadExplicitCoordinates && pastedHasCoordinates && savedHasCoordinates) {
+        toast({
+          title: "Location pin detected",
+          description: "Coordinates were auto-captured from the pasted location text/link.",
+          status: "success"
+        });
+      }
+      if (!hadExplicitCoordinates && pastedHasCoordinates && !savedHasCoordinates) {
+        toast({
+          title: "Location pin not saved",
+          description: "Coordinates were detected in text, but could not be persisted on this visit.",
+          status: "warning"
+        });
+      }
 
       visitModal.onClose();
       setEditingVisit(null);

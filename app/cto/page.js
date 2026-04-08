@@ -1788,7 +1788,7 @@ function CtoDashboardPage() {
           ))}
         </SimpleGrid>
         <Text fontSize="xs" color="whiteAlpha.600" mb={6}>
-          Note: PM2 restart-based degrade/down uses rolling 24h restart counts; resolving an Ops Event does not immediately reset service health.
+          Note: PM2 restart-based degrade/down uses rolling 24h restart counts. For one-shot scheduled jobs, stopped state is treated healthy if last successful run was within 24h.
         </Text>
 
         <Box

@@ -556,6 +556,32 @@ function getInboundLocationPin(msg) {
   };
 }
 
+function buildVisitLocationAddress(pin) {
+  if (!pin) return "";
+  const label = [pin.name, pin.address].filter(Boolean).join(" - ");
+  return [
+    "Location Pin Shared",
+    label || null,
+    `Coordinates: ${pin.lat},${pin.lng}`,
+    `Google Maps: ${pin.mapsLink}`
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function toSortableVisitDate(visit) {
+  const value = String(visit?.visit_date || "").trim();
+  if (!value) return 0;
+  const parsed = new Date(`${value}T00:00:00`);
+  const time = parsed.getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function isAttachableVisitStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return !["disabled", "cancelled", "canceled", "completed"].includes(normalized);
+}
+
 async function fetchJsonWithRetry(url, options = {}, retries = 1) {
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -674,6 +700,7 @@ export default function WhatsAppDashboard() {
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [isSendingReportTool, setIsSendingReportTool] = useState(false);
+  const [attachingLocationMessageId, setAttachingLocationMessageId] = useState(null);
   const [showBotFlowMenu, setShowBotFlowMenu] = useState(false);
   const [showResolveMenu, setShowResolveMenu] = useState(false);
   const [resolveReason, setResolveReason] = useState("");
@@ -2266,6 +2293,82 @@ export default function WhatsAppDashboard() {
     }
   };
 
+  const handleAttachLocationToVisit = async (locationPin, messageId) => {
+    if (!locationPin) return;
+    if (!selectedSession?.patient_id) {
+      setError("No linked patient found for this chat yet. Save/link contact first.");
+      return;
+    }
+
+    setError("");
+    setHint("");
+    setAttachingLocationMessageId(messageId || "__location__");
+
+    try {
+      const visitsResponse = await fetchJsonWithRetry(
+        `/api/visits?patient_id=${encodeURIComponent(String(selectedSession.patient_id))}`,
+        { credentials: "include" },
+        1
+      );
+
+      const attachableVisits = (Array.isArray(visitsResponse) ? visitsResponse : [])
+        .filter((visit) => isAttachableVisitStatus(visit?.status))
+        .sort((a, b) => toSortableVisitDate(b) - toSortableVisitDate(a));
+
+      if (attachableVisits.length === 0) {
+        throw new Error("No active visit found for this patient.");
+      }
+
+      let targetVisit = attachableVisits[0];
+      if (attachableVisits.length > 1 && typeof window !== "undefined") {
+        const choices = attachableVisits
+          .slice(0, 8)
+          .map((visit, index) => {
+            const label = `${index + 1}. ${visit.visit_date || "Unknown date"} | ${visit.status || "NA"} | ${visit.time_slot?.slot_name || "No slot"}`;
+            return `${label} (${visit.id})`;
+          })
+          .join("\n");
+        const picked = window.prompt(
+          `Multiple active visits found.\nEnter number to attach location:\n${choices}`,
+          "1"
+        );
+        const pickedIndex = Number(picked);
+        if (!Number.isFinite(pickedIndex) || pickedIndex < 1 || pickedIndex > attachableVisits.length) {
+          setHint("Attach location cancelled.");
+          return;
+        }
+        targetVisit = attachableVisits[pickedIndex - 1];
+      }
+
+      const payload = {
+        id: targetVisit.id,
+        lat: Number(locationPin.lat),
+        lng: Number(locationPin.lng),
+        address: buildVisitLocationAddress(locationPin),
+        location_text: buildVisitLocationAddress(locationPin)
+      };
+
+      const updateResponse = await fetch("/api/visits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload)
+      });
+      const updateBody = await updateResponse.json().catch(() => null);
+      if (!updateResponse.ok) {
+        throw new Error(updateBody?.error || "Failed to attach location to visit.");
+      }
+
+      const dateLabel = String(targetVisit.visit_date || "").trim() || "selected visit";
+      setHint(`Location attached to visit (${dateLabel}).`);
+      window.setTimeout(() => setHint(""), 1800);
+    } catch (err) {
+      setError(err?.message || "Failed to attach location.");
+    } finally {
+      setAttachingLocationMessageId(null);
+    }
+  };
+
   const renderDbNamesPopover = (session, compact = false) => {
     if (!hasManyPatients(session)) return null;
     const rows = Array.isArray(session?.matched_patients) ? session.matched_patients : [];
@@ -2834,37 +2937,58 @@ export default function WhatsAppDashboard() {
                               )}
                             </div>
                             {inboundLocationPin ? (
-                              <div className="wa-locationPinCard">
-                                <div className="wa-locationPinTitle">Location Pin Shared</div>
-                                {(inboundLocationPin.name || inboundLocationPin.address) && (
-                                  <div className="wa-locationPinLabel">
-                                    {[inboundLocationPin.name, inboundLocationPin.address].filter(Boolean).join(" - ")}
-                                  </div>
-                                )}
-                                <div className="wa-locationPinCoords">
-                                  {inboundLocationPin.lat}, {inboundLocationPin.lng}
+                              <div className="wa-msgText wa-locationInline">
+                                <div className="wa-locationInlineHeader">
+                                  <span className="wa-locationInlineTitle">Location Pin Shared</span>
+                                  <span className="wa-locationInlineTools">
+                                    <button
+                                      type="button"
+                                      className="wa-locationInlineIconBtn"
+                                      aria-label="Attach location to active visit"
+                                      title={
+                                        selectedSession?.patient_id
+                                          ? "Attach to visit"
+                                          : "Link this chat to a patient first"
+                                      }
+                                      disabled={!selectedSession?.patient_id || attachingLocationMessageId === msg.id}
+                                      onClick={() => handleAttachLocationToVisit(inboundLocationPin, msg.id)}
+                                    >
+                                      {attachingLocationMessageId === msg.id ? "..." : "📎"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="wa-locationInlineIconBtn"
+                                      aria-label="Copy location details"
+                                      title="Copy location details"
+                                      onClick={() =>
+                                        handleCopyText(
+                                          inboundLocationPin.copyText,
+                                          "Location details copied"
+                                        )
+                                      }
+                                    >
+                                      📋
+                                    </button>
+                                    <a
+                                      href={inboundLocationPin.mapsLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="wa-locationInlineIconBtn is-link"
+                                      aria-label="Open location in maps"
+                                      title="Open location in maps"
+                                    >
+                                      ↗
+                                    </a>
+                                  </span>
                                 </div>
-                                <div className="wa-locationPinActions">
-                                  <a
-                                    href={inboundLocationPin.mapsLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="wa-locationPinLink"
-                                  >
-                                    Open Maps
-                                  </a>
-                                  <button
-                                    type="button"
-                                    className="wa-locationPinCopy"
-                                    onClick={() =>
-                                      handleCopyText(
-                                        inboundLocationPin.copyText,
-                                        "Location details copied"
-                                      )
-                                    }
-                                  >
-                                    Copy Details
-                                  </button>
+                                <div className="wa-locationInlineBody">
+                                  {(inboundLocationPin.name || inboundLocationPin.address) && (
+                                    <div>
+                                      {[inboundLocationPin.name, inboundLocationPin.address].filter(Boolean).join(" - ")}
+                                    </div>
+                                  )}
+                                  <div>Coordinates: {inboundLocationPin.lat},{inboundLocationPin.lng}</div>
+                                  <div>Google Maps: {inboundLocationPin.mapsLink}</div>
                                 </div>
                               </div>
                             ) : (
@@ -4273,47 +4397,54 @@ export default function WhatsAppDashboard() {
           font-size: 13px;
         }
 
-        .wa-locationPinCard {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          border: 1px solid rgba(15, 127, 133, 0.25);
-          background: rgba(15, 127, 133, 0.08);
-          border-radius: 10px;
-          padding: 8px 10px;
-          font-size: 12px;
+        .wa-locationInline {
+          user-select: text;
         }
 
-        .wa-locationPinTitle {
+        .wa-locationInlineHeader {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 4px;
+        }
+
+        .wa-locationInlineTitle {
           font-weight: 800;
           font-size: 12px;
         }
 
-        .wa-locationPinLabel,
-        .wa-locationPinCoords {
-          white-space: pre-wrap;
-          word-break: break-word;
-          opacity: 0.92;
-        }
-
-        .wa-locationPinActions {
+        .wa-locationInlineTools {
           display: inline-flex;
           align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
+          gap: 6px;
         }
 
-        .wa-locationPinLink,
-        .wa-locationPinCopy {
-          border: 1px solid rgba(15, 127, 133, 0.35);
-          background: rgba(255, 255, 255, 0.75);
-          color: #0f7f85;
-          border-radius: 999px;
-          padding: 4px 9px;
-          font-size: 11px;
-          font-weight: 700;
+        .wa-locationInlineIconBtn {
+          border: 0;
+          background: transparent;
+          color: inherit;
           text-decoration: none;
+          font-size: 13px;
+          line-height: 1;
           cursor: pointer;
+          opacity: 0.9;
+          padding: 0;
+        }
+
+        .wa-locationInlineIconBtn:hover {
+          opacity: 1;
+        }
+
+        .wa-locationInlineIconBtn:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .wa-locationInlineBody {
+          white-space: pre-wrap;
+          word-break: break-word;
+          line-height: 1.45;
         }
 
         .wa-msgAttachment {

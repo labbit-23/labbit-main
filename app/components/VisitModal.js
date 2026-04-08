@@ -25,6 +25,34 @@ const deriveLocationText = (source = {}) => {
   return String(source?.address || "");
 };
 
+const extractLatLngFromText = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const plainMatch = text.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (plainMatch) {
+    const lat = Number(plainMatch[1]);
+    const lng = Number(plainMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  const mapsQueryMatch = text.match(/[?&](?:q|query)=(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/i);
+  if (mapsQueryMatch) {
+    const lat = Number(mapsQueryMatch[1]);
+    const lng = Number(mapsQueryMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  const mapsAtMatch = text.match(/@(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (mapsAtMatch) {
+    const lat = Number(mapsAtMatch[1]);
+    const lng = Number(mapsAtMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  return null;
+};
+
 const formatDateTime = (value) => {
   if (!value) return "-";
   const parsed = new Date(value);
@@ -374,7 +402,20 @@ export default function VisitModal({
 
   const handleChange = field => e => {
     const val = e.target.value;
-    setFormData(f => ({ ...f, [field]: val }));
+    setFormData((f) => {
+      const next = { ...f, [field]: val };
+      if (field === "address") {
+        const parsed = extractLatLngFromText(val);
+        if (parsed) {
+          next.lat = parsed.lat;
+          next.lng = parsed.lng;
+          if (!String(next.location_text || "").trim()) {
+            next.location_text = String(val || "").trim();
+          }
+        }
+      }
+      return next;
+    });
   };
 
   const parseLocationInput = (value) => {
@@ -384,24 +425,13 @@ export default function VisitModal({
       return;
     }
 
-    const latLngMatch = text.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-    if (latLngMatch) {
+    const parsed = extractLatLngFromText(text);
+    if (parsed) {
       setFormData((f) => ({
         ...f,
         location_text: text,
-        lat: Number(latLngMatch[1]),
-        lng: Number(latLngMatch[2])
-      }));
-      return;
-    }
-
-    const mapsQueryMatch = text.match(/[?&]query=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
-    if (mapsQueryMatch) {
-      setFormData((f) => ({
-        ...f,
-        location_text: text,
-        lat: Number(mapsQueryMatch[1]),
-        lng: Number(mapsQueryMatch[2])
+        lat: parsed.lat,
+        lng: parsed.lng
       }));
       return;
     }

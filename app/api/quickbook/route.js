@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { supabase as supabaseServer } from "@/lib/supabaseServer";
 import { sendQuickbookPatientSms } from "@/lib/visitSms";
 import { createQuickbookClickupTask } from "@/lib/clickup";
-import { sendTextMessage } from "@/lib/whatsapp/sender";
+import { sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp/sender";
 import { toCanonicalIndiaPhone } from "@/lib/phone";
 
 export const runtime = "nodejs";
@@ -66,6 +66,128 @@ function buildBookingRequestNotifyText({ labName, bookingId, patientName, phone,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function resolveWebsiteBookingTemplateConfig(templates = {}) {
+  const candidates = [
+    templates?.templates?.website_booking,
+    templates?.website_booking
+  ];
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object") {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function buildWebsiteBookingSummary({
+  bookingId,
+  patientName,
+  phone,
+  packageName,
+  area,
+  date,
+  slotLabel,
+  homeVisitRequired
+}) {
+  const bookingType = homeVisitRequired === false ? "Lab Visit Request" : "Home Visit Request";
+  return [
+    `Status: UNDER REVIEW`,
+    `Request Type: ${bookingType}`,
+    bookingId ? `Booking ID: ${bookingId}` : null,
+    patientName ? `Patient: ${patientName}` : null,
+    phone ? `Phone: ${phone}` : null,
+    packageName ? `Tests/Package: ${packageName}` : null,
+    area ? `Area/Location: ${area}` : null,
+    date ? `Preferred Date: ${date}` : null,
+    slotLabel ? `Preferred Slot: ${slotLabel}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function sendQuickbookPatientWebsiteBookingTemplate({
+  labId,
+  phone,
+  bookingId,
+  patientName,
+  packageName,
+  area,
+  date,
+  slotLabel,
+  homeVisitRequired
+}) {
+  if (!labId || !supabaseServer) {
+    return { ok: false, reason: "missing_lab_id_or_server_client" };
+  }
+
+  const canonicalPhone = toCanonicalIndiaPhone(phone) || String(phone || "").replace(/\D/g, "");
+  if (!canonicalPhone) {
+    return { ok: false, reason: "invalid_phone" };
+  }
+
+  const { data: apiRow, error: apiError } = await supabaseServer
+    .from("labs_apis")
+    .select("templates")
+    .eq("lab_id", labId)
+    .eq("api_name", "whatsapp_outbound")
+    .maybeSingle();
+
+  if (apiError || !apiRow) {
+    return { ok: false, reason: "whatsapp_outbound_config_missing" };
+  }
+
+  const templates = parseTemplates(apiRow?.templates);
+  const templateConfig = resolveWebsiteBookingTemplateConfig(templates);
+  if (!templateConfig) {
+    return { ok: false, reason: "website_booking_template_missing" };
+  }
+
+  const templateName = String(
+    templateConfig?.template_name ||
+      templateConfig?.campaign ||
+      "website_booking"
+  ).trim();
+
+  const languageCode = String(
+    templateConfig?.language_code ||
+      templateConfig?.language ||
+      "en"
+  ).trim();
+
+  const summary = buildWebsiteBookingSummary({
+    bookingId,
+    patientName,
+    phone: canonicalPhone,
+    packageName,
+    area,
+    date,
+    slotLabel,
+    homeVisitRequired
+  });
+
+  const valueMap = {
+    booking_summary: summary
+  };
+
+  const rawOrder = Array.isArray(templateConfig?.params_order)
+    ? templateConfig.params_order
+    : ["booking_summary"];
+  const paramsOrder = rawOrder.map((item) => String(item || "").trim()).filter(Boolean);
+  const templateParams = (paramsOrder.length ? paramsOrder : ["booking_summary"]).map((key) =>
+    String(valueMap[key] ?? "")
+  );
+
+  await sendTemplateMessage({
+    labId,
+    phone: canonicalPhone,
+    templateName,
+    languageCode,
+    templateParams
+  });
+
+  return { ok: true };
 }
 
 async function sendInternalBookingRequestNotify({
@@ -203,6 +325,7 @@ export async function POST(req) {
       persons,
       whatsapp,
       agree,
+      home_visit_required,
       prescription,
       location_source,
       location_text,
@@ -211,6 +334,9 @@ export async function POST(req) {
       location_lat,
       location_lng
     } = body;
+
+    const normalizedHomeVisitRequired =
+      typeof home_visit_required === "boolean" ? home_visit_required : true;
 
     if (!patientName || !phone || !date || !timeslot || !agree) {
       return NextResponse.json(
@@ -233,6 +359,7 @@ export async function POST(req) {
       persons,
       whatsapp,
       agree,
+      home_visit_required: normalizedHomeVisitRequired,
       prescription: prescription || null,
       ...(isUuid(resolvedLabId) ? { lab_id: resolvedLabId } : {})
     };
@@ -355,12 +482,40 @@ export async function POST(req) {
 
     const booking = data[0];
 
-    // 2️⃣ Send patient_visit SMS with status = PENDING
+    // 2️⃣ Send patient quickbook confirmation on WhatsApp template (fallback: SMS)
     try {
-      await sendQuickbookPatientSms(booking.id);
-      console.log("Quick Book PENDING SMS sent to patient:", booking.phone);
-    } catch (smsErr) {
-      console.error("Failed to send Quick Book SMS:", smsErr);
+      const waResult = await sendQuickbookPatientWebsiteBookingTemplate({
+        labId: booking.lab_id || (isUuid(resolvedLabId) ? resolvedLabId : null),
+        phone: booking.phone || phone || null,
+        bookingId: booking.id || null,
+        patientName: booking.patient_name || patientName || null,
+        packageName: booking.package_name || packageName || null,
+        area:
+          booking.location_text ||
+          booking.location_address ||
+          booking.area ||
+          area ||
+          null,
+        date: booking.date || date || null,
+        slotLabel: resolvedTimeslot.label || null,
+        homeVisitRequired: normalizedHomeVisitRequired
+      });
+
+      if (!waResult?.ok) {
+        console.warn("Quickbook WhatsApp template skipped, falling back to SMS:", waResult?.reason);
+        await sendQuickbookPatientSms(booking.id);
+        console.log("Quick Book fallback SMS sent to patient:", booking.phone);
+      } else {
+        console.log("Quick Book WhatsApp template sent to patient:", booking.phone);
+      }
+    } catch (patientNotifyErr) {
+      console.error("Failed to send Quick Book WhatsApp template, attempting SMS fallback:", patientNotifyErr);
+      try {
+        await sendQuickbookPatientSms(booking.id);
+        console.log("Quick Book SMS fallback sent to patient after WhatsApp failure:", booking.phone);
+      } catch (smsErr) {
+        console.error("Failed to send Quick Book SMS fallback:", smsErr);
+      }
     }
 
     // 3️⃣ Create ClickUp task (best-effort, non-blocking failure)
