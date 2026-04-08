@@ -68,10 +68,25 @@ function buildBookingRequestNotifyText({ labName, bookingId, patientName, phone,
     .join("\n");
 }
 
-function resolveWebsiteBookingTemplateConfig(templates = {}) {
+function resolveQuickbookPatientTemplateConfig(templates = {}) {
+  const selectedKey = String(templates?.quickbook_patient_template || "").trim();
+  if (selectedKey) {
+    const selected =
+      templates?.templates?.[selectedKey] ||
+      templates?.[selectedKey] ||
+      null;
+    if (selected && typeof selected === "object") {
+      return selected;
+    }
+  }
+
   const candidates = [
-    templates?.templates?.website_booking,
-    templates?.website_booking
+    templates?.templates?.booking_request,
+    templates?.booking_request,
+    templates?.templates?.book_home_visit,
+    templates?.book_home_visit,
+    templates?.templates?.home_visit,
+    templates?.home_visit
   ];
   for (const candidate of candidates) {
     if (candidate && typeof candidate === "object") {
@@ -113,7 +128,7 @@ function truncateTemplateParam(text, maxLen = 255) {
   return value.slice(0, Math.max(0, maxLen - 1)).trimEnd() + "…";
 }
 
-async function sendQuickbookPatientWebsiteBookingTemplate({
+async function sendQuickbookPatientTemplate({
   labId,
   phone,
   bookingId,
@@ -145,15 +160,15 @@ async function sendQuickbookPatientWebsiteBookingTemplate({
   }
 
   const templates = parseTemplates(apiRow?.templates);
-  const templateConfig = resolveWebsiteBookingTemplateConfig(templates);
+  const templateConfig = resolveQuickbookPatientTemplateConfig(templates);
   if (!templateConfig) {
-    return { ok: false, reason: "website_booking_template_missing" };
+    return { ok: false, reason: "quickbook_template_missing" };
   }
 
   const templateName = String(
     templateConfig?.template_name ||
       templateConfig?.campaign ||
-      "website_booking"
+      "home_visit"
   ).trim();
 
   const languageCode = String(
@@ -174,37 +189,33 @@ async function sendQuickbookPatientWebsiteBookingTemplate({
   });
   const cappedSummary = truncateTemplateParam(summary, 255);
 
+  const contactName = "our SDRC Team";
+  const contactPhone = resolveInternalNotifyPhone({ templates }) || "9849025601";
   const valueMap = {
+    name: String(patientName || "").trim() || "Patient",
+    status: "UNDER REVIEW",
+    date: String(date || "").trim() || "TBD",
+    time_slot: String(slotLabel || "").trim() || "TBD",
+    contact_name: contactName,
+    contact_phone: contactPhone,
     booking_summary: cappedSummary
-  };
-  const headerValueMap = {
-    booking_title: homeVisitRequired === false ? "Lab Visit Booking Request" : "Home Visit Booking Request",
-    patient_name: String(patientName || "").trim() || "",
-    phone: canonicalPhone
   };
 
   const rawOrder = Array.isArray(templateConfig?.params_order)
     ? templateConfig.params_order
     : ["booking_summary"];
   const paramsOrder = rawOrder.map((item) => String(item || "").trim()).filter(Boolean);
-  const templateParams = (paramsOrder.length ? paramsOrder : ["booking_summary"]).map((key) =>
+  const defaultOrder = ["name", "status", "contact_name", "contact_phone"];
+  const templateParams = (paramsOrder.length ? paramsOrder : defaultOrder).map((key) =>
     String(valueMap[key] ?? "")
   );
-  const rawHeaderOrder = Array.isArray(templateConfig?.header_params_order)
-    ? templateConfig.header_params_order
-    : Array.isArray(templateConfig?.headerParamsOrder)
-      ? templateConfig.headerParamsOrder
-      : [];
-  const headerParamsOrder = rawHeaderOrder.map((item) => String(item || "").trim()).filter(Boolean);
-  const headerTemplateParams = headerParamsOrder.map((key) => String(headerValueMap[key] ?? ""));
 
   await sendTemplateMessage({
     labId,
     phone: canonicalPhone,
     templateName,
     languageCode,
-    templateParams,
-    headerTemplateParams
+    templateParams
   });
 
   return { ok: true };
@@ -504,7 +515,7 @@ export async function POST(req) {
 
     // 2️⃣ Send patient quickbook confirmation on WhatsApp template (fallback: SMS)
     try {
-      const waResult = await sendQuickbookPatientWebsiteBookingTemplate({
+      const waResult = await sendQuickbookPatientTemplate({
         labId: booking.lab_id || (isUuid(resolvedLabId) ? resolvedLabId : null),
         phone: booking.phone || phone || null,
         bookingId: booking.id || null,
