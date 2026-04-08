@@ -1068,8 +1068,41 @@ function getDeliveryFailureAckText(templates = {}) {
   return (
     botFlow?.texts?.delivery_failed_ack_text ||
     templates?.delivery_failed_ack_text ||
-    "We could not deliver your report document on WhatsApp due to a temporary Meta delivery issue. Our executive team has been alerted and will assist you shortly."
+    "We could not deliver your WhatsApp update due to a temporary delivery issue. Our executive team has been alerted and will assist you shortly."
   );
+}
+
+async function hasRecentInboundWithin24h({ labId, phone }) {
+  if (!labId || !phone) return false;
+  try {
+    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("lab_id", labId)
+      .in("phone", phoneVariantsIndia(phone))
+      .eq("direction", "inbound")
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error("[status-callback] recent inbound check failed", {
+        error: error?.message || String(error),
+        labId,
+        phone
+      });
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (err) {
+    console.error("[status-callback] recent inbound check exception", {
+      error: err?.message || String(err),
+      labId,
+      phone
+    });
+    return false;
+  }
 }
 
 async function handleDeliveryFailureStatusEvent({
@@ -1191,6 +1224,16 @@ async function handleDeliveryFailureStatusEvent({
   }
 
   if (!shouldAck) return;
+
+  const canSendFreeformAck = await hasRecentInboundWithin24h({ labId, phone });
+  if (!canSendFreeformAck) {
+    console.log("[status-callback] skipping delivery-failed ack (outside 24h window)", {
+      labId,
+      phone,
+      providerMessageId
+    });
+    return;
+  }
 
   try {
     await sendTextMessage({

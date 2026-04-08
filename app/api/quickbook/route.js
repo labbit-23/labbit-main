@@ -91,7 +91,7 @@ function buildWebsiteBookingSummary({
   slotLabel,
   homeVisitRequired
 }) {
-  const bookingType = homeVisitRequired === false ? "Lab Visit Request" : "Home Visit Request";
+  const bookingType = homeVisitRequired === false ? "Lab Visit Booking Request" : "Home Visit Booking Request";
   return [
     `Status: UNDER REVIEW`,
     `Request Type: ${bookingType}`,
@@ -105,6 +105,12 @@ function buildWebsiteBookingSummary({
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function truncateTemplateParam(text, maxLen = 255) {
+  const value = String(text || "");
+  if (value.length <= maxLen) return value;
+  return value.slice(0, Math.max(0, maxLen - 1)).trimEnd() + "…";
 }
 
 async function sendQuickbookPatientWebsiteBookingTemplate({
@@ -166,9 +172,15 @@ async function sendQuickbookPatientWebsiteBookingTemplate({
     slotLabel,
     homeVisitRequired
   });
+  const cappedSummary = truncateTemplateParam(summary, 255);
 
   const valueMap = {
-    booking_summary: summary
+    booking_summary: cappedSummary
+  };
+  const headerValueMap = {
+    booking_title: homeVisitRequired === false ? "Lab Visit Booking Request" : "Home Visit Booking Request",
+    patient_name: String(patientName || "").trim() || "",
+    phone: canonicalPhone
   };
 
   const rawOrder = Array.isArray(templateConfig?.params_order)
@@ -178,13 +190,21 @@ async function sendQuickbookPatientWebsiteBookingTemplate({
   const templateParams = (paramsOrder.length ? paramsOrder : ["booking_summary"]).map((key) =>
     String(valueMap[key] ?? "")
   );
+  const rawHeaderOrder = Array.isArray(templateConfig?.header_params_order)
+    ? templateConfig.header_params_order
+    : Array.isArray(templateConfig?.headerParamsOrder)
+      ? templateConfig.headerParamsOrder
+      : [];
+  const headerParamsOrder = rawHeaderOrder.map((item) => String(item || "").trim()).filter(Boolean);
+  const headerTemplateParams = headerParamsOrder.map((key) => String(headerValueMap[key] ?? ""));
 
   await sendTemplateMessage({
     labId,
     phone: canonicalPhone,
     templateName,
     languageCode,
-    templateParams
+    templateParams,
+    headerTemplateParams
   });
 
   return { ok: true };
