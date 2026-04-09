@@ -16,6 +16,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
+  Divider,
   Select,
   Spinner,
   Table,
@@ -31,6 +32,8 @@ import {
 } from "@chakra-ui/react";
 import { EditIcon, LinkIcon } from "@chakra-ui/icons";
 import { FiNavigation } from "react-icons/fi";
+import { FiHome } from "react-icons/fi";
+import { HiOutlineOfficeBuilding } from "react-icons/hi";
 import PatientsTab from "@/app/components/PatientsTab";
 
 const REJECTION_REASONS = [
@@ -99,6 +102,14 @@ function getQuickbookNavUrl(qb) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function getBookingTypeMeta(qb) {
+  const isHomeVisit = qb?.home_visit_required !== false;
+  return {
+    isHomeVisit,
+    label: isHomeVisit ? "Home Collection" : "Center Visit"
+  };
+}
+
 export default function QuickBookTab({
   quickbookings = [],
   onRefresh,
@@ -119,11 +130,22 @@ export default function QuickBookTab({
   const [rejectCode, setRejectCode] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [isRejectSaving, setIsRejectSaving] = useState(false);
+  const [detailsBooking, setDetailsBooking] = useState(null);
 
   const isDark = themeMode === "dark";
 
   const pendingQuickBooks = useMemo(
-    () => quickbookings.filter(isPending),
+    () => {
+      return [...quickbookings.filter(isPending)].sort((a, b) => {
+        const aGroup = a?.home_visit_required === false ? 1 : 0;
+        const bGroup = b?.home_visit_required === false ? 1 : 0;
+        if (aGroup !== bGroup) return aGroup - bGroup;
+
+        const aTime = new Date(a?.created_at || 0).getTime();
+        const bTime = new Date(b?.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+    },
     [quickbookings]
   );
   const nonPendingQuickBooks = useMemo(
@@ -231,6 +253,97 @@ export default function QuickBookTab({
     setLinkingVisitId(null);
   };
 
+  const renderRequestPayloadDetails = (payload) => {
+    if (!payload || typeof payload !== "object") {
+      return <Text color={isDark ? "whiteAlpha.700" : "gray.500"}>No request payload captured.</Text>;
+    }
+
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const hasTotals =
+      payload?.subtotal != null ||
+      payload?.collection_fee != null ||
+      payload?.total != null ||
+      payload?.source != null;
+
+    return (
+      <VStack align="stretch" spacing={3}>
+        {items.length > 0 ? (
+          <Box>
+            <Text fontWeight="700" mb={2}>Cart Items</Text>
+            <VStack align="stretch" spacing={2}>
+              {items.map((item, idx) => (
+                <Box
+                  key={`${item?.type || "item"}-${item?.name || idx}-${idx}`}
+                  borderWidth="1px"
+                  borderColor={isDark ? "whiteAlpha.300" : "gray.200"}
+                  borderRadius="md"
+                  p={2}
+                >
+                  <HStack justify="space-between" align="start">
+                    <Text fontSize="sm" fontWeight="600" whiteSpace="pre-wrap" wordBreak="break-word">
+                      {item?.name || "Unnamed item"}
+                    </Text>
+                    <Badge colorScheme={(item?.type || "").toLowerCase() === "package" ? "purple" : "blue"}>
+                      {String(item?.type || "item")}
+                    </Badge>
+                  </HStack>
+                  <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"} mt={1}>
+                    Price: {item?.price != null ? item.price : "-"}
+                  </Text>
+                </Box>
+              ))}
+            </VStack>
+          </Box>
+        ) : (
+          <Text color={isDark ? "whiteAlpha.700" : "gray.500"}>No cart items in payload.</Text>
+        )}
+
+        {hasTotals && (
+          <Box>
+            <Divider mb={2} />
+            <Text fontWeight="700" mb={2}>Totals</Text>
+            <VStack align="stretch" spacing={1}>
+              <Text fontSize="sm">Subtotal: {payload?.subtotal ?? "-"}</Text>
+              <Text fontSize="sm">Collection fee: {payload?.collection_fee ?? "-"}</Text>
+              <Text fontSize="sm" fontWeight="700">Total: {payload?.total ?? "-"}</Text>
+              <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                Source: {payload?.source || "-"}
+              </Text>
+            </VStack>
+          </Box>
+        )}
+      </VStack>
+    );
+  };
+
+  const renderBookingTypeChip = (qb) => {
+    const type = getBookingTypeMeta(qb);
+    const bg = type.isHomeVisit
+      ? (isDark ? "green.900" : "green.50")
+      : (isDark ? "gray.700" : "gray.100");
+    const color = type.isHomeVisit
+      ? (isDark ? "green.200" : "green.800")
+      : (isDark ? "gray.200" : "gray.700");
+    const IconComp = type.isHomeVisit ? FiHome : HiOutlineOfficeBuilding;
+
+    return (
+      <HStack
+        spacing={2}
+        w="fit-content"
+        px={2}
+        py={1}
+        borderRadius="full"
+        bg={bg}
+        color={color}
+      >
+        <Box as={IconComp} fontSize="14px" />
+        <Text fontSize="xs" fontWeight="700" lineHeight="1">
+          {type.label}
+        </Text>
+      </HStack>
+    );
+  };
+
   if (processingQuickBook) {
     return (
       <PatientsTab
@@ -277,6 +390,7 @@ export default function QuickBookTab({
               const qbDate = String(qb?.date || "").slice(0, 10);
               const visitValue = editing[qb.id]?.visit_id ?? qb.visit_id ?? "";
               const visitsForDate = visitLists[qbDate] || [];
+              const isCentreVisit = qb?.home_visit_required === false;
 
               return (
                 <Tr key={qb.id} verticalAlign="top">
@@ -290,10 +404,16 @@ export default function QuickBookTab({
                     </Text>
                   </Td>
                   <Td minW="150px">
+                    <Box mb={1}>{renderBookingTypeChip(qb)}</Box>
                     <Text>{formatDateShort(qbDate)}</Text>
                     <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
                       {qb.time_slot?.slot_name || "Slot pending"}
                     </Text>
+                    {isCentreVisit && (
+                      <Text fontSize="xs" color={isDark ? "orange.200" : "orange.600"}>
+                        Tentative preference
+                      </Text>
+                    )}
                   </Td>
                   <Td minW="220px" maxW="300px">
                     <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
@@ -304,7 +424,11 @@ export default function QuickBookTab({
                     )}
                   </Td>
                   <Td minW="170px">
-                    {visitValue && linkingVisitId !== qb.id ? (
+                    {isCentreVisit ? (
+                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                        Not required for Centre Visit
+                      </Text>
+                    ) : visitValue && linkingVisitId !== qb.id ? (
                       <Badge colorScheme="green" fontSize="10px">Linked</Badge>
                     ) : (
                       <VStack align="stretch" spacing={2}>
@@ -409,11 +533,20 @@ export default function QuickBookTab({
                       <WrapItem>
                         <Button
                           size="xs"
+                          variant="outline"
+                          onClick={() => setDetailsBooking(qb)}
+                        >
+                          View Details
+                        </Button>
+                      </WrapItem>
+                      <WrapItem>
+                        <Button
+                          size="xs"
                           colorScheme="green"
                           isDisabled={Boolean(qb.visit_id)}
                           onClick={() => setProcessingQuickBook(qb)}
                         >
-                          Accept Visit
+                          {isCentreVisit ? "Schedule Visit" : "Accept Visit"}
                         </Button>
                       </WrapItem>
                       <WrapItem>
@@ -466,10 +599,16 @@ export default function QuickBookTab({
                       <Text whiteSpace="pre-wrap" wordBreak="break-word">{qb.package_name || "-"}</Text>
                     </Td>
                     <Td minW="150px">
+                      <Box mb={1}>{renderBookingTypeChip(qb)}</Box>
                       <Text>{formatDateShort(qb.date)}</Text>
                       <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
                         {qb.time_slot?.slot_name || "Slot pending"}
                       </Text>
+                      {qb?.home_visit_required === false && (
+                        <Text fontSize="xs" color={isDark ? "orange.200" : "orange.600"}>
+                          Tentative preference
+                        </Text>
+                      )}
                     </Td>
                     <Td minW="200px">
                       <Badge colorScheme={status === "rejected" ? "red" : "green"}>{statusLabel}</Badge>
@@ -481,6 +620,14 @@ export default function QuickBookTab({
                     </Td>
                     <Td minW="220px" maxW="300px">
                       <Text whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
+                      <Button
+                        size="xs"
+                        mt={2}
+                        variant="outline"
+                        onClick={() => setDetailsBooking(qb)}
+                      >
+                        View Details
+                      </Button>
                     </Td>
                   </Tr>
                 );
@@ -560,6 +707,41 @@ export default function QuickBookTab({
             >
               Confirm Reject
             </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={Boolean(detailsBooking)} onClose={() => setDetailsBooking(null)} size="xl" isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Booking Details</ModalHeader>
+          <ModalBody>
+            <VStack align="stretch" spacing={4}>
+              <Box>
+                <Text fontWeight="700">
+                  {detailsBooking?.patient_name || "(No name)"} · {detailsBooking?.phone || "-"}
+                </Text>
+                <Text fontSize="sm" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                  {detailsBooking?.package_name || "No package/tests provided"}
+                </Text>
+                <Box mt={2}>{renderBookingTypeChip(detailsBooking)}</Box>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>Patient Comments</Text>
+                <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">
+                  {String(detailsBooking?.request_payload_json?.comments || "").trim() || "-"}
+                </Text>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>Request Payload</Text>
+                {renderRequestPayloadDetails(detailsBooking?.request_payload_json)}
+              </Box>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={() => setDetailsBooking(null)}>Close</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

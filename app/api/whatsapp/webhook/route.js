@@ -1105,6 +1105,55 @@ async function hasRecentInboundWithin24h({ labId, phone }) {
   }
 }
 
+async function findOutboundByProviderMessageId({ labId, phone, providerMessageId }) {
+  if (!labId || !phone || !providerMessageId) return null;
+  try {
+    const { data, error } = await supabase
+      .from("whatsapp_messages")
+      .select("id, message, payload, message_id, created_at, phone, direction")
+      .eq("lab_id", labId)
+      .eq("direction", "outbound")
+      .in("phone", phoneVariantsIndia(phone))
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (error || !Array.isArray(data)) return null;
+
+    for (const row of data) {
+      const rowProviderMessageId =
+        String(
+          row?.message_id ||
+            row?.payload?.response?.messages?.[0]?.id ||
+            ""
+        ).trim();
+      if (rowProviderMessageId && rowProviderMessageId === String(providerMessageId).trim()) {
+        return row;
+      }
+    }
+  } catch (err) {
+    console.error("[status-callback] outbound lookup failed", {
+      error: err?.message || String(err),
+      labId,
+      phone,
+      providerMessageId
+    });
+  }
+  return null;
+}
+
+function isReportLikeFailedOutbound(row) {
+  if (!row || typeof row !== "object") return false;
+  const reqType = String(row?.payload?.request?.type || "").trim().toLowerCase();
+  const templateName = String(row?.payload?.request?.template?.name || "").trim().toLowerCase();
+  const loggedMessage = String(row?.message || "").trim().toLowerCase();
+
+  if (reqType === "document") return true;
+  if (templateName.includes("report")) return true;
+  if (loggedMessage.includes("report")) return true;
+  if (loggedMessage.includes("document sent")) return true;
+  return false;
+}
+
 async function handleDeliveryFailureStatusEvent({
   labId,
   phone,
@@ -1224,6 +1273,21 @@ async function handleDeliveryFailureStatusEvent({
   }
 
   if (!shouldAck) return;
+
+  const failedOutbound = await findOutboundByProviderMessageId({
+    labId,
+    phone,
+    providerMessageId
+  });
+  const shouldSendPatientFailureAck = isReportLikeFailedOutbound(failedOutbound);
+  if (!shouldSendPatientFailureAck) {
+    console.log("[status-callback] skipping delivery-failed ack (non-report or unknown outbound)", {
+      labId,
+      phone,
+      providerMessageId
+    });
+    return;
+  }
 
   const canSendFreeformAck = await hasRecentInboundWithin24h({ labId, phone });
   if (!canSendFreeformAck) {

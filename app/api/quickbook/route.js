@@ -357,6 +357,7 @@ export async function POST(req) {
       whatsapp,
       agree,
       home_visit_required,
+      request_payload_json,
       prescription,
       location_source,
       location_text,
@@ -391,6 +392,10 @@ export async function POST(req) {
       whatsapp,
       agree,
       home_visit_required: normalizedHomeVisitRequired,
+      request_payload_json:
+        request_payload_json && typeof request_payload_json === "object"
+          ? request_payload_json
+          : null,
       prescription: prescription || null,
       ...(isUuid(resolvedLabId) ? { lab_id: resolvedLabId } : {})
     };
