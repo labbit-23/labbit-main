@@ -21,6 +21,12 @@ const IST_TIME_ONLY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   minute: "2-digit",
   hour12: false
 });
+const IST_DAY_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
 
 function isBotOutboundMessage(row) {
   if (row?.direction !== "outbound") return false;
@@ -626,6 +632,106 @@ function normalizeServiceStatus(row, nowMs = Date.now()) {
   return row;
 }
 
+function getIstDayKey(value) {
+  const parsed = parseIsoDate(value);
+  if (!parsed) return null;
+  return IST_DAY_FORMATTER.format(parsed);
+}
+
+async function loadWebsiteAnalytics(labId) {
+  if (!supabase) return null;
+  const now = Date.now();
+  const since30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const since15m = new Date(now - 15 * 60 * 1000).toISOString();
+
+  let dailyQuery = supabase
+    .from("website_events")
+    .select("created_at, session_id")
+    .gte("created_at", since30d)
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
+  let topPagesQuery = supabase
+    .from("website_events")
+    .select("page_path, session_id")
+    .gte("created_at", since7d)
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
+  let activeQuery = supabase
+    .from("website_events")
+    .select("session_id")
+    .gte("created_at", since15m)
+    .order("created_at", { ascending: false })
+    .limit(20000);
+
+  if (labId) {
+    dailyQuery = dailyQuery.eq("lab_id", labId);
+    topPagesQuery = topPagesQuery.eq("lab_id", labId);
+    activeQuery = activeQuery.eq("lab_id", labId);
+  }
+
+  const [{ data: dailyRows, error: dailyError }, { data: topPageRows, error: topPageError }, { data: activeRows, error: activeError }] =
+    await Promise.all([dailyQuery, topPagesQuery, activeQuery]);
+
+  if (dailyError) throw dailyError;
+  if (topPageError) throw topPageError;
+  if (activeError) throw activeError;
+
+  const dailySets = new Map();
+  for (const row of dailyRows || []) {
+    const day = getIstDayKey(row?.created_at);
+    const sessionId = String(row?.session_id || "").trim();
+    if (!day || !sessionId) continue;
+    if (!dailySets.has(day)) dailySets.set(day, new Set());
+    dailySets.get(day).add(sessionId);
+  }
+
+  const dailyUniqueVisitors = Array.from(dailySets.entries())
+    .map(([day, set]) => ({ day, unique_visitors: set.size }))
+    .sort((a, b) => String(b.day).localeCompare(String(a.day)))
+    .slice(0, 30);
+
+  const currentIstDay = getIstDayKey(new Date().toISOString());
+  const uniqueVisitorsToday =
+    dailyUniqueVisitors.find((row) => row.day === currentIstDay)?.unique_visitors || 0;
+  const uniqueVisitors30d = Array.from(
+    new Set((dailyRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
+  ).length;
+
+  const uniqueVisitors7d = Array.from(
+    new Set((topPageRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
+  ).length;
+
+  const pageSets = new Map();
+  for (const row of topPageRows || []) {
+    const page = String(row?.page_path || "").trim() || "unknown";
+    const sessionId = String(row?.session_id || "").trim();
+    if (!sessionId) continue;
+    if (!pageSets.has(page)) pageSets.set(page, new Set());
+    pageSets.get(page).add(sessionId);
+  }
+
+  const topPages7d = Array.from(pageSets.entries())
+    .map(([page_path, set]) => ({ page_path, unique_visitors: set.size }))
+    .sort((a, b) => b.unique_visitors - a.unique_visitors)
+    .slice(0, 8);
+
+  const activeSessions15m = Array.from(
+    new Set((activeRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
+  ).length;
+
+  return {
+    active_sessions_15m: activeSessions15m,
+    unique_visitors_today: uniqueVisitorsToday,
+    unique_visitors_7d: uniqueVisitors7d,
+    unique_visitors_30d: uniqueVisitors30d,
+    daily_unique_visitors_30d: dailyUniqueVisitors,
+    top_pages_7d: topPages7d
+  };
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
 
@@ -671,11 +777,18 @@ export async function GET(request) {
 
     const rows = data || [];
     let whatsappMetrics = [];
+    let websiteAnalytics = null;
 
     try {
       whatsappMetrics = await loadWhatsappBotMetrics(labId);
     } catch (metricError) {
       console.error("[cto/latest] whatsapp metrics error", metricError);
+    }
+
+    try {
+      websiteAnalytics = await loadWebsiteAnalytics(labId);
+    } catch (analyticsError) {
+      console.error("[cto/latest] website analytics error", analyticsError);
     }
 
     const nowMs = Date.now();
@@ -696,6 +809,7 @@ export async function GET(request) {
         allowed_lab_ids: isProductCto ? null : assignedLabIds,
         summary,
         services: combinedRows,
+        website_analytics: websiteAnalytics,
       },
       {
         headers: {

@@ -1145,6 +1145,7 @@ function CtoDashboardPage() {
   const managementMetrics = useMemo(() => {
     const botSla = serviceByBaseKey.get("whatsapp_bot_response_sla_1m");
     const botChats24h = serviceByBaseKey.get("whatsapp_bot_chats_24h");
+    const website = latest?.website_analytics || {};
     const openEvents = (eventsRows || []).filter((row) => String(row?.status || "open") !== "resolved").length;
     const positiveRate = typeof feedbackData?.summary?.positive_rate === "number"
       ? Math.round(feedbackData.summary.positive_rate * 100)
@@ -1153,10 +1154,15 @@ function CtoDashboardPage() {
     return {
       botSlaWithin: botSla?.payload?.within_sla_pct ?? null,
       botChats24h: botChats24h?.payload?.chat_sessions_24h ?? null,
+      websiteActiveSessions15m:
+        typeof website?.active_sessions_15m === "number" ? website.active_sessions_15m : null,
+      websiteUniqueVisitorsToday:
+        typeof website?.unique_visitors_today === "number" ? website.unique_visitors_today : null,
+      websiteTopPages7d: Array.isArray(website?.top_pages_7d) ? website.top_pages_7d : [],
       openEvents,
       positiveRate
     };
-  }, [eventsRows, feedbackData?.summary?.positive_rate, serviceByBaseKey]);
+  }, [eventsRows, feedbackData?.summary?.positive_rate, latest?.website_analytics, serviceByBaseKey]);
 
   const vpsHealth = useMemo(() => {
     const vpsServices = realServices.filter(isVpsService);
@@ -1673,7 +1679,7 @@ function CtoDashboardPage() {
                 <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Tap to open Ops Events</Text>
               </Box>
             </SimpleGrid>
-            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} mt={3}>
+            <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3} mt={3}>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(detailSectionRef)}>
                 <Text fontSize="xs" color="whiteAlpha.700" mb={1}>WhatsApp SLA (1m)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="blue.200">
@@ -1686,7 +1692,34 @@ function CtoDashboardPage() {
                   {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
                 </Text>
               </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Website Active Sessions (15m)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="cyan.200">
+                  {managementMetrics.websiteActiveSessions15m != null ? String(managementMetrics.websiteActiveSessions15m) : "n/a"}
+                </Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Website Unique Visitors (Today)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="teal.200">
+                  {managementMetrics.websiteUniqueVisitorsToday != null ? String(managementMetrics.websiteUniqueVisitorsToday) : "n/a"}
+                </Text>
+              </Box>
             </SimpleGrid>
+            <Box mt={3} p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={2}>Top Website Pages (7d)</Text>
+              {managementMetrics.websiteTopPages7d.length === 0 ? (
+                <Text fontSize="sm" color="whiteAlpha.700">No page analytics available.</Text>
+              ) : (
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
+                  {managementMetrics.websiteTopPages7d.slice(0, 6).map((row) => (
+                    <Flex key={`${row.page_path}-${row.unique_visitors}`} justify="space-between" gap={3}>
+                      <Text fontSize="sm" color="whiteAlpha.900" noOfLines={1}>{row.page_path}</Text>
+                      <Text fontSize="sm" color="cyan.200" fontWeight="700">{row.unique_visitors}</Text>
+                    </Flex>
+                  ))}
+                </SimpleGrid>
+              )}
+            </Box>
           </Box>
         )}
 
