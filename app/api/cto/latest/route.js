@@ -526,8 +526,8 @@ function parseIsoDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseRecentRunAt(payload = {}) {
-  if (!payload || typeof payload !== "object") return null;
+function parseRecentRunAt(row = {}) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
   const candidates = [
     payload.last_success_at,
     payload.last_run_at,
@@ -535,7 +535,15 @@ function parseRecentRunAt(payload = {}) {
     payload.last_healthy_at,
     payload.last_ok_at,
     payload.last_check_at,
-    payload.last_exit_at
+    payload.last_exit_at,
+    payload.last_started_at,
+    payload.last_start_at,
+    payload.last_seen_at,
+    payload.last_seen_alive_at,
+    payload.last_ping_ok_at,
+    payload.last_success_ist,
+    row?.checked_at,
+    row?.updated_at
   ];
   for (const value of candidates) {
     const parsed = parseIsoDate(value);
@@ -572,7 +580,7 @@ function isRunOnceService(row) {
     )
   );
 
-  const keyHint = ["digest", "compact", "cron", "scheduler", "backfill"].some((hint) =>
+  const keyHint = ["digest", "compact", "cron", "scheduler", "backfill", "cleanup", "ops-cleanup"].some((hint) =>
     key.includes(hint)
   );
 
@@ -601,8 +609,22 @@ function isStoppedLike(row) {
 
 function normalizeServiceStatus(row, nowMs = Date.now()) {
   const status = String(row?.status || "").trim().toLowerCase() || "unknown";
-  const runAt = parseRecentRunAt(row?.payload || {});
+  const runAt = parseRecentRunAt(row);
   const ranWithin24h = runAt ? nowMs - runAt.getTime() <= 24 * 60 * 60 * 1000 : false;
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const key = String(row?.service_key || "").toLowerCase();
+
+  // Realtime is optional in many deployments; do not raise scary degradation unless explicitly required.
+  if (key.includes("supabase_realtime")) {
+    const isRequired = [payload.required, payload.realtime_required, payload.monitor_required].some((v) => v === true);
+    if (!isRequired && ["down", "degraded", "unknown"].includes(status)) {
+      return {
+        ...row,
+        status: "healthy",
+        message: row?.message || "Supabase Realtime is optional/unused for this deployment."
+      };
+    }
+  }
 
   // For one-shot scheduled jobs, PM2 "stopped" after a successful recent run is expected.
   if (
