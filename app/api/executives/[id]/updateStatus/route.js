@@ -1,15 +1,32 @@
 // File: app/api/executives/[id]/updateStatus/route.js
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from "@/lib/supabaseServer";
+import { checkPermission, deny, getSessionUser } from "@/lib/uac/authz";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 export async function POST(request, context) {
-  // Await params as per Next.js requirements
+  const user = await getSessionUser(request);
+  if (!user) return deny("Not authenticated", 401);
+
+  const permissionCheck = checkPermission(user, "executives.status.update");
+  const roleKey = permissionCheck.roleKey;
+  if (!permissionCheck.ok) {
+    await writeAuditLog({
+      request,
+      user,
+      roleKey,
+      action: "executives.status.update",
+      entityType: "executives",
+      entityId: null,
+      status: "denied",
+      metadata: { reason: "missing executives.status.update" },
+    });
+    return deny("You do not have permission to update executive status.", 403, {
+      permission: "executives.status.update",
+    });
+  }
+
   const { params } = context;
   const { id } = await params;
 
@@ -21,29 +38,63 @@ export async function POST(request, context) {
     const body = await request.json();
     const { status } = body;
 
-    // Validate status values
     if (!status || (status !== "active" && status !== "inactive")) {
       return NextResponse.json({ error: "Invalid status value" }, { status: 400 });
     }
 
+    const { data: beforeRow } = await supabase
+      .from("executives")
+      .select("id, name, status, active")
+      .eq("id", id)
+      .maybeSingle();
+
     const nextActive = status === "active";
 
-    // Update status + active in the database (keep them consistent)
     const { error } = await supabase
       .from("executives")
       .update({ status, active: nextActive })
       .eq("id", id);
 
     if (error) {
+      await writeAuditLog({
+        request,
+        user,
+        roleKey,
+        action: "executives.status.update",
+        entityType: "executives",
+        entityId: id,
+        status: "failed",
+        before: beforeRow,
+        after: null,
+        metadata: { error: error.message, requested_status: status },
+      });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const { data: afterRow } = await supabase
+      .from("executives")
+      .select("id, name, status, active")
+      .eq("id", id)
+      .maybeSingle();
+
+    await writeAuditLog({
+      request,
+      user,
+      roleKey,
+      action: "executives.status.update",
+      entityType: "executives",
+      entityId: id,
+      status: "success",
+      before: beforeRow,
+      after: afterRow,
+      metadata: { requested_status: status },
+    });
 
     return NextResponse.json(
       { message: `Status updated to ${status}`, status, active: nextActive },
       { status: 200 }
     );
-
-  } catch (err) {
+  } catch (_err) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

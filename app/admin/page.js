@@ -18,6 +18,7 @@ import VisitModal from "../components/VisitModal";
 import ExecutiveList from "./components/ExecutiveList";
 import ExecutiveModal from "./components/ExecutiveModal";
 import CollectionCentresTab from "./components/CollectionCentresTab";
+import UacTab from "./components/UacTab";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
@@ -959,6 +960,11 @@ const exportVisitsImage = async () => {
                 >
                   Collection Centres
                 </Tab>
+                                <Tab
+                  {...adminTabBaseStyles}
+                >
+                  UAC
+                </Tab>
                 <Spacer />
                 <HStack spacing={2} className="no-export">
                   <Tooltip label="Refresh visible tab">
@@ -1093,6 +1099,13 @@ const exportVisitsImage = async () => {
                     labs={labs}
                     themeMode={themeMode}
                     onRegisterRefresh={setCollectionRefreshHandler}
+                  />
+                </TabPanel>
+
+                <TabPanel>
+                  <UacTab
+                    executives={executives}
+                    themeMode={themeMode}
                   />
                 </TabPanel>
               </TabPanels>

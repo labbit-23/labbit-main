@@ -231,6 +231,26 @@ export default function ModularPatientModal({
       }
 
       const savedPatient = await res.json();
+      const sharedPhoneWarning = Array.isArray(savedPatient?.warnings)
+        ? savedPatient.warnings.find((item) => item?.code === 'SHARED_PHONE_DETECTED')
+        : null;
+      if (sharedPhoneWarning) {
+        const related = Array.isArray(sharedPhoneWarning.related_patients)
+          ? sharedPhoneWarning.related_patients
+          : [];
+        const preview = related
+          .slice(0, 3)
+          .map((p) => (p?.name || 'Unknown') + ' (' + (p?.phone || '-') + ')')
+          .join(', ');
+        const suffix = related.length > 3 ? " +" + (related.length - 3) + " more" : "";
+        toast({
+          title: 'Shared phone detected',
+          description: 'Same phone is already linked to other patient records: ' + preview + suffix + '. Please verify family relation before continuing.',
+          status: 'warning',
+          duration: 10000,
+          isClosable: true,
+        });
+      }
       toast({ title: 'Patient saved successfully', status: 'success' });
       onSubmit?.(savedPatient);
       onClose();
