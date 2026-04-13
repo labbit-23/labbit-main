@@ -18,6 +18,7 @@ import VisitModal from "../components/VisitModal";
 import ExecutiveList from "./components/ExecutiveList";
 import ExecutiveModal from "./components/ExecutiveModal";
 import CollectionCentresTab from "./components/CollectionCentresTab";
+import UacTab from "./components/UacTab";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
@@ -1019,6 +1020,10 @@ const exportVisitsImage = async () => {
                       <Text as="span" display={{ base: "none", md: "inline" }}>Collection Centres</Text>
                       <Text as="span" display={{ base: "inline", md: "none" }}>Centres</Text>
                     </Tab>
+                    <Tab {...adminTabBaseStyles}>
+                      <Text as="span" display={{ base: "none", sm: "inline" }}>UAC</Text>
+                      <Text as="span" display={{ base: "inline", sm: "none" }}>UAC</Text>
+                    </Tab>
                   </TabList>
                 </Box>
                 <HStack spacing={2} className="no-export" flex="0 0 auto" justify={{ base: "flex-end", md: "flex-start" }}>
@@ -1154,6 +1159,14 @@ const exportVisitsImage = async () => {
                     labs={labs}
                     themeMode={themeMode}
                     onRegisterRefresh={setCollectionRefreshHandler}
+                  />
+                </TabPanel>
+
+                <TabPanel>
+                  <UacTab
+                    executives={executives}
+                    labs={labs}
+                    themeMode={themeMode}
                   />
                 </TabPanel>
               </TabPanels>

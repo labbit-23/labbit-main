@@ -65,7 +65,7 @@ function defaultBotFlowTemplates() {
     feedback_url: "",
     bot_flow: {
       texts: {
-        report_request_ack: "Thank you. Our team will verify and send your report shortly.",
+        report_request_ack: "Thank you. Our team will verify and send your report shortly. For faster assistance, please message from your registered mobile number.",
         wait_for_executive_text: "Thanks for your message. Please wait, our executive will reach out to help you shortly.",
         handoff_open_text: "Connecting you to our executive. Please wait...",
         handoff_closed_text: "Our executives are currently offline. Reply YES to request a callback on the next working day.",

@@ -1,11 +1,10 @@
 // File: /app/api/patients/route.js
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseServer'; // Adjust as per your project
-import { getIronSession } from 'iron-session';
-import { ironOptions } from '@/lib/session';
+import { supabase } from '@/lib/supabaseServer';
+import { checkPermission, deny, getSessionUser } from '@/lib/uac/authz';
+import { writeAuditLog } from '@/lib/audit/logger';
 
-// Helper function to get max address_index for a patient (or -1 if none)
 async function getMaxAddressIndex(patientId) {
   const { data, error } = await supabase
     .from('patient_addresses')
@@ -13,36 +12,65 @@ async function getMaxAddressIndex(patientId) {
     .eq('patient_id', patientId)
     .order('address_index', { ascending: false })
     .limit(1)
-    .maybeSingle(); // Use maybeSingle to handle zero rows gracefully
+    .maybeSingle();
 
   if (error) {
     console.error('Error fetching max address_index:', error);
     return -1;
   }
-  if (!data) return -1; // No addresses found
+  if (!data) return -1;
 
   return data.address_index ?? -1;
 }
 
+function normalizePhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+async function findPhoneConflicts(phone, excludePatientId = null) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return [];
+
+  let query = supabase
+    .from('patients')
+    .select('id, name, phone')
+    .ilike('phone', `%${normalized}`)
+    .limit(200);
+
+  if (excludePatientId) query = query.neq('id', excludePatientId);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Phone conflict lookup failed:', error);
+    return [];
+  }
+
+  return (data || []).filter((row) => normalizePhone(row.phone) === normalized);
+}
+
 export async function POST(request) {
   try {
-    const response = NextResponse.next();
-    const session = await getIronSession(request, response, ironOptions);
-    const user = session?.user || null;
+    const user = await getSessionUser(request);
+    if (!user) {
+      return deny('Not authenticated', 401);
+    }
+
     const body = await request.json();
 
     const {
-      id,         // Patient ID for update/create
+      id,
       mrn,
       phone,
       name,
       dob,
       gender,
       email,
-      cregno,     // External key
+      cregno,
       external_key,
       lab_id,
-      addresses = [], // Array of addresses from frontend including label, lat, lng, etc.
+      addresses = [],
     } = body;
 
     if (!phone || !name) {
@@ -51,9 +79,72 @@ export async function POST(request) {
 
     let patient;
     let isNewPatient = false;
+    let roleKey = 'viewer';
+    let beforePatient = null;
+    let phoneRelationCandidates = [];
 
     if (id) {
-      // Update existing patient (DO NOT generate new MRN on update)
+      const permissionCheck = await checkPermission(user, 'patients.update');
+      roleKey = permissionCheck.roleKey;
+      if (!permissionCheck.ok) {
+        await writeAuditLog({
+          request,
+          user,
+          roleKey,
+          action: 'patients.update',
+          entityType: 'patients',
+          entityId: id,
+          status: 'denied',
+          metadata: { reason: 'missing patients.update' }
+        });
+        return deny('You do not have permission to update patients.', 403, { permission: 'patients.update' });
+      }
+
+      const { data: existingPatient, error: fetchExistingError } = await supabase
+        .from('patients')
+        .select('id, name, phone, dob, gender, email, mrn')
+        .eq('id', id)
+        .single();
+
+      if (fetchExistingError || !existingPatient) {
+        return NextResponse.json(
+          { error: 'Patient not found', details: fetchExistingError?.message || null },
+          { status: 404 }
+        );
+      }
+      beforePatient = existingPatient;
+
+      const normalizedOldName = String(existingPatient.name || '').trim().toLowerCase();
+      const normalizedNewName = String(name || '').trim().toLowerCase();
+      const normalizedOldPhone = normalizePhone(existingPatient.phone);
+      const normalizedNewPhone = normalizePhone(phone);
+      const identityChanged = normalizedOldName !== normalizedNewName || normalizedOldPhone !== normalizedNewPhone;
+
+      if (identityChanged) {
+        const identityCheck = await checkPermission(user, 'patients.update_identity');
+        if (!identityCheck.ok) {
+          await writeAuditLog({
+            request,
+            user,
+            roleKey,
+            action: 'patients.update_identity',
+            entityType: 'patients',
+            entityId: id,
+            status: 'denied',
+            before: { id: existingPatient.id, name: existingPatient.name, phone: existingPatient.phone },
+            after: { name, phone },
+            metadata: { reason: 'missing patients.update_identity' }
+          });
+          return deny(
+            'You do not have permission to edit patient identity fields (name/phone).',
+            403,
+            { permission: 'patients.update_identity' }
+          );
+        }
+      }
+
+      phoneRelationCandidates = await findPhoneConflicts(phone, id);
+
       const { data, error: updateError } = await supabase
         .from('patients')
         .update({ phone, name, dob, gender, email, mrn })
@@ -70,11 +161,46 @@ export async function POST(request) {
       }
       patient = data;
 
+      await writeAuditLog({
+        request,
+        user,
+        roleKey,
+        action: identityChanged ? 'patients.update_identity' : 'patients.update',
+        entityType: 'patients',
+        entityId: patient?.id || id,
+        before: beforePatient,
+        after: patient,
+        status: 'success',
+        metadata: {
+          shared_phone_detected: phoneRelationCandidates.length > 0,
+          shared_phone_candidates: phoneRelationCandidates.map((row) => ({
+            id: row.id,
+            name: row.name,
+            phone: row.phone
+          }))
+        }
+      });
     } else {
-      // Create new patient – generate MRN using DB sequence and prefix "L"
+      const permissionCheck = await checkPermission(user, 'patients.create');
+      roleKey = permissionCheck.roleKey;
+      if (!permissionCheck.ok) {
+        await writeAuditLog({
+          request,
+          user,
+          roleKey,
+          action: 'patients.create',
+          entityType: 'patients',
+          entityId: null,
+          status: 'denied',
+          metadata: { reason: 'missing patients.create' }
+        });
+        return deny('You do not have permission to create patients.', 403, { permission: 'patients.create' });
+      }
+
+      phoneRelationCandidates = await findPhoneConflicts(phone, null);
+
       isNewPatient = true;
 
-      // Ensure your DB has the RPC function nextval_patient_mrn_seq() created (see prior messages)
       const { data: seqData, error: seqError } = await supabase.rpc('nextval_patient_mrn_seq');
       if (seqError) {
         console.error('Sequence nextval error:', seqError);
@@ -100,6 +226,26 @@ export async function POST(request) {
         );
       }
       patient = data;
+
+      await writeAuditLog({
+        request,
+        user,
+        roleKey,
+        action: 'patients.create',
+        entityType: 'patients',
+        entityId: patient?.id || null,
+        before: null,
+        after: patient,
+        status: 'success',
+        metadata: {
+          shared_phone_detected: phoneRelationCandidates.length > 0,
+          shared_phone_candidates: phoneRelationCandidates.map((row) => ({
+            id: row.id,
+            name: row.name,
+            phone: row.phone
+          }))
+        }
+      });
     }
 
     if (!patient) {
@@ -107,22 +253,18 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No patient data returned' }, { status: 500 });
     }
 
-    // Handle addresses with proper ID sanitization and address_index logic
     if (addresses.length > 0) {
-      // Sanitize IDs on addresses to avoid 'temp-' placeholder errors
-      const sanitizedAddresses = addresses.map(addr => {
+      const sanitizedAddresses = addresses.map((addr) => {
         if (addr.id && typeof addr.id === 'string' && addr.id.startsWith('temp')) {
-          const { id, ...rest } = addr;
+          const { id: _id, ...rest } = addr;
           return { ...rest, patient_id: patient.id };
         }
         return { ...addr, patient_id: patient.id };
       });
 
-      // Fetch current max address_index to maintain uniqueness
       const currentMaxIndex = await getMaxAddressIndex(patient.id);
 
-      // Handle default address index assignment and avoid conflicts
-      const defaultIdx = sanitizedAddresses.findIndex(addr => addr.is_default === true);
+      const defaultIdx = sanitizedAddresses.findIndex((addr) => addr.is_default === true);
       if (defaultIdx !== -1) {
         sanitizedAddresses[defaultIdx].address_index = 0;
         const otherAtZeroIdx = sanitizedAddresses.findIndex(
@@ -133,19 +275,15 @@ export async function POST(request) {
         }
       }
 
-      // Assign sequential address_index to addresses missing one or with duplicates (skip default at 0)
       let nextIndex = 1;
-      for (let i = 0; i < sanitizedAddresses.length; i++) {
+      for (let i = 0; i < sanitizedAddresses.length; i += 1) {
         if (i === defaultIdx) continue;
-        if (
-          !Number.isInteger(sanitizedAddresses[i].address_index) ||
-          sanitizedAddresses[i].address_index === 0
-        ) {
-          sanitizedAddresses[i].address_index = nextIndex++;
+        if (!Number.isInteger(sanitizedAddresses[i].address_index) || sanitizedAddresses[i].address_index === 0) {
+          sanitizedAddresses[i].address_index = nextIndex;
+          nextIndex += 1;
         }
       }
 
-      // Upsert addresses with conflict resolution on id
       const { error: addrError } = await supabase
         .from('patient_addresses')
         .upsert(sanitizedAddresses, {
@@ -162,13 +300,12 @@ export async function POST(request) {
       }
     }
 
-    // Save CREGNO (external key) if provided
     const sessionLabId =
       Array.isArray(user?.labIds) && user.labIds.length > 0
         ? user.labIds.find(Boolean) || null
         : user?.labId || null;
-    const resolvedLabId = String(lab_id || sessionLabId || "").trim() || undefined;
-    const resolvedExternalKey = String(external_key || cregno || "").trim();
+    const resolvedLabId = String(lab_id || sessionLabId || '').trim() || undefined;
+    const resolvedExternalKey = String(external_key || cregno || '').trim();
     if (resolvedExternalKey) {
       try {
         const savePatientExternalKey = require('../../../lib/savePatientExternalKey').default;
@@ -181,8 +318,25 @@ export async function POST(request) {
       }
     }
 
-    return NextResponse.json(patient, { status: isNewPatient ? 201 : 200 });
+    const responsePayload =
+      phoneRelationCandidates.length > 0
+        ? {
+            ...patient,
+            warnings: [
+              {
+                code: 'SHARED_PHONE_DETECTED',
+                message: 'Same phone exists on other patient records. Verify relationship before proceeding.',
+                related_patients: phoneRelationCandidates.map((row) => ({
+                  id: row.id,
+                  name: row.name,
+                  phone: row.phone,
+                })),
+              },
+            ],
+          }
+        : patient;
 
+    return NextResponse.json(responsePayload, { status: isNewPatient ? 201 : 200 });
   } catch (err) {
     console.error('Unexpected error in /api/patients:', err);
     return NextResponse.json(

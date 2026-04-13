@@ -2,14 +2,33 @@
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
-import { getIronSession } from "iron-session";
-import { ironOptions } from "@/lib/session";
+import { checkPermission, deny, getSessionUser } from "@/lib/uac/authz";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 // Next.js 15+: always await context.params!
 export async function PUT(request, context) {
-  const sessionResponse = NextResponse.next();
-  const session = await getIronSession(request, sessionResponse, ironOptions);
-  const actorId = String(session?.user?.id || "").trim() || null;
+  const user = await getSessionUser(request);
+  if (!user) return deny("Not authenticated", 401);
+
+  const permissionCheck = await checkPermission(user, "quickbook.update");
+  const roleKey = permissionCheck.roleKey;
+  if (!permissionCheck.ok) {
+    await writeAuditLog({
+      request,
+      user,
+      roleKey,
+      action: "quickbook.update",
+      entityType: "quickbookings",
+      entityId: null,
+      status: "denied",
+      metadata: { reason: "missing quickbook.update" },
+    });
+    return deny("You do not have permission to update quick bookings.", 403, {
+      permission: "quickbook.update",
+    });
+  }
+
+  const actorId = String(user?.id || "").trim() || null;
   const { id } = await context.params;
   const payload = await request.json();
   const {
@@ -25,7 +44,7 @@ export async function PUT(request, context) {
     location_lng,
     rejected_at,
     rejected_by,
-    rejection_channel
+    rejection_channel,
   } = payload;
 
   if (
@@ -59,6 +78,12 @@ export async function PUT(request, context) {
     }
   }
 
+  const { data: beforeRow } = await supabase
+    .from("quickbookings")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
   const updateData = {};
   if (typeof status !== "undefined") updateData.status = status;
   if (typeof visit_id !== "undefined") updateData.visit_id = visit_id;
@@ -91,10 +116,7 @@ export async function PUT(request, context) {
   };
 
   // Backward compatibility for DBs without optional columns.
-  if (
-    error &&
-    isMissingColumnError(error)
-  ) {
+  if (error && isMissingColumnError(error)) {
     const fallbackData = {
       ...(typeof status !== "undefined" ? { status } : {}),
       ...(typeof visit_id !== "undefined" ? { visit_id } : {}),
@@ -103,7 +125,7 @@ export async function PUT(request, context) {
       ...(typeof location_name !== "undefined" ? { location_name } : {}),
       ...(typeof location_address !== "undefined" ? { location_address } : {}),
       ...(typeof location_lat !== "undefined" ? { location_lat } : {}),
-      ...(typeof location_lng !== "undefined" ? { location_lng } : {})
+      ...(typeof location_lng !== "undefined" ? { location_lng } : {}),
     };
 
     ({ error } = await supabase
@@ -113,13 +135,10 @@ export async function PUT(request, context) {
   }
 
   // Final fallback: only core fields that always exist in legacy schemas.
-  if (
-    error &&
-    isMissingColumnError(error)
-  ) {
+  if (error && isMissingColumnError(error)) {
     const finalFallbackData = {
       ...(typeof status !== "undefined" ? { status } : {}),
-      ...(typeof visit_id !== "undefined" ? { visit_id } : {})
+      ...(typeof visit_id !== "undefined" ? { visit_id } : {}),
     };
     ({ error } = await supabase
       .from("quickbookings")
@@ -128,8 +147,39 @@ export async function PUT(request, context) {
   }
 
   if (error) {
+    await writeAuditLog({
+      request,
+      user,
+      roleKey,
+      action: "quickbook.update",
+      entityType: "quickbookings",
+      entityId: id,
+      status: "failed",
+      before: beforeRow,
+      after: null,
+      metadata: { error: error.message, fields: Object.keys(updateData) },
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const { data: afterRow } = await supabase
+    .from("quickbookings")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  await writeAuditLog({
+    request,
+    user,
+    roleKey,
+    action: "quickbook.update",
+    entityType: "quickbookings",
+    entityId: id,
+    status: "success",
+    before: beforeRow,
+    after: afterRow,
+    metadata: { fields: Object.keys(updateData) },
+  });
 
   return NextResponse.json({ success: true });
 }

@@ -7,6 +7,7 @@ import {
   sendPhleboVisitSms,
 } from "@/lib/visitSms";
 import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
+import { checkPermission, deny, getSessionUser } from "@/lib/uac/authz";
 
 const CONFLICT_EXCLUDED_STATUSES = ["disabled", "cancelled", "canceled", "completed"];
 const VISIT_SELECT_WITH_GEO = `
@@ -439,6 +440,13 @@ export async function GET(request) {
  */
 export async function POST(request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return deny("Not authenticated", 401);
+    const permissionCheck = await checkPermission(user, "visits.create");
+    if (!permissionCheck.ok) {
+      return deny("You do not have permission to create visits.", 403, { permission: "visits.create" });
+    }
+
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
     const locationText = visitData.location_text || "";
@@ -508,8 +516,8 @@ export async function POST(request) {
         visit_id: data.id,
         previous_status: null,
         new_status: data.status || null,
-        changed_by: visitData.created_by || null,
-        notes: normalizedVisitData.notes || null,
+        changed_by: visitData.created_by || user?.id || null,
+        notes: (normalizedVisitData.notes ? normalizedVisitData.notes + " | " : "") + "visit_date=" + String(normalizedVisitData.visit_date || data.visit_date || ""),
       }]);
     } catch (logError) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
@@ -543,6 +551,13 @@ export async function POST(request) {
  */
 export async function PUT(request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return deny("Not authenticated", 401);
+    const permissionCheck = await checkPermission(user, "visits.update");
+    if (!permissionCheck.ok) {
+      return deny("You do not have permission to update visits.", 403, { permission: "visits.update" });
+    }
+
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
     const locationText = visitData.location_text || "";
@@ -634,8 +649,8 @@ export async function PUT(request) {
         visit_id: data.id,
         previous_status: prev.status || null,
         new_status: data.status || null,
-        changed_by: normalizedVisitData.updated_by || null,
-        notes: normalizedVisitData.notes || null,
+        changed_by: normalizedVisitData.updated_by || user?.id || null,
+        notes: (normalizedVisitData.notes ? normalizedVisitData.notes + " | " : "") + "visit_date_change=" + String(prev.visit_date || "") + "=>" + String((Object.prototype.hasOwnProperty.call(normalizedVisitData, "visit_date") ? normalizedVisitData.visit_date : data.visit_date) || ""),
       }]);
     } catch (logError) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
