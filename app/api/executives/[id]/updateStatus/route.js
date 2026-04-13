@@ -9,7 +9,7 @@ export async function POST(request, context) {
   const user = await getSessionUser(request);
   if (!user) return deny("Not authenticated", 401);
 
-  const permissionCheck = checkPermission(user, "executives.status.update");
+  const permissionCheck = await checkPermission(user, "executives.status.update");
   const roleKey = permissionCheck.roleKey;
   if (!permissionCheck.ok) {
     await writeAuditLog({

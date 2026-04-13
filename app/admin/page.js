@@ -1105,6 +1105,7 @@ const exportVisitsImage = async () => {
                 <TabPanel>
                   <UacTab
                     executives={executives}
+                    labs={labs}
                     themeMode={themeMode}
                   />
                 </TabPanel>

@@ -431,7 +431,7 @@ export async function POST(request) {
   try {
     const user = await getSessionUser(request);
     if (!user) return deny("Not authenticated", 401);
-    const permissionCheck = checkPermission(user, "visits.create");
+    const permissionCheck = await checkPermission(user, "visits.create");
     if (!permissionCheck.ok) {
       return deny("You do not have permission to create visits.", 403, { permission: "visits.create" });
     }
@@ -542,7 +542,7 @@ export async function PUT(request) {
   try {
     const user = await getSessionUser(request);
     if (!user) return deny("Not authenticated", 401);
-    const permissionCheck = checkPermission(user, "visits.update");
+    const permissionCheck = await checkPermission(user, "visits.update");
     if (!permissionCheck.ok) {
       return deny("You do not have permission to update visits.", 403, { permission: "visits.update" });
     }

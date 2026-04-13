@@ -84,7 +84,7 @@ export async function POST(request) {
     let phoneRelationCandidates = [];
 
     if (id) {
-      const permissionCheck = checkPermission(user, 'patients.update');
+      const permissionCheck = await checkPermission(user, 'patients.update');
       roleKey = permissionCheck.roleKey;
       if (!permissionCheck.ok) {
         await writeAuditLog({
@@ -121,7 +121,7 @@ export async function POST(request) {
       const identityChanged = normalizedOldName !== normalizedNewName || normalizedOldPhone !== normalizedNewPhone;
 
       if (identityChanged) {
-        const identityCheck = checkPermission(user, 'patients.update_identity');
+        const identityCheck = await checkPermission(user, 'patients.update_identity');
         if (!identityCheck.ok) {
           await writeAuditLog({
             request,
@@ -181,7 +181,7 @@ export async function POST(request) {
         }
       });
     } else {
-      const permissionCheck = checkPermission(user, 'patients.create');
+      const permissionCheck = await checkPermission(user, 'patients.create');
       roleKey = permissionCheck.roleKey;
       if (!permissionCheck.ok) {
         await writeAuditLog({
