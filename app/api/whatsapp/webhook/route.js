@@ -2731,7 +2731,7 @@ export async function POST(req) {
           replyText:
             statusMessage ||
             botFlowConfig?.texts?.report_request_ack ||
-            "Thank you. Our team will verify and send your report shortly.",
+            "Thank you. Our team will verify and send your report shortly. For faster assistance, please message from your registered mobile number.",
           newState: "HUMAN_HANDOVER",
           context: {}
         };
@@ -3602,7 +3602,7 @@ export async function POST(req) {
           text:
             result.replyText ||
             botFlowConfig?.texts?.report_request_ack ||
-            "Thank you. Our team will verify and send your report shortly."
+            "Thank you. Our team will verify and send your report shortly. For faster assistance, please message from your registered mobile number."
         });
         break;
 
