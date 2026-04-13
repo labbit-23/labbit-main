@@ -7,7 +7,7 @@ import {
   Badge, IconButton, Spinner, HStack, Wrap, WrapItem,
   Text, Select, Box
 } from "@chakra-ui/react";
-import { EditIcon, DeleteIcon, AddIcon } from "@chakra-ui/icons";
+import { EditIcon, DeleteIcon, AddIcon, ViewIcon } from "@chakra-ui/icons";
 import { MdLocationOn } from "react-icons/md";
 
 const formatDate = (dateInput) => {
@@ -125,6 +125,7 @@ export default function VisitsTable({
   executives = [],
   timeSlots = [],
   onEdit,
+  onView,
   onDelete,
   onAssign,
   loading = false,
@@ -289,6 +290,17 @@ export default function VisitsTable({
                       {/* Actions */}
                       <Td className="no-export" isNumeric borderColor={rowBorderColor}>
                         <Wrap spacing={2} justify="flex-end">
+                          <WrapItem>
+                            <IconButton
+                              aria-label="View"
+                              icon={<ViewIcon />}
+                              size="sm"
+                              bg={actionButtonBg}
+                              color={isDark ? "whiteAlpha.900" : undefined}
+                              _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
+                              onClick={() => onView ? onView(visit) : (onEdit && onEdit(visit))}
+                            />
+                          </WrapItem>
                           <WrapItem>
                             <IconButton
                               aria-label="Edit"

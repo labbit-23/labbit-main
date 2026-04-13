@@ -44,6 +44,14 @@ function getStatusStyle(status) {
   return STATUS_STYLES[status] || STATUS_STYLES.default;
 }
 
+function normalizeStatus(value) {
+  return String(value || "").trim().toLowerCase() || "pending";
+}
+
+function formatStatusLabel(value) {
+  return normalizeStatus(value).replace(/\_/g, " ");
+}
+
 function parseTimeSlotStart(visit) {
   const slotName = String(visit?.time_slot?.slot_name || "");
   const match = slotName.match(/(\d{1,2}):(\d{2})/);
@@ -90,6 +98,24 @@ function getNextActionLabel(status) {
   }
 }
 
+function getNextStatus(status) {
+  switch (status) {
+    case "assigned":
+    case "booked":
+    case "accepted":
+      return "in_progress";
+    case "in_progress":
+    case "started":
+      return "sample_picked";
+    case "sample_picked":
+      return "sample_dropped";
+    case "sample_dropped":
+      return "completed";
+    default:
+      return null;
+  }
+}
+
 function hasLocationPin(visit) {
   return (
     visit?.lat !== null &&
@@ -100,18 +126,56 @@ function hasLocationPin(visit) {
 }
 
 function getVisitGuidance(visit, isRecommended) {
-  const action = getNextActionLabel(visit.status);
-  if (isRecommended) return `Recommended now: ${action}`;
-  if (visit.status === "sample_picked") return "Finish this pickup before the next slot";
-  if (visit.status === "assigned" || visit.status === "booked") return "Upcoming assigned visit";
+  const statusCode = normalizeStatus(visit.status);
+  const action = getNextActionLabel(statusCode);
+  if (isRecommended) {
+    if (["assigned", "booked", "accepted"].includes(statusCode)) {
+      return "Recommended next in queue";
+    }
+    return `Recommended now: ${action}`;
+  }
+  if (statusCode === "sample_picked") return "Finish this pickup before the next slot";
+  if (statusCode === "sample_dropped") return "Complete billing handoff";
+  if (statusCode === "assigned" || statusCode === "booked") return "Upcoming assigned visit";
   return `Next step: ${action}`;
 }
 
 function parseVisitStartDateTime(visit, selectedDate) {
   const startTime = visit?.time_slot?.start_time;
-  if (!selectedDate || !startTime) return null;
-  const parsed = new Date(`${selectedDate}T${startTime}`);
+  const visitDate = visit?.visit_date || selectedDate;
+  if (!visitDate || !startTime) return null;
+  const parsed = new Date(`${visitDate}T${startTime}`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function toYmd(date) {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return toYmd(d);
+}
+
+function formatRelativeFromNow(startDate) {
+  if (!startDate) return null;
+  const diffMs = startDate.getTime() - Date.now();
+  const absMin = Math.round(Math.abs(diffMs) / 60000);
+  const h = Math.floor(absMin / 60);
+  const m = absMin % 60;
+  const duration = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return diffMs >= 0 ? `Starts in ${duration}` : `Started ${duration} ago`;
+}
+
+function isOnOrAfter(dateStr, boundaryYmd) {
+  if (!dateStr || !boundaryYmd) return false;
+  return String(dateStr) >= String(boundaryYmd);
 }
 
 export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedVisit, themeMode = "light" }) {
@@ -130,13 +194,16 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedVisitId, setSelectedVisitId] = useState(null);
-  const initialAssignedLoadRef = useRef(false);
-  const initialSummarySentRef = useRef(false);
+  const hasEventsBaselineRef = useRef(false);
+  const previousAssignedIdsRef = useRef(new Set());
+  const previousUnassignedIdsRef = useRef(new Set());
   const reminderTimestampsRef = useRef({});
 
   // Modal state for contact options
   const [isContactModalOpen, setContactModalOpen] = useState(false);
   const [contactNumber, setContactNumber] = useState(null);
+  const todayYmd = useMemo(() => toYmd(new Date()), []);
+  const selectedYmd = selectedDate || todayYmd;
 
   function extractGoogleMapsUrl(text) {
     if (!text) return null;
@@ -171,6 +238,9 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
     setLoadingVisits(true);
     setErrorMsg(null);
     try {
+      const rangeStart = addDays(selectedDate, -7);
+      const rangeEnd = addDays(selectedDate, 1);
+
       const { data, error } = await supabase
         .from("visits")
         .select(`
@@ -203,7 +273,8 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
           ),
           executive:executive_id(name)
         `)
-        .eq("visit_date", selectedDate)
+        .gte("visit_date", rangeStart)
+        .lte("visit_date", rangeEnd)
         .or(`executive_id.eq.${hvExecutiveId},executive_id.is.null`);
 
       if (error) throw error;
@@ -244,96 +315,142 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
   }, [hvExecutiveId]);
 
   const assignedVisits = visits.filter((v) => v.executive_id === hvExecutiveId);
-  const unassignedVisits = visits.filter((v) => !v.executive_id);
+  const assignedTodayOrFuture = assignedVisits.filter((v) => isOnOrAfter(v.visit_date, todayYmd));
+  const tomorrowYmd = useMemo(() => addDays(todayYmd, 1), [todayYmd]);
+  const selectedDayAssignedVisits = assignedVisits.filter((v) => v.visit_date === selectedYmd);
+  const actionableAssignedVisits = selectedDayAssignedVisits.filter((v) => {
+    const statusCode = normalizeStatus(v.status);
+    return !["sample_picked", "sample_dropped", "completed", "disabled", "cancelled", "canceled"].includes(statusCode);
+  });
+  const postCollectionVisits = selectedDayAssignedVisits.filter((v) => {
+    const statusCode = normalizeStatus(v.status);
+    return ["sample_picked", "sample_dropped"].includes(statusCode);
+  });
+  const closedVisits = selectedDayAssignedVisits.filter((v) => {
+    const statusCode = normalizeStatus(v.status);
+    return ["completed", "disabled", "cancelled", "canceled"].includes(statusCode);
+  });
+  const unassignedVisits = visits.filter((v) => !v.executive_id && v.visit_date === selectedYmd);
+  const recommendedCandidates = useMemo(() => {
+    return assignedVisits.filter((v) => {
+      const statusCode = normalizeStatus(v.status);
+      if (["completed", "disabled", "cancelled", "canceled"].includes(statusCode)) return false;
+      return v.visit_date === todayYmd || v.visit_date === tomorrowYmd;
+    });
+  }, [assignedVisits, todayYmd, tomorrowYmd]);
+
   const recommendedVisitId = useMemo(() => {
-    if (!assignedVisits.length) return null;
+    if (!recommendedCandidates.length) return null;
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const now = Date.now();
+    const ranked = [...recommendedCandidates].sort((a, b) => {
+      const aStatus = normalizeStatus(a.status);
+      const bStatus = normalizeStatus(b.status);
 
-    const ranked = [...assignedVisits].sort((a, b) => {
-      const aWeight = visitPriorityWeight(a.status);
-      const bWeight = visitPriorityWeight(b.status);
-      if (aWeight !== bWeight) return bWeight - aWeight;
+      const aImmediate = ["in_progress", "started"].includes(aStatus);
+      const bImmediate = ["in_progress", "started"].includes(bStatus);
+      if (aImmediate !== bImmediate) return aImmediate ? -1 : 1;
 
-      const aStart = parseTimeSlotStart(a);
-      const bStart = parseTimeSlotStart(b);
-      if (aStart === null && bStart === null) return 0;
-      if (aStart === null) return 1;
-      if (bStart === null) return -1;
-      return Math.abs(aStart - currentMinutes) - Math.abs(bStart - currentMinutes);
+      const aStart = parseVisitStartDateTime(a, selectedDate)?.getTime() ?? null;
+      const bStart = parseVisitStartDateTime(b, selectedDate)?.getTime() ?? null;
+      if (aStart !== null && bStart !== null) {
+        const aFuture = aStart >= now;
+        const bFuture = bStart >= now;
+        if (aFuture !== bFuture) return aFuture ? -1 : 1;
+        return Math.abs(aStart - now) - Math.abs(bStart - now);
+      }
+      if (aStart === null && bStart !== null) return 1;
+      if (aStart !== null && bStart === null) return -1;
+
+      const aWeight = visitPriorityWeight(aStatus);
+      const bWeight = visitPriorityWeight(bStatus);
+      return bWeight - aWeight;
     });
 
     return ranked[0]?.id || null;
-  }, [assignedVisits]);
+  }, [recommendedCandidates, selectedDate]);
+
+  const showTomorrowSnapshot = useMemo(() => {
+    const now = new Date();
+    return now.getHours() > 21 || (now.getHours() === 21 && now.getMinutes() >= 30);
+  }, [assignedVisits.length]);
+
+  const tomorrowVisits = useMemo(() => {
+    return assignedVisits
+      .filter((v) => v.visit_date > todayYmd)
+      .sort((a, b) => {
+        const dateCmp = String(a.visit_date || "").localeCompare(String(b.visit_date || ""));
+        if (dateCmp !== 0) return dateCmp;
+        const aStart = parseTimeSlotStart(a) ?? 9999;
+        const bStart = parseTimeSlotStart(b) ?? 9999;
+        return aStart - bStart;
+      });
+  }, [assignedVisits, todayYmd]);
 
   useEffect(() => {
-    if (!assignedVisits.length) {
-      initialAssignedLoadRef.current = true;
-      initialSummarySentRef.current = false;
-      return;
-    }
+    const currentAssignedIds = new Set(assignedTodayOrFuture.map((visit) => visit.id));
+    const currentUnassignedIds = new Set(unassignedVisits.map((visit) => visit.id));
 
-    const currentIds = new Set(assignedVisits.map((visit) => visit.id));
-    if (!initialAssignedLoadRef.current) {
-      initialAssignedLoadRef.current = true;
+    if (!hasEventsBaselineRef.current) {
+      hasEventsBaselineRef.current = true;
+      previousAssignedIdsRef.current = currentAssignedIds;
+      previousUnassignedIdsRef.current = currentUnassignedIds;
       reminderTimestampsRef.current = {};
-      if (!initialSummarySentRef.current) {
-        const recommendedVisit =
-          assignedVisits.find((visit) => visit.id === recommendedVisitId) || assignedVisits[0];
-        const summaryMessage =
-          assignedVisits.length === 1
-            ? `You have 1 assigned visit: ${recommendedVisit?.patient?.name || "Patient"} at ${recommendedVisit?.time_slot?.slot_name || "scheduled slot"}.`
-            : `You have ${assignedVisits.length} assigned visits. Next up: ${recommendedVisit?.patient?.name || "Patient"} at ${recommendedVisit?.time_slot?.slot_name || "scheduled slot"}.`;
-
-        NotificationsHelper.showNotification("Assigned visits ready", {
-          body: summaryMessage,
-        });
-        toast({
-          title: "Assigned visits ready",
-          description: summaryMessage,
-          status: "info",
-          duration: 5000,
-          isClosable: true,
-        });
-        initialSummarySentRef.current = true;
-      }
       return;
     }
 
-    assignedVisits.forEach((visit) => {
-      const seenKey = `assigned:${visit.id}`;
-      if (!reminderTimestampsRef.current[seenKey]) {
-        NotificationsHelper.notify("visitAssigned", {
-          details: `${visit.patient?.name || "Patient"} at ${visit.time_slot?.slot_name || "scheduled slot"}`,
-        });
-        toast({
-          title: "New assigned visit",
-          description: `${visit.patient?.name || "Patient"} at ${visit.time_slot?.slot_name || "scheduled slot"}`,
-          status: "info",
-          duration: 5000,
-          isClosable: true,
-        });
-        reminderTimestampsRef.current[seenKey] = Date.now();
-      }
+    assignedTodayOrFuture.forEach((visit) => {
+      if (previousAssignedIdsRef.current.has(visit.id)) return;
+      const details = `${visit.patient?.name || "Patient"} at ${visit.time_slot?.slot_name || "scheduled slot"}`;
+      NotificationsHelper.notify("visitAssigned", { details });
+      toast({
+        title: "New assigned visit",
+        description: details,
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
     });
 
-    Object.keys(reminderTimestampsRef.current).forEach((key) => {
-      if (key.startsWith("assigned:")) {
-        const visitId = key.replace("assigned:", "");
-        if (!currentIds.has(visitId)) {
-          delete reminderTimestampsRef.current[key];
-        }
-      }
+    unassignedVisits.forEach((visit) => {
+      if (previousUnassignedIdsRef.current.has(visit.id)) return;
+      const details = `${visit.patient?.name || "Patient"} at ${visit.time_slot?.slot_name || "scheduled slot"}`;
+      NotificationsHelper.showNotification("New unassigned visit", { body: details });
+      toast({
+        title: "Unassigned visit available",
+        description: details,
+        status: "info",
+        duration: 4500,
+        isClosable: true,
+      });
     });
-  }, [assignedVisits, recommendedVisitId, toast]);
+
+    const removedAssignedCount = Array.from(previousAssignedIdsRef.current).filter(
+      (visitId) => !currentAssignedIds.has(visitId)
+    ).length;
+    if (removedAssignedCount > 0) {
+      toast({
+        title: "Assigned list updated",
+        description:
+          removedAssignedCount === 1
+            ? "1 visit is no longer assigned to you."
+            : `${removedAssignedCount} visits are no longer assigned to you.`,
+        status: "warning",
+        duration: 3500,
+        isClosable: true,
+      });
+    }
+
+    previousAssignedIdsRef.current = currentAssignedIds;
+    previousUnassignedIdsRef.current = currentUnassignedIds;
+  }, [assignedTodayOrFuture, unassignedVisits, toast]);
 
   useEffect(() => {
-    if (!assignedVisits.length) return;
+    if (!assignedTodayOrFuture.length) return;
 
     const remindForVisits = () => {
       const now = Date.now();
-      assignedVisits.forEach((visit) => {
+      assignedTodayOrFuture.forEach((visit) => {
         const startDate = parseVisitStartDateTime(visit, selectedDate);
         if (!startDate) return;
 
@@ -341,20 +458,21 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
         let thresholdMinutes = null;
         let message = "";
 
-        if (["booked", "assigned", "accepted"].includes(visit.status)) {
+        const statusCode = normalizeStatus(visit.status);
+        if (["booked", "assigned", "accepted"].includes(statusCode)) {
           thresholdMinutes = 10;
           message = `Visit for ${visit.patient?.name || "patient"} should be started or updated.`;
-        } else if (["in_progress", "started"].includes(visit.status)) {
+        } else if (["in_progress", "started"].includes(statusCode)) {
           thresholdMinutes = 45;
           message = `Visit for ${visit.patient?.name || "patient"} is still in progress. Please update the status.`;
-        } else if (visit.status === "sample_picked") {
+        } else if (statusCode === "sample_picked") {
           thresholdMinutes = 90;
           message = `Samples for ${visit.patient?.name || "patient"} are still marked picked. Please complete the next step.`;
         }
 
         if (!thresholdMinutes || minutesSinceStart < thresholdMinutes) return;
 
-        const reminderKey = `reminder:${visit.id}:${visit.status}`;
+        const reminderKey = `reminder:${visit.id}:${statusCode}`;
         const lastSentAt = reminderTimestampsRef.current[reminderKey] || 0;
         if (now - lastSentAt < 20 * 60 * 1000) return;
 
@@ -373,7 +491,7 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
     remindForVisits();
     const interval = window.setInterval(remindForVisits, 5 * 60 * 1000);
     return () => window.clearInterval(interval);
-  }, [assignedVisits, selectedDate]);
+  }, [assignedTodayOrFuture, selectedDate]);
 
   const assignVisit = async (visitId) => {
     if (!hvExecutiveId) {
@@ -420,21 +538,37 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
     }
   };
 
-  const startVisit = async (visitId) => {
+  const advanceVisit = async (visit) => {
+    const currentStatus = normalizeStatus(visit?.status);
+    const nextStatus = getNextStatus(currentStatus);
+    if (!nextStatus) {
+      toast({
+        title: "No further action",
+        description: "This visit is already at the final stage.",
+        status: "info",
+        duration: 2500,
+      });
+      return;
+    }
+
     try {
       const res = await fetch("/api/visits", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: visitId, status: "started", updated_by: user?.id || null }),
+        body: JSON.stringify({ id: visit.id, status: nextStatus, updated_by: user?.id || null }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to start visit");
+      if (!res.ok) throw new Error(data.error || "Failed to update visit");
 
-      toast({ title: "Visit started", status: "success", duration: 3000 });
+      toast({
+        title: `Visit updated: ${formatStatusLabel(nextStatus)}`,
+        status: "success",
+        duration: 2500,
+      });
       await fetchVisits();
     } catch (e) {
       toast({
-        title: "Failed to start visit",
+        title: "Failed to update visit",
         description: e.message ?? "Unknown error",
         status: "error",
       });
@@ -482,7 +616,7 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
         <>
           {assignedVisits.length > 0 && (
             (() => {
-              const recommendedVisit = assignedVisits.find((visit) => visit.id === recommendedVisitId);
+              const recommendedVisit = recommendedCandidates.find((visit) => visit.id === recommendedVisitId);
               return (
                 <Box
                   mb={6}
@@ -505,6 +639,9 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                       <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
                         {recommendedVisit.time_slot?.slot_name ?? "-"} • {recommendedVisit.address || "No area"}
                       </Text>
+                      <Text fontSize="sm" color={themeMode === "dark" ? "orange.100" : "orange.700"}>
+                        {formatRelativeFromNow(parseVisitStartDateTime(recommendedVisit, selectedDate)) || "Upcoming visit"}
+                      </Text>
                       <Text fontSize="sm" color={themeMode === "dark" ? "teal.100" : "teal.700"}>
                         {getVisitGuidance(recommendedVisit, true)}
                       </Text>
@@ -515,13 +652,37 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
             })()
           )}
 
-          {/* Assigned Visits */}
+          {showTomorrowSnapshot && (
+            <Box
+              mb={6}
+              p={4}
+              borderRadius="lg"
+              bg={themeMode === "dark" ? "blue.900" : "blue.50"}
+              borderWidth="1px"
+              borderColor={themeMode === "dark" ? "blue.600" : "blue.200"}
+            >
+              <Heading size="sm" mb={2}>Tomorrow Snapshot ({tomorrowVisits.length})</Heading>
+              {tomorrowVisits.length === 0 ? (
+                <Text fontSize="sm">No assigned visits yet for tomorrow.</Text>
+              ) : (
+                <Stack spacing={1}>
+                  {tomorrowVisits.slice(0, 5).map((visit) => (
+                    <Text key={visit.id} fontSize="sm">
+                      {visit.time_slot?.slot_name || "-"} • {visit.patient?.name || "Unknown"}
+                    </Text>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+          )}
+
+          {/* Assigned Visits - Action Required */}
           <VStack spacing={4} mb={8} align="stretch">
-            <Heading size="md">Assigned Visits ({assignedVisits.length})</Heading>
-            {assignedVisits.length === 0 ? (
-              <Text>No assigned visits found.</Text>
+            <Heading size="md">Assigned Visits - Action Required ({actionableAssignedVisits.length})</Heading>
+            {actionableAssignedVisits.length === 0 ? (
+              <Text>No active assigned visits.</Text>
             ) : (
-              assignedVisits.map((visit) => {
+              actionableAssignedVisits.map((visit) => {
                 const isSelected = selectedVisitId === visit.id;
                 const isRecommended = recommendedVisitId === visit.id;
                 return (
@@ -556,7 +717,7 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                       <HStack spacing={2}>
                         {isRecommended && <Badge colorScheme="orange">Now</Badge>}
                         <Badge colorScheme="teal" textTransform="capitalize">
-                          {visit.status.replace(/\_/g, " ")}
+                          {formatStatusLabel(visit.status)}
                         </Badge>
                       </HStack>
                     </HStack>
@@ -608,12 +769,115 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                         colorScheme="teal"
                         onClick={(e) => {
                           e.stopPropagation();
-                          startVisit(visit.id);
+                          advanceVisit(visit);
                         }}
                       >
-                        {getNextActionLabel(visit.status)}
+                        {getNextActionLabel(normalizeStatus(visit.status))}
                       </Button>
                       {/* Call button with modal trigger */}
+                      <IconButton
+                        size="sm"
+                        aria-label="Contact patient"
+                        icon={<PhoneIcon />}
+                        colorScheme="green"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openContactModal(visit.patient?.phone || "");
+                        }}
+                      />
+                    </HStack>
+                  </Box>
+                );
+              })
+            )}
+          </VStack>
+
+          {/* Closed Visits */}
+          <VStack spacing={4} mb={8} align="stretch">
+            <Heading size="md">Closed Visits ({closedVisits.length})</Heading>
+            {closedVisits.length === 0 ? (
+              <Text>No closed visits in the recent window.</Text>
+            ) : (
+              closedVisits
+                .sort((a, b) => String(b.visit_date).localeCompare(String(a.visit_date)))
+                .map((visit) => {
+                  const isSelected = selectedVisitId === visit.id;
+                  return (
+                    <Box
+                      key={visit.id}
+                      p={4}
+                      borderWidth="1px"
+                      borderColor={isSelected ? "teal.400" : themeMode === "dark" ? "whiteAlpha.200" : "gray.200"}
+                      borderRadius="md"
+                      bg={isSelected ? (themeMode === "dark" ? "teal.900" : "teal.50") : (themeMode === "dark" ? "gray.700" : "white")}
+                      cursor="pointer"
+                      onClick={() => handleRowClick(visit)}
+                      boxShadow={isSelected ? "md" : "sm"}
+                      _hover={{ boxShadow: "md" }}
+                    >
+                      <HStack justify="space-between" align="center" mb={2}>
+                        <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
+                        <Badge colorScheme="gray" textTransform="capitalize">
+                          {formatStatusLabel(visit.status)}
+                        </Badge>
+                      </HStack>
+                      <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.700"}>
+                        {visit.visit_date} • {visit.time_slot?.slot_name ?? "-"}
+                      </Text>
+                    </Box>
+                  );
+                })
+            )}
+          </VStack>
+
+          {/* Post-Collection Pending */}
+          <VStack spacing={4} mb={8} align="stretch">
+            <Heading size="md">Post-Collection Pending ({postCollectionVisits.length})</Heading>
+            {postCollectionVisits.length === 0 ? (
+              <Text>No post-collection visits pending.</Text>
+            ) : (
+              postCollectionVisits.map((visit) => {
+                const isSelected = selectedVisitId === visit.id;
+                return (
+                  <Box
+                    key={visit.id}
+                    p={4}
+                    borderWidth="1px"
+                    borderColor={isSelected ? "teal.400" : themeMode === "dark" ? "whiteAlpha.200" : "gray.200"}
+                    borderRadius="md"
+                    bg={isSelected ? (themeMode === "dark" ? "teal.900" : "teal.50") : (themeMode === "dark" ? "gray.700" : "white")}
+                    cursor="pointer"
+                    onClick={() => handleRowClick(visit)}
+                    boxShadow={isSelected ? "md" : "sm"}
+                    _hover={{ boxShadow: "md" }}
+                  >
+                    <HStack justify="space-between" align="center" mb={2}>
+                      <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
+                      <Badge colorScheme="teal" textTransform="capitalize">
+                        {formatStatusLabel(visit.status)}
+                      </Badge>
+                    </HStack>
+                    <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.700"}>
+                      {visit.visit_date}
+                    </Text>
+                    <Text fontWeight="bold" mt={1}>
+                      {visit.time_slot?.slot_name ?? "-"}
+                    </Text>
+                    <Text mt={2} fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.600"}>
+                      {getVisitGuidance(visit, false)}
+                    </Text>
+                    <HStack mt={3} spacing={2}>
+                      <Button
+                        size="sm"
+                        leftIcon={<FaMotorcycle />}
+                        colorScheme="teal"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          advanceVisit(visit);
+                        }}
+                      >
+                        {getNextActionLabel(normalizeStatus(visit.status))}
+                      </Button>
                       <IconButton
                         size="sm"
                         aria-label="Contact patient"
@@ -646,8 +910,8 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
                     p={4}
                     borderWidth="1px"
                     rounded="md"
-                    bg={themeMode === "dark" ? "gray.700" : getStatusStyle(visit.status).bg}
-                    borderColor={themeMode === "dark" ? "whiteAlpha.200" : getStatusStyle(visit.status).borderColor}
+                    bg={themeMode === "dark" ? "gray.700" : getStatusStyle(normalizeStatus(visit.status)).bg}
+                    borderColor={themeMode === "dark" ? "whiteAlpha.200" : getStatusStyle(normalizeStatus(visit.status)).borderColor}
                   >
                     <Text fontWeight="bold">{visit.patient?.name ?? "Unknown"}</Text>
                     {/* Address */}

@@ -88,6 +88,7 @@ export default function VisitModal({
   visitInitialData = {},
   patientId,
   isLoading: modalLoading,
+  viewOnly = false,
   defaultExecutiveId = "",      // <-- add this line
   initialAddress = "",
 }) {
@@ -448,6 +449,7 @@ export default function VisitModal({
 
   const handleSubmit = e => {
     e.preventDefault();
+    if (viewOnly) return;
     if (!isValid) {
       return toast({
         title: "Validation Error",
@@ -471,8 +473,8 @@ export default function VisitModal({
     <>
       <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" isCentered>
         <ModalOverlay />
-        <ModalContent as="form" onSubmit={handleSubmit}>
-          <ModalHeader>{formData.id ? "Edit" : "Create"} Visit</ModalHeader>
+          <ModalContent as="form" onSubmit={handleSubmit}>
+          <ModalHeader>{viewOnly ? "View" : (formData.id ? "Edit" : "Create")} Visit</ModalHeader>
           <ModalCloseButton isDisabled={modalLoading} />
           <ModalBody>
             <Box mb={3}>
@@ -493,7 +495,7 @@ export default function VisitModal({
                       value={formData.executive_id}
                       onChange={handleChange("executive_id")}
                       placeholder="Unassigned"
-                      isDisabled={readOnlyFields.includes("executive_id")}
+                      isDisabled={viewOnly || readOnlyFields.includes("executive_id")}
                     >
                       <option value="">Unassigned</option>
                       {executives.map(e => (
@@ -511,7 +513,7 @@ export default function VisitModal({
                       value={formData.lab_id}
                       onChange={handleChange("lab_id")}
                       placeholder="Select Lab"
-                      isDisabled={readOnlyFields.includes("lab_id")}
+                      isDisabled={viewOnly || readOnlyFields.includes("lab_id")}
                     >
                       {labs.map(l => (
                         <option key={l.id} value={l.id}>{l.name}</option>
@@ -528,7 +530,7 @@ export default function VisitModal({
                       value={formData.visit_date}
                       onChange={handleChange("visit_date")}
                       min={formatDate(new Date())}
-                      isDisabled={readOnlyFields.includes("visit_date")}
+                      isDisabled={viewOnly || readOnlyFields.includes("visit_date")}
                     />
                   ))
                 }
@@ -540,7 +542,7 @@ export default function VisitModal({
                       value={formData.time_slot}
                       onChange={handleChange("time_slot")}
                       placeholder="Select Time Slot"
-                      isDisabled={readOnlyFields.includes("time_slot")}
+                      isDisabled={viewOnly || readOnlyFields.includes("time_slot")}
                     >
                       {timeSlots.map(({ id, slot_name }) => (
                         <option key={id} value={id}>{slot_name}</option>
@@ -557,6 +559,7 @@ export default function VisitModal({
                       value={formData.address}
                       onChange={handleChange("address")}
                       rows={2}
+                      isDisabled={viewOnly}
                     />
                   ))
                 }
@@ -567,6 +570,7 @@ export default function VisitModal({
                     <Select
                       value={formData.status}
                       onChange={handleChange("status")}
+                      isDisabled={viewOnly}
                     >
                       {statusOptions.map(({ code, label }) => (
                         <option key={code} value={code}>{label}</option>
@@ -581,6 +585,7 @@ export default function VisitModal({
                       placeholder="Paste maps link, or lat,lng, or custom location text"
                       value={formData.location_text || ""}
                       onChange={(e) => parseLocationInput(e.target.value)}
+                      isDisabled={viewOnly}
                     />
                     <Flex gap={2}>
                       <Input
@@ -594,6 +599,7 @@ export default function VisitModal({
                             lat: e.target.value === "" ? null : Number(e.target.value)
                           }))
                         }
+                        isDisabled={viewOnly}
                       />
                       <Input
                         placeholder="Longitude"
@@ -606,6 +612,7 @@ export default function VisitModal({
                             lng: e.target.value === "" ? null : Number(e.target.value)
                           }))
                         }
+                        isDisabled={viewOnly}
                       />
                     </Flex>
                   </VStack>
@@ -617,6 +624,7 @@ export default function VisitModal({
                     value={formData.notes}
                     onChange={handleChange("notes")}
                     placeholder="Enter test names..."
+                    isDisabled={viewOnly}
                   />
                 ), false)}
 
@@ -627,7 +635,7 @@ export default function VisitModal({
                       type="file"
                       accept="image/*"
                       onChange={handlePrescriptionFile}
-                      isDisabled={uploadingPrescription}
+                      isDisabled={viewOnly || uploadingPrescription}
                     />
                     {uploadingPrescription && <Text fontSize="sm">Uploading...</Text>}
                     {formData.prescription && (
@@ -651,7 +659,7 @@ export default function VisitModal({
                     ) : visitActivity.length === 0 ? (
                       <Text fontSize="sm" color="gray.500">No activity logged yet.</Text>
                     ) : (
-                      <VStack align="stretch" spacing={3} maxH="240px" overflowY="auto">
+                      <VStack align="stretch" spacing={3} maxH="360px" overflowY="auto">
                         {visitActivity.map((entry) => (
                           <Box
                             key={entry.id || `${entry.created_at}-${entry.activity_type || "activity"}`}
@@ -682,10 +690,14 @@ export default function VisitModal({
           </ModalBody>
 
           <ModalFooter gap={3}>
-            <Button type="submit" isLoading={modalLoading} colorScheme="blue" disabled={!isValid}>
-              {formData.id ? "Update" : "Create"}
+            {!viewOnly && (
+              <Button type="submit" isLoading={modalLoading} colorScheme="blue" disabled={!isValid}>
+                {formData.id ? "Update" : "Create"}
+              </Button>
+            )}
+            <Button onClick={onClose} variant="outline" disabled={modalLoading}>
+              {viewOnly ? "Close" : "Cancel"}
             </Button>
-            <Button onClick={onClose} variant="outline" disabled={modalLoading}>Cancel</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

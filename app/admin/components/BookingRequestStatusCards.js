@@ -27,5 +27,5 @@ export default function BookingRequestStatusCards({
     { key: "other", label: "Other", value: safe.other, tone: "assigned" },
   ];
 
-  return <MetricCardsStrip items={items} themeMode={themeMode} loading={isLoading} minW="980px" />;
+  return <MetricCardsStrip items={items} themeMode={themeMode} loading={isLoading} minW="980px" singleRow />;
 }

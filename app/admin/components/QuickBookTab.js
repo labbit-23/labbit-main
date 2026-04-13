@@ -8,6 +8,7 @@ import {
   FormControl,
   FormLabel,
   HStack,
+  IconButton,
   Input,
   Modal,
   ModalBody,
@@ -33,6 +34,7 @@ import { LinkIcon } from "@chakra-ui/icons";
 import { FiNavigation } from "react-icons/fi";
 import { FiHome } from "react-icons/fi";
 import { FiMapPin } from "react-icons/fi";
+import { FiEye } from "react-icons/fi";
 import { HiOutlineOfficeBuilding } from "react-icons/hi";
 import PatientsTab from "@/app/components/PatientsTab";
 
@@ -713,6 +715,16 @@ export default function QuickBookTab({
                         </WrapItem>
                       )}
                       <WrapItem>
+                        <IconButton
+                          size="xs"
+                          variant="outline"
+                          icon={<FiEye />}
+                          aria-label="View booking details"
+                          title="View details"
+                          onClick={() => setDetailsBooking(qb)}
+                        />
+                      </WrapItem>
+                      <WrapItem>
                         <Button
                           size="xs"
                           colorScheme="green"
@@ -849,6 +861,16 @@ export default function QuickBookTab({
                     </Td>
                     <Td minW="210px">
                       <Wrap spacing={2}>
+                        <WrapItem>
+                          <IconButton
+                            size="xs"
+                            variant="outline"
+                            icon={<FiEye />}
+                            aria-label="View booking details"
+                            title="View details"
+                            onClick={() => setDetailsBooking(qb)}
+                          />
+                        </WrapItem>
                         <WrapItem>
                           <Button
                             size="xs"

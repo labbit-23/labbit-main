@@ -115,6 +115,7 @@ export default function AdminDashboard() {
 
   const [editingVisit, setEditingVisit] = useState(null);
   const [loadingVisitModal, setLoadingVisitModal] = useState(false);
+  const [visitModalViewOnly, setVisitModalViewOnly] = useState(false);
   const [loadingExecutiveModal, setLoadingExecutiveModal] = useState(false);
 
   const visitsTableRef = useRef();
@@ -1080,6 +1081,12 @@ const exportVisitsImage = async () => {
                     executives={activePhlebos}
                     timeSlots={timeSlots}
                     onEdit={(visit) => {
+                      setVisitModalViewOnly(false);
+                      setEditingVisit(visit);
+                      visitModal.onOpen();
+                    }}
+                    onView={(visit) => {
+                      setVisitModalViewOnly(true);
                       setEditingVisit(visit);
                       visitModal.onOpen();
                     }}
@@ -1094,10 +1101,12 @@ const exportVisitsImage = async () => {
                     onClose={() => {
                       visitModal.onClose();
                       setEditingVisit(null);
+                      setVisitModalViewOnly(false);
                     }}
                     onSubmit={handleVisitSave}
                     visitInitialData={editingVisit}
                     isLoading={loadingVisitModal}
+                    viewOnly={visitModalViewOnly}
                     patients={uniquePatients}
                     executives={activePhlebos}
                     labs={labs}

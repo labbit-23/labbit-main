@@ -164,16 +164,16 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
   }
 
   const metricItems = [
-    { key: "total", label: `Total ${pickupMode ? "Pickups" : "Visits"}`, value: metrics.total, tone: "total" },
+    { key: "total", label: `Total ${pickupMode ? "Pickups" : "Visits"}`, shortLabel: pickupMode ? "Pickups" : "Total", value: metrics.total, tone: "total" },
     ...(!pickupMode && hvExecutiveId
-      ? [{ key: "assigned", label: "Assigned to Me", value: metrics.assigned, tone: "assigned" }]
+      ? [{ key: "assigned", label: "Assigned to Me", shortLabel: "Assigned", value: metrics.assigned, tone: "assigned" }]
       : []),
-    { key: "completed", label: "Completed", value: metrics.completed, tone: "completed" },
-    { key: "pending", label: "Pending", value: metrics.pending, tone: "pending" },
+    { key: "completed", label: "Completed", shortLabel: "Done", value: metrics.completed, tone: "completed" },
+    { key: "pending", label: "Pending", shortLabel: "Pending", value: metrics.pending, tone: "pending" },
     ...(!pickupMode
-      ? [{ key: "unassigned", label: "Unassigned", value: metrics.unassigned, tone: "unassigned" }]
+      ? [{ key: "unassigned", label: "Unassigned", shortLabel: "Unassigned", value: metrics.unassigned, tone: "unassigned" }]
       : []),
   ];
 
-  return <MetricCardsStrip items={metricItems} themeMode={themeMode} loading={loading} />;
+  return <MetricCardsStrip items={metricItems} themeMode={themeMode} loading={loading} singleRow compactMobile />;
 }

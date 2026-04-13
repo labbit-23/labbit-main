@@ -21,6 +21,13 @@ import DashboardMetrics from "../../components/DashboardMetrics";
 import { useUser } from "../context/UserContext";
 import RequireAuth from "../../components/RequireAuth";
 
+function localYmd(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function PhleboContent({ userRole = "executive" }) {
   const { user } = useUser();
 
@@ -29,9 +36,7 @@ function PhleboContent({ userRole = "executive" }) {
   const [selectedExecutiveName, setSelectedExecutiveName] = useState(null);
   const [tabIndex, setTabIndex] = useState(0);
   const [selectedVisit, setSelectedVisit] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [selectedDate, setSelectedDate] = useState(localYmd());
   const [themeMode, setThemeMode] = useState("light");
 
   useEffect(() => {
@@ -95,7 +100,7 @@ function PhleboContent({ userRole = "executive" }) {
 
   const handleVisitSelect = (visit) => {
     setSelectedVisit(visit);
-    setTabIndex(2);
+    setTabIndex(1);
   };
 
   return (
@@ -151,9 +156,11 @@ function PhleboContent({ userRole = "executive" }) {
             p={1}
           >
             <Tab flex="1">Active Visits</Tab>
-            <Tab flex="1">Patient Lookup</Tab>
             <Tab flex="1" isDisabled={!selectedVisit}>
-              Visit Details
+              Visit Actions
+            </Tab>
+            <Tab flex="1">
+              Patient Search
             </Tab>
           </TabList>
 
@@ -170,6 +177,16 @@ function PhleboContent({ userRole = "executive" }) {
             </TabPanel>
 
             <TabPanel p={6} bg={themeMode === "dark" ? "gray.800" : "white"} rounded="md" boxShadow="sm">
+              {selectedVisit ? (
+                <VisitDetailTab key={selectedVisit.id} visit={selectedVisit} themeMode={themeMode} />
+              ) : (
+                <Box color={themeMode === "dark" ? "whiteAlpha.700" : "gray.500"} textAlign="center" py={10} fontStyle="italic">
+                  Please select a visit to perform actions.
+                </Box>
+              )}
+            </TabPanel>
+
+            <TabPanel p={6} bg={themeMode === "dark" ? "gray.800" : "white"} rounded="md" boxShadow="sm">
               <PatientsTab
                 // Optionally pass quickbookContext here if relevant
                 //onPatientSelected={() => setTabIndex(0)} // example: go back to Active Visits on patient select
@@ -178,16 +195,6 @@ function PhleboContent({ userRole = "executive" }) {
                 disablePhoneInput={false}
                 themeMode={themeMode}
               />
-            </TabPanel>
-
-            <TabPanel p={6} bg={themeMode === "dark" ? "gray.800" : "white"} rounded="md" boxShadow="sm">
-              {selectedVisit ? (
-                <VisitDetailTab key={selectedVisit.id} visit={selectedVisit} themeMode={themeMode} />
-              ) : (
-                <Box color={themeMode === "dark" ? "whiteAlpha.700" : "gray.500"} textAlign="center" py={10} fontStyle="italic">
-                  Please select a visit to view details.
-                </Box>
-              )}
             </TabPanel>
           </TabPanels>
         </Tabs>
