@@ -23,6 +23,32 @@ function isMissingColumnError(error) {
   );
 }
 
+function normalizeSourceTag(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function shouldSendPatientTemplate(body = {}) {
+  const sourceCandidates = [
+    body?.source,
+    body?.origin,
+    body?.channel,
+    body?.request_payload_json?.source
+  ]
+    .map(normalizeSourceTag)
+    .filter(Boolean);
+
+  if (sourceCandidates.length === 0) return true;
+
+  const isBotOrigin = sourceCandidates.some((tag) =>
+    ["whatsapp_bot", "bot", "chatbot", "whatsapp_flow", "whatsapp"].includes(tag)
+  );
+
+  return !isBotOrigin;
+}
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim()
@@ -345,6 +371,7 @@ export async function POST(req) {
     }
 
     const body = await req.json();
+    const allowPatientTemplateNotify = shouldSendPatientTemplate(body);
 
     const {
       patientName,
@@ -518,40 +545,44 @@ export async function POST(req) {
 
     const booking = data[0];
 
-    // 2️⃣ Send patient quickbook confirmation on WhatsApp template (fallback: SMS)
-    try {
-      const waResult = await sendQuickbookPatientTemplate({
-        labId: booking.lab_id || (isUuid(resolvedLabId) ? resolvedLabId : null),
-        phone: booking.phone || phone || null,
-        bookingId: booking.id || null,
-        patientName: booking.patient_name || patientName || null,
-        packageName: booking.package_name || packageName || null,
-        area:
-          booking.location_text ||
-          booking.location_address ||
-          booking.area ||
-          area ||
-          null,
-        date: booking.date || date || null,
-        slotLabel: resolvedTimeslot.label || null,
-        homeVisitRequired: normalizedHomeVisitRequired
-      });
-
-      if (!waResult?.ok) {
-        console.warn("Quickbook WhatsApp template skipped, falling back to SMS:", waResult?.reason);
-        await sendQuickbookPatientSms(booking.id);
-        console.log("Quick Book fallback SMS sent to patient:", booking.phone);
-      } else {
-        console.log("Quick Book WhatsApp template sent to patient:", booking.phone);
-      }
-    } catch (patientNotifyErr) {
-      console.error("Failed to send Quick Book WhatsApp template, attempting SMS fallback:", patientNotifyErr);
+    // 2️⃣ Send patient quickbook confirmation only for non-bot origins.
+    if (allowPatientTemplateNotify) {
       try {
-        await sendQuickbookPatientSms(booking.id);
-        console.log("Quick Book SMS fallback sent to patient after WhatsApp failure:", booking.phone);
-      } catch (smsErr) {
-        console.error("Failed to send Quick Book SMS fallback:", smsErr);
+        const waResult = await sendQuickbookPatientTemplate({
+          labId: booking.lab_id || (isUuid(resolvedLabId) ? resolvedLabId : null),
+          phone: booking.phone || phone || null,
+          bookingId: booking.id || null,
+          patientName: booking.patient_name || patientName || null,
+          packageName: booking.package_name || packageName || null,
+          area:
+            booking.location_text ||
+            booking.location_address ||
+            booking.area ||
+            area ||
+            null,
+          date: booking.date || date || null,
+          slotLabel: resolvedTimeslot.label || null,
+          homeVisitRequired: normalizedHomeVisitRequired
+        });
+
+        if (!waResult?.ok) {
+          console.warn("Quickbook WhatsApp template skipped, falling back to SMS:", waResult?.reason);
+          await sendQuickbookPatientSms(booking.id);
+          console.log("Quick Book fallback SMS sent to patient:", booking.phone);
+        } else {
+          console.log("Quick Book WhatsApp template sent to patient:", booking.phone);
+        }
+      } catch (patientNotifyErr) {
+        console.error("Failed to send Quick Book WhatsApp template, attempting SMS fallback:", patientNotifyErr);
+        try {
+          await sendQuickbookPatientSms(booking.id);
+          console.log("Quick Book SMS fallback sent to patient after WhatsApp failure:", booking.phone);
+        } catch (smsErr) {
+          console.error("Failed to send Quick Book SMS fallback:", smsErr);
+        }
       }
+    } else {
+      console.log("Quick Book patient template notify skipped for bot-origin request:", booking.phone);
     }
 
     // 3️⃣ Create ClickUp task (best-effort, non-blocking failure)

@@ -1,8 +1,8 @@
 "use client";
 
 import RequireAuth from "@/components/RequireAuth";
-import { useUser } from "@/app/context/UserContext";
 import ReportDispatchWorkspace from "@/components/report-dispatch/ReportDispatchWorkspace";
+import { useUser } from "@/app/context/UserContext";
 
 function roleKey(user) {
   return String(user?.executiveType || user?.roleKey || user?.userType || "")
@@ -10,16 +10,15 @@ function roleKey(user) {
     .toLowerCase();
 }
 
-export default function ReportDispatchPage() {
+export default function CollectionCentreReportDispatchPage() {
   const { user } = useUser();
   const role = roleKey(user);
-  const scopedMode = role === "b2b" || role === "logistics";
 
   return (
-    <RequireAuth roles={["admin", "manager", "director", "b2b", "logistics"]}>
+    <RequireAuth roles={["b2b", "logistics", "admin", "manager", "director"]}>
       <ReportDispatchWorkspace
-        dispatchMode={scopedMode ? "scoped" : "admin"}
-        userRole={role || "admin"}
+        dispatchMode="scoped"
+        userRole={role || "b2b"}
       />
     </RequireAuth>
   );

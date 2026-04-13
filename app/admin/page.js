@@ -5,7 +5,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Box, Tabs, TabList, TabPanels, Tab, TabPanel,
   Button, useDisclosure, Flex, Text, Heading,
-  useToast, IconButton, Badge, Tooltip, HStack, Spacer, Icon
+  useToast, IconButton, Badge, Tooltip, HStack, Icon
 } from "@chakra-ui/react";
 import { AddIcon, DownloadIcon, LinkIcon, RepeatIcon } from "@chakra-ui/icons";
 import dayjs from "dayjs";
@@ -22,6 +22,7 @@ import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
 import QuickBookTab from "./components/QuickBookTab";
+import BookingRequestStatusCards from "./components/BookingRequestStatusCards";
 import html2canvas from "html2canvas";
 
 const CLICKUP_DASHBOARD_URL =
@@ -252,7 +253,7 @@ const exportVisitsImage = async () => {
           const { data: pendingData, error: pendingError } = await supabase
             .from("quickbookings")
             .select(bookingSelect)
-            .or("status.is.null,status.eq.,status.eq.pending,status.eq.PENDING")
+            .or("status.is.null,status.eq.,status.eq.pending,status.eq.PENDING,status.eq.in_progress,status.eq.IN_PROGRESS")
             .order("created_at", { ascending: false })
             .limit(500);
 
@@ -566,6 +567,37 @@ const exportVisitsImage = async () => {
     const normalized = String(qb?.status || "").trim().toLowerCase();
     return normalized === "" || normalized === "pending";
   }).length;
+
+  const normalizeQuickbookStatusBucket = (statusRaw) => {
+    const s = String(statusRaw || "").trim().toLowerCase();
+    if (!s || s === "pending") return "unprocessed";
+    if (s === "in_progress") return "in_progress";
+    if (s === "booked" || s === "processed") return "booked";
+    if (s === "rejected") return "rejected";
+    if (
+      s === "closed" ||
+      s === "resolved" ||
+      s === "disabled" ||
+      s === "cancelled" ||
+      s === "canceled"
+    ) return "closed";
+    return "other";
+  };
+
+  const bookingRequestSummary = quickbookings.reduce(
+    (acc, qb) => {
+      const bucket = normalizeQuickbookStatusBucket(qb?.status);
+      if (bucket === "unprocessed") acc.unprocessed += 1;
+      else if (bucket === "in_progress") acc.in_progress += 1;
+      else if (bucket === "booked") acc.booked += 1;
+      else if (bucket === "rejected") acc.rejected += 1;
+      else if (bucket === "closed") acc.closed += 1;
+      else acc.other += 1;
+      acc.total += 1;
+      return acc;
+    },
+    { unprocessed: 0, in_progress: 0, booked: 0, rejected: 0, closed: 0, other: 0, total: 0 }
+  );
   const showBookingRequestsLoadingState = !bookingRequestsInitialized || bookingRequestsLoading;
   const darkActionButtonProps = themeMode === "dark"
     ? {
@@ -741,104 +773,112 @@ const exportVisitsImage = async () => {
             py={[8, 14]}
             ref={visitsTableRef}
           >
-            <Flex align="center" mb={8} wrap="wrap" gap={3}>
+            <Flex
+              align={{ base: "stretch", md: "center" }}
+              direction={{ base: "column", md: "row" }}
+              mb={8}
+              gap={3}
+            >
               <Heading className="dashboard-theme-heading" size="xl" flex="1 1 auto">
                 Labit Admin Dashboard
               </Heading>
-              <Button
-                className="no-export"
-                as="a"
-                href="/admin/whatsapp"
-                colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
-                variant={unreadWhatsAppCount > 0 ? "solid" : "outline"}
-                px={3}
-                transform={whatsappBlink ? "scale(1.05)" : "scale(1)"}
-                transition="transform 0.2s ease, box-shadow 0.2s ease"
-                boxShadow={whatsappBlink ? "0 0 0 3px rgba(245,101,101,0.35)" : undefined}
-                {...(themeMode === "dark" && unreadWhatsAppCount === 0 ? darkActionButtonProps : {})}
+              <Box
+                w={{ base: "100%", md: "auto" }}
+                overflowX={{ base: "auto", md: "visible" }}
+                className="no-export admin-header-actions"
               >
-                <img
-                  src={WHATSAPP_ICON_URL}
-                  alt="WhatsApp"
-                  style={{ width: 18, height: 18 }}
-                />
-                {unreadWhatsAppCount > 0 && (
-                  <Badge ml={2} colorScheme="whiteAlpha" borderRadius="full">
-                    {unreadWhatsAppCount}
-                  </Badge>
-                )}
-              </Button>
-              <Button
-                className="no-export"
-                as="a"
-                href={CLICKUP_DASHBOARD_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                colorScheme="blue"
-                variant="outline"
-                px={3}
-                {...darkActionButtonProps}
-              >
-                <img
-                  src={CLICKUP_ICON_URL}
-                  alt="ClickUp"
-                  style={{
-                    width: 18,
-                    height: 18,
-                    filter: themeMode === "dark" ? "invert(1) brightness(1.2)" : "none"
-                  }}
-                />
-              </Button>
-              <Tooltip label="Open Logistics">
-                <IconButton
-                  className="no-export"
-                  as="a"
-                  href="/collection-centre"
-                  aria-label="Open logistics dashboard"
-                  icon={<LinkIcon />}
-                  size="md"
-                  variant="outline"
-                  {...(themeMode === "dark"
-                    ? {
-                        color: "white",
-                        bg: "rgba(255,255,255,0.08)",
-                        borderColor: "whiteAlpha.400",
-                        _hover: { bg: "rgba(255,255,255,0.18)" },
-                      }
-                    : {
-                        borderColor: "gray.300",
-                      })}
-                />
-              </Tooltip>
-              <Tooltip label="Report Dispatch">
-                <IconButton
-                  className="no-export"
-                  as="a"
-                  href="/admin/report-dispatch"
-                  aria-label="Open report dispatch"
-                  icon={<ReportDispatchIcon boxSize={5} />}
-                  size="md"
-                  variant="outline"
-                  {...(themeMode === "dark"
-                    ? {
-                        color: "white",
-                        bg: "rgba(255,255,255,0.08)",
-                        borderColor: "whiteAlpha.400",
-                        _hover: { bg: "rgba(255,255,255,0.18)" },
-                      }
-                    : {
-                        borderColor: "gray.300",
-                      })}
-                />
-              </Tooltip>
-              <IconButton
-                className="no-export"
-                icon={<DownloadIcon />}
-                aria-label="Download Visits Schedule"
-                size="md"
-                onClick={exportVisitsImage}
-                {...darkActionButtonProps}
-              />
+                <HStack spacing={2} minW="max-content">
+                  <Button
+                    as="a"
+                    href="/admin/whatsapp"
+                    colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
+                    variant={unreadWhatsAppCount > 0 ? "solid" : "outline"}
+                    px={3}
+                    transform={whatsappBlink ? "scale(1.05)" : "scale(1)"}
+                    transition="transform 0.2s ease, box-shadow 0.2s ease"
+                    boxShadow={whatsappBlink ? "0 0 0 3px rgba(245,101,101,0.35)" : undefined}
+                    {...(themeMode === "dark" && unreadWhatsAppCount === 0 ? darkActionButtonProps : {})}
+                  >
+                    <img
+                      src={WHATSAPP_ICON_URL}
+                      alt="WhatsApp"
+                      style={{ width: 18, height: 18 }}
+                    />
+                    {unreadWhatsAppCount > 0 && (
+                      <Badge ml={2} colorScheme="whiteAlpha" borderRadius="full">
+                        {unreadWhatsAppCount}
+                      </Badge>
+                    )}
+                  </Button>
+                  <Button
+                    as="a"
+                    href={CLICKUP_DASHBOARD_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    colorScheme="blue"
+                    variant="outline"
+                    px={3}
+                    {...darkActionButtonProps}
+                  >
+                    <img
+                      src={CLICKUP_ICON_URL}
+                      alt="ClickUp"
+                      style={{
+                        width: 18,
+                        height: 18,
+                        filter: themeMode === "dark" ? "invert(1) brightness(1.2)" : "none"
+                      }}
+                    />
+                  </Button>
+                  <Tooltip label="Open Logistics">
+                    <IconButton
+                      as="a"
+                      href="/collection-centre"
+                      aria-label="Open logistics dashboard"
+                      icon={<LinkIcon />}
+                      size="md"
+                      variant="outline"
+                      {...(themeMode === "dark"
+                        ? {
+                            color: "white",
+                            bg: "rgba(255,255,255,0.08)",
+                            borderColor: "whiteAlpha.400",
+                            _hover: { bg: "rgba(255,255,255,0.18)" },
+                          }
+                        : {
+                            borderColor: "gray.300",
+                          })}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Report Dispatch">
+                    <IconButton
+                      as="a"
+                      href="/admin/report-dispatch"
+                      aria-label="Open report dispatch"
+                      icon={<ReportDispatchIcon boxSize={5} />}
+                      size="md"
+                      variant="outline"
+                      {...(themeMode === "dark"
+                        ? {
+                            color: "white",
+                            bg: "rgba(255,255,255,0.08)",
+                            borderColor: "whiteAlpha.400",
+                            _hover: { bg: "rgba(255,255,255,0.18)" },
+                          }
+                        : {
+                            borderColor: "gray.300",
+                          })}
+                    />
+                  </Tooltip>
+                  <IconButton
+                    icon={<DownloadIcon />}
+                    aria-label="Download Visits Schedule"
+                    size="md"
+                    onClick={exportVisitsImage}
+                    {...darkActionButtonProps}
+                  />
+                </HStack>
+              </Box>
             </Flex>
 
             {errorMsg && (
@@ -847,35 +887,47 @@ const exportVisitsImage = async () => {
               </Text>
             )}
 
-            <Box
-              mb={4}
-              px={4}
-              py={3}
-              borderRadius="lg"
-              borderWidth="2px"
-              borderColor={
-                showBookingRequestsLoadingState
-                  ? (themeMode === "dark" ? "whiteAlpha.500" : "orange.300")
-                  : pendingQuickbookCount > 0 ? "red.400" : "green.400"
-              }
-              bg={themeMode === "dark" ? "blackAlpha.300" : "white"}
-            >
-              <Text
-                fontSize={{ base: "md", md: "lg" }}
-                fontWeight="800"
-                color={
-                  showBookingRequestsLoadingState
-                    ? (themeMode === "dark" ? "whiteAlpha.900" : "orange.500")
-                    : pendingQuickbookCount > 0 ? "red.400" : "green.500"
-                }
-              >
-                Unprocessed Booking Requests: {showBookingRequestsLoadingState ? "..." : pendingQuickbookCount}
-              </Text>
-            </Box>
+            {tabIndex === 2 ? (
+              <Box mb={6}>
+                <BookingRequestStatusCards
+                  summary={bookingRequestSummary}
+                  themeMode={themeMode}
+                  isLoading={showBookingRequestsLoadingState}
+                />
+              </Box>
+            ) : (
+              <>
+                <Box
+                  mb={4}
+                  px={4}
+                  py={3}
+                  borderRadius="lg"
+                  borderWidth="2px"
+                  borderColor={
+                    showBookingRequestsLoadingState
+                      ? (themeMode === "dark" ? "whiteAlpha.500" : "orange.300")
+                      : pendingQuickbookCount > 0 ? "red.400" : "green.400"
+                  }
+                  bg={themeMode === "dark" ? "blackAlpha.300" : "white"}
+                >
+                  <Text
+                    fontSize={{ base: "md", md: "lg" }}
+                    fontWeight="800"
+                    color={
+                      showBookingRequestsLoadingState
+                        ? (themeMode === "dark" ? "whiteAlpha.900" : "orange.500")
+                        : pendingQuickbookCount > 0 ? "red.400" : "green.500"
+                    }
+                  >
+                    Unprocessed Booking Requests: {showBookingRequestsLoadingState ? "..." : pendingQuickbookCount}
+                  </Text>
+                </Box>
 
-            <Box mb={6}>
-              <DashboardMetrics hvExecutiveId={null} date={selectedDate} themeMode={themeMode} />
-            </Box>
+                <Box mb={6}>
+                  <DashboardMetrics hvExecutiveId={null} date={selectedDate} themeMode={themeMode} />
+                </Box>
+              </>
+            )}
 
             <Tabs
               index={tabIndex}
@@ -885,82 +937,91 @@ const exportVisitsImage = async () => {
               isLazy
               lazyBehavior="keepMounted"
             >
-              <TabList
-                alignItems="center"
-                gap={2}
-                borderWidth="1px"
-                borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
-                borderRadius="lg"
-                px={2}
-                py={2}
-                bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"}
+              <Flex
+                align={{ base: "stretch", md: "center" }}
+                direction={{ base: "column", md: "row" }}
+                justify="space-between"
                 mb={2}
+                gap={2}
               >
-                <Tab
-                  {...adminTabBaseStyles}
+                <Box
+                  flex="1 1 auto"
+                  overflowX="auto"
+                  overflowY="hidden"
+                  className="admin-tabs-scroll"
                 >
-                  Visits{" "}
-                  {unassignedVisitCount > 0 && (
-                    <Tooltip
-                      label={
-                        <Box>
-                          {Object.entries(unassignedByDate)
-                            .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([date, count]) => (
-                              <Text key={date}>
-                                {date} — {count}
-                              </Text>
-                            ))}
-                        </Box>
-                      }
-                      hasArrow
-                      bg="white"
-                      color="black"
-                      p={3}
-                      borderRadius="md"
-                    >
-                      <Badge
-                        ml={2}
-                        colorScheme="red"
-                        borderRadius="full"
-                        cursor="default"
-                      >
-                        {unassignedVisitCount}
-                      </Badge>
-                    </Tooltip>
-                  )}
-                </Tab>
-                <Tab
-                  {...adminTabBaseStyles}
-                >
-                  Patients
-                </Tab>
-                <Tab
-                  {...adminTabBaseStyles}
-                >
-                  Booking Requests{" "}
-                  {showBookingRequestsLoadingState ? (
-                    <Badge ml={2} colorScheme="orange" borderRadius="full" variant="solid">
-                      ...
-                    </Badge>
-                  ) : pendingQuickbookCount > 0 ? (
-                    <Badge ml={2} colorScheme="red" borderRadius="full" variant="solid">
-                      {pendingQuickbookCount}
-                    </Badge>
-                  ) : null}
-                </Tab>
-                <Tab
-                  {...adminTabBaseStyles}
-                >
-                  Executives
-                </Tab>
-                <Tab
-                  {...adminTabBaseStyles}
-                >
-                  Collection Centres
-                </Tab>
-                <Spacer />
-                <HStack spacing={2} className="no-export">
+                  <TabList
+                    alignItems="center"
+                    gap={2}
+                    borderWidth="1px"
+                    borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
+                    borderRadius="lg"
+                    px={2}
+                    py={2}
+                    bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"}
+                    minW="max-content"
+                  >
+                    <Tab {...adminTabBaseStyles}>
+                      <Text as="span" display={{ base: "none", sm: "inline" }}>Visits</Text>
+                      <Text as="span" display={{ base: "inline", sm: "none" }}>Visit</Text>{" "}
+                      {unassignedVisitCount > 0 && (
+                        <Tooltip
+                          label={
+                            <Box>
+                              {Object.entries(unassignedByDate)
+                                .sort(([a], [b]) => a.localeCompare(b))
+                                .map(([date, count]) => (
+                                  <Text key={date}>
+                                    {date} — {count}
+                                  </Text>
+                                ))}
+                            </Box>
+                          }
+                          hasArrow
+                          bg="white"
+                          color="black"
+                          p={3}
+                          borderRadius="md"
+                        >
+                          <Badge
+                            ml={2}
+                            colorScheme="red"
+                            borderRadius="full"
+                            cursor="default"
+                          >
+                            {unassignedVisitCount}
+                          </Badge>
+                        </Tooltip>
+                      )}
+                    </Tab>
+                    <Tab {...adminTabBaseStyles}>
+                      <Text as="span" display={{ base: "none", sm: "inline" }}>Patients</Text>
+                      <Text as="span" display={{ base: "inline", sm: "none" }}>Pts</Text>
+                    </Tab>
+                    <Tab {...adminTabBaseStyles}>
+                      <Text as="span" display={{ base: "none", md: "inline" }}>Booking Requests</Text>
+                      <Text as="span" display={{ base: "inline", md: "none" }}>Bookings</Text>{" "}
+                      {showBookingRequestsLoadingState ? (
+                        <Badge ml={2} colorScheme="orange" borderRadius="full" variant="solid">
+                          ...
+                        </Badge>
+                      ) : pendingQuickbookCount > 0 ? (
+                        <Badge ml={2} colorScheme="red" borderRadius="full" variant="solid">
+                          {pendingQuickbookCount}
+                        </Badge>
+                      ) : null}
+                    </Tab>
+                    <Tab {...adminTabBaseStyles}>
+                      <Text as="span" display={{ base: "none", sm: "inline" }}>Executives</Text>
+                      <Text as="span" display={{ base: "inline", sm: "none" }}>Exec</Text>
+                    </Tab>
+                    <Tab {...adminTabBaseStyles}>
+                      <Text as="span" display={{ base: "none", md: "inline" }}>Collection Centres</Text>
+                      <Text as="span" display={{ base: "inline", md: "none" }}>Centres</Text>
+                    </Tab>
+                  </TabList>
+                </Box>
+                <HStack spacing={2} className="no-export" flex="0 0 auto" justify={{ base: "flex-end", md: "flex-start" }}>
                   <Tooltip label="Refresh visible tab">
                     <IconButton
                       aria-label="Refresh current tab"
@@ -981,10 +1042,10 @@ const exportVisitsImage = async () => {
                     />
                   </Tooltip>
                 </HStack>
-              </TabList>
+              </Flex>
 
               <TabPanels>
-                <TabPanel>
+                <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   {/* Per-executive visit chips for selected date */}
                   <Flex mb={4} wrap="wrap" gap={2}>
                     {executives
@@ -1040,11 +1101,11 @@ const exportVisitsImage = async () => {
                   />
                 </TabPanel>
 
-                <TabPanel>
+                <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   <PatientsTab fetchPatients={fetchAll} fetchVisits={fetchAll} />
                 </TabPanel>
 
-                <TabPanel>
+                <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   <QuickBookTab
                     quickbookings={quickbookings}
                     isLoading={bookingRequestsLoading}
@@ -1060,7 +1121,7 @@ const exportVisitsImage = async () => {
                   />
                 </TabPanel>
 
-                <TabPanel>
+                <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   <Flex mb={4} justify="flex-end">
                     <Button
                       leftIcon={<AddIcon />}
@@ -1088,7 +1149,7 @@ const exportVisitsImage = async () => {
                   />
                 </TabPanel>
 
-                <TabPanel>
+                <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   <CollectionCentresTab
                     labs={labs}
                     themeMode={themeMode}
@@ -1101,14 +1162,17 @@ const exportVisitsImage = async () => {
         </Flex>
         <style jsx global>{`
           @media (max-width: 768px) {
-            .chakra-tabs__tablist {
-              overflow-x: auto;
-              overflow-y: hidden;
-              white-space: nowrap;
-              flex-wrap: nowrap !important;
+            .admin-header-actions {
               -webkit-overflow-scrolling: touch;
             }
-            .chakra-tabs__tab {
+            .admin-tabs-scroll {
+              -webkit-overflow-scrolling: touch;
+            }
+            .admin-tabs-scroll .chakra-tabs__tablist {
+              white-space: nowrap;
+              flex-wrap: nowrap !important;
+            }
+            .admin-tabs-scroll .chakra-tabs__tab {
               flex: 0 0 auto;
             }
           }

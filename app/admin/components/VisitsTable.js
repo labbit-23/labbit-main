@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import {
   Table, Thead, Tbody, Tr, Th, Td,
-  Badge, IconButton, Spinner, HStack,
+  Badge, IconButton, Spinner, HStack, Wrap, WrapItem,
   Text, Select, Box
 } from "@chakra-ui/react";
 import { EditIcon, DeleteIcon, AddIcon } from "@chakra-ui/icons";
@@ -223,13 +223,13 @@ export default function VisitsTable({
             <Text fontWeight="bold" fontSize="lg" mb={3} color={exec ? sectionHeading : tableMutedText}>
               {exec ? exec.name : "Unassigned"}
             </Text>
-            <Table variant="simple" size="sm">
+            <Table variant="simple" size="sm" minW={{ base: "700px", md: "980px" }}>
               <Thead bg={tableHeadBg}>
                 <Tr>
                   <Th color={tableMutedText}>Patient</Th>
                   <Th color={tableMutedText}>Address / Tests</Th>
-                  <Th color={tableMutedText}>Date</Th>
-                  <Th color={tableMutedText}>Slot</Th>
+                  <Th color={tableMutedText} display={{ base: "none", md: "table-cell" }}>Date</Th>
+                  <Th color={tableMutedText} display={{ base: "none", md: "table-cell" }}>Slot</Th>
                   <Th color={tableMutedText}>Status</Th>
                   <Th className="no-export" isNumeric color={tableMutedText}>Actions</Th>
                 </Tr>
@@ -245,6 +245,9 @@ export default function VisitsTable({
                         <Box>{visit.patient?.name ?? "Unknown"}</Box>
                         <Box fontWeight="bold" fontSize="sm" color={isDark ? "whiteAlpha.900" : "gray.700"}>
                           {visit.patient?.phone ?? "No Phone"}
+                        </Box>
+                        <Box display={{ base: "block", md: "none" }} fontSize="xs" color={tableMutedText} mt={1}>
+                          {formatDate(visit.visit_date)} · {getSlotDisplay(visit)}
                         </Box>
                       </Td>
                       {/* Address / Code */}
@@ -270,9 +273,13 @@ export default function VisitsTable({
                         </Box>
                       </Td>
                       {/* Date */}
-                      <Td borderColor={rowBorderColor}>{formatDate(visit.visit_date)}</Td>
+                      <Td borderColor={rowBorderColor} display={{ base: "none", md: "table-cell" }}>
+                        {formatDate(visit.visit_date)}
+                      </Td>
                       {/* Slot */}
-                      <Td borderColor={rowBorderColor}>{getSlotDisplay(visit)}</Td>
+                      <Td borderColor={rowBorderColor} display={{ base: "none", md: "table-cell" }}>
+                        {getSlotDisplay(visit)}
+                      </Td>
                       {/* Status with dynamic color */}
                       <Td borderColor={rowBorderColor}>
                         <Badge colorScheme={getStatusColor(visit.status)} rounded="md" px={2}>
@@ -281,56 +288,64 @@ export default function VisitsTable({
                       </Td>
                       {/* Actions */}
                       <Td className="no-export" isNumeric borderColor={rowBorderColor}>
-                        <HStack spacing={2} justify="flex-end">
-                          <IconButton
-                            aria-label="Edit"
-                            icon={<EditIcon />}
-                            size="sm"
-                            bg={actionButtonBg}
-                            color={isDark ? "whiteAlpha.900" : undefined}
-                            _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
-                            onClick={() => onEdit && onEdit(visit)}
-                          />
-                          <IconButton
-                            aria-label="Disable"
-                            icon={<DeleteIcon />}
-                            size="sm"
-                            colorScheme="red"
-                            onClick={() => handleDisable(visit)}
-                          />
+                        <Wrap spacing={2} justify="flex-end">
+                          <WrapItem>
+                            <IconButton
+                              aria-label="Edit"
+                              icon={<EditIcon />}
+                              size="sm"
+                              bg={actionButtonBg}
+                              color={isDark ? "whiteAlpha.900" : undefined}
+                              _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
+                              onClick={() => onEdit && onEdit(visit)}
+                            />
+                          </WrapItem>
+                          <WrapItem>
+                            <IconButton
+                              aria-label="Disable"
+                              icon={<DeleteIcon />}
+                              size="sm"
+                              colorScheme="red"
+                              onClick={() => handleDisable(visit)}
+                            />
+                          </WrapItem>
                           {isUnassigned && exec === null && (
                             <>
-                              <Select
-                                size="xs"
-                                w={120}
-                                placeholder="Assign Exec"
-                                bg={isDark ? "rgba(15,23,42,0.88)" : undefined}
-                                color={isDark ? "whiteAlpha.900" : undefined}
-                                borderColor={isDark ? "whiteAlpha.300" : undefined}
-                                onChange={(e) => setSelectedExec((prev) => ({
-                                  ...prev,
-                                  [visit.id]: e.target.value
-                                }))}
-                                value={selectedExec[visit.id] ?? ""}
-                              >
-                                {executives.map((execItem) => (
-                                  <option key={execItem.id} value={execItem.id}>
-                                    {execItem.name}
-                                  </option>
-                                ))}
-                              </Select>
-                              <IconButton
-                                aria-label="Assign"
-                                icon={<AddIcon />}
-                                size="xs"
-                                colorScheme="green"
-                                onClick={() => handleAssign(visit)}
-                                isDisabled={!selectedExec[visit.id]}
-                                isLoading={assigning.has(visit.id)}
-                              />
+                              <WrapItem>
+                                <Select
+                                  size="xs"
+                                  w={120}
+                                  placeholder="Assign Exec"
+                                  bg={isDark ? "rgba(15,23,42,0.88)" : undefined}
+                                  color={isDark ? "whiteAlpha.900" : undefined}
+                                  borderColor={isDark ? "whiteAlpha.300" : undefined}
+                                  onChange={(e) => setSelectedExec((prev) => ({
+                                    ...prev,
+                                    [visit.id]: e.target.value
+                                  }))}
+                                  value={selectedExec[visit.id] ?? ""}
+                                >
+                                  {executives.map((execItem) => (
+                                    <option key={execItem.id} value={execItem.id}>
+                                      {execItem.name}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </WrapItem>
+                              <WrapItem>
+                                <IconButton
+                                  aria-label="Assign"
+                                  icon={<AddIcon />}
+                                  size="xs"
+                                  colorScheme="green"
+                                  onClick={() => handleAssign(visit)}
+                                  isDisabled={!selectedExec[visit.id]}
+                                  isLoading={assigning.has(visit.id)}
+                                />
+                              </WrapItem>
                             </>
                           )}
-                        </HStack>
+                        </Wrap>
                       </Td>
                     </Tr>
                   );
@@ -346,13 +361,13 @@ export default function VisitsTable({
             <Text fontWeight="bold" fontSize="lg" mb={3} color={disabledHeading}>
               Disabled Visits
             </Text>
-            <Table variant="simple" size="sm">
+            <Table variant="simple" size="sm" minW={{ base: "700px", md: "980px" }}>
               <Thead bg={tableHeadBg}>
                 <Tr>
                   <Th color={tableMutedText}>Patient</Th>
                   <Th color={tableMutedText}>Address / Code</Th>
-                  <Th color={tableMutedText}>Date</Th>
-                  <Th color={tableMutedText}>Slot</Th>
+                  <Th color={tableMutedText} display={{ base: "none", md: "table-cell" }}>Date</Th>
+                  <Th color={tableMutedText} display={{ base: "none", md: "table-cell" }}>Slot</Th>
                   <Th color={tableMutedText}>Status</Th>
                   <Th className="no-export" isNumeric color={tableMutedText}>Actions</Th>
                 </Tr>
@@ -366,6 +381,9 @@ export default function VisitsTable({
                       <Box>{visit.patient?.name ?? "Unknown"}</Box>
                       <Box fontWeight="bold" fontSize="sm" color={isDark ? "whiteAlpha.900" : "gray.700"}>
                         {visit.patient?.phone ?? "No Phone"}
+                      </Box>
+                      <Box display={{ base: "block", md: "none" }} fontSize="xs" color={tableMutedText} mt={1}>
+                        {formatDate(visit.visit_date)} · {getSlotDisplay(visit)}
                       </Box>
                     </Td>
                     <Td borderColor={rowBorderColor}>
@@ -389,8 +407,12 @@ export default function VisitsTable({
                         {visit.visit_code ?? "N/A"}
                       </Box>
                     </Td>
-                    <Td borderColor={rowBorderColor}>{formatDate(visit.visit_date)}</Td>
-                    <Td borderColor={rowBorderColor}>{getSlotDisplay(visit)}</Td>
+                    <Td borderColor={rowBorderColor} display={{ base: "none", md: "table-cell" }}>
+                      {formatDate(visit.visit_date)}
+                    </Td>
+                    <Td borderColor={rowBorderColor} display={{ base: "none", md: "table-cell" }}>
+                      {getSlotDisplay(visit)}
+                    </Td>
                     <Td borderColor={rowBorderColor}>
                       <Badge colorScheme="gray" rounded="md" px={2}>
                         DISABLED

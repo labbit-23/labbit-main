@@ -3266,6 +3266,7 @@ export async function POST(req) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            source: "whatsapp_bot",
             patientName: profileName || "WhatsApp User",
             phone,
             lab_id: session.lab_id || null,

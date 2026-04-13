@@ -1,20 +1,15 @@
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
-import { getRadiologyReportUrl, getReportStatus, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
+import { getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
 import { logReportDispatch } from "@/lib/reportDispatchLogs";
-
-const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
-
-function getRoleKey(user) {
-  if (!user) return "";
-  if (user.userType === "executive") return (user.executiveType || "").toLowerCase();
-  return (user.userType || "").toLowerCase();
-}
-
-function canUseReportDispatch(user) {
-  return ALLOWED_EXEC_TYPES.includes(getRoleKey(user));
-}
+import {
+  canUseReportDispatch,
+  isScopedDispatchRole,
+  getAllowedDispatchOrgIds,
+  reportStatusMatchesOrgScope,
+  getRoleKey,
+} from "@/lib/reportDispatchScope";
 
 function extractReqidFromStatus(reportStatus) {
   const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
@@ -65,6 +60,16 @@ export async function GET(request) {
 
     if (!reqid) {
       return new Response("Missing reqid or resolvable reqno", { status: 400 });
+    }
+
+    if (isScopedDispatchRole(user)) {
+      const allowedOrgIds = await getAllowedDispatchOrgIds(user);
+      const statusForScope = reqno
+        ? await getReportStatus(reqno)
+        : await getReportStatusByReqid(reqid);
+      if (!reportStatusMatchesOrgScope(statusForScope, allowedOrgIds)) {
+        return new Response("Forbidden for this organization scope", { status: 403 });
+      }
     }
 
     const isPlain = headerMode === "plain";

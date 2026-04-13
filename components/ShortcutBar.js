@@ -16,7 +16,7 @@ import {
   Circle,
 } from "@chakra-ui/react";
 import { MoonIcon, SunIcon } from "@chakra-ui/icons";
-import { FiBell, FiBellOff, FiHome, FiLogOut } from "react-icons/fi";
+import { FiBell, FiBellOff, FiHome, FiLogOut, FiUserCheck, FiUserX } from "react-icons/fi";
 import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
@@ -225,6 +225,11 @@ export default function ShortcutBar({
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
   const roleMarker = getRoleMarker(user);
+  const execType = String(user?.executiveType || user?.roleKey || "").toLowerCase();
+  const userType = String(user?.userType || "").toLowerCase();
+  const isDirector = (userType === "executive" || userType === "director") && execType === "director";
+  const supportMode = Boolean(user?.supportMode);
+  const supportPatientPhone = String(user?.supportPatientPhone || "").trim();
   const notificationLabel =
     notificationPermission === "granted"
       ? "Notifications On"
@@ -277,6 +282,68 @@ export default function ShortcutBar({
       : notificationPermission === "unsupported"
       ? "Notifications unsupported"
       : "Notifications not enabled";
+
+  const handleSupportPatientLogin = async () => {
+    const input = window.prompt("Enter patient phone number (10 digits):", "");
+    if (input == null) return;
+    const phone = String(input).replace(/\D/g, "").slice(-10);
+    if (phone.length !== 10) {
+      toast({
+        title: "Invalid phone number",
+        description: "Enter a valid 10-digit patient phone.",
+        status: "warning",
+        duration: 2500,
+      });
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/support/patient-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to enable support mode");
+      await refreshUser();
+      toast({
+        title: "Support mode enabled",
+        description: `Patient ${phone}`,
+        status: "success",
+        duration: 2500,
+      });
+      router.push("/patient");
+    } catch (error) {
+      toast({
+        title: "Support login failed",
+        description: String(error?.message || error),
+        status: "error",
+        duration: 3000,
+      });
+    }
+  };
+
+  const handleSupportExit = async () => {
+    try {
+      const res = await fetch("/api/auth/support/exit", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to exit support mode");
+      await refreshUser();
+      toast({
+        title: "Support mode exited",
+        status: "success",
+        duration: 2000,
+      });
+      router.push("/cto");
+    } catch (error) {
+      toast({
+        title: "Exit support failed",
+        description: String(error?.message || error),
+        status: "error",
+        duration: 3000,
+      });
+    }
+  };
 
   return (
     <Box
@@ -428,6 +495,35 @@ export default function ShortcutBar({
                 {roleMarker.label}
               </Badge>
             </Tooltip>
+          )}
+          {isDirector && !supportMode && (
+            <Tooltip label="Support Login as Patient">
+              <IconButton
+                icon={<FiUserCheck />}
+                onClick={handleSupportPatientLogin}
+                variant="outline"
+                colorScheme="purple"
+                size={{ base: "sm", sm: "md" }}
+                aria-label="Support login as patient"
+              />
+            </Tooltip>
+          )}
+          {isDirector && supportMode && (
+            <>
+              <Badge colorScheme="purple" variant="subtle" px={{ base: 2, sm: 3 }} borderRadius="md">
+                Support {supportPatientPhone || "active"}
+              </Badge>
+              <Tooltip label="Exit Support Mode">
+                <IconButton
+                  icon={<FiUserX />}
+                  onClick={handleSupportExit}
+                  variant="outline"
+                  colorScheme="red"
+                  size={{ base: "sm", sm: "md" }}
+                  aria-label="Exit support mode"
+                />
+              </Tooltip>
+            </>
           )}
           {rightContent ? (
             <Box display="inline-flex" alignItems="center" gap={2}>

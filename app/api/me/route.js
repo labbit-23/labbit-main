@@ -30,6 +30,8 @@ export async function GET(request) {
         executiveType: user.executiveType || null,
         name: user.name || null,
         labIds: user.labIds || [],  // Return labIds array from session user or empty array
+        supportPatientPhone: session?.support_patient_phone || null,
+        supportMode: Boolean(session?.support_patient_phone),
       },
       { status: 200 }
     );

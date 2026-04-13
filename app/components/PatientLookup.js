@@ -159,6 +159,12 @@ export default function PatientLookup({
             value={phone}
             placeholder="Enter patient phone"
             onChange={handlePhoneChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleLookup();
+              }
+            }}
             autoFocus={!disablePhoneInput}
             disabled={disablePhoneInput}
             aria-label="Patient phone input"

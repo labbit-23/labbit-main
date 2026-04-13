@@ -15,6 +15,8 @@ import {
   Box,
   Button,
   HStack,
+  Wrap,
+  WrapItem,
   Badge,
   useToast,
   Heading,
@@ -177,12 +179,11 @@ export default function ExecutiveList({
           <Heading size="md" mb={3} textTransform="capitalize" color={isDark ? "whiteAlpha.900" : "gray.800"}>
             {type}
           </Heading>
+          <Box overflowX="auto" borderRadius="xl" boxShadow="md">
           <Table
             variant="simple"
             size="sm"
-            rounded="xl"
-            boxShadow="md"
-            overflowX="auto"
+            minW="780px"
             bg={isDark ? "rgba(255,255,255,0.03)" : "white"}
             color={isDark ? "whiteAlpha.920" : "gray.800"}
           >
@@ -237,38 +238,43 @@ export default function ExecutiveList({
                       </Badge>
                     </Td>
                     <Td isNumeric>
-                      <HStack justify="flex-end" spacing={2}>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          colorScheme="blue"
-                          onClick={() => handleUpdate(exec)}
-                          {...(isDark
-                            ? {
-                                bg: "rgba(255,255,255,0.08)",
-                                color: "white",
-                                borderColor: "whiteAlpha.400",
-                                _hover: { bg: "rgba(255,255,255,0.16)" },
-                              }
-                            : {})}
-                        >
-                          Update
-                        </Button>
-                        <Button
-                          size="xs"
-                          colorScheme={isActive ? "red" : "green"}
-                          onClick={() => handleToggleStatus(exec)}
-                          isLoading={disableLoadingId === exec.id}
-                        >
-                          {isActive ? "Disable" : "Enable"}
-                        </Button>
-                      </HStack>
+                      <Wrap justify="flex-end" spacing={2}>
+                        <WrapItem>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            colorScheme="blue"
+                            onClick={() => handleUpdate(exec)}
+                            {...(isDark
+                              ? {
+                                  bg: "rgba(255,255,255,0.08)",
+                                  color: "white",
+                                  borderColor: "whiteAlpha.400",
+                                  _hover: { bg: "rgba(255,255,255,0.16)" },
+                                }
+                              : {})}
+                          >
+                            Update
+                          </Button>
+                        </WrapItem>
+                        <WrapItem>
+                          <Button
+                            size="xs"
+                            colorScheme={isActive ? "red" : "green"}
+                            onClick={() => handleToggleStatus(exec)}
+                            isLoading={disableLoadingId === exec.id}
+                          >
+                            {isActive ? "Disable" : "Enable"}
+                          </Button>
+                        </WrapItem>
+                      </Wrap>
                     </Td>
                   </Tr>
                 );
               })}
             </Tbody>
           </Table>
+          </Box>
         </Box>
       ))}
       <ExecutiveModal

@@ -9,7 +9,8 @@ import { supabase } from '@/lib/supabaseServer'; // Adjust path if needed
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { phone: rawPhone, otp } = body;
+    const { phone: rawPhone, otp, loginAs } = body;
+    const requestedLoginAs = String(loginAs || "").trim().toLowerCase();
 
     if (!rawPhone || !otp) {
       return NextResponse.json({ error: 'Missing phone or OTP' }, { status: 400 });
@@ -76,6 +77,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Internal error during executive lookup' }, { status: 500 });
     }
 
+    const shouldPreferPatient = requestedLoginAs === "patient";
+
     // Prepare response payload with default userType and redirectUrl
     const payload = {
       message: 'OTP verified successfully',
@@ -86,7 +89,8 @@ export async function POST(request) {
       redirectUrl: '/patient', // default redirect for patients
     };
 
-    if (executive) {
+    const canUseExecutiveSession = Boolean(executive) && !shouldPreferPatient;
+    if (canUseExecutiveSession) {
       payload.userType = 'executive';
 
       const execType = (executive.type || '').trim().toLowerCase();
@@ -113,7 +117,7 @@ export async function POST(request) {
     // Save full user data in session (including patients and executive)
     const session = await getIronSession(request, response, ironOptions);
 
-    if (executive) {
+    if (canUseExecutiveSession && !shouldPreferPatient) {
       const execType = (executive.type || '').trim().toLowerCase();
       session.user = {
         phone,

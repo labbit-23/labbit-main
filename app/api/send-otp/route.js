@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import mustache from 'mustache';
 
 export async function POST(request) {
-  const { phone: rawPhone, labId: rawLabId } = await request.json();
+  const { phone: rawPhone, labId: rawLabId, purpose: rawPurpose } = await request.json();
 
   if (!rawPhone) {
     return NextResponse.json({ error: "Missing phone number" }, { status: 400 });
@@ -21,11 +21,14 @@ export async function POST(request) {
 
   let phone = looksLikePhone ? normalizedPhone : "";
   let labId = rawLabId || "";
-  let isExecutive = false;
+  const purpose = String(rawPurpose || "").trim().toLowerCase();
+  const forcePatientLogin = purpose === "patient_login";
+  const forceEmployeeReset = purpose === "employee_reset";
+  let isExecutive = forceEmployeeReset;
 
   let matchedExecutive = null;
 
-  if (!looksLikePhone) {
+  if (!looksLikePhone && !forcePatientLogin) {
     const { data: executives, error: execLookupError } = await supabase
       .from('executives')
       .select('id, phone')
@@ -66,7 +69,7 @@ export async function POST(request) {
     }
   }
 
-  if (!isExecutive) {
+  if (!isExecutive && !forcePatientLogin) {
     try {
       const { data: executiveRows, error: execError } = await supabase
         .from('executives')
@@ -159,8 +162,8 @@ export async function POST(request) {
     return NextResponse.json({ error: "Missing or invalid templates in lab config" }, { status: 500 });
   }
 
-  // Choose template key based on whether executive or patient
-  const templateKey = isExecutive ? 'forgot_password' : 'otp';
+  // Choose template key based on flow intent and account type.
+  const templateKey = forcePatientLogin ? "otp" : (isExecutive ? "forgot_password" : "otp");
 
   const chosenTemplate = smsTemplates[templateKey];
   if (!chosenTemplate) {

@@ -9,7 +9,6 @@ import {
   FormLabel,
   HStack,
   Input,
-  IconButton,
   Modal,
   ModalBody,
   ModalContent,
@@ -30,9 +29,10 @@ import {
   Wrap,
   WrapItem
 } from "@chakra-ui/react";
-import { EditIcon, LinkIcon } from "@chakra-ui/icons";
+import { LinkIcon } from "@chakra-ui/icons";
 import { FiNavigation } from "react-icons/fi";
 import { FiHome } from "react-icons/fi";
+import { FiMapPin } from "react-icons/fi";
 import { HiOutlineOfficeBuilding } from "react-icons/hi";
 import PatientsTab from "@/app/components/PatientsTab";
 
@@ -44,9 +44,42 @@ const REJECTION_REASONS = [
   { code: "other", label: "Other" }
 ];
 
+const FOLLOWUP_STATUS_OPTIONS = [
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "WAITING_PATIENT", label: "Waiting Patient" },
+  { value: "CONNECTED", label: "Connected" },
+  { value: "ATTEMPTED", label: "Attempted" },
+  { value: "CLOSED", label: "Closed" },
+  { value: "OTHER", label: "Other" }
+];
+
+const FOLLOWUP_OUTCOME_OPTIONS = [
+  { value: "CONFIRMED_CENTER_VISIT", label: "Confirmed Center Visit" },
+  { value: "CALL_BACK_REQUESTED", label: "Call Back Requested" },
+  { value: "NO_ANSWER", label: "No Answer" },
+  { value: "DECLINED", label: "Declined" },
+  { value: "INVALID_NUMBER", label: "Invalid Number" },
+  { value: "DUPLICATE_REQUEST", label: "Duplicate Request" },
+  { value: "CLOSED_NO_ACTION", label: "Closed - No Action" },
+  { value: "OTHER", label: "Other" }
+];
+
+const FOLLOWUP_CHANNEL_OPTIONS = [
+  { value: "CALL", label: "Call" },
+  { value: "WHATSAPP", label: "WhatsApp" },
+  { value: "SMS", label: "SMS" },
+  { value: "MANUAL", label: "Manual" },
+  { value: "OTHER", label: "Other" }
+];
+
 function isPending(booking) {
   const status = String(booking?.status || "").trim().toLowerCase();
   return status === "" || status === "pending";
+}
+
+function isInProgress(booking) {
+  const status = String(booking?.status || "").trim().toLowerCase();
+  return status === "in_progress";
 }
 
 function formatDateShort(value) {
@@ -110,6 +143,34 @@ function getBookingTypeMeta(qb) {
   };
 }
 
+function getRequestItemsFromPayload(qb) {
+  const items = Array.isArray(qb?.request_payload_json?.items) ? qb.request_payload_json.items : [];
+  return items
+    .map((item) => {
+      const type = String(item?.type || "").trim().toLowerCase();
+      const name = String(item?.name || "").trim();
+      if (!name) return null;
+      const prefix = type === "package" ? "[Package]" : type === "test" ? "[Test]" : "[Item]";
+      return `${prefix} ${name}`;
+    })
+    .filter(Boolean);
+}
+
+function getRequestDisplayText(qb, { multiline = false, fallbackDash = false } = {}) {
+  const requestItems = getRequestItemsFromPayload(qb);
+  if (requestItems.length > 0) {
+    const countLabel = `${requestItems.length} item${requestItems.length > 1 ? "s" : ""}`;
+    if (multiline) {
+      return `Cart request (${countLabel})\n${requestItems.join("\n")}`;
+    }
+    return `Cart request (${countLabel}) ${requestItems.join(" | ")}`;
+  }
+
+  const fallback = String(qb?.package_name || "").trim();
+  if (fallback) return fallback;
+  return fallbackDash ? "-" : "No package/tests provided";
+}
+
 export default function QuickBookTab({
   quickbookings = [],
   onRefresh,
@@ -131,6 +192,14 @@ export default function QuickBookTab({
   const [rejectReason, setRejectReason] = useState("");
   const [isRejectSaving, setIsRejectSaving] = useState(false);
   const [detailsBooking, setDetailsBooking] = useState(null);
+  const [followupBooking, setFollowupBooking] = useState(null);
+  const [followupStatus, setFollowupStatus] = useState("IN_PROGRESS");
+  const [followupOutcome, setFollowupOutcome] = useState("");
+  const [followupChannel, setFollowupChannel] = useState("CALL");
+  const [followupPatientResponse, setFollowupPatientResponse] = useState("");
+  const [followupNote, setFollowupNote] = useState("");
+  const [followupNextAt, setFollowupNextAt] = useState("");
+  const [isFollowupSaving, setIsFollowupSaving] = useState(false);
 
   const isDark = themeMode === "dark";
 
@@ -148,10 +217,36 @@ export default function QuickBookTab({
     },
     [quickbookings]
   );
-  const nonPendingQuickBooks = useMemo(
-    () => quickbookings.filter((qb) => !isPending(qb)),
+  const inProgressQuickBooks = useMemo(
+    () => quickbookings.filter(isInProgress),
     [quickbookings]
   );
+  const nonPendingQuickBooks = useMemo(
+    () => quickbookings.filter((qb) => !isPending(qb) && !isInProgress(qb)),
+    [quickbookings]
+  );
+
+  const statusSummary = useMemo(() => {
+    const summary = {
+      unprocessed: 0,
+      in_progress: 0,
+      booked: 0,
+      rejected: 0,
+      closed: 0,
+      other: 0,
+      total: quickbookings.length,
+    };
+    for (const qb of quickbookings) {
+      const s = String(qb?.status || "").trim().toLowerCase();
+      if (!s || s === "pending") summary.unprocessed += 1;
+      else if (s === "in_progress") summary.in_progress += 1;
+      else if (s === "booked") summary.booked += 1;
+      else if (s === "rejected") summary.rejected += 1;
+      else if (s === "closed" || s === "resolved") summary.closed += 1;
+      else summary.other += 1;
+    }
+    return summary;
+  }, [quickbookings]);
 
   const visibleProcessed = nonPendingQuickBooks.slice(0, processedVisibleCount);
   const hasMoreProcessedLoaded = nonPendingQuickBooks.length > processedVisibleCount;
@@ -228,6 +323,73 @@ export default function QuickBookTab({
       }
     } finally {
       setIsRejectSaving(false);
+    }
+  };
+
+  const openFollowupModal = (qb) => {
+    setFollowupBooking(qb);
+    setFollowupStatus(String(qb?.followup_status || "IN_PROGRESS").toUpperCase());
+    setFollowupOutcome(String(qb?.followup_outcome || "").toUpperCase());
+    setFollowupChannel(String(qb?.followup_channel || "CALL").toUpperCase());
+    setFollowupPatientResponse(String(qb?.patient_response || ""));
+    setFollowupNote(String(qb?.last_followup_note || ""));
+    setFollowupNextAt(qb?.next_followup_at ? String(qb.next_followup_at).slice(0, 16) : "");
+  };
+
+  const closeFollowupModal = () => {
+    if (isFollowupSaving) return;
+    setFollowupBooking(null);
+    setFollowupStatus("IN_PROGRESS");
+    setFollowupOutcome("");
+    setFollowupChannel("CALL");
+    setFollowupPatientResponse("");
+    setFollowupNote("");
+    setFollowupNextAt("");
+  };
+
+  const submitFollowup = async () => {
+    if (!followupBooking?.id) return;
+    if (!followupStatus) {
+      alert("Follow-up status is required.");
+      return;
+    }
+    if (followupStatus !== "CLOSED" && !String(followupNextAt || "").trim()) {
+      alert("Tentative next follow-up date/time is required for open requests.");
+      return;
+    }
+    if (followupOutcome === "OTHER" && !String(followupNote || "").trim()) {
+      alert("Please add details when outcome is Other.");
+      return;
+    }
+
+    setIsFollowupSaving(true);
+    try {
+      const payload = {
+        followup_status: followupStatus,
+        followup_outcome: followupOutcome || null,
+        followup_channel: followupChannel || null,
+        patient_response: String(followupPatientResponse || "").trim() || null,
+        last_followup_note: String(followupNote || "").trim() || null,
+        next_followup_at: followupStatus === "CLOSED" ? null : (followupNextAt ? new Date(followupNextAt).toISOString() : null),
+        close_booking: followupStatus === "CLOSED"
+      };
+
+      const res = await fetch("/api/quickbook/" + followupBooking.id + "/followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to save follow-up");
+      }
+
+      onRefresh && onRefresh();
+      closeFollowupModal();
+    } catch (err) {
+      alert(err?.message || "Failed to save follow-up");
+    } finally {
+      setIsFollowupSaving(false);
     }
   };
 
@@ -374,14 +536,19 @@ export default function QuickBookTab({
   return (
     <Box w="100%" overflowX="auto" py={4}>
       {pendingQuickBooks.length > 0 && (
-        <Table size="sm" bg={isDark ? "rgba(255,255,255,0.03)" : "white"} color={isDark ? "whiteAlpha.920" : "gray.800"} mb={8}>
+        <Box mb={8}>
+          <Text fontSize="md" mb={2} color={isDark ? "whiteAlpha.700" : "gray.600"} fontWeight="bold">
+            Unprocessed Booking Requests
+          </Text>
+          <Box overflowX="auto">
+          <Table size={{ base: "xs", md: "sm" }} minW={{ base: "860px", md: "1120px" }} bg={isDark ? "rgba(255,255,255,0.03)" : "white"} color={isDark ? "whiteAlpha.920" : "gray.800"}>
           <Thead>
             <Tr>
               <Th>Patient</Th>
               <Th>Request</Th>
               <Th>Schedule</Th>
               <Th>Area / Location</Th>
-              <Th>Link</Th>
+              <Th display={{ base: "none", lg: "table-cell" }}>Link</Th>
               <Th>Actions</Th>
             </Tr>
           </Thead>
@@ -393,14 +560,20 @@ export default function QuickBookTab({
               const isCentreVisit = qb?.home_visit_required === false;
 
               return (
-                <Tr key={qb.id} verticalAlign="top">
-                  <Td minW="170px">
+                <Tr
+                  key={qb.id}
+                  verticalAlign="top"
+                  cursor="pointer"
+                  _hover={{ bg: isDark ? "whiteAlpha.50" : "gray.50" }}
+                  onClick={() => setDetailsBooking(qb)}
+                >
+                  <Td minW="170px" onClick={(e) => e.stopPropagation()}>
                     <Text fontWeight="700">{qb.patient_name || "(No name)"}</Text>
                     <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>{qb.phone || "-"}</Text>
                   </Td>
                   <Td minW="240px" maxW="320px">
                     <Text fontWeight="600" whiteSpace="pre-wrap" wordBreak="break-word">
-                      {qb.package_name || "No package/tests provided"}
+                      {getRequestDisplayText(qb)}
                     </Text>
                   </Td>
                   <Td minW="150px">
@@ -414,6 +587,11 @@ export default function QuickBookTab({
                         Tentative preference
                       </Text>
                     )}
+                    {(qb?.followup_status || qb?.followup_outcome) && (
+                      <Text fontSize="xs" color={isDark ? "cyan.200" : "blue.600"}>
+                        Follow-up: {String(qb?.followup_status || "-").toUpperCase()}{qb?.followup_outcome ? " · " + String(qb.followup_outcome).replaceAll("_", " ") : ""}
+                      </Text>
+                    )}
                   </Td>
                   <Td minW="220px" maxW="300px">
                     <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
@@ -423,7 +601,7 @@ export default function QuickBookTab({
                       </Text>
                     )}
                   </Td>
-                  <Td minW="170px">
+                  <Td minW={{ base: "110px", md: "170px" }} display={{ base: "none", lg: "table-cell" }}>
                     {isCentreVisit ? (
                       <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
                         Not required for Centre Visit
@@ -478,67 +656,62 @@ export default function QuickBookTab({
                       </VStack>
                     )}
                   </Td>
-                  <Td minW="210px">
+                  <Td minW="210px" onClick={(e) => e.stopPropagation()}>
                     <Wrap spacing={2}>
-                      <WrapItem>
-                        <IconButton
-                          size="xs"
-                          icon={<FiNavigation />}
-                          aria-label="Navigate"
-                          title="Navigate"
-                          onClick={() => {
-                            const url = getQuickbookNavUrl(qb);
-                            if (!url) {
-                              alert("No location available for navigation.");
-                              return;
-                            }
-                            window.open(url, "_blank");
-                          }}
-                        />
-                      </WrapItem>
-                      <WrapItem>
-                        <Button
-                          size="xs"
-                          leftIcon={<EditIcon />}
-                          onClick={async () => {
-                            const current = qb.location_lat && qb.location_lng
-                              ? `${qb.location_lat},${qb.location_lng}`
-                              : qb.location_text || qb.location_address || "";
-                            const input = window.prompt(
-                              "Set location (maps link OR lat,lng OR plain address):",
-                              current
-                            );
-                            if (input === null) return;
-                            const trimmed = input.trim();
-                            if (!trimmed) return;
+                      {qb?.home_visit_required !== false && (
+                        <WrapItem>
+                          <Button
+                            size="xs"
+                            leftIcon={<FiMapPin />}
+                            colorScheme="red"
+                            variant="outline"
+                            onClick={async () => {
+                              const current = qb.location_lat && qb.location_lng
+                                ? `${qb.location_lat},${qb.location_lng}`
+                                : qb.location_text || qb.location_address || "";
+                              const input = window.prompt(
+                                "Set location (maps link OR lat,lng OR plain address):",
+                                current
+                              );
+                              if (input === null) return;
+                              const trimmed = input.trim();
+                              if (!trimmed) return;
 
-                            const latLngMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-                            const payload = latLngMatch
-                              ? {
-                                  location_source: "manual_admin",
-                                  location_lat: Number(latLngMatch[1]),
-                                  location_lng: Number(latLngMatch[2]),
-                                  location_text: null
-                                }
-                              : {
-                                  location_source: "manual_admin",
-                                  location_text: trimmed
-                                };
-                            await updateBooking(qb.id, payload);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </WrapItem>
-                      <WrapItem>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() => setDetailsBooking(qb)}
-                        >
-                          View Details
-                        </Button>
-                      </WrapItem>
+                              const latLngMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+                              const payload = latLngMatch
+                                ? {
+                                    location_source: "manual_admin",
+                                    location_lat: Number(latLngMatch[1]),
+                                    location_lng: Number(latLngMatch[2]),
+                                    location_text: null
+                                  }
+                                : {
+                                    location_source: "manual_admin",
+                                    location_text: trimmed
+                                  };
+                              await updateBooking(qb.id, payload);
+                            }}
+                          >
+                            Location +
+                          </Button>
+                        </WrapItem>
+                      )}
+                      {qb?.home_visit_required === false && (
+                        <WrapItem>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            colorScheme="orange"
+                            onClick={async () => {
+                              const ok = window.confirm("Convert this Center Visit request to Home Visit?");
+                              if (!ok) return;
+                              await updateBooking(qb.id, { home_visit_required: true });
+                            }}
+                          >
+                            Convert to Home Visit
+                          </Button>
+                        </WrapItem>
+                      )}
                       <WrapItem>
                         <Button
                           size="xs"
@@ -546,17 +719,17 @@ export default function QuickBookTab({
                           isDisabled={Boolean(qb.visit_id)}
                           onClick={() => setProcessingQuickBook(qb)}
                         >
-                          {isCentreVisit ? "Schedule Visit" : "Accept Visit"}
+                          Schedule Visit
                         </Button>
                       </WrapItem>
                       <WrapItem>
                         <Button
                           size="xs"
-                          colorScheme="red"
                           variant="outline"
-                          onClick={() => openRejectModal(qb)}
+                          colorScheme="blue"
+                          onClick={() => openFollowupModal(qb)}
                         >
-                          Reject
+                          Process Request
                         </Button>
                       </WrapItem>
                     </Wrap>
@@ -565,7 +738,146 @@ export default function QuickBookTab({
               );
             })}
           </Tbody>
-        </Table>
+          </Table>
+          </Box>
+        </Box>
+      )}
+
+      {inProgressQuickBooks.length > 0 && (
+        <Box mb={8}>
+          <Text fontSize="md" mb={2} color={isDark ? "whiteAlpha.700" : "gray.600"} fontWeight="bold">
+            In Progress Booking Requests
+          </Text>
+          <Box overflowX="auto">
+          <Table size={{ base: "xs", md: "sm" }} minW={{ base: "840px", md: "1060px" }} bg={isDark ? "rgba(255,255,255,0.03)" : "white"} color={isDark ? "whiteAlpha.920" : "gray.800"}>
+            <Thead>
+              <Tr>
+                <Th>Patient</Th>
+                <Th>Request</Th>
+                <Th>Schedule</Th>
+                <Th>Area / Location</Th>
+                <Th display={{ base: "none", lg: "table-cell" }}>Link</Th>
+                <Th>Actions</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {inProgressQuickBooks.map((qb) => {
+                const qbDate = String(qb?.date || "").slice(0, 10);
+                const visitValue = editing[qb.id]?.visit_id ?? qb.visit_id ?? "";
+                const visitsForDate = visitLists[qbDate] || [];
+                const isCentreVisit = qb?.home_visit_required === false;
+                return (
+                  <Tr key={`inprogress-${qb.id}`} verticalAlign="top">
+                    <Td minW="170px">
+                      <Text fontWeight="700">{qb.patient_name || "(No name)"}</Text>
+                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>{qb.phone || "-"}</Text>
+                    </Td>
+                    <Td minW="240px" maxW="320px">
+                      <Text fontWeight="600" whiteSpace="pre-wrap" wordBreak="break-word">
+                        {getRequestDisplayText(qb)}
+                      </Text>
+                    </Td>
+                    <Td minW="150px">
+                      <Box mb={1}>{renderBookingTypeChip(qb)}</Box>
+                      <Text>{formatDateShort(qbDate)}</Text>
+                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                        {qb.time_slot?.slot_name || "Slot pending"}
+                      </Text>
+                      {isCentreVisit && (
+                        <Text fontSize="xs" color={isDark ? "orange.200" : "orange.600"}>
+                          Tentative preference
+                        </Text>
+                      )}
+                    </Td>
+                    <Td minW="220px" maxW="300px">
+                      <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
+                    </Td>
+                    <Td minW={{ base: "110px", md: "170px" }} display={{ base: "none", lg: "table-cell" }}>
+                      {isCentreVisit ? (
+                        <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
+                          Not required for Centre Visit
+                        </Text>
+                      ) : visitValue && linkingVisitId !== qb.id ? (
+                        <Badge colorScheme="green" fontSize="10px">Linked</Badge>
+                      ) : (
+                        <VStack align="stretch" spacing={2}>
+                          <Button
+                            size="xs"
+                            leftIcon={<LinkIcon />}
+                            onClick={() => {
+                              if (qbDate) fetchVisitsForDate(qbDate);
+                              setLinkingVisitId((prev) => (prev === qb.id ? null : qb.id));
+                            }}
+                            px={2}
+                            minW="88px"
+                          >
+                            {linkingVisitId === qb.id ? "Hide" : "Link"}
+                          </Button>
+                          {linkingVisitId === qb.id && (
+                            <>
+                              <Select
+                                size="xs"
+                                value={visitValue}
+                                placeholder="Select visit"
+                                onChange={(e) => {
+                                  const next = e.target.value || "";
+                                  setEditing((prev) => ({
+                                    ...prev,
+                                    [qb.id]: { ...(prev[qb.id] || {}), visit_id: next }
+                                  }));
+                                }}
+                              >
+                                {visitsForDate.map((v) => (
+                                  <option key={v.id} value={v.id}>
+                                    {(v.visit_code || v.id) + " - " + (v.patient?.name || "Unknown")}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Button
+                                size="xs"
+                                colorScheme="blue"
+                                onClick={() => handleSaveVisitLink(qb)}
+                                isLoading={savingId === qb.id}
+                                px={2}
+                              >
+                                Save
+                              </Button>
+                            </>
+                          )}
+                        </VStack>
+                      )}
+                    </Td>
+                    <Td minW="210px">
+                      <Wrap spacing={2}>
+                        <WrapItem>
+                          <Button
+                            size="xs"
+                            colorScheme="green"
+                            isDisabled={Boolean(qb.visit_id)}
+                            onClick={() => setProcessingQuickBook(qb)}
+                          >
+                            Schedule Visit
+                          </Button>
+                        </WrapItem>
+                        <WrapItem>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            colorScheme="blue"
+                            onClick={() => openFollowupModal(qb)}
+                          >
+                            Process Request
+                          </Button>
+                        </WrapItem>
+                      </Wrap>
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </Tbody>
+          </Table>
+          </Box>
+        </Box>
       )}
 
       {nonPendingQuickBooks.length > 0 && (
@@ -573,7 +885,8 @@ export default function QuickBookTab({
           <Text fontSize="md" mb={2} color={isDark ? "whiteAlpha.700" : "gray.600"} fontWeight="bold">
             Processed Booking Requests
           </Text>
-          <Table size="sm" bg={isDark ? "rgba(255,255,255,0.04)" : "gray.50"} color={isDark ? "whiteAlpha.840" : "gray.700"} opacity={0.9}>
+          <Box overflowX="auto">
+          <Table size={{ base: "xs", md: "sm" }} minW={{ base: "760px", md: "980px" }} bg={isDark ? "rgba(255,255,255,0.04)" : "gray.50"} color={isDark ? "whiteAlpha.840" : "gray.700"} opacity={0.9}>
             <Thead>
               <Tr>
                 <Th>Patient</Th>
@@ -590,13 +903,18 @@ export default function QuickBookTab({
                 const rejectionReason = String(qb?.rejection_reason || "").trim();
 
                 return (
-                  <Tr key={qb.id}>
+                  <Tr
+                    key={qb.id}
+                    cursor="pointer"
+                    _hover={{ bg: isDark ? "whiteAlpha.50" : "gray.100" }}
+                    onClick={() => setDetailsBooking(qb)}
+                  >
                     <Td minW="160px">
                       <Text fontWeight="700">{qb.patient_name || "(No name)"}</Text>
                       <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>{qb.phone || "-"}</Text>
                     </Td>
                     <Td minW="220px" maxW="320px">
-                      <Text whiteSpace="pre-wrap" wordBreak="break-word">{qb.package_name || "-"}</Text>
+                      <Text whiteSpace="pre-wrap" wordBreak="break-word">{getRequestDisplayText(qb, { fallbackDash: true })}</Text>
                     </Td>
                     <Td minW="150px">
                       <Box mb={1}>{renderBookingTypeChip(qb)}</Box>
@@ -617,8 +935,13 @@ export default function QuickBookTab({
                           {rejectionReason}
                         </Text>
                       )}
+                      {(qb?.followup_status || qb?.followup_outcome) && (
+                        <Text mt={1} fontSize="xs" whiteSpace="pre-wrap" wordBreak="break-word">
+                          Follow-up: {String(qb?.followup_status || "-").toUpperCase()}{qb?.followup_outcome ? " · " + String(qb.followup_outcome).replaceAll("_", " ") : ""}
+                        </Text>
+                      )}
                     </Td>
-                    <Td minW="220px" maxW="300px">
+                    <Td minW="220px" maxW="300px" onClick={(e) => e.stopPropagation()}>
                       <Text whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
                       <Button
                         size="xs"
@@ -634,13 +957,17 @@ export default function QuickBookTab({
               })}
             </Tbody>
           </Table>
+          </Box>
 
-          <HStack mt={3} spacing={3}>
+          <Wrap mt={3} spacing={3}>
             {hasMoreProcessedLoaded && (
+              <WrapItem>
               <Button size="sm" variant="outline" onClick={() => setProcessedVisibleCount((prev) => prev + 30)}>
                 Show more loaded
               </Button>
+              </WrapItem>
             )}
+            <WrapItem>
             <Button
               size="sm"
               variant="outline"
@@ -650,7 +977,8 @@ export default function QuickBookTab({
             >
               {hasMoreHistory ? "Load older processed" : "No more processed requests"}
             </Button>
-          </HStack>
+            </WrapItem>
+          </Wrap>
         </Box>
       )}
 
@@ -711,6 +1039,111 @@ export default function QuickBookTab({
         </ModalContent>
       </Modal>
 
+      <Modal isOpen={Boolean(followupBooking)} onClose={closeFollowupModal} size="lg" isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Booking Follow-up</ModalHeader>
+          <ModalBody>
+            <VStack align="stretch" spacing={3}>
+              <Text fontSize="sm">
+                {followupBooking?.patient_name || "Patient"} · {followupBooking?.phone || "-"}
+              </Text>
+
+              <FormControl isRequired>
+                <FormLabel mb={1}>Follow-up status</FormLabel>
+                <Select value={followupStatus} onChange={(e) => setFollowupStatus(e.target.value)}>
+                  {FOLLOWUP_STATUS_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel mb={1}>Outcome / reason</FormLabel>
+                <Select
+                  value={followupOutcome}
+                  onChange={(e) => setFollowupOutcome(e.target.value)}
+                  placeholder="Select outcome"
+                >
+                  {FOLLOWUP_OUTCOME_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel mb={1}>Channel</FormLabel>
+                <Select value={followupChannel} onChange={(e) => setFollowupChannel(e.target.value)}>
+                  {FOLLOWUP_CHANNEL_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl isRequired={followupStatus !== "CLOSED"}>
+                <FormLabel mb={1}>Tentative next follow-up</FormLabel>
+                <Input
+                  type="datetime-local"
+                  value={followupNextAt}
+                  onChange={(e) => setFollowupNextAt(e.target.value)}
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel mb={1}>Patient said</FormLabel>
+                <Input
+                  value={followupPatientResponse}
+                  onChange={(e) => setFollowupPatientResponse(e.target.value)}
+                  placeholder="Patient response"
+                />
+              </FormControl>
+
+              <FormControl isRequired={followupOutcome === "OTHER"}>
+                <FormLabel mb={1}>Agent note</FormLabel>
+                <Input
+                  value={followupNote}
+                  onChange={(e) => setFollowupNote(e.target.value)}
+                  placeholder="Enter follow-up note"
+                />
+              </FormControl>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              mr={3}
+              variant="outline"
+              onClick={() => {
+                if (!followupBooking) return;
+                setDetailsBooking(followupBooking);
+              }}
+              isDisabled={isFollowupSaving}
+            >
+              View Details
+            </Button>
+            <Button
+              mr={3}
+              colorScheme="red"
+              variant="outline"
+              onClick={() => {
+                if (!followupBooking) return;
+                const target = followupBooking;
+                closeFollowupModal();
+                openRejectModal(target);
+              }}
+              isDisabled={isFollowupSaving}
+            >
+              Reject Request
+            </Button>
+            <Button mr={3} variant="ghost" onClick={closeFollowupModal} isDisabled={isFollowupSaving}>
+              Cancel
+            </Button>
+            <Button colorScheme="blue" onClick={submitFollowup} isLoading={isFollowupSaving}>
+              Save Follow-up
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
       <Modal isOpen={Boolean(detailsBooking)} onClose={() => setDetailsBooking(null)} size="xl" isCentered>
         <ModalOverlay />
         <ModalContent>
@@ -722,7 +1155,7 @@ export default function QuickBookTab({
                   {detailsBooking?.patient_name || "(No name)"} · {detailsBooking?.phone || "-"}
                 </Text>
                 <Text fontSize="sm" color={isDark ? "whiteAlpha.700" : "gray.600"}>
-                  {detailsBooking?.package_name || "No package/tests provided"}
+                  {getRequestDisplayText(detailsBooking, { multiline: true })}
                 </Text>
                 <Box mt={2}>{renderBookingTypeChip(detailsBooking)}</Box>
               </Box>
@@ -738,9 +1171,54 @@ export default function QuickBookTab({
                 <Text fontWeight="700" mb={1}>Request Payload</Text>
                 {renderRequestPayloadDetails(detailsBooking?.request_payload_json)}
               </Box>
+              <Box>
+                <Text fontWeight="700" mb={1}>Follow-up Snapshot</Text>
+                <Text fontSize="sm">Status: {String(detailsBooking?.followup_status || "-").toUpperCase()}</Text>
+                <Text fontSize="sm">
+                  Outcome: {detailsBooking?.followup_outcome ? String(detailsBooking.followup_outcome).replaceAll("_", " ") : "-"}
+                </Text>
+                <Text fontSize="sm">
+                  Channel: {detailsBooking?.followup_channel ? String(detailsBooking.followup_channel).toUpperCase() : "-"}
+                </Text>
+                <Text fontSize="sm">
+                  Next follow-up: {detailsBooking?.next_followup_at ? new Date(detailsBooking.next_followup_at).toLocaleString("en-IN") : "-"}
+                </Text>
+                <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">
+                  Patient said: {detailsBooking?.patient_response || "-"}
+                </Text>
+                <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">
+                  Agent note: {detailsBooking?.last_followup_note || "-"}
+                </Text>
+              </Box>
             </VStack>
           </ModalBody>
           <ModalFooter>
+            <Button
+              mr={3}
+              variant="outline"
+              colorScheme="blue"
+              onClick={() => {
+                if (!detailsBooking) return;
+                openFollowupModal(detailsBooking);
+              }}
+            >
+              Update Follow-up
+            </Button>
+            <Button
+              mr={3}
+              variant="outline"
+              leftIcon={<FiNavigation />}
+              onClick={() => {
+                const url = getQuickbookNavUrl(detailsBooking);
+                if (!url) {
+                  alert("No location available for navigation.");
+                  return;
+                }
+                window.open(url, "_blank");
+              }}
+            >
+              Navigate
+            </Button>
             <Button onClick={() => setDetailsBooking(null)}>Close</Button>
           </ModalFooter>
         </ModalContent>

@@ -12,7 +12,9 @@ import {
   Tab,
   TabPanel,
   Heading,
-  useToast
+  useToast,
+  Button,
+  HStack
 } from "@chakra-ui/react";
 
 import RequireAuth from "../../components/RequireAuth";
@@ -58,7 +60,14 @@ export default function CollectionCentreTabsPage() {
           />
         </Box>
 
-        <Heading mb={6}>Collection Centre Dashboard</Heading>
+        <HStack mb={6} justify="space-between" align="center" flexWrap="wrap" spacing={3}>
+          <Heading>Collection Centre Dashboard</Heading>
+          {(execType === "b2b" || execType === "logistics" || isOpsAdmin) && (
+            <Button as="a" href="/collection-centre/report-dispatch" colorScheme="blue">
+              Report Dispatch
+            </Button>
+          )}
+        </HStack>
 
         <Tabs variant="enclosed" colorScheme="teal" isLazy>
           <TabList

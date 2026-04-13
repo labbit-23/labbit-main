@@ -145,21 +145,32 @@ async function getNotifyRolesForStatus(statusCode) {
   return Array.isArray(data?.notify_to) ? data.notify_to : [];
 }
 
-async function notifyPatientWhatsappWithSmsFallback(visitId) {
+async function notifyPatientWhatsappWithSmsFallback(visitId, options = {}) {
   try {
-    await sendPatientVisitWhatsapp(visitId);
+    await sendPatientVisitWhatsapp(visitId, options);
   } catch (waError) {
     console.error(`Visit ${visitId}: Patient WhatsApp failed, falling back to SMS:`, waError?.message || waError);
     await sendPatientVisitSms(visitId);
   }
 }
 
-async function notifyRolesForVisit({ visitId, statusCode, notifyRoles, sendPatient = true, sendPhlebo = true }) {
+async function notifyRolesForVisit({
+  visitId,
+  statusCode,
+  notifyRoles,
+  sendPatient = true,
+  sendPhlebo = true,
+  patientTemplateKey = null,
+  patientStatusLabel = null,
+}) {
   const roles = Array.isArray(notifyRoles) ? notifyRoles : [];
 
   if (sendPatient && roles.includes("patient")) {
     try {
-      await notifyPatientWhatsappWithSmsFallback(visitId);
+      await notifyPatientWhatsappWithSmsFallback(visitId, {
+        templateKey: patientTemplateKey,
+        statusLabel: patientStatusLabel,
+      });
     } catch (patientError) {
       console.error(`Visit ${visitId}: Patient notification failed:`, patientError?.message || patientError);
     }
@@ -666,6 +677,8 @@ export async function PUT(request) {
         notifyRoles,
         sendPatient: true,
         sendPhlebo: Boolean(data.executive_id && data.executive?.phone),
+        patientTemplateKey: "booking_status",
+        patientStatusLabel: data.status,
       });
     }
 
@@ -679,7 +692,10 @@ export async function PUT(request) {
 
     if (!statusChanged && (isExecutiveChanged || isTimeslotChangedForPatient || isVisitDateChanged)) {
       try {
-        await notifyPatientWhatsappWithSmsFallback(data.id);
+        await notifyPatientWhatsappWithSmsFallback(data.id, {
+          templateKey: "booking_status",
+          statusLabel: isVisitDateChanged || isTimeslotChangedForPatient ? "RESCHEDULED" : "UPDATED",
+        });
       } catch (e) {
         console.error(`Visit ${data.id}: Patient update notification failed:`, e?.message || e);
       }

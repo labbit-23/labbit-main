@@ -269,7 +269,7 @@ export default function LoginPage() {
           const resOtp = await fetch('/api/send-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: normalizedPhone, labId: labs[0] }),
+            body: JSON.stringify({ phone: normalizedPhone, labId: labs[0], purpose: 'patient_login' }),
           });
 
           const otpData = await resOtp.json();
@@ -315,7 +315,7 @@ export default function LoginPage() {
       const resp = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: normalizedPhone, otp, labId: selectedLabId }),
+        body: JSON.stringify({ phone: normalizedPhone, otp, labId: selectedLabId, loginAs: 'patient' }),
       });
       const data = await resp.json();
 
@@ -452,7 +452,8 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: phoneToSend,
-          labId: (employeeLabIds.length > 0 && employeeLabIds[0]) || selectedLabId || ''
+          labId: (employeeLabIds.length > 0 && employeeLabIds[0]) || selectedLabId || '',
+          purpose: 'employee_reset'
         }),
       });
       const data = await res.json();

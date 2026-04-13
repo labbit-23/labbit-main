@@ -5,19 +5,14 @@ import { kioskIronOptions } from "@/lib/kioskSession";
 import { supabase } from "@/lib/supabaseServer";
 import { getPendingDispatchReportUrl, getReportStatus, getReportStatusByReqid } from "@/lib/neosoft/client";
 import { cookies } from "next/headers";
+import {
+  canUseReportDispatch,
+  isScopedDispatchRole,
+  getAllowedDispatchOrgIds,
+  reportStatusMatchesOrgScope,
+} from "@/lib/reportDispatchScope";
 
-const ALLOWED_EXEC_TYPES = ["admin", "manager", "director"];
 const ENABLE_PENDING_PRINT_ONCE = String(process.env.REPORT_PENDING_PRINT_ONCE_ENABLED || "").trim().toLowerCase() === "true";
-
-function getRoleKey(user) {
-  if (!user) return "";
-  if (user.userType === "executive") return (user.executiveType || "").toLowerCase();
-  return (user.userType || "").toLowerCase();
-}
-
-function canUseReportDispatch(user) {
-  return ALLOWED_EXEC_TYPES.includes(getRoleKey(user));
-}
 
 function rowValue(row, ...keys) {
   if (!row || typeof row !== "object") return null;
@@ -26,6 +21,40 @@ function rowValue(row, ...keys) {
     const lowered = String(key).toLowerCase();
     const matched = Object.keys(row).find((candidate) => String(candidate).toLowerCase() === lowered);
     if (matched && row[matched] !== undefined && row[matched] !== null) return row[matched];
+  }
+  return null;
+}
+
+function normalizedKey(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function rowValueLoose(row, ...keys) {
+  const strict = rowValue(row, ...keys);
+  if (strict !== null && strict !== undefined && String(strict).trim()) {
+    return strict;
+  }
+  if (!row || typeof row !== "object") return null;
+  const wanted = new Set(keys.map((key) => normalizedKey(key)));
+  for (const [candidate, value] of Object.entries(row)) {
+    if (value === undefined || value === null) continue;
+    if (!String(value).trim()) continue;
+    if (wanted.has(normalizedKey(candidate))) return value;
+  }
+  return null;
+}
+
+function rowValueKeyContains(row, includes = []) {
+  if (!row || typeof row !== "object") return null;
+  const wanted = includes.map((value) => normalizedKey(value)).filter(Boolean);
+  if (wanted.length === 0) return null;
+  for (const [candidate, value] of Object.entries(row)) {
+    if (value === undefined || value === null) continue;
+    if (!String(value).trim()) continue;
+    const key = normalizedKey(candidate);
+    if (wanted.some((token) => key.includes(token))) {
+      return value;
+    }
   }
   return null;
 }
@@ -124,6 +153,50 @@ function extractMrno(reportStatus) {
   for (const row of tests) {
     const mrno = String(rowValue(row, "MRNO", "mrno", "CREGNO", "cregno", "UHID", "uhid") || "").trim();
     if (mrno) return mrno;
+  }
+  return null;
+}
+
+function extractSource(reportStatus) {
+  const topDrName = String(
+    rowValueLoose(reportStatus, "DRNAME", "drname", "DR_NAME", "dr_name", "ORG_NAME", "org_name", "organization_name", "organisation_name") ||
+      rowValueKeyContains(reportStatus, ["drname", "orgname", "organizationname", "organisationname", "clientname", "accountname"]) ||
+      ""
+  ).trim();
+  const topRefDoctor = String(
+    rowValueLoose(reportStatus, "REFDOCTOR", "refdoctor", "REF_DOCTOR", "ref_doctor", "ORG_ID", "org_id", "organization_id", "organisation_id", "org_code", "ORGCODE") ||
+      rowValueKeyContains(reportStatus, ["refdoctor", "orgid", "organizationid", "organisationid", "orgcode", "clientid", "accountid"]) ||
+      ""
+  ).trim();
+  if (topDrName && topRefDoctor) return `${topDrName} | ${topRefDoctor}`;
+  if (topDrName) return topDrName;
+  if (topRefDoctor) return topRefDoctor;
+
+  const topLevelSource = String(
+    rowValue(reportStatus, "SOURCE", "source", "SRC", "src", "ORIGIN", "origin") || ""
+  ).trim();
+  if (topLevelSource) return topLevelSource;
+
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  for (const row of tests) {
+    const drName = String(
+      rowValueLoose(row, "DRNAME", "drname", "DR_NAME", "dr_name", "ORG_NAME", "org_name", "organization_name", "organisation_name") ||
+        rowValueKeyContains(row, ["drname", "orgname", "organizationname", "organisationname", "clientname", "accountname"]) ||
+        ""
+    ).trim();
+    const refDoctor = String(
+      rowValueLoose(row, "REFDOCTOR", "refdoctor", "REF_DOCTOR", "ref_doctor", "ORG_ID", "org_id", "organization_id", "organisation_id", "org_code", "ORGCODE") ||
+        rowValueKeyContains(row, ["refdoctor", "orgid", "organizationid", "organisationid", "orgcode", "clientid", "accountid"]) ||
+        ""
+    ).trim();
+    if (drName && refDoctor) return `${drName} | ${refDoctor}`;
+    if (drName) return drName;
+    if (refDoctor) return refDoctor;
+
+    const source = String(
+      rowValue(row, "SOURCE", "source", "SRC", "src", "ORIGIN", "origin") || ""
+    ).trim();
+    if (source) return source;
   }
   return null;
 }
@@ -430,6 +503,15 @@ export async function GET(request) {
         // best effort enrichment
       }
     }
+
+    if (user && isScopedDispatchRole(user)) {
+      const allowedOrgIds = await getAllowedDispatchOrgIds(user);
+      const allowed = reportStatusMatchesOrgScope(reportStatus, allowedOrgIds);
+      if (!allowed) {
+        return new Response("Forbidden for this organization scope", { status: 403 });
+      }
+    }
+
     const readyLabTests = getReadyLabTests(reportStatus);
     const pendingLabTests = getPendingLabTests(reportStatus);
     const readyLabTestKeys = readyLabTests.map((row) => row.key);
@@ -437,6 +519,7 @@ export async function GET(request) {
     const patientName = extractPatientName(reportStatus);
     const testDate = extractTestDate(reportStatus);
     const mrno = extractMrno(reportStatus);
+    const sourceLabel = extractSource(reportStatus);
 
     let logsQuery = supabase
       .from("report_dispatch_logs")
@@ -485,6 +568,7 @@ export async function GET(request) {
           patient_phone: patientPhone,
           test_date: testDate,
           mrno,
+          source: sourceLabel,
           ready_lab_tests: readyLabTests,
           ready_lab_test_keys: readyLabTestKeys,
           pending_lab_tests: pendingLabTests,
