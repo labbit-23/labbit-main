@@ -37,10 +37,16 @@ export default function ExecutiveList({
   const [isSaving, setIsSaving] = useState(false);
   const [disableLoadingId, setDisableLoadingId] = useState(null);
 
+  const [localExecutives, setLocalExecutives] = useState(executives);
+
+  useEffect(() => {
+    setLocalExecutives(executives);
+  }, [executives]);
+
   // Memoized grouping and sorting
   const groupedExecutives = useMemo(() => {
     const groups = {};
-    executives.forEach(exec => {
+    localExecutives.forEach(exec => {
       const execType = exec.type ? exec.type.trim() : "";
       const groupKey = execType !== "" ? execType : "Unknown";
       if (!groups[groupKey]) groups[groupKey] = [];
@@ -71,13 +77,7 @@ export default function ExecutiveList({
       sortedGroups[key] = groups[key];
     });
     return sortedGroups;
-  }, [executives]);
-
-  const [localExecutives, setLocalExecutives] = useState(executives);
-
-  useEffect(() => {
-    setLocalExecutives(executives);
-  }, [executives]);
+  }, [localExecutives]);
 
   // Get lab name/logo by lab_id
   const getLabInfo = (exec) => {
@@ -174,109 +174,113 @@ export default function ExecutiveList({
 
   return (
     <>
-      {Object.entries(groupedExecutives).map(([type, execs]) => (
-        <Box key={type} my={6}>
-          <Heading size="md" mb={3} textTransform="capitalize" color={isDark ? "whiteAlpha.900" : "gray.800"}>
-            {type}
-          </Heading>
-          <Box overflowX="auto" borderRadius="xl" boxShadow="md">
-          <Table
-            variant="simple"
-            size="sm"
-            minW="780px"
-            bg={isDark ? "rgba(255,255,255,0.03)" : "white"}
-            color={isDark ? "whiteAlpha.920" : "gray.800"}
-          >
-            <Thead bg={isDark ? "rgba(255,255,255,0.08)" : "gray.100"}>
-              <Tr>
-                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Name</Th>
-                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
-                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Email</Th>
-                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Lab</Th>
-                <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
-                <Th isNumeric color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {execs.map((exec) => {
-                const statusLower = (exec.status || "").toLowerCase();
-                const isActive = statusLower === "active" || exec.active === true;
-                const labInfo = getLabInfo(exec);
-                return (
-                  <Tr key={exec.id}>
-                    <Td>{exec.name}</Td>
-                    <Td>{exec.phone}</Td>
-                    <Td>{exec.email}</Td>
-                    <Td>
-                      <HStack>
-                        {labInfo.logo_url && (
-                          <Image
-                            src={labInfo.logo_url}
-                            alt={labInfo.name + " logo"}
-                            height="30px"
-                            borderRadius="sm"
-                          />
-                        )}
-                        <Text display="inline">{labInfo.name}</Text>
-                      </HStack>
-                    </Td>
-                    <Td>
-                      <Badge
-                        colorScheme={
-                          isActive
-                            ? "green"
-                            : statusLower === "available"
-                            ? "blue"
-                            : "red"
-                        }
-                        textTransform="capitalize"
-                        px={2}
-                        py={1}
-                        rounded="md"
-                      >
-                        {isActive ? "Active" : statusLower === "available" ? "Available" : "Inactive"}
-                      </Badge>
-                    </Td>
-                    <Td isNumeric>
-                      <Wrap justify="flex-end" spacing={2}>
-                        <WrapItem>
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            colorScheme="blue"
-                            onClick={() => handleUpdate(exec)}
-                            {...(isDark
-                              ? {
-                                  bg: "rgba(255,255,255,0.08)",
-                                  color: "white",
-                                  borderColor: "whiteAlpha.400",
-                                  _hover: { bg: "rgba(255,255,255,0.16)" },
-                                }
-                              : {})}
-                          >
-                            Update
-                          </Button>
-                        </WrapItem>
-                        <WrapItem>
-                          <Button
-                            size="xs"
-                            colorScheme={isActive ? "red" : "green"}
-                            onClick={() => handleToggleStatus(exec)}
-                            isLoading={disableLoadingId === exec.id}
-                          >
-                            {isActive ? "Disable" : "Enable"}
-                          </Button>
-                        </WrapItem>
-                      </Wrap>
-                    </Td>
-                  </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
-          </Box>
-        </Box>
-      ))}
+      <Box my={6} overflowX="auto" borderRadius="xl" boxShadow="md">
+        <Table
+          variant="simple"
+          size="sm"
+          minW="780px"
+          bg={isDark ? "rgba(255,255,255,0.03)" : "white"}
+          color={isDark ? "whiteAlpha.920" : "gray.800"}
+        >
+          <Thead bg={isDark ? "rgba(255,255,255,0.08)" : "gray.100"}>
+            <Tr>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Name</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Email</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Lab</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
+              <Th isNumeric color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {Object.entries(groupedExecutives).map(([type, execs]) => (
+              <React.Fragment key={type}>
+                <Tr bg={isDark ? "rgba(255,255,255,0.05)" : "gray.50"}>
+                  <Td colSpan={6} py={2}>
+                    <Heading size="sm" textTransform="capitalize" color={isDark ? "whiteAlpha.900" : "gray.700"}>
+                      {type}
+                    </Heading>
+                  </Td>
+                </Tr>
+                {execs.map((exec) => {
+                  const statusLower = (exec.status || "").toLowerCase();
+                  const isActive = statusLower === "active" || exec.active === true;
+                  const labInfo = getLabInfo(exec);
+                  return (
+                    <Tr key={exec.id}>
+                      <Td>{exec.name}</Td>
+                      <Td>{exec.phone}</Td>
+                      <Td>{exec.email || "-"}</Td>
+                      <Td>
+                        <HStack>
+                          {labInfo.logo_url && (
+                            <Image
+                              src={labInfo.logo_url}
+                              alt={labInfo.name + " logo"}
+                              height="30px"
+                              borderRadius="sm"
+                            />
+                          )}
+                          <Text display="inline">{labInfo.name}</Text>
+                        </HStack>
+                      </Td>
+                      <Td>
+                        <Badge
+                          colorScheme={
+                            isActive
+                              ? "green"
+                              : statusLower === "available"
+                              ? "blue"
+                              : "red"
+                          }
+                          textTransform="capitalize"
+                          px={2}
+                          py={1}
+                          rounded="md"
+                        >
+                          {isActive ? "Active" : statusLower === "available" ? "Available" : "Inactive"}
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>
+                        <Wrap justify="flex-end" spacing={2}>
+                          <WrapItem>
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              colorScheme="blue"
+                              onClick={() => handleUpdate(exec)}
+                              {...(isDark
+                                ? {
+                                    bg: "rgba(255,255,255,0.08)",
+                                    color: "white",
+                                    borderColor: "whiteAlpha.400",
+                                    _hover: { bg: "rgba(255,255,255,0.16)" },
+                                  }
+                                : {})}
+                            >
+                              Update
+                            </Button>
+                          </WrapItem>
+                          <WrapItem>
+                            <Button
+                              size="xs"
+                              colorScheme={isActive ? "red" : "green"}
+                              onClick={() => handleToggleStatus(exec)}
+                              isLoading={disableLoadingId === exec.id}
+                            >
+                              {isActive ? "Disable" : "Enable"}
+                            </Button>
+                          </WrapItem>
+                        </Wrap>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </Tbody>
+        </Table>
+      </Box>
       <ExecutiveModal
         isOpen={modalOpen}
         onClose={() => {

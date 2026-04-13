@@ -494,11 +494,24 @@ async function handlePostReportFeedbackInbound({
   const trimmedInput = String(userInput || "").trim();
   const ratingInput = parseFeedbackRating(trimmedInput);
   let flow = getFeedbackFlow(session?.context);
-  if (!flow?.stage && session?.context?.last_report_feedback_armed && ratingInput) {
-    // Accept direct rating replies even if feedback flow stage wasn't persisted yet.
+  const canBootstrapFeedbackFromLateRating =
+    Boolean(ratingInput) &&
+    (
+      Boolean(session?.context?.last_report_feedback_armed) ||
+      Boolean(session?.context?.last_resolution_feedback_armed) ||
+      canOfferPostReportFeedback(session?.context || {}) ||
+      canOfferResolvedFeedback(session?.context || {})
+    );
+
+  if (!flow?.stage && canBootstrapFeedbackFromLateRating) {
+    // Accept direct/late rating replies even if feedback flow stage wasn't persisted yet.
+    const triggerSource =
+      session?.context?.last_resolution_feedback_armed || canOfferResolvedFeedback(session?.context || {})
+        ? "agent_resolved_feedback"
+        : "report_delivery_feedback";
     flow = {
       stage: "awaiting_rating",
-      trigger_source: "report_delivery_feedback",
+      trigger_source: triggerSource,
       reqid: String(session?.context?.selected_report_reqid || "").trim() || null,
       reqno: String(session?.context?.selected_report_reqno || "").trim() || null,
       prompted_at: nowIso
@@ -1068,7 +1081,7 @@ function getDeliveryFailureAckText(templates = {}) {
   return (
     botFlow?.texts?.delivery_failed_ack_text ||
     templates?.delivery_failed_ack_text ||
-    "We could not deliver your WhatsApp update due to a temporary delivery issue. Our executive team has been alerted and will assist you shortly."
+    "We could not deliver your WhatsApp update due to a temporary delivery issue. Please try again after some time. Our executive team has been alerted and will assist you shortly."
   );
 }
 

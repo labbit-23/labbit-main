@@ -59,6 +59,14 @@ function rowValueKeyContains(row, includes = []) {
   return null;
 }
 
+function keepNamePartIfComposite(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const parts = text.split("|").map((part) => String(part || "").trim()).filter(Boolean);
+  if (parts.length < 2) return text;
+  return parts[0] || text;
+}
+
 function normalizeReqno(reportStatus) {
   const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
   for (const row of tests) {
@@ -168,14 +176,13 @@ function extractSource(reportStatus) {
       rowValueKeyContains(reportStatus, ["refdoctor", "orgid", "organizationid", "organisationid", "orgcode", "clientid", "accountid"]) ||
       ""
   ).trim();
-  if (topDrName && topRefDoctor) return `${topDrName} | ${topRefDoctor}`;
   if (topDrName) return topDrName;
   if (topRefDoctor) return topRefDoctor;
 
   const topLevelSource = String(
     rowValue(reportStatus, "SOURCE", "source", "SRC", "src", "ORIGIN", "origin") || ""
   ).trim();
-  if (topLevelSource) return topLevelSource;
+  if (topLevelSource) return keepNamePartIfComposite(topLevelSource);
 
   const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
   for (const row of tests) {
@@ -189,14 +196,13 @@ function extractSource(reportStatus) {
         rowValueKeyContains(row, ["refdoctor", "orgid", "organizationid", "organisationid", "orgcode", "clientid", "accountid"]) ||
         ""
     ).trim();
-    if (drName && refDoctor) return `${drName} | ${refDoctor}`;
     if (drName) return drName;
     if (refDoctor) return refDoctor;
 
     const source = String(
       rowValue(row, "SOURCE", "source", "SRC", "src", "ORIGIN", "origin") || ""
     ).trim();
-    if (source) return source;
+    if (source) return keepNamePartIfComposite(source);
   }
   return null;
 }

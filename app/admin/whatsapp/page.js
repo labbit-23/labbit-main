@@ -2503,7 +2503,7 @@ export default function WhatsAppDashboard() {
                     </button>
                   ))}
                 </div>
-                {(showSearchBox || search || !isMobileViewport) && (
+                {(showSearchBox || search) && (
                   <input
                     className="wa-ownerSearchInput"
                     value={search}

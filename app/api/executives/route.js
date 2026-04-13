@@ -22,6 +22,11 @@ function getCollectionAssignmentRole(type) {
   return "requester";
 }
 
+function normalizeOptionalEmail(value) {
+  const text = String(value == null ? "" : value).trim();
+  return text || null;
+}
+
 async function syncCollectionCentreAssignments(executiveId, type, centreIds) {
   const roleKey = (type || "").toString().trim().toLowerCase();
   if (!COLLECTION_ROLES.has(roleKey)) return;
@@ -73,7 +78,7 @@ export async function POST(request) {
     .insert({
       name: data.name,
       phone: data.phone,
-      email: data.email ?? null,
+      email: normalizeOptionalEmail(data.email),
       type: normalizeExecutiveType(data.type),
       active: data.active ?? true,
       status: data.status ?? "active",
@@ -127,7 +132,7 @@ export async function PUT(request) {
     .update({
       name: data.name,
       phone: data.phone,
-      email: data.email ?? null,
+      email: normalizeOptionalEmail(data.email),
       type: normalizeExecutiveType(data.type),
       active: data.active ?? true,
       status:

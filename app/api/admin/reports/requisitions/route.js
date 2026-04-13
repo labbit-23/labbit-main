@@ -49,6 +49,14 @@ function readValueByNormalizedKeyIncludes(row, includes = []) {
   return "";
 }
 
+function keepNamePartIfComposite(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const parts = text.split("|").map((part) => String(part || "").trim()).filter(Boolean);
+  if (parts.length < 2) return text;
+  return parts[0] || text;
+}
+
 function readOrgName(row) {
   return (
     readValue(row, "DRNAME", "drname", "DR_NAME", "dr_name", "ORG_NAME", "org_name", "organization_name", "organisation_name") ||
@@ -66,13 +74,13 @@ function readOrgId(row) {
 function buildSourceLabel(row) {
   const drName = readOrgName(row);
   const refDoctor = readOrgId(row);
-  if (drName && refDoctor) return `${drName} | ${refDoctor}`;
   if (drName) return drName;
   if (refDoctor) return refDoctor;
-  return (
+  const fallback = (
     readValue(row, "source", "SOURCE", "src", "SRC", "origin", "ORIGIN") ||
     readValueByNormalizedKeyIncludes(row, ["source", "origin", "channel"])
-  ) || null;
+  );
+  return keepNamePartIfComposite(fallback) || null;
 }
 
 export async function GET(request) {
