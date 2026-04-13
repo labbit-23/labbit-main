@@ -1,0 +1,20 @@
+{
+  "name": "labbit-compare-modal-zoom",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "@chakra-ui/react": ">=2",
+    "@emotion/react": ">=11",
+    "@emotion/styled": ">=11",
+    "framer-motion": ">=10"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "react-zoom-pan-pinch": "^3.4.4"
+  }
+}
