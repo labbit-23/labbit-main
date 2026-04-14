@@ -1166,6 +1166,7 @@ const exportVisitsImage = async () => {
                 <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   <CollectionCentresTab
                     labs={labs}
+                    executives={executives}
                     themeMode={themeMode}
                     onRegisterRefresh={setCollectionRefreshHandler}
                   />

@@ -27,6 +27,43 @@ function normalizeOptionalEmail(value) {
   return text || null;
 }
 
+async function fetchExecutiveById(executiveId) {
+  const { data, error } = await supabase
+    .from("executives")
+    .select(`
+      id,
+      name,
+      phone,
+      email,
+      type,
+      status,
+      active,
+      executives_labs(lab_id),
+      executives_collection_centres(collection_centre_id, role)
+    `)
+    .eq("id", executiveId)
+    .single();
+
+  if (error) throw error;
+
+  return {
+    ...data,
+    lab_id:
+      Array.isArray(data.executives_labs) && data.executives_labs.length > 0
+        ? data.executives_labs[0].lab_id
+        : "",
+    collection_centre_ids: Array.isArray(data.executives_collection_centres)
+      ? [
+          ...new Set(
+            data.executives_collection_centres
+              .map((row) => row.collection_centre_id)
+              .filter((v) => v != null)
+          ),
+        ]
+      : [],
+  };
+}
+
 async function syncCollectionCentreAssignments(executiveId, type, centreIds) {
   const roleKey = (type || "").toString().trim().toLowerCase();
   if (!COLLECTION_ROLES.has(roleKey)) return;
@@ -118,7 +155,12 @@ export async function POST(request) {
     );
   }
 
-  return NextResponse.json(insertedExec, { status: 201 });
+  try {
+    const hydrated = await fetchExecutiveById(insertedExec.id);
+    return NextResponse.json(hydrated, { status: 201 });
+  } catch (_hydrateErr) {
+    return NextResponse.json(insertedExec, { status: 201 });
+  }
 }
 
 export async function PUT(request) {
@@ -174,7 +216,12 @@ export async function PUT(request) {
     );
   }
 
-  return NextResponse.json(updatedExec, { status: 200 });
+  try {
+    const hydrated = await fetchExecutiveById(data.id);
+    return NextResponse.json(hydrated, { status: 200 });
+  } catch (_hydrateErr) {
+    return NextResponse.json(updatedExec, { status: 200 });
+  }
 }
 
 export async function GET(request) {

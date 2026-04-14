@@ -36,12 +36,31 @@ export default function ExecutiveList({
   const [selectedExecutive, setSelectedExecutive] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [disableLoadingId, setDisableLoadingId] = useState(null);
+  const [collectionCentres, setCollectionCentres] = useState([]);
 
   const [localExecutives, setLocalExecutives] = useState(executives);
 
   useEffect(() => {
     setLocalExecutives(executives);
   }, [executives]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/collection-centres?my_labs=true")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!mounted) return;
+        setCollectionCentres(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setCollectionCentres([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Memoized grouping and sorting
   const groupedExecutives = useMemo(() => {
@@ -84,6 +103,24 @@ export default function ExecutiveList({
     if (!exec.lab_id) return { name: "--", logo_url: null };
     const found = (exec.lab && exec.lab.name) ? exec.lab : labs.find(l => l.id === exec.lab_id);
     return found || { name: "--", logo_url: null };
+  };
+
+  const collectionCentreNameMap = useMemo(() => {
+    const map = new Map();
+    (collectionCentres || []).forEach((centre) => {
+      if (centre?.id) map.set(String(centre.id), centre.centre_name || String(centre.id));
+    });
+    return map;
+  }, [collectionCentres]);
+
+  const getAssignedCentresCsv = (exec) => {
+    const execType = String(exec?.type || "").toLowerCase();
+    if (!["logistics", "b2b"].includes(execType)) return "-";
+    const ids = Array.isArray(exec?.collection_centre_ids) ? exec.collection_centre_ids : [];
+    if (ids.length === 0) return "-";
+    return ids
+      .map((id) => collectionCentreNameMap.get(String(id)) || String(id))
+      .join(", ");
   };
 
   const handleUpdate = (exec) => {
@@ -188,6 +225,7 @@ export default function ExecutiveList({
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Email</Th>
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Lab</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Assigned Centres</Th>
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Status</Th>
               <Th isNumeric color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
             </Tr>
@@ -196,7 +234,7 @@ export default function ExecutiveList({
             {Object.entries(groupedExecutives).map(([type, execs]) => (
               <React.Fragment key={type}>
                 <Tr bg={isDark ? "rgba(255,255,255,0.05)" : "gray.50"}>
-                  <Td colSpan={6} py={2}>
+                  <Td colSpan={7} py={2}>
                     <Heading size="sm" textTransform="capitalize" color={isDark ? "whiteAlpha.900" : "gray.700"}>
                       {type}
                     </Heading>
@@ -223,6 +261,9 @@ export default function ExecutiveList({
                           )}
                           <Text display="inline">{labInfo.name}</Text>
                         </HStack>
+                      </Td>
+                      <Td maxW="280px" whiteSpace="normal">
+                        {getAssignedCentresCsv(exec)}
                       </Td>
                       <Td>
                         <Badge

@@ -39,7 +39,12 @@ const EMPTY_FORM = {
   address: "",
 };
 
-export default function CollectionCentresTab({ labs = [], themeMode = "light", onRegisterRefresh }) {
+export default function CollectionCentresTab({
+  labs = [],
+  executives = [],
+  themeMode = "light",
+  onRegisterRefresh
+}) {
   const toast = useToast();
   const modal = useDisclosure();
 
@@ -53,6 +58,22 @@ export default function CollectionCentresTab({ labs = [], themeMode = "light", o
     (labs || []).forEach((lab) => map.set(lab.id, lab.name));
     return map;
   }, [labs]);
+
+  const assignedLoginsByCentre = useMemo(() => {
+    const map = new Map();
+    (executives || []).forEach((exec) => {
+      const ids = Array.isArray(exec?.collection_centre_ids) ? exec.collection_centre_ids : [];
+      if (ids.length === 0) return;
+      ids.forEach((centreId) => {
+        const key = String(centreId);
+        const current = map.get(key) || [];
+        const displayName = (exec?.name || "").trim() || (exec?.phone ? String(exec.phone) : "Unknown");
+        current.push(displayName);
+        map.set(key, current);
+      });
+    });
+    return map;
+  }, [executives]);
 
   const loadCentres = useCallback(async () => {
     setLoading(true);
@@ -161,6 +182,7 @@ export default function CollectionCentresTab({ labs = [], themeMode = "light", o
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Lab</Th>
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Phone</Th>
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Email</Th>
+              <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Assigned Logins</Th>
               <Th color={isDark ? "whiteAlpha.700" : "gray.600"}>Address</Th>
               <Th isNumeric color={isDark ? "whiteAlpha.700" : "gray.600"}>Actions</Th>
             </Tr>
@@ -172,6 +194,13 @@ export default function CollectionCentresTab({ labs = [], themeMode = "light", o
                 <Td>{labNameMap.get(centre.lab_id) || centre.lab_id}</Td>
                 <Td>{centre.phone || "-"}</Td>
                 <Td>{centre.contact_email || "-"}</Td>
+                <Td maxW="280px" whiteSpace="normal">
+                  {(() => {
+                    const assigned = assignedLoginsByCentre.get(String(centre.id)) || [];
+                    if (assigned.length === 0) return "-";
+                    return [...new Set(assigned)].join(", ");
+                  })()}
+                </Td>
                 <Td>{centre.address || "-"}</Td>
                 <Td isNumeric>
                   <Button
