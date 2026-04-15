@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { toCanonicalIndiaPhone } from "@/lib/phone";
 import { fetchInactivePatients } from "@/lib/campaigns/shivam";
-import { sendCampaignTemplate } from "@/lib/campaigns/whatsapp";
+import {
+  resolveCampaignTemplateSettings,
+  sendCampaignTemplate
+} from "@/lib/campaigns/whatsapp";
 import { getTrendReportUrl } from "@/lib/neosoft/client";
 import {
   canManageCampaigns,
@@ -42,16 +45,6 @@ function normalizeCheckupDate(value) {
     month: "short",
     year: "numeric"
   });
-}
-
-function getCampaignTemplateSettings() {
-  const templateName = String(process.env.CAMPAIGN_TEMPLATE_NAME || "trend_campaign_v1").trim();
-  const keysRaw = String(process.env.CAMPAIGN_TEMPLATE_PARAM_KEYS || "name").trim();
-  const keys = keysRaw
-    .split(",")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean);
-  return { templateName, keys: keys.length > 0 ? keys : ["name"] };
 }
 
 function buildTemplateParams(recipient, keys) {
@@ -115,7 +108,7 @@ export async function POST(request) {
       }
     }
     const recipients = [...uniqueByPhone.values()];
-    const templateSettings = getCampaignTemplateSettings();
+    const templateSettings = await resolveCampaignTemplateSettings({ labId });
 
     await supabase.from("campaign_recipients").delete().eq("campaign_id", campaign.id);
 
@@ -139,7 +132,7 @@ export async function POST(request) {
           labId,
           phone: recipient.mobile,
           templateName: templateSettings.templateName,
-          templateParams: buildTemplateParams(recipient, templateSettings.keys),
+          templateParams: buildTemplateParams(recipient, templateSettings.paramKeys),
           sender: {
             id: user.id,
             name: user.name || "Campaign Admin",
@@ -201,7 +194,8 @@ export async function POST(request) {
         failed,
         template: {
           name: templateSettings.templateName,
-          param_keys: templateSettings.keys
+          param_keys: templateSettings.paramKeys,
+          source: templateSettings.source
         }
       },
       { status: 200 }
