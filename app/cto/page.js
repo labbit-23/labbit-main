@@ -1145,7 +1145,10 @@ function CtoDashboardPage() {
   const managementMetrics = useMemo(() => {
     const botSla = serviceByBaseKey.get("whatsapp_bot_response_sla_1m");
     const botChats24h = serviceByBaseKey.get("whatsapp_bot_chats_24h");
+    const shortLinkStorm = serviceByBaseKey.get("campaign_shortlink_storm_1h");
     const website = latest?.website_analytics || {};
+    const campaign = latest?.campaign_metrics || {};
+    const reports = latest?.report_metrics || {};
     const openEvents = (eventsRows || []).filter((row) => String(row?.status || "open") !== "resolved").length;
     const positiveRate = typeof feedbackData?.summary?.positive_rate === "number"
       ? Math.round(feedbackData.summary.positive_rate * 100)
@@ -1154,6 +1157,23 @@ function CtoDashboardPage() {
     return {
       botSlaWithin: botSla?.payload?.within_sla_pct ?? null,
       botChats24h: botChats24h?.payload?.chat_sessions_24h ?? null,
+      shortLinkStormStatus: String(shortLinkStorm?.status || "unknown").toLowerCase(),
+      shortLinkClicks1h:
+        typeof campaign?.short_link_clicks_1h === "number" ? campaign.short_link_clicks_1h : null,
+      campaignRecipientsSent7d:
+        typeof campaign?.recipients_sent_7d === "number" ? campaign.recipients_sent_7d : null,
+      campaignRecipientsFailed7d:
+        typeof campaign?.recipients_failed_7d === "number" ? campaign.recipients_failed_7d : null,
+      campaignClicks7d:
+        typeof campaign?.short_link_clicks_7d === "number" ? campaign.short_link_clicks_7d : null,
+      campaignCtr30d:
+        typeof campaign?.short_link_ctr_30d === "number" ? campaign.short_link_ctr_30d : null,
+      latestReports7d:
+        typeof reports?.latest_report_success_7d === "number" ? reports.latest_report_success_7d : null,
+      trendReports7d:
+        typeof reports?.trend_report_success_7d === "number" ? reports.trend_report_success_7d : null,
+      olderReports7d:
+        typeof reports?.older_report_success_7d === "number" ? reports.older_report_success_7d : null,
       websiteActiveSessions15m:
         typeof website?.active_sessions_15m === "number" ? website.active_sessions_15m : null,
       websiteUniqueVisitorsToday:
@@ -1162,7 +1182,7 @@ function CtoDashboardPage() {
       openEvents,
       positiveRate
     };
-  }, [eventsRows, feedbackData?.summary?.positive_rate, latest?.website_analytics, serviceByBaseKey]);
+  }, [eventsRows, feedbackData?.summary?.positive_rate, latest?.campaign_metrics, latest?.report_metrics, latest?.website_analytics, serviceByBaseKey]);
 
   const vpsHealth = useMemo(() => {
     const vpsServices = realServices.filter(isVpsService);
@@ -1687,15 +1707,68 @@ function CtoDashboardPage() {
                 </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(trendsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Bot Chats (24h)</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Campaign Recipients Sent (7d)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="purple.200">
-                  {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
+                  {managementMetrics.campaignRecipientsSent7d != null ? String(managementMetrics.campaignRecipientsSent7d) : "n/a"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                  Failed: {managementMetrics.campaignRecipientsFailed7d != null ? String(managementMetrics.campaignRecipientsFailed7d) : "n/a"}
                 </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Website Active Sessions (15m)</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Short-Link Clicks (7d)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="cyan.200">
-                  {managementMetrics.websiteActiveSessions15m != null ? String(managementMetrics.websiteActiveSessions15m) : "n/a"}
+                  {managementMetrics.campaignClicks7d != null ? String(managementMetrics.campaignClicks7d) : "n/a"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                  CTR (30d): {managementMetrics.campaignCtr30d != null ? `${managementMetrics.campaignCtr30d}%` : "n/a"}
+                </Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Short-Link Storm Guard (1h)</Text>
+                <Text
+                  fontSize="2xl"
+                  fontWeight="800"
+                  color={
+                    managementMetrics.shortLinkStormStatus === "down"
+                      ? "red.300"
+                      : managementMetrics.shortLinkStormStatus === "degraded"
+                        ? "yellow.300"
+                        : "teal.200"
+                  }
+                >
+                  {managementMetrics.shortLinkStormStatus || "unknown"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                  Clicks 1h: {managementMetrics.shortLinkClicks1h != null ? String(managementMetrics.shortLinkClicks1h) : "n/a"}
+                </Text>
+              </Box>
+            </SimpleGrid>
+            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={3} mt={3}>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Latest Reports Shared (7d)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="green.200">
+                  {managementMetrics.latestReports7d != null ? String(managementMetrics.latestReports7d) : "n/a"}
+                </Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Trend Reports Shared (7d)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="blue.200">
+                  {managementMetrics.trendReports7d != null ? String(managementMetrics.trendReports7d) : "n/a"}
+                </Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Older/List Reports Shared (7d)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="orange.200">
+                  {managementMetrics.olderReports7d != null ? String(managementMetrics.olderReports7d) : "n/a"}
+                </Text>
+              </Box>
+            </SimpleGrid>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} mt={3}>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Bot Chats (24h)</Text>
+                <Text fontSize="2xl" fontWeight="800" color="purple.200">
+                  {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
                 </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">

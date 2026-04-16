@@ -2,12 +2,13 @@
   "packages": [
     {
       "name": "Executive Wellness Checkup",
+      "display_order": 1,
       "description": "Health check for young professionals covering key organs",
       "variants": [
         {
-          "name": "Home Value Pack",
+          "name": "Executive Home",
           "parameters": 62,
-          "price": 1800,
+          "price": 1799,
           "tests": [
             "CBC (Complete Blood Count)",
             "ESR",
@@ -18,12 +19,20 @@
             "Creatinine",
             "Thyroid Stimulating Hormone (TSH)",
             "Urinalysis"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "HbA1c",
+            "Lipid Profile*",
+            "Liver Function Tests*",
+            "Thyroid Stimulating Hormone (TSH)"
           ]
         },
         {
-          "name": "Total Value Pack",
+          "name": "Executive Total",
           "parameters": 75,
-          "price": 2100,
+          "price": 2099,
+          "is_most_booked": true,
           "description": "Health check for young professionals covering key organs including ECG (AI Report) and Chest X-Ray",
           "tests": [
             "CBC (Complete Blood Count)",
@@ -37,18 +46,52 @@
             "Urinalysis",
             "X-Ray Chest PA View",
             "ECG - Electrocardiogram"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "HbA1c",
+            "Lipid Profile*",
+            "ECG - Electrocardiogram",
+            "X-Ray Chest PA View"
+          ]
+        },
+        {
+          "name": "Executive Plus",
+          "parameters": 62,
+          "price": 2499,
+          "tests": [
+            "CBC (Complete Blood Count)",
+            "ESR",
+            "Fasting Blood Sugar",
+            "HbA1c",
+            "Lipid Profile*",
+            "Liver Function Tests*",
+            "Creatinine",
+            "Urinalysis",
+            "HIV 1/2 Antibody & Antigen",
+            "Thyroid Function Tests (T3 T4 TSH)"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "HbA1c",
+            "Lipid Profile*",
+            "Liver Function Tests*",
+            "HIV 1/2 Antibody & Antigen",
+            "Thyroid Function Tests (T3 T4 TSH)"
           ]
         }
       ]
     },
     {
       "name": "Master Wellness Checkup",
+      "display_order": 2,
       "description": "In-depth full-body health evaluation with essential vitamins",
       "variants": [
         {
-          "name": "Home Value Pack",
+          "name": "Master Home",
           "parameters": 77,
-          "price": 3600,
+          "price": 3599,
+          "is_most_booked": true,
           "tests": [
             "CBC (Complete Blood Count)",
             "ESR",
@@ -63,12 +106,20 @@
             "Serum Phosphorous",
             "Serum Calcium",
             "Urinalysis"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "HbA1c",
+            "Lipid Profile*",
+            "Vitamin D (25-OH)",
+            "Vitamin B12"
           ]
         },
         {
-          "name": "Total Value Pack",
+          "name": "Master Total",
           "parameters": 80,
-          "price": 4700,
+          "price": 4699,
+          "is_most_booked": true,
           "description": "In-depth full-body health evaluation with essential vitamins including imaging like Ultrasound and ECG (AI Report)",
           "tests": [
             "CBC (Complete Blood Count)",
@@ -87,18 +138,27 @@
             "Ultrasound Scan of Abdomen (& Pelvis)",
             "X-Ray Chest PA View",
             "ECG"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "Vitamin D (25-OH)",
+            "Vitamin B12",
+            "Ultrasound Scan of Abdomen (& Pelvis)",
+            "ECG"
           ]
         }
       ]
     },
     {
       "name": "Specialised Wellness Checkup",
+      "display_order": 7,
       "description": "Advanced health check with cardiac & hormonal checks",
       "variants": [
         {
           "name": "Specialised Male",
           "parameters": 82,
-          "price": 6900,
+          "price": 6899,
+          "is_most_booked": true,
           "description": "Advanced health check with cardiac, hormonal checks and prostate cancer marker",
           "tests": [
             "CBC (Complete Blood Count)",
@@ -122,12 +182,19 @@
             "Ultrasound Scan of Abdomen (& Pelvis)",
             "X-Ray Chest PA View",
             "ECG"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "Insulin Resistance - Fasting (HOMA)",
+            "Cortisol (Stress Hormone)",
+            "Prostate Specific Antigen - PSA",
+            "2D Echo Color Doppler"
           ]
         },
         {
           "name": "Specialised Female",
           "parameters": 83,
-          "price": 6900,
+          "price": 6899,
           "description": "Advanced health check with cardiac, hormonal checks and PAP Smear",
           "tests": [
             "CBC (Complete Blood Count)",
@@ -152,19 +219,29 @@
             "Ultrasound Scan of Abdomen (& Pelvis)",
             "X-Ray Chest PA View",
             "ECG"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "Insulin Resistance - Fasting (HOMA)",
+            "Cortisol (Stress Hormone)",
+            "PAP Smear",
+            "2D Echo Color Doppler"
           ]
         }
       ]
     },
     {
       "name": "Stress Wellness Checkup",
+      "display_order": 10,
       "description": "Focused package to evaluate stress-related health parameters.",
       "variants": [
         {
           "name": "Stress Profile",
           "parameters": 36,
           "price": 2345,
+          "is_most_booked": true,
           "tests": [
+            "Fasting Blood Sugar",
             "CBC (Complete Blood Count)",
             "Lipid Profile*",
             "Thyroid Stimulating Hormone (TSH)",
@@ -173,18 +250,26 @@
             "Cortisol (Stress Hormone)",
             "X-Ray Chest PA View",
             "ECG"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "Cortisol (Stress Hormone)",
+            "Vitamin D (25-OH)",
+            "Vitamin B12",
+            "ECG"
           ]
         }
       ]
     },
     {
       "name": "Fitness Profile",
+      "display_order": 8,
       "description": "Ideal for athletes and fitness enthusiasts including stress level monitoring.",
       "variants": [
         {
-          "name": "Fitness Basic",
+          "name": "Fitness (Male)",
           "parameters": 32,
-          "price": 4300,
+          "price": 4299,
           "tests": [
             "CBC (Complete Blood Count)",
             "Fasting Blood Sugar",
@@ -205,19 +290,63 @@
             "Vitamin D (25-OH)",
             "Vitamin B12",
             "Urinalysis"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "Insulin Resistance - Fasting (HOMA)",
+            "CPK - Creatinine Kinase",
+            "Testosterone",
+            "Urine Protein Creatinine Ratio"
+          ]
+        },
+        {
+          "name": "Fitness (Female)",
+          "parameters": 32,
+          "price": 4299,
+          "tests": [
+            "CBC (Complete Blood Count)",
+            "Fasting Blood Sugar",
+            "HbA1c",
+            "Lipid Profile*",
+            "Liver Function Tests*",
+            "Creatinine",
+            "Urea",
+            "Electrolytes",
+            "Iron, Total Iron Binding Capacity",
+            "Calcium",
+            "Magnesium",
+            "Urine Protein Creatinine Ratio",
+            "Cortisol - Stress Hormone",
+            "Insulin Resistance - Fasting (HOMA)",
+            "CPK - Creatinine Kinase",
+            "Vitamin D (25-OH)",
+            "Vitamin B12",
+            "Urinalysis",
+            "Ferritin",
+            "Thyroid Stimulating Hormone (TSH)"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "Insulin Resistance - Fasting (HOMA)",
+            "CPK - Creatinine Kinase",
+            "Urine Protein Creatinine Ratio",
+            "Ferritin",
+            "Thyroid Stimulating Hormone (TSH)"
           ]
         }
       ]
     },
     {
       "name": "Hair Fall Profile",
+      "display_order": 9,
       "id": "001",
       "description": "Investigates nutritional deficiencies and causes of hair loss.",
       "variants": [
         {
           "name": "Hair Fall Basic",
           "parameters": 33,
-          "price": 3900,
+          "price": 3899,
+          "is_most_booked": true,
           "image": "/assets/ads/hairfall.jpg",
           "image_focus": "50% 25%",
           "image_alt": "Hair Fall Profile",
@@ -241,12 +370,19 @@
             "Thyroid Function Tests (T3 T4 TSH)",
             "Calcium",
             "ESR"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "Ferritin",
+            "Iron, Total Iron Binding Capacity",
+            "Thyroid Function Tests (T3 T4 TSH)",
+            "Vitamin D (25-OH)"
           ]
         },
         {
           "name": "Hair Fall Advanced",
           "parameters": 34,
-          "price": 5900,
+          "price": 5899,
           "description": "Investigates nutritional deficiencies and causes of hair loss including essential trace mineral Zinc.",
           "tests": [
             "CBC (Complete Blood Count)",
@@ -258,18 +394,27 @@
             "Thyroid Function Tests (T3 T4 TSH)",
             "Calcium",
             "ESR"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "Serum Zinc",
+            "Ferritin",
+            "Thyroid Function Tests (T3 T4 TSH)",
+            "Vitamin D (25-OH)"
           ]
         }
       ]
     },
     {
       "name": "Diabetic Profile",
+      "display_order": 3,
       "description": "Focused for managing & monitoring diabetes complications",
       "variants": [
         {
           "name": "Diabetic Basic",
           "parameters": 65,
-          "price": 3100,
+          "price": 3099,
+          "is_most_booked": true,
           "description": "Focused for managing & monitoring diabetes complications",
           "tests": [
             "Fasting Blood Sugar",
@@ -284,12 +429,19 @@
             "AST, ALT",
             "Urinalysis",
             "ECG"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "HbA1c",
+            "Urine Microalbumin Creatinine Ratio",
+            "Renal Function Tests*",
+            "ECG"
           ]
         },
         {
           "name": "Diabetic Advanced",
           "parameters": 70,
-          "price": 5100,
+          "price": 5099,
           "description": "Focused for managing & monitoring diabetes complications including advanced cardiac and insulin resistance tracking",
           "tests": [
             "Fasting Blood Sugar",
@@ -308,6 +460,13 @@
             "AST, ALT",
             "Urinalysis",
             "ECG"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "HbA1c",
+            "Insulin Resistance - Fasting (HOMA)",
+            "Apolipoproteins A1 & Apo B",
+            "High Sensitive CRP"
           ]
         },
         {
@@ -320,18 +479,26 @@
             "Post Prandial Blood Sugar",
             "HbA1c",
             "Creatinine"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "HbA1c",
+            "Fasting Blood Sugar",
+            "Post Prandial Blood Sugar",
+            "Creatinine"
           ]
         }
       ]
     },
     {
       "name": "Cardiac Wellness",
+      "display_order": 4,
       "description": "In-depth evaluation of cardiac health.",
       "variants": [
         {
           "name": "Cardiac Basic",
           "parameters": 38,
-          "price": 3100,
+          "price": 3099,
           "tests": [
             "Lipid Profile*",
             "CBC (Complete Blood Count)",
@@ -344,12 +511,20 @@
             "CPK Total",
             "Electrolytes",
             "Urinalysis"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "Lipid Profile*",
+            "2D Echo Color Doppler",
+            "ECG",
+            "CPK Total"
           ]
         },
         {
           "name": "Cardiac Comprehensive",
           "parameters": 50,
-          "price": 5500,
+          "price": 5499,
+          "is_most_booked": true,
           "description": "In-depth evaluation of cardiac health along with advanced cardiac inflamation markers and a treadmill test.",
           "tests": [
             "Lipid Profile*",
@@ -368,18 +543,26 @@
             "Electrolytes",
             "AST, ALT",
             "Urinalysis"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "High Sensitive CRP",
+            "Homocysteine",
+            "CPK-MB",
+            "Treadmill Test"
           ]
         }
       ]
     },
     {
       "name": "Women's Health Checkup",
+      "display_order": 5,
       "description": "Specially curated for women’s preventive care.",
       "variants": [
         {
           "name": "Women's Basic",
           "parameters": 60,
-          "price": 3800,
+          "price": 3799,
           "tests": [
             "CBC (Complete Blood Count)",
             "ESR",
@@ -395,12 +578,20 @@
             "ECG",
             "Ultrasound Scan of Breasts",
             "Ultrasound Scan of Abdomen (& Pelvis)"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "Thyroid Stimulating Hormone (TSH)",
+            "Ultrasound Scan of Breasts",
+            "Ultrasound Scan of Abdomen (& Pelvis)",
+            "RA Factor"
           ]
         },
         {
           "name": "Women's Comprehensive",
           "parameters": 75,
-          "price": 8500,
+          "price": 8499,
+          "is_most_booked": true,
           "description": "Specially curated for women’s preventive care including ovarian cancer screening, bone density and Mammogram.",
           "tests": [
             "CBC (Complete Blood Count)",
@@ -425,12 +616,20 @@
             "Ultrasound Scan of Breasts",
             "Ultrasound Scan of Abdomen (& Pelvis)",
             "DEXA Bone Densitometry OR Mammography"
+          ],
+          "home_collection": false,
+          "key_inclusions": [
+            "CA-125",
+            "PAP Smear",
+            "DEXA Bone Densitometry OR Mammography",
+            "Thyroid Function Tests (T3 T4 TSH)"
           ]
         }
       ]
     },
     {
       "name": "Wellness Special Health Checkup",
+      "display_order": 6,
       "description": "Specially curated for those looking for wellness oriented packages for inflammation, cardiac and lifestyle risks",
       "variants": [
         {
@@ -456,6 +655,13 @@
             "Thyroid Stimulating Hormone (TSH)",
             "G6PD",
             "Urinalysis"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "Apolipoproteins A1 & Apo B",
+            "High Sensitive CRP",
+            "Prostate Specific Antigen - PSA",
+            "Vitamin D (25-OH)"
           ]
         },
         {
@@ -481,30 +687,45 @@
             "Thyroid Stimulating Hormone (TSH)",
             "G6PD",
             "Urinalysis"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "Apolipoproteins A1 & Apo B",
+            "High Sensitive CRP",
+            "CA-125",
+            "Vitamin D (25-OH)"
           ]
         }
       ]
     },
     {
       "name": "STD Screening Package",
+      "display_order": 11,
       "description": "Screening for common sexually transmitted diseases.",
       "variants": [
         {
           "name": "STD Basic",
           "parameters": 5,
-          "price": 1500,
+          "price": 1499,
           "tests": [
             "HIV 1/2 Antibody & Antigen",
             "Hepatitis B Surface Antigen",
             "Hepatitis C Antibody",
             "VDRL (Syphilis)",
             "TPHA"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "HIV 1/2 Antibody & Antigen",
+            "Hepatitis B Surface Antigen",
+            "Hepatitis C Antibody",
+            "VDRL (Syphilis)"
           ]
         },
         {
           "name": "STD Advanced",
           "parameters": 7,
-          "price": 4400,
+          "price": 4399,
           "tests": [
             "HIV 1/2 Antibody & Antigen",
             "Hepatitis B Surface Antigen",
@@ -513,6 +734,13 @@
             "TPHA",
             "Chlamydia IgM",
             "Herpes Simplex Virus (HSV) IgG IgM"
+          ],
+          "home_collection": true,
+          "key_inclusions": [
+            "HIV 1/2 Antibody & Antigen",
+            "Chlamydia IgM",
+            "Herpes Simplex Virus (HSV) IgG IgM",
+            "TPHA"
           ]
         }
       ]

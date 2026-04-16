@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { toCanonicalIndiaPhone } from "@/lib/phone";
-import { fetchInactivePatients } from "@/lib/campaigns/shivam";
+import { fetchCampaignPatients } from "@/lib/campaigns/shivam";
 import {
   resolveCampaignTemplateSettings,
+  resolveRecipientTemplateParams,
   sendCampaignTemplate
 } from "@/lib/campaigns/whatsapp";
 import { getTrendReportUrl } from "@/lib/neosoft/client";
@@ -47,19 +48,6 @@ function normalizeCheckupDate(value) {
   });
 }
 
-function buildTemplateParams(recipient, keys) {
-  const tokenMap = {
-    name: safeName(recipient?.name),
-    mobile: String(recipient?.mobile || "").replace(/\D/g, "").slice(-10),
-    mrno: String(recipient?.mrno || "").trim(),
-    last_health_checkup: normalizeCheckupDate(recipient?.last_health_checkup),
-    trend_link: recipient?.trend_link || "",
-    booking_link: recipient?.booking_link || ""
-  };
-
-  return keys.map((key) => String(tokenMap[key] || "")).filter((value) => value !== "");
-}
-
 export async function POST(request) {
   try {
     const user = await getCampaignSessionUser(request);
@@ -68,6 +56,7 @@ export async function POST(request) {
 
     const body = await request.json();
     const campaignId = String(body?.campaign_id || "").trim();
+    const requestedTemplateName = String(body?.template_name || "").trim();
     if (!campaignId) {
       return NextResponse.json({ error: "campaign_id is required" }, { status: 400 });
     }
@@ -90,25 +79,43 @@ export async function POST(request) {
       .eq("id", campaign.id);
     if (markRunningError) throw markRunningError;
 
-    const patients = await fetchInactivePatients({ inactiveSince: campaign.date });
+    const patients = await fetchCampaignPatients({
+      labId,
+      segmentType: campaign.segment_type,
+      inactiveSince: campaign.date,
+      cutoffDate: campaign.date,
+      newCentreStartDate:
+        String(process.env.CAMPAIGN_NEW_CENTRE_START_DATE || "2025-04-20").trim()
+    });
     const uniqueByPhone = new Map();
     for (const row of patients || []) {
       const mobile = toCanonicalIndiaPhone(row?.mobile);
       if (!mobile) continue;
       if (!uniqueByPhone.has(mobile)) {
         const mrno = String(row?.mrno || "").trim() || null;
+        const lastHealthCheckup = row?.last_health_checkup || null;
         uniqueByPhone.set(mobile, {
           mobile,
           name: safeName(row?.name),
           mrno,
-          last_health_checkup: row?.last_health_checkup || null,
+          last_health_checkup: lastHealthCheckup,
+          last_health_checkup_formatted: normalizeCheckupDate(lastHealthCheckup),
+          package_name: String(row?.package_name || "").trim() || null,
+          contact_number:
+            String(row?.contact_number || "").trim() ||
+            String(process.env.CAMPAIGN_CONTACT_NUMBER || "").trim() ||
+            null,
           trend_link: mrno ? getTrendReportUrl(mrno) : "",
-          booking_link: buildBookingLink({ mobile, mrno })
+          booking_link: buildBookingLink({ mobile, mrno }),
+          source_fields: row?.source_fields && typeof row.source_fields === "object" ? row.source_fields : {}
         });
       }
     }
     const recipients = [...uniqueByPhone.values()];
-    const templateSettings = await resolveCampaignTemplateSettings({ labId });
+    const templateSettings = await resolveCampaignTemplateSettings({
+      labId,
+      templateName: requestedTemplateName
+    });
 
     await supabase.from("campaign_recipients").delete().eq("campaign_id", campaign.id);
 
@@ -128,11 +135,16 @@ export async function POST(request) {
     let failed = 0;
     for (const recipient of recipients) {
       try {
+        const templateParams = resolveRecipientTemplateParams({
+          recipient,
+          templateSettings
+        });
         await sendCampaignTemplate({
           labId,
           phone: recipient.mobile,
           templateName: templateSettings.templateName,
-          templateParams: buildTemplateParams(recipient, templateSettings.paramKeys),
+          languageCode: templateSettings.languageCode,
+          templateParams,
           sender: {
             id: user.id,
             name: user.name || "Campaign Admin",
@@ -194,8 +206,14 @@ export async function POST(request) {
         failed,
         template: {
           name: templateSettings.templateName,
-          param_keys: templateSettings.paramKeys,
-          source: templateSettings.source
+          key: templateSettings.templateKey,
+          language: templateSettings.languageCode,
+          params: templateSettings.params.map((item) => ({
+            name: item.name,
+            field: item.field,
+            required: item.required,
+            transform: item.transform || null
+          }))
         }
       },
       { status: 200 }

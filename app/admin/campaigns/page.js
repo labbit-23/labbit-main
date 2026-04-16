@@ -25,7 +25,9 @@ import ShortcutBar from "@/components/ShortcutBar";
 
 const SEGMENTS = [
   { value: "inactive_patients", label: "Inactive Patients" },
-  { value: "lapsed_report_users", label: "Lapsed Report Users" }
+  { value: "lapsed_report_users", label: "Lapsed Report Users" },
+  { value: "not_visited_new_centre", label: "Not Visited New Centre" },
+  { value: "package_anniversary_recall", label: "Package Anniversary Recall" }
 ];
 
 function todayIsoDate() {
@@ -45,8 +47,12 @@ export default function CampaignsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [runningCampaignId, setRunningCampaignId] = useState("");
+  const [preflightingCampaignId, setPreflightingCampaignId] = useState("");
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
+  const [preflightSummary, setPreflightSummary] = useState("");
+  const [templateCatalog, setTemplateCatalog] = useState([]);
+  const [selectedTemplateName, setSelectedTemplateName] = useState("");
 
   const [name, setName] = useState("");
   const [segmentType, setSegmentType] = useState(SEGMENTS[0].value);
@@ -69,6 +75,14 @@ export default function CampaignsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error || "Failed to load campaigns");
       setCampaigns(Array.isArray(body?.campaigns) ? body.campaigns : []);
+      const templates = Array.isArray(body?.template_catalog) ? body.template_catalog : [];
+      const defaultTemplate = String(body?.default_template || "").trim();
+      setTemplateCatalog(templates);
+      setSelectedTemplateName((prev) => {
+        if (prev && templates.some((item) => String(item?.template_name || "") === prev)) return prev;
+        if (defaultTemplate) return defaultTemplate;
+        return String(templates?.[0]?.template_name || "").trim();
+      });
     } catch (err) {
       setError(err?.message || "Failed to load campaigns");
     } finally {
@@ -128,16 +142,59 @@ export default function CampaignsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ campaign_id: campaignId })
+        body: JSON.stringify({
+          campaign_id: campaignId,
+          template_name: selectedTemplateName || undefined
+        })
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error || "Failed to run campaign");
-      setHint(`Campaign run complete. Sent: ${body.sent || 0}, Failed: ${body.failed || 0}`);
+      const templateLabel = String(body?.template?.name || selectedTemplateName || "").trim();
+      setHint(`Campaign run complete. Sent: ${body.sent || 0}, Failed: ${body.failed || 0}${templateLabel ? `, Template: ${templateLabel}` : ""}`);
       await fetchCampaigns();
     } catch (err) {
       setError(err?.message || "Failed to run campaign");
     } finally {
       setRunningCampaignId("");
+    }
+  }
+
+  async function handlePreflight(campaignId) {
+    if (!campaignId || preflightingCampaignId) return;
+
+    setError("");
+    setHint("");
+    setPreflightSummary("");
+    setPreflightingCampaignId(campaignId);
+    try {
+      const query = new URLSearchParams({
+        campaign_id: String(campaignId),
+        template_name: selectedTemplateName || ""
+      });
+      const res = await fetch(`/api/campaigns/patients?${query.toString()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Failed to run preflight");
+
+      const totals = body?.totals || {};
+      const recipients = Number(totals?.recipients || 0);
+      const eligible = Number(totals?.eligible || 0);
+      const blocked = Number(totals?.blocked || 0);
+      const topMissing = Array.isArray(body?.missing_fields) ? body.missing_fields.slice(0, 3) : [];
+      const topMissingText = topMissing.length > 0
+        ? topMissing.map((item) => `${item.field} (${item.count})`).join(", ")
+        : "none";
+      const templateLabel = String(body?.template?.name || selectedTemplateName || "").trim();
+
+      setPreflightSummary(
+        `Preflight ${templateLabel ? `[${templateLabel}] ` : ""}Recipients: ${recipients}, Eligible: ${eligible}, Blocked: ${blocked}, Missing: ${topMissingText}`
+      );
+    } catch (err) {
+      setError(err?.message || "Failed to preflight campaign");
+    } finally {
+      setPreflightingCampaignId("");
     }
   }
 
@@ -195,10 +252,33 @@ export default function CampaignsPage() {
             {hint && (
               <Text mt={3} color="green.300" fontSize="sm">{hint}</Text>
             )}
+            {preflightSummary && (
+              <Text mt={3} color="blue.300" fontSize="sm">{preflightSummary}</Text>
+            )}
           </Box>
 
           <Box borderWidth="1px" borderRadius="xl" p={4} bg={themeMode === "dark" ? "rgba(15,23,42,0.7)" : "white"}>
-            <Heading size="sm" mb={3}>Campaigns</Heading>
+            <Flex align={{ base: "stretch", md: "center" }} justify="space-between" gap={3} mb={3} direction={{ base: "column", md: "row" }}>
+              <Heading size="sm">Campaigns</Heading>
+              <FormControl maxW={{ base: "100%", md: "320px" }}>
+                <FormLabel mb={1} fontSize="xs" color="gray.500">Run Template</FormLabel>
+                <Select
+                  size="sm"
+                  value={selectedTemplateName}
+                  onChange={(event) => setSelectedTemplateName(event.target.value)}
+                >
+                  {templateCatalog.length === 0 ? (
+                    <option value="">No templates configured</option>
+                  ) : (
+                    templateCatalog.map((item) => (
+                      <option key={item.key || item.template_name} value={item.template_name}>
+                        {item.template_name}
+                      </option>
+                    ))
+                  )}
+                </Select>
+              </FormControl>
+            </Flex>
             {isLoading ? (
               <Text fontSize="sm">Loading campaigns...</Text>
             ) : campaigns.length === 0 ? (
@@ -224,15 +304,28 @@ export default function CampaignsPage() {
                         <Badge colorScheme={statusColor(campaign.status)}>{campaign.status || "draft"}</Badge>
                       </Td>
                       <Td>
-                        <Button
-                          size="xs"
-                          colorScheme="teal"
-                          variant={campaign.status === "completed" ? "outline" : "solid"}
-                          isLoading={runningCampaignId === campaign.id}
-                          onClick={() => handleRun(campaign.id)}
-                        >
-                          Run
-                        </Button>
+                        <Flex gap={2} wrap="wrap">
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            colorScheme="blue"
+                            isLoading={preflightingCampaignId === campaign.id}
+                            isDisabled={!selectedTemplateName}
+                            onClick={() => handlePreflight(campaign.id)}
+                          >
+                            Preflight
+                          </Button>
+                          <Button
+                            size="xs"
+                            colorScheme="teal"
+                            variant={campaign.status === "completed" ? "outline" : "solid"}
+                            isLoading={runningCampaignId === campaign.id}
+                            isDisabled={!selectedTemplateName}
+                            onClick={() => handleRun(campaign.id)}
+                          >
+                            Run
+                          </Button>
+                        </Flex>
                       </Td>
                     </Tr>
                   ))}
@@ -245,4 +338,3 @@ export default function CampaignsPage() {
     </RequireAuth>
   );
 }
-

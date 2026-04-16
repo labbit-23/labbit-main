@@ -660,6 +660,223 @@ function getIstDayKey(value) {
   return IST_DAY_FORMATTER.format(parsed);
 }
 
+function getMs(value) {
+  const parsed = parseTimestamp(value);
+  const ms = parsed?.getTime?.();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function toLower(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isTrendDispatch(row = {}) {
+  const reportType = toLower(row?.report_type);
+  const url = toLower(row?.document_url || row?.request_payload?.document_url || row?.request_payload?.trend_url);
+  if (reportType === "trend") return true;
+  return url.includes("trend-data") || url.includes("trend");
+}
+
+function isLatestDispatch(row = {}) {
+  const actionHint = toLower(row?.request_payload?.action);
+  const url = toLower(row?.document_url || row?.request_payload?.document_url);
+  if (actionHint === "send_latest_report") return true;
+  return url.includes("latest-report") || url.includes("latest_report");
+}
+
+function isOlderReportDispatch(row = {}) {
+  const actionHint = toLower(row?.request_payload?.action);
+  if (["send_report", "send_report_and_status"].includes(actionHint)) return true;
+  if (isTrendDispatch(row) || isLatestDispatch(row)) return false;
+  return toLower(row?.report_type) === "combined";
+}
+
+async function loadCampaignOpsMetrics(labId) {
+  if (!supabase) return null;
+
+  const nowMs = Date.now();
+  const checkedAt = new Date(nowMs).toISOString();
+  const since30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const since24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+  const since1h = new Date(nowMs - 60 * 60 * 1000).toISOString();
+  const since5m = new Date(nowMs - 5 * 60 * 1000).toISOString();
+
+  let campaignsQuery = supabase
+    .from("campaigns")
+    .select("id, status, created_at")
+    .gte("created_at", since30d)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  let recipientsQuery = supabase
+    .from("campaign_recipients")
+    .select("campaign_id, status, created_at")
+    .gte("created_at", since30d)
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
+  let shortLinksQuery = supabase
+    .from("campaign_short_links")
+    .select("id, campaign_id, click_count, is_active, expires_at, created_at")
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
+  let shortClicksQuery = supabase
+    .from("campaign_short_link_clicks")
+    .select("clicked_at, short_link_id")
+    .gte("clicked_at", since30d)
+    .order("clicked_at", { ascending: false })
+    .limit(100000);
+
+  let reportDispatchQuery = supabase
+    .from("report_dispatch_logs")
+    .select("created_at, action, report_type, status, request_payload, document_url")
+    .gte("created_at", since30d)
+    .order("created_at", { ascending: false })
+    .limit(100000);
+
+  if (labId) {
+    reportDispatchQuery = reportDispatchQuery.eq("lab_id", labId);
+  }
+
+  const [
+    { data: campaignsRows, error: campaignsError },
+    { data: recipientsRows, error: recipientsError },
+    { data: shortLinksRows, error: shortLinksError },
+    { data: shortClicksRows, error: shortClicksError },
+    { data: reportDispatchRows, error: reportDispatchError }
+  ] = await Promise.all([
+    campaignsQuery,
+    recipientsQuery,
+    shortLinksQuery,
+    shortClicksQuery,
+    reportDispatchQuery
+  ]);
+
+  if (campaignsError) throw campaignsError;
+  if (recipientsError) throw recipientsError;
+  if (reportDispatchError) throw reportDispatchError;
+
+  // Optional in early rollout. If short-link tables are not present, keep dashboard running.
+  const shortLinks = shortLinksError ? [] : Array.isArray(shortLinksRows) ? shortLinksRows : [];
+  const shortClicks = shortClicksError ? [] : Array.isArray(shortClicksRows) ? shortClicksRows : [];
+  const campaigns = Array.isArray(campaignsRows) ? campaignsRows : [];
+  const recipients = Array.isArray(recipientsRows) ? recipientsRows : [];
+  const dispatches = Array.isArray(reportDispatchRows) ? reportDispatchRows : [];
+
+  const recipients7d = recipients.filter((row) => (getMs(row?.created_at) || 0) >= Date.parse(since7d));
+  const recipients30d = recipients;
+  const sent7d = recipients7d.filter((row) => toLower(row?.status) === "sent").length;
+  const sent30d = recipients30d.filter((row) => toLower(row?.status) === "sent").length;
+  const failed7d = recipients7d.filter((row) => toLower(row?.status) === "failed").length;
+  const failed30d = recipients30d.filter((row) => toLower(row?.status) === "failed").length;
+
+  const clicks7d = shortClicks.filter((row) => (getMs(row?.clicked_at) || 0) >= Date.parse(since7d));
+  const clicks24h = shortClicks.filter((row) => (getMs(row?.clicked_at) || 0) >= Date.parse(since24h));
+  const clicks1h = shortClicks.filter((row) => (getMs(row?.clicked_at) || 0) >= Date.parse(since1h));
+  const clicks5m = shortClicks.filter((row) => (getMs(row?.clicked_at) || 0) >= Date.parse(since5m));
+  const uniqueCodes1h = new Set(clicks1h.map((row) => String(row?.short_link_id || "").trim()).filter(Boolean)).size;
+  const clicks30d = shortClicks.length;
+  const ctr30d = sent30d > 0 ? Number(((clicks30d / sent30d) * 100).toFixed(2)) : null;
+
+  const linkStormStatus =
+    clicks5m.length >= 120 || clicks1h.length >= 600
+      ? "down"
+      : clicks5m.length >= 40 || clicks1h.length >= 240
+        ? "degraded"
+        : "healthy";
+
+  const successfulDispatches = dispatches.filter(
+    (row) => toLower(row?.status) === "success" && ["send_whatsapp", "download", "print"].includes(toLower(row?.action))
+  );
+  const successful7d = successfulDispatches.filter((row) => (getMs(row?.created_at) || 0) >= Date.parse(since7d));
+  const successful30d = successfulDispatches;
+
+  const trend7d = successful7d.filter(isTrendDispatch).length;
+  const trend30d = successful30d.filter(isTrendDispatch).length;
+  const latest7d = successful7d.filter(isLatestDispatch).length;
+  const latest30d = successful30d.filter(isLatestDispatch).length;
+  const older7d = successful7d.filter(isOlderReportDispatch).length;
+  const older30d = successful30d.filter(isOlderReportDispatch).length;
+
+  const campaignMetrics = {
+    campaigns_created_30d: campaigns.length,
+    campaigns_completed_30d: campaigns.filter((row) => toLower(row?.status) === "completed").length,
+    recipients_sent_7d: sent7d,
+    recipients_failed_7d: failed7d,
+    recipients_sent_30d: sent30d,
+    recipients_failed_30d: failed30d,
+    short_links_total: shortLinks.length,
+    short_link_clicks_7d: clicks7d.length,
+    short_link_clicks_24h: clicks24h.length,
+    short_link_clicks_1h: clicks1h.length,
+    short_link_clicks_5m: clicks5m.length,
+    short_link_unique_codes_1h: uniqueCodes1h,
+    short_link_ctr_30d: ctr30d
+  };
+
+  const reportMetrics = {
+    latest_report_success_7d: latest7d,
+    latest_report_success_30d: latest30d,
+    trend_report_success_7d: trend7d,
+    trend_report_success_30d: trend30d,
+    older_report_success_7d: older7d,
+    older_report_success_30d: older30d
+  };
+
+  const serviceRows = [
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "campaign_shortlink_storm_1h",
+      label: "Campaign Short-Link Storm Guard",
+      status: linkStormStatus,
+      message: `${clicks1h.length} clicks in 1h • ${clicks5m.length} in 5m`,
+      payload: {
+        clicks_1h: clicks1h.length,
+        clicks_5m: clicks5m.length,
+        unique_codes_1h: uniqueCodes1h,
+        threshold_degraded_1h: 240,
+        threshold_down_1h: 600
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "campaign_efficacy_7d",
+      label: "Campaign Efficacy (7d)",
+      status: sent7d > 0 ? "healthy" : "unknown",
+      message: `${sent7d} sent • ${failed7d} failed • ${clicks7d.length} short-link clicks`,
+      payload: {
+        recipients_sent_7d: sent7d,
+        recipients_failed_7d: failed7d,
+        short_link_clicks_7d: clicks7d.length,
+        short_link_ctr_30d: ctr30d
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "report_consumption_7d",
+      label: "Report Consumption (7d)",
+      status: trend7d + latest7d + older7d > 0 ? "healthy" : "unknown",
+      message: `Latest ${latest7d} • Trend ${trend7d} • Older/List ${older7d}`,
+      payload: {
+        latest_report_success_7d: latest7d,
+        trend_report_success_7d: trend7d,
+        older_report_success_7d: older7d
+      }
+    })
+  ];
+
+  return {
+    campaignMetrics,
+    reportMetrics,
+    serviceRows
+  };
+}
+
 async function loadWebsiteAnalytics(labId) {
   if (!supabase) return null;
   const now = Date.now();
@@ -800,6 +1017,7 @@ export async function GET(request) {
     const rows = data || [];
     let whatsappMetrics = [];
     let websiteAnalytics = null;
+    let campaignOps = null;
 
     try {
       whatsappMetrics = await loadWhatsappBotMetrics(labId);
@@ -812,9 +1030,15 @@ export async function GET(request) {
     } catch (analyticsError) {
       console.error("[cto/latest] website analytics error", analyticsError);
     }
+    try {
+      campaignOps = await loadCampaignOpsMetrics(labId);
+    } catch (campaignError) {
+      console.error("[cto/latest] campaign metrics error", campaignError);
+    }
 
     const nowMs = Date.now();
-    const combinedRows = [...rows, ...whatsappMetrics].map((row) => normalizeServiceStatus(row, nowMs));
+    const campaignRows = Array.isArray(campaignOps?.serviceRows) ? campaignOps.serviceRows : [];
+    const combinedRows = [...rows, ...whatsappMetrics, ...campaignRows].map((row) => normalizeServiceStatus(row, nowMs));
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;
@@ -832,6 +1056,8 @@ export async function GET(request) {
         summary,
         services: combinedRows,
         website_analytics: websiteAnalytics,
+        campaign_metrics: campaignOps?.campaignMetrics || null,
+        report_metrics: campaignOps?.reportMetrics || null,
       },
       {
         headers: {

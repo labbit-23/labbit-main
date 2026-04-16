@@ -26,6 +26,7 @@ create index if not exists idx_campaign_recipients_mobile on public.campaign_rec
 
 -- Keep transactional transport in labs_apis.api_name = 'whatsapp_outbound'.
 -- Store marketing template metadata separately in labs_apis.api_name = 'whatsapp_marketing'.
+-- Store Shivam segment API routing in labs_apis.api_name = 'shivam_marketing'.
 -- Example templates payload for whatsapp_marketing:
 -- {
 --   "default_template": "trend_campaign_v1",
@@ -38,3 +39,36 @@ create index if not exists idx_campaign_recipients_mobile on public.campaign_rec
 --     }
 --   }
 -- }
+
+-- Example templates payload for shivam_marketing:
+-- {
+--   "segment_endpoints": {
+--     "inactive_patients": "/api/marketing/inactive-patients",
+--     "lapsed_report_users": "/api/marketing/lapsed-report-users",
+--     "not_visited_new_centre": "/api/marketing/not-visited-new-centre",
+--     "package_anniversary_recall": "/api/marketing/package-anniversary-recall"
+--   },
+--   "query_defaults": {
+--     "new_centre_start_date": "2025-04-20"
+--   }
+-- }
+
+-- Example row for shivam_marketing in labs_apis:
+-- insert into public.labs_apis (lab_id, api_name, base_url, auth_details, templates)
+-- values (
+--   '<LAB_ID>',
+--   'shivam_marketing',
+--   'https://shivam.example.com',
+--   '{"bearer_token":"<TOKEN>"}'::jsonb,
+--   '{
+--     "segment_endpoints": {
+--       "inactive_patients": "/api/marketing/inactive-patients",
+--       "lapsed_report_users": "/api/marketing/lapsed-report-users",
+--       "not_visited_new_centre": "/api/marketing/not-visited-new-centre",
+--       "package_anniversary_recall": "/api/marketing/package-anniversary-recall"
+--     },
+--     "query_defaults": {
+--       "new_centre_start_date": "2025-04-20"
+--     }
+--   }'::jsonb
+-- );
