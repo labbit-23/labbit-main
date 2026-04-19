@@ -4,6 +4,8 @@ import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 
 const RANGE_PRESETS = {
+  today: { days: 1, granularity: "hour" },
+  "24h": { days: 1, granularity: "hour" },
   "7d": { days: 7, granularity: "day" },
   "30d": { days: 30, granularity: "day" },
   "12w": { days: 84, granularity: "week" },
@@ -18,12 +20,25 @@ function canAccessCto(user) {
 }
 
 function parseRangePreset(value) {
-  return RANGE_PRESETS[String(value || "30d").toLowerCase()] || RANGE_PRESETS["30d"];
+  return RANGE_PRESETS[String(value || "24h").toLowerCase()] || RANGE_PRESETS["24h"];
 }
 
 function startOfUtcDay(input = new Date()) {
   const date = input instanceof Date ? input : new Date(input);
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function startOfIstDay(input = new Date()) {
+  const date = input instanceof Date ? input : new Date(input);
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const shifted = new Date(date.getTime() + istOffsetMs);
+  const istMidnightUtcMs = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+    0, 0, 0, 0
+  ) - istOffsetMs;
+  return new Date(istMidnightUtcMs);
 }
 
 function addUtcDays(date, days) {
@@ -46,13 +61,27 @@ function monthKey(date) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function hourKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:00`;
+}
+
 function bucketKeyFromDate(date, granularity) {
+  if (granularity === "hour") return hourKey(date);
   if (granularity === "week") return weekStartKey(date);
   if (granularity === "month") return monthKey(date);
   return formatDayKey(date);
 }
 
 function bucketLabelFromKey(key, granularity) {
+  if (granularity === "hour") {
+    const parsed = new Date(String(key).replace(" ", "T") + ":00.000Z");
+    if (Number.isNaN(parsed.getTime())) return key;
+    const day = parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" });
+    const time = parsed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
+    return `${day} ${time}`;
+  }
   if (granularity === "month") return key;
   const parsed = new Date(`${key}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime())) return key;
@@ -149,8 +178,10 @@ function buildHostPointsFromRawRows(rows, granularity, serviceKeyFilter = "", no
       continue;
     }
 
-    const dayKey = formatDayKey(row.checked_at);
-    const key = granularity === "day" ? dayKey : bucketKeyFromDate(new Date(`${dayKey}T00:00:00.000Z`), granularity);
+    const checkedAt = new Date(row.checked_at);
+    if (Number.isNaN(checkedAt.getTime())) continue;
+    const key = bucketKeyFromDate(checkedAt, granularity);
+    if (!key) continue;
     const bucket = bucketMap.get(key) || initializeHostBucket();
     bucket.samples += 1;
     if (Number.isFinite(memory)) {
@@ -172,6 +203,65 @@ function buildHostPointsFromRawRows(rows, granularity, serviceKeyFilter = "", no
     if (Number.isFinite(loadPerCore)) {
       bucket.load_per_core_sum += loadPerCore;
       bucket.load_per_core_count += 1;
+    }
+    bucketMap.set(key, bucket);
+  }
+
+  return [...bucketMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, bucket]) => finalizeHostBucket(key, granularity, bucket));
+}
+
+function buildHostPointsFromDigestRows(rows, granularity, serviceKeyFilter = "", nodeRoleFilter = "") {
+  const bucketMap = new Map();
+  const toNum = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  for (const row of rows || []) {
+    if (!row?.day_date || !row?.service_key) continue;
+    if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
+    if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
+
+    const dayStart = new Date(`${String(row.day_date).slice(0, 10)}T00:00:00.000Z`);
+    if (Number.isNaN(dayStart.getTime())) continue;
+    const key = bucketKeyFromDate(dayStart, granularity);
+    if (!key) continue;
+
+    const metricSamples = toNum(row.host_metric_samples) || 0;
+    const memoryAvg = toNum(row.host_memory_avg_pct);
+    const diskAvg = toNum(row.host_disk_avg_pct);
+    const swapAvg = toNum(row.host_swap_avg_pct);
+    const load1Avg = toNum(row.host_load1_avg);
+    const loadPerCoreAvg = toNum(row.host_load_per_core_avg_pct);
+    const hasMetric =
+      memoryAvg != null || diskAvg != null || swapAvg != null || load1Avg != null || loadPerCoreAvg != null;
+    if (!hasMetric) continue;
+
+    const bucket = bucketMap.get(key) || initializeHostBucket();
+    bucket.samples += metricSamples > 0 ? metricSamples : 1;
+
+    const weight = metricSamples > 0 ? metricSamples : 1;
+    if (memoryAvg != null) {
+      bucket.memory_sum += memoryAvg * weight;
+      bucket.memory_count += weight;
+    }
+    if (diskAvg != null) {
+      bucket.disk_sum += diskAvg * weight;
+      bucket.disk_count += weight;
+    }
+    if (swapAvg != null) {
+      bucket.swap_sum += swapAvg * weight;
+      bucket.swap_count += weight;
+    }
+    if (load1Avg != null) {
+      bucket.load_sum += load1Avg * weight;
+      bucket.load_count += weight;
+    }
+    if (loadPerCoreAvg != null) {
+      bucket.load_per_core_sum += loadPerCoreAvg * weight;
+      bucket.load_per_core_count += weight;
     }
     bucketMap.set(key, bucket);
   }
@@ -232,7 +322,11 @@ function buildPointsFromDailyMap(dailyMap, granularity) {
   const bucketMap = new Map();
 
   for (const [dayKey, daySummary] of dailyMap.entries()) {
-    const key = granularity === "day" ? dayKey : bucketKeyFromDate(new Date(`${dayKey}T00:00:00.000Z`), granularity);
+    const key = granularity === "hour"
+      ? dayKey
+      : granularity === "day"
+        ? dayKey
+        : bucketKeyFromDate(new Date(`${dayKey}T00:00:00.000Z`), granularity);
     const current = bucketMap.get(key) || initializeBucket();
     mergeSummary(current, daySummary);
     bucketMap.set(key, current);
@@ -270,13 +364,32 @@ function nodeGroupForServiceKey(serviceKey = "") {
   const normalized = String(serviceKey || "").trim().toLowerCase();
   if (normalized.endsWith("__vps")) return "VPS";
   if (normalized.endsWith("__local")) return "Local";
+  if (
+    normalized.startsWith("vps_host") ||
+    normalized.startsWith("pm2_") ||
+    normalized.startsWith("docker_") ||
+    normalized.startsWith("tailscale_")
+  ) {
+    return "VPS";
+  }
   return "Unspecified";
 }
 
 function matchesNodeRole(serviceKey = "", nodeRole = "") {
   if (!nodeRole) return true;
   const normalized = String(serviceKey || "").trim().toLowerCase();
-  return normalized.endsWith(`__${nodeRole}`);
+  if (normalized.endsWith(`__${nodeRole}`)) return true;
+
+  // Backward compatibility for older collector keys that did not carry __vps/__local suffix.
+  if (nodeRole === "vps") {
+    return (
+      normalized.startsWith("vps_host") ||
+      normalized.startsWith("pm2_") ||
+      normalized.startsWith("docker_") ||
+      normalized.startsWith("tailscale_")
+    );
+  }
+  return false;
 }
 
 function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "") {
@@ -310,7 +423,7 @@ function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFi
   return byServiceDay;
 }
 
-function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "") {
+function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "", granularity = "day") {
   const byServiceDay = new Map();
   const latenciesByServiceDay = new Map();
 
@@ -319,7 +432,10 @@ function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilte
     if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
     if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
 
-    const dayKey = formatDayKey(row.checked_at);
+    const checkedAt = new Date(row.checked_at);
+    if (Number.isNaN(checkedAt.getTime())) continue;
+    const dayKey = bucketKeyFromDate(checkedAt, granularity);
+    if (!dayKey) continue;
     const serviceKey = String(row.service_key);
     const composedKey = `${serviceKey}::${dayKey}`;
     const entry = byServiceDay.get(composedKey) || initializeBucket();
@@ -428,46 +544,73 @@ export async function GET(request) {
     const serviceKey = String(url.searchParams.get("service_key") || "").trim();
     const nodeRole = String(url.searchParams.get("node_role") || "").trim().toLowerCase();
     const nodeRoleFilter = ["vps", "local"].includes(nodeRole) ? nodeRole : "";
-    const rangeInput = String(url.searchParams.get("range") || "30d").trim().toLowerCase();
+    const rangeInput = String(url.searchParams.get("range") || "24h").trim().toLowerCase();
     const preset = parseRangePreset(rangeInput);
     const granularity = String(url.searchParams.get("bucket") || preset.granularity).trim().toLowerCase();
 
-    const nowDay = startOfUtcDay(new Date());
-    const startDay = addUtcDays(nowDay, -(preset.days - 1));
-    const endExclusive = addUtcDays(nowDay, 1);
+    const bucketType = ["hour", "day", "week", "month"].includes(granularity) ? granularity : preset.granularity;
+    const nowTs = new Date();
+    const nowDay = startOfUtcDay(nowTs);
+    const startTs = bucketType === "hour"
+      ? (rangeInput === "today" ? startOfIstDay(nowTs) : new Date(nowTs.getTime() - 24 * 60 * 60 * 1000))
+      : addUtcDays(nowDay, -(preset.days - 1));
+    const startDay = startOfUtcDay(startTs);
+    const endExclusive = bucketType === "hour" ? nowTs : addUtcDays(nowDay, 1);
+    const useDigest = bucketType !== "hour";
 
     let digestRows = [];
-    let digestAvailable = true;
+    let digestAvailable = useDigest;
 
-    let digestQuery = supabase
-      .from("cto_service_daily_digest")
-      .select("day_date, service_key, total_checks, healthy_count, degraded_count, down_count, unknown_count, avg_latency_ms, latency_sample_count, max_latency_ms, p95_latency_ms, status_transitions, last_status")
-      .gte("day_date", formatDayKey(startDay))
-      .lt("day_date", formatDayKey(endExclusive))
-      .order("day_date", { ascending: true })
-      .limit(12000);
+    if (useDigest) {
+      let digestQuery = supabase
+        .from("cto_service_daily_digest")
+        .select("day_date, service_key, total_checks, healthy_count, degraded_count, down_count, unknown_count, avg_latency_ms, latency_sample_count, max_latency_ms, p95_latency_ms, status_transitions, last_status, host_metric_samples, host_memory_avg_pct, host_disk_avg_pct, host_swap_avg_pct, host_load1_avg, host_load_per_core_avg_pct")
+        .gte("day_date", formatDayKey(startDay))
+        .lt("day_date", formatDayKey(endExclusive))
+        .order("day_date", { ascending: true })
+        .limit(12000);
 
-    if (labId) digestQuery = digestQuery.eq("lab_id", labId);
-    if (serviceKey) digestQuery = digestQuery.eq("service_key", serviceKey);
+      if (labId) digestQuery = digestQuery.eq("lab_id", labId);
+      if (serviceKey) digestQuery = digestQuery.eq("service_key", serviceKey);
 
-    const { data: digestData, error: digestError } = await digestQuery;
+      const { data: digestData, error: digestError } = await digestQuery;
 
-    if (digestError) {
-      if (isMissingRelationError(digestError)) {
-        digestAvailable = false;
+      if (digestError) {
+        const missingColumn =
+          String(digestError?.code || "") === "42703" ||
+          String(digestError?.message || "").toLowerCase().includes("column");
+        if (isMissingRelationError(digestError)) {
+          digestAvailable = false;
+        } else if (missingColumn) {
+          let legacyQuery = supabase
+            .from("cto_service_daily_digest")
+            .select("day_date, service_key, total_checks, healthy_count, degraded_count, down_count, unknown_count, avg_latency_ms, latency_sample_count, max_latency_ms, p95_latency_ms, status_transitions, last_status")
+            .gte("day_date", formatDayKey(startDay))
+            .lt("day_date", formatDayKey(endExclusive))
+            .order("day_date", { ascending: true })
+            .limit(12000);
+          if (labId) legacyQuery = legacyQuery.eq("lab_id", labId);
+          if (serviceKey) legacyQuery = legacyQuery.eq("service_key", serviceKey);
+          const { data: legacyData, error: legacyError } = await legacyQuery;
+          if (legacyError) {
+            console.error("[cto/trends] legacy digest query failed", legacyError);
+            return NextResponse.json({ error: "Failed to load trend digest" }, { status: 500 });
+          }
+          digestRows = Array.isArray(legacyData) ? legacyData : [];
+        } else {
+          console.error("[cto/trends] digest query failed", digestError);
+          return NextResponse.json({ error: "Failed to load trend digest" }, { status: 500 });
+        }
       } else {
-        console.error("[cto/trends] digest query failed", digestError);
-        return NextResponse.json({ error: "Failed to load trend digest" }, { status: 500 });
+        digestRows = Array.isArray(digestData) ? digestData : [];
       }
-    } else {
-      digestRows = Array.isArray(digestData) ? digestData : [];
     }
 
-    const hasDigestRows = digestAvailable && digestRows.length > 0;
+    const hasDigestRows = useDigest && digestAvailable && digestRows.length > 0;
     const rawWindowStart = hasDigestRows
       ? addUtcDays(nowDay, -RECENT_RAW_DAYS)
-      : startDay;
-    const effectiveRawStart = rawWindowStart > startDay ? rawWindowStart : startDay;
+      : startTs;
+    const effectiveRawStart = rawWindowStart > startDay ? rawWindowStart : startTs;
 
     const rawAscending = hasDigestRows;
 
@@ -489,8 +632,10 @@ export async function GET(request) {
     }
 
     const rawRows = Array.isArray(rawData) ? rawData : [];
-    const digestServiceDay = aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter);
-    const rawServiceDay = aggregateRawRowsToServiceDay(rawRows, serviceKey, nodeRoleFilter);
+    const digestServiceDay = useDigest
+      ? aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter)
+      : new Map();
+    const rawServiceDay = aggregateRawRowsToServiceDay(rawRows, serviceKey, nodeRoleFilter, bucketType);
 
     // Raw rows override same-day service digest rows to keep in-progress windows accurate.
     const mergedServiceDay = new Map(digestServiceDay);
@@ -524,10 +669,58 @@ export async function GET(request) {
       nodeDailyMap.set(nodeKey, nodeMap);
     }
 
-    const bucketType = ["day", "week", "month"].includes(granularity) ? granularity : preset.granularity;
     const points = buildPointsFromDailyMap(mergedDailyMap, bucketType);
-    // Host pressure should reflect node-wide health even when a specific service filter is selected.
-    const hostPoints = buildHostPointsFromRawRows(rawRows, bucketType, "", nodeRoleFilter);
+
+    // Host pressure should always be node-wide and independent of service filters.
+    // Use dedicated host metric rows so charts remain stable when service drilldowns are active.
+    let hostDigestRows = [];
+    let hostRawRows = [];
+    if (nodeRoleFilter === "vps") {
+      if (useDigest && digestAvailable) {
+        let hostDigestQuery = supabase
+          .from("cto_service_daily_digest")
+          .select("day_date, service_key, host_metric_samples, host_memory_avg_pct, host_disk_avg_pct, host_swap_avg_pct, host_load1_avg, host_load_per_core_avg_pct")
+          .eq("service_key", "vps_host__vps")
+          .gte("day_date", formatDayKey(startDay))
+          .lt("day_date", formatDayKey(endExclusive))
+          .order("day_date", { ascending: true })
+          .limit(12000);
+        if (labId) hostDigestQuery = hostDigestQuery.eq("lab_id", labId);
+        const { data: hostDigestData, error: hostDigestError } = await hostDigestQuery;
+        if (!hostDigestError && Array.isArray(hostDigestData)) {
+          hostDigestRows = hostDigestData;
+        }
+      }
+
+      let hostRawQuery = supabase
+        .from("cto_service_logs")
+        .select("checked_at, service_key, payload")
+        .eq("service_key", "vps_host__vps")
+        .gte("checked_at", effectiveRawStart.toISOString())
+        .lt("checked_at", endExclusive.toISOString())
+        .order("checked_at", { ascending: true })
+        .limit(MAX_RAW_ROWS);
+      if (labId) hostRawQuery = hostRawQuery.eq("lab_id", labId);
+      const { data: hostRawData, error: hostRawError } = await hostRawQuery;
+      if (!hostRawError && Array.isArray(hostRawData)) {
+        hostRawRows = hostRawData;
+      }
+    }
+
+    const digestHostPoints =
+      useDigest && nodeRoleFilter === "vps"
+        ? buildHostPointsFromDigestRows(hostDigestRows, bucketType, "", nodeRoleFilter)
+        : [];
+    const rawHostPoints =
+      nodeRoleFilter === "vps"
+        ? buildHostPointsFromRawRows(hostRawRows, bucketType, "", nodeRoleFilter)
+        : [];
+    const hostPointsMap = new Map();
+    for (const point of digestHostPoints) hostPointsMap.set(point.bucket_key, point);
+    for (const point of rawHostPoints) hostPointsMap.set(point.bucket_key, point);
+    const hostPoints = [...hostPointsMap.values()].sort((a, b) =>
+      String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || ""))
+    );
     const domainBreakdown = serviceKey
       ? []
       : [...domainDailyMap.entries()]
@@ -574,6 +767,7 @@ export async function GET(request) {
           raw_order: rawAscending ? "asc" : "desc",
           raw_window_start: effectiveRawStart.toISOString(),
           raw_window_days: Math.round((endExclusive.getTime() - effectiveRawStart.getTime()) / (24 * 60 * 60 * 1000)),
+          raw_window_hours: Math.round((endExclusive.getTime() - effectiveRawStart.getTime()) / (60 * 60 * 1000)),
           raw_truncated: rawRows.length >= MAX_RAW_ROWS
         }
       },

@@ -68,6 +68,7 @@ export default function ShortcutBar({
   onToggleTheme,
   rightContent = null,
   centerContent = null,
+  desktopRowHeight = "56px",
 }) {
   const router = useRouter();
   const isMobile = useBreakpointValue({ base: true, md: false });
@@ -362,12 +363,13 @@ export default function ShortcutBar({
       <AppNotifications />
       {/* First row: logo + info + home/role/logout all fit here */}
       <Flex
-        height="56px"
+        height={desktopRowHeight}
         px={{ base: 2, md: 4 }}
         align="center"
         justify="space-between"
         userSelect="none"
         flexWrap="nowrap"
+        gap={2}
       >
         {/* Left section: logo + name (truncate if needed) */}
         <Flex align="center" gap={2} flexShrink={1} minW={0}>
@@ -429,6 +431,28 @@ export default function ShortcutBar({
             </Text>
           )}
         </Flex>
+
+        {!isMobile ? (
+          <Flex
+            flex="1 1 auto"
+            minW={0}
+            align="center"
+            justify="center"
+            gap={2}
+            px={2}
+          >
+            {centerContent ? (
+              <Box minW={0}>
+                {centerContent}
+              </Box>
+            ) : null}
+            {selectedDate && setSelectedDate ? (
+              <Box pointerEvents="auto" maxW="320px" width="100%">
+                <DateSelector date={selectedDate} setDate={setSelectedDate} />
+              </Box>
+            ) : null}
+          </Flex>
+        ) : null}
 
         {/* Right section: Home + Role badge + Logout */}
         <Flex align="center" gap={{ base: 1, sm: 2 }} flexShrink={0}>
@@ -544,23 +568,6 @@ export default function ShortcutBar({
         </Flex>
       </Flex>
 
-      {!isMobile && centerContent && (
-        <Flex
-          position="absolute"
-          top={0}
-          left="50%"
-          transform="translateX(-50%)"
-          height="56px"
-          alignItems="center"
-          pointerEvents="none"
-          userSelect="none"
-          zIndex={999}
-          px={4}
-        >
-          <Box pointerEvents="auto">{centerContent}</Box>
-        </Flex>
-      )}
-
       {/* Second row: date selector */}
       {isMobile && selectedDate && setSelectedDate && (
         <Box
@@ -574,25 +581,6 @@ export default function ShortcutBar({
         >
           <DateSelector date={selectedDate} setDate={setSelectedDate} />
         </Box>
-      )}
-
-      {!isMobile && selectedDate && setSelectedDate && (
-        <Flex
-          position="absolute"
-          top={0}
-          left="50%"
-          transform="translateX(-50%)"
-          height="72px"
-          alignItems="center"
-          pointerEvents="none"
-          userSelect="none"
-          zIndex={999}
-          px={4}
-        >
-          <Box pointerEvents="auto" maxW="320px" width="100%">
-            <DateSelector date={selectedDate} setDate={setSelectedDate} />
-          </Box>
-        </Flex>
       )}
     </Box>
   );

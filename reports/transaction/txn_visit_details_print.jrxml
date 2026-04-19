@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+  name="txn_visit_details_print" pageWidth="595" pageHeight="842" orientation="Portrait"
+  columnWidth="555" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
+  whenNoDataType="AllSectionsNoDetail" uuid="49f8869a-1dd9-4d93-bf0e-f8ca28bb3868">
+
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="visit_id" class="java.lang.String"/>
+  <parameter name="REPORT_LOGO_URL" class="java.lang.String" isForPrompting="false"/>
+
+  <queryString><![CDATA[
+    select
+      v.id as visit_id,
+      v.visit_date,
+      v.status,
+      v.address,
+      p.name as patient_name,
+      p.phone as patient_phone,
+      e.name as executive_name,
+      ts.slot_name
+    from visits v
+    left join patients p on p.id = v.patient_id
+    left join executives e on e.id = v.executive_id
+    left join visit_time_slots ts on ts.id = v.time_slot
+    where v.lab_id::text = $P{lab_id}
+      and v.id::text = $P{visit_id}
+  ]]></queryString>
+
+  <field name="visit_id" class="java.lang.String"/>
+  <field name="visit_date" class="java.sql.Date"/>
+  <field name="status" class="java.lang.String"/>
+  <field name="address" class="java.lang.String"/>
+  <field name="patient_name" class="java.lang.String"/>
+  <field name="patient_phone" class="java.lang.String"/>
+  <field name="executive_name" class="java.lang.String"/>
+  <field name="slot_name" class="java.lang.String"/>
+
+  <title>
+    <band height="62">
+      <image onErrorType="Blank">
+        <reportElement x="0" y="0" width="56" height="40"/>
+        <imageExpression><![CDATA[$P{REPORT_LOGO_URL} == null || $P{REPORT_LOGO_URL}.trim().isEmpty() ? null : new java.net.URL($P{REPORT_LOGO_URL})]]></imageExpression>
+      </image>
+      <staticText><reportElement x="60" y="0" width="495" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Visit Details Print]]></text></staticText>
+      <textField><reportElement x="60" y="24" width="495" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name}]]></textFieldExpression></textField>
+      <textField><reportElement x="60" y="42" width="495" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Visit ID: " + $P{visit_id}]]></textFieldExpression></textField>
+    </band>
+  </title>
+
+  <detail>
+    <band height="180">
+      <staticText><reportElement x="0" y="0" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Patient Name]]></text></staticText>
+      <textField><reportElement x="170" y="0" width="385" height="22"/><textFieldExpression><![CDATA[$F{patient_name}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="24" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Patient Phone]]></text></staticText>
+      <textField><reportElement x="170" y="24" width="385" height="22"/><textFieldExpression><![CDATA[$F{patient_phone}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="48" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Visit Date]]></text></staticText>
+      <textField pattern="dd-MMM-yyyy"><reportElement x="170" y="48" width="385" height="22"/><textFieldExpression><![CDATA[$F{visit_date}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="72" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Time Slot]]></text></staticText>
+      <textField><reportElement x="170" y="72" width="385" height="22"/><textFieldExpression><![CDATA[$F{slot_name}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="96" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Executive]]></text></staticText>
+      <textField><reportElement x="170" y="96" width="385" height="22"/><textFieldExpression><![CDATA[$F{executive_name}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="120" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Status]]></text></staticText>
+      <textField><reportElement x="170" y="120" width="385" height="22"/><textFieldExpression><![CDATA[$F{status}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="144" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Address]]></text></staticText>
+      <textField isStretchWithOverflow="true"><reportElement x="170" y="144" width="385" height="36"/><textFieldExpression><![CDATA[$F{address}]]></textFieldExpression></textField>
+    </band>
+  </detail>
+
+</jasperReport>

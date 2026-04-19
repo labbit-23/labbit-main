@@ -58,6 +58,17 @@ function aggregateRowsToDigest(rows = []) {
       latency_sample_count: 0,
       latency_values: [],
       max_latency_ms: null,
+      host_metric_samples: 0,
+      host_memory_sum: 0,
+      host_memory_max_pct: null,
+      host_disk_sum: 0,
+      host_disk_max_pct: null,
+      host_swap_sum: 0,
+      host_swap_max_pct: null,
+      host_load1_sum: 0,
+      host_load1_max: null,
+      host_load_per_core_sum: 0,
+      host_load_per_core_max_pct: null,
       first_checked_at: null,
       last_checked_at: null,
       status_transitions: 0,
@@ -76,6 +87,64 @@ function aggregateRowsToDigest(rows = []) {
       current.latency_sample_count += 1;
       current.latency_values.push(row.latency_ms);
       current.max_latency_ms = current.max_latency_ms == null ? row.latency_ms : Math.max(current.max_latency_ms, row.latency_ms);
+    }
+
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    const toNum = (value) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+    const pickMetric = (...keys) => {
+      for (const key of keys) {
+        if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+        const num = toNum(payload[key]);
+        if (num != null) return num;
+      }
+      return null;
+    };
+
+    const hostMemory = pickMetric("memory_pct", "mem_pct", "memory_percent", "ram_used_pct");
+    const hostDisk = pickMetric("disk_pct", "disk_used_pct", "disk_percent", "root_disk_pct");
+    const hostSwap = pickMetric("swap_pct", "swap_used_pct", "swap_percent");
+    const hostLoad1 = pickMetric("load_1", "load1", "loadavg_1");
+    const hostLoadPerCore = pickMetric("load_1_per_core_pct", "load_per_core_pct");
+
+    const hasHostMetric =
+      hostMemory != null ||
+      hostDisk != null ||
+      hostSwap != null ||
+      hostLoad1 != null ||
+      hostLoadPerCore != null;
+
+    if (hasHostMetric) {
+      current.host_metric_samples += 1;
+      if (hostMemory != null) {
+        current.host_memory_sum += hostMemory;
+        current.host_memory_max_pct =
+          current.host_memory_max_pct == null ? hostMemory : Math.max(current.host_memory_max_pct, hostMemory);
+      }
+      if (hostDisk != null) {
+        current.host_disk_sum += hostDisk;
+        current.host_disk_max_pct =
+          current.host_disk_max_pct == null ? hostDisk : Math.max(current.host_disk_max_pct, hostDisk);
+      }
+      if (hostSwap != null) {
+        current.host_swap_sum += hostSwap;
+        current.host_swap_max_pct =
+          current.host_swap_max_pct == null ? hostSwap : Math.max(current.host_swap_max_pct, hostSwap);
+      }
+      if (hostLoad1 != null) {
+        current.host_load1_sum += hostLoad1;
+        current.host_load1_max =
+          current.host_load1_max == null ? hostLoad1 : Math.max(current.host_load1_max, hostLoad1);
+      }
+      if (hostLoadPerCore != null) {
+        current.host_load_per_core_sum += hostLoadPerCore;
+        current.host_load_per_core_max_pct =
+          current.host_load_per_core_max_pct == null
+            ? hostLoadPerCore
+            : Math.max(current.host_load_per_core_max_pct, hostLoadPerCore);
+      }
     }
 
     if (Number.isFinite(checkedMs)) {
@@ -121,6 +190,24 @@ function aggregateRowsToDigest(rows = []) {
       latency_sample_count: entry.latency_sample_count,
       p95_latency_ms: p95,
       max_latency_ms: entry.max_latency_ms,
+      host_metric_samples: entry.host_metric_samples || 0,
+      host_memory_avg_pct:
+        entry.host_metric_samples > 0 ? Number((entry.host_memory_sum / entry.host_metric_samples).toFixed(2)) : null,
+      host_memory_max_pct: entry.host_memory_max_pct,
+      host_disk_avg_pct:
+        entry.host_metric_samples > 0 ? Number((entry.host_disk_sum / entry.host_metric_samples).toFixed(2)) : null,
+      host_disk_max_pct: entry.host_disk_max_pct,
+      host_swap_avg_pct:
+        entry.host_metric_samples > 0 ? Number((entry.host_swap_sum / entry.host_metric_samples).toFixed(2)) : null,
+      host_swap_max_pct: entry.host_swap_max_pct,
+      host_load1_avg:
+        entry.host_metric_samples > 0 ? Number((entry.host_load1_sum / entry.host_metric_samples).toFixed(2)) : null,
+      host_load1_max: entry.host_load1_max,
+      host_load_per_core_avg_pct:
+        entry.host_metric_samples > 0
+          ? Number((entry.host_load_per_core_sum / entry.host_metric_samples).toFixed(2))
+          : null,
+      host_load_per_core_max_pct: entry.host_load_per_core_max_pct,
       first_checked_at: entry.first_checked_at,
       last_checked_at: entry.last_checked_at,
       status_transitions: entry.status_transitions,
@@ -159,9 +246,29 @@ export async function POST(request) {
       body?.prune_raw_older_than_days === undefined || body?.prune_raw_older_than_days === null
         ? null
         : Number(body.prune_raw_older_than_days);
+    const pruneHealthyOlderThanDays =
+      body?.prune_healthy_older_than_days === undefined || body?.prune_healthy_older_than_days === null
+        ? null
+        : Number(body.prune_healthy_older_than_days);
+    const pruneNonHealthyOlderThanDays =
+      body?.prune_nonhealthy_older_than_days === undefined || body?.prune_nonhealthy_older_than_days === null
+        ? null
+        : Number(body.prune_nonhealthy_older_than_days);
 
     if (pruneRawOlderThanDays !== null && (!Number.isFinite(pruneRawOlderThanDays) || pruneRawOlderThanDays < 1)) {
       return badRequest("prune_raw_older_than_days must be a positive number");
+    }
+    if (
+      pruneHealthyOlderThanDays !== null &&
+      (!Number.isFinite(pruneHealthyOlderThanDays) || pruneHealthyOlderThanDays < 1)
+    ) {
+      return badRequest("prune_healthy_older_than_days must be a positive number");
+    }
+    if (
+      pruneNonHealthyOlderThanDays !== null &&
+      (!Number.isFinite(pruneNonHealthyOlderThanDays) || pruneNonHealthyOlderThanDays < 1)
+    ) {
+      return badRequest("prune_nonhealthy_older_than_days must be a positive number");
     }
 
     const dayStart = startOfUtcDay(targetDay);
@@ -169,7 +276,7 @@ export async function POST(request) {
 
     let sourceQuery = supabase
       .from("cto_service_logs")
-      .select("lab_id, checked_at, source, service_key, category, label, status, latency_ms")
+      .select("lab_id, checked_at, source, service_key, category, label, status, latency_ms, payload")
       .gte("checked_at", dayStart.toISOString())
       .lt("checked_at", dayEnd.toISOString())
       .order("checked_at", { ascending: true })
@@ -203,11 +310,44 @@ export async function POST(request) {
     }
 
     let digestWriteError = null;
+    let digestExtendedSchema = true;
     if (digestRows.length > 0) {
       const { error } = await supabase
         .from("cto_service_daily_digest")
         .upsert(digestRows, { onConflict: "day_date,lab_id,service_key" });
       digestWriteError = error;
+      const missingColumn =
+        String(error?.code || "") === "42703" ||
+        String(error?.message || "").toLowerCase().includes("column");
+      if (digestWriteError && missingColumn) {
+        const legacyRows = digestRows.map((row) => ({
+          day_date: row.day_date,
+          lab_id: row.lab_id,
+          service_key: row.service_key,
+          category: row.category,
+          label: row.label,
+          source: row.source,
+          total_checks: row.total_checks,
+          healthy_count: row.healthy_count,
+          degraded_count: row.degraded_count,
+          down_count: row.down_count,
+          unknown_count: row.unknown_count,
+          avg_latency_ms: row.avg_latency_ms,
+          latency_sample_count: row.latency_sample_count,
+          p95_latency_ms: row.p95_latency_ms,
+          max_latency_ms: row.max_latency_ms,
+          first_checked_at: row.first_checked_at,
+          last_checked_at: row.last_checked_at,
+          status_transitions: row.status_transitions,
+          last_status: row.last_status,
+          updated_at: row.updated_at
+        }));
+        const { error: legacyError } = await supabase
+          .from("cto_service_daily_digest")
+          .upsert(legacyRows, { onConflict: "day_date,lab_id,service_key" });
+        digestWriteError = legacyError;
+        digestExtendedSchema = false;
+      }
     }
 
     if (digestWriteError) {
@@ -241,7 +381,57 @@ export async function POST(request) {
     }
 
     let prunedRows = 0;
-    if (pruneRawOlderThanDays !== null) {
+    const useTieredPrune = pruneHealthyOlderThanDays !== null || pruneNonHealthyOlderThanDays !== null;
+    if (useTieredPrune) {
+      const deletedIds = new Set();
+
+      if (pruneHealthyOlderThanDays !== null) {
+        const pruneBeforeHealthy = addUtcDays(startOfUtcDay(new Date()), -pruneHealthyOlderThanDays);
+        let pruneHealthyQuery = supabase
+          .from("cto_service_logs")
+          .delete()
+          .eq("status", "healthy")
+          .lt("checked_at", pruneBeforeHealthy.toISOString());
+        if (labId) pruneHealthyQuery = pruneHealthyQuery.eq("lab_id", labId);
+        const { data: healthyPruned, error: healthyPruneError } = await pruneHealthyQuery.select("id");
+        if (healthyPruneError) {
+          console.error("[cto/compact] failed to prune healthy rows", healthyPruneError);
+          return NextResponse.json({ error: "Failed to prune healthy rows" }, { status: 500 });
+        }
+        for (const row of healthyPruned || []) deletedIds.add(row.id);
+      }
+
+      if (pruneNonHealthyOlderThanDays !== null) {
+        const pruneBeforeNonHealthy = addUtcDays(startOfUtcDay(new Date()), -pruneNonHealthyOlderThanDays);
+        let pruneNonHealthyQuery = supabase
+          .from("cto_service_logs")
+          .delete()
+          .in("status", ["degraded", "down", "unknown"])
+          .lt("checked_at", pruneBeforeNonHealthy.toISOString());
+        if (labId) pruneNonHealthyQuery = pruneNonHealthyQuery.eq("lab_id", labId);
+        const { data: nonHealthyPruned, error: nonHealthyPruneError } = await pruneNonHealthyQuery.select("id");
+        if (nonHealthyPruneError) {
+          console.error("[cto/compact] failed to prune non-healthy rows", nonHealthyPruneError);
+          return NextResponse.json({ error: "Failed to prune non-healthy rows" }, { status: 500 });
+        }
+        for (const row of nonHealthyPruned || []) deletedIds.add(row.id);
+
+        let pruneNullStatusQuery = supabase
+          .from("cto_service_logs")
+          .delete()
+          .is("status", null)
+          .lt("checked_at", pruneBeforeNonHealthy.toISOString());
+        if (labId) pruneNullStatusQuery = pruneNullStatusQuery.eq("lab_id", labId);
+        const { data: nullStatusPruned, error: nullStatusPruneError } = await pruneNullStatusQuery.select("id");
+        if (nullStatusPruneError) {
+          console.error("[cto/compact] failed to prune null-status rows", nullStatusPruneError);
+          return NextResponse.json({ error: "Failed to prune null-status rows" }, { status: 500 });
+        }
+        for (const row of nullStatusPruned || []) deletedIds.add(row.id);
+      }
+
+      prunedRows = deletedIds.size;
+    } else if (pruneRawOlderThanDays !== null) {
       const pruneBefore = addUtcDays(startOfUtcDay(new Date()), -pruneRawOlderThanDays);
       let pruneQuery = supabase
         .from("cto_service_logs")
@@ -263,6 +453,7 @@ export async function POST(request) {
       lab_id: labId,
       source_rows: (logRows || []).length,
       digest_rows: digestRows.length,
+      digest_extended_schema: digestExtendedSchema,
       wrote_digest: true,
       deleted_day_rows: deletedDayRows,
       pruned_rows: prunedRows

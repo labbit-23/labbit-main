@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+  name="mis_booking_value_daily_summary" pageWidth="842" pageHeight="595" orientation="Landscape"
+  columnWidth="802" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
+  whenNoDataType="AllSectionsNoDetail" uuid="4c437aa2-f9d4-4f93-a6fe-90e6cbf1c210">
+
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="from_date" class="java.sql.Date"/>
+  <parameter name="to_date" class="java.sql.Date"/>
+
+  <queryString><![CDATA[
+    select
+      date(created_at) as booked_date,
+      count(*) as bookings,
+      sum(coalesce((request_payload_json->>'total')::numeric,0)) as booked_value
+    from quickbookings
+    where lab_id::text = $P{lab_id}
+      and date(created_at) between $P{from_date} and $P{to_date}
+    group by 1
+    order by 1
+  ]]></queryString>
+
+  <field name="booked_date" class="java.sql.Date"/>
+  <field name="bookings" class="java.lang.Long"/>
+  <field name="booked_value" class="java.math.BigDecimal"/>
+
+  <title>
+    <band height="50">
+      <staticText>
+        <reportElement x="0" y="0" width="802" height="24"/>
+        <textElement textAlignment="Center" verticalAlignment="Middle">
+          <font size="14" isBold="true"/>
+        </textElement>
+        <text><![CDATA[Daily Booking Value Summary]]></text>
+      </staticText>
+      <textField>
+        <reportElement x="0" y="28" width="802" height="18"/>
+        <textElement textAlignment="Center" verticalAlignment="Middle">
+          <font size="10"/>
+        </textElement>
+        <textFieldExpression><![CDATA["Lab: " + $P{lab_name} + " | Range: " + $P{from_date} + " to " + $P{to_date}]]></textFieldExpression>
+      </textField>
+    </band>
+  </title>
+
+  <columnHeader>
+    <band height="22">
+      <staticText><reportElement x="0" y="0" width="220" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center" verticalAlignment="Middle"><font isBold="true"/></textElement><text><![CDATA[Booked Date]]></text></staticText>
+      <staticText><reportElement x="220" y="0" width="220" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center" verticalAlignment="Middle"><font isBold="true"/></textElement><text><![CDATA[Bookings]]></text></staticText>
+      <staticText><reportElement x="440" y="0" width="362" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center" verticalAlignment="Middle"><font isBold="true"/></textElement><text><![CDATA[Booked Value]]></text></staticText>
+    </band>
+  </columnHeader>
+
+  <detail>
+    <band height="20">
+      <textField pattern="dd-MMM-yyyy"><reportElement x="0" y="0" width="220" height="20"/><textElement textAlignment="Center" verticalAlignment="Middle"/><textFieldExpression><![CDATA[$F{booked_date}]]></textFieldExpression></textField>
+      <textField><reportElement x="220" y="0" width="220" height="20"/><textElement textAlignment="Center" verticalAlignment="Middle"/><textFieldExpression><![CDATA[$F{bookings}]]></textFieldExpression></textField>
+      <textField pattern="#,##0.00"><reportElement x="440" y="0" width="362" height="20"/><textElement textAlignment="Right" verticalAlignment="Middle"/><textFieldExpression><![CDATA[$F{booked_value}]]></textFieldExpression></textField>
+    </band>
+  </detail>
+
+  <summary>
+    <band height="24">
+      <staticText><reportElement x="0" y="2" width="440" height="20" backcolor="#F4F6FA" mode="Opaque"/><textElement textAlignment="Right" verticalAlignment="Middle"><font isBold="true"/></textElement><text><![CDATA[Total Booked Value]]></text></staticText>
+      <textField pattern="#,##0.00"><reportElement x="440" y="2" width="362" height="20" backcolor="#F4F6FA" mode="Opaque"/><textElement textAlignment="Right" verticalAlignment="Middle"><font isBold="true"/></textElement><textFieldExpression><![CDATA[$V{REPORT_COUNT} == null ? null : new java.math.BigDecimal(0)]]></textFieldExpression></textField>
+    </band>
+  </summary>
+
+</jasperReport>

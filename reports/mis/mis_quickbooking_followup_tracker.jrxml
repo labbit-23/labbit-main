@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd" name="mis_quickbooking_followup_tracker" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="802" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20" whenNoDataType="AllSectionsNoDetail" uuid="0e76d9da-8654-45eb-8cbd-3fa610bca91e">
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="from_date" class="java.sql.Date"/>
+  <parameter name="to_date" class="java.sql.Date"/>
+  <parameter name="followup_status" class="java.lang.String" isForPrompting="false"/>
+  <queryString><![CDATA[
+    select id, patient_name, phone, status, followup_status, followup_outcome, next_followup_at
+    from quickbookings
+    where lab_id::text = $P{lab_id}
+      and date(created_at) between $P{from_date} and $P{to_date}
+      and ($P{followup_status} is null or $P{followup_status} = '' or upper(coalesce(followup_status,'')) = upper($P{followup_status}))
+    order by next_followup_at nulls last
+  ]]></queryString>
+  <field name="id" class="java.lang.String"/>
+  <field name="patient_name" class="java.lang.String"/>
+  <field name="phone" class="java.lang.String"/>
+  <field name="status" class="java.lang.String"/>
+  <field name="followup_status" class="java.lang.String"/>
+  <field name="followup_outcome" class="java.lang.String"/>
+  <field name="next_followup_at" class="java.sql.Timestamp"/>
+  <title><band height="44"><staticText><reportElement x="0" y="0" width="802" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Quickbooking Follow-up Tracker]]></text></staticText><textField><reportElement x="0" y="26" width="802" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name} + " | Date: " + $P{from_date} + " to " + $P{to_date}]]></textFieldExpression></textField></band></title>
+  <columnHeader><band height="22"><staticText><reportElement x="0" y="0" width="70" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[ID]]></text></staticText><staticText><reportElement x="70" y="0" width="180" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Patient]]></text></staticText><staticText><reportElement x="250" y="0" width="110" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Phone]]></text></staticText><staticText><reportElement x="360" y="0" width="90" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Status]]></text></staticText><staticText><reportElement x="450" y="0" width="110" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Follow-up]]></text></staticText><staticText><reportElement x="560" y="0" width="132" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Outcome]]></text></staticText><staticText><reportElement x="692" y="0" width="110" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Next Follow-up]]></text></staticText></band></columnHeader>
+  <detail><band height="20"><textField><reportElement x="0" y="0" width="70" height="20"/><textFieldExpression><![CDATA[$F{id}]]></textFieldExpression></textField><textField><reportElement x="70" y="0" width="180" height="20"/><textFieldExpression><![CDATA[$F{patient_name}]]></textFieldExpression></textField><textField><reportElement x="250" y="0" width="110" height="20"/><textFieldExpression><![CDATA[$F{phone}]]></textFieldExpression></textField><textField><reportElement x="360" y="0" width="90" height="20"/><textFieldExpression><![CDATA[$F{status}]]></textFieldExpression></textField><textField><reportElement x="450" y="0" width="110" height="20"/><textFieldExpression><![CDATA[$F{followup_status}]]></textFieldExpression></textField><textField><reportElement x="560" y="0" width="132" height="20"/><textFieldExpression><![CDATA[$F{followup_outcome}]]></textFieldExpression></textField><textField pattern="dd-MMM HH:mm"><reportElement x="692" y="0" width="110" height="20"/><textFieldExpression><![CDATA[$F{next_followup_at}]]></textFieldExpression></textField></band></detail>
+</jasperReport>

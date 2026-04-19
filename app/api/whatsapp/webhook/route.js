@@ -68,6 +68,7 @@ const DELIVERY_FAILED_ACK_COOLDOWN_MS = 30 * 60 * 1000;
 const IST_EXECUTIVE_OPEN_HOUR = 7;
 const IST_EXECUTIVE_CLOSE_HOUR = 23;
 const AGENT_TAKEOVER_GREETING_GUARD_MINUTES = 5;
+const IST_TIME_ZONE = "Asia/Kolkata";
 
 function normalizeCommandLikeInput(value) {
   const raw = String(value || "").trim();
@@ -803,8 +804,8 @@ async function handlePostReportFeedbackInbound({
         phone,
         text: "Thank you for your feedback."
       });
-      await sendMainMenu({
-        labId: session.lab_id,
+      await sendMainMenuWithDailyBanner({
+        session,
         phone
       });
       return { handled: true };
@@ -879,6 +880,73 @@ function parseTemplates(templates) {
     }
   }
   return typeof templates === "object" ? templates : {};
+}
+
+function getIstDateKey(date = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: IST_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {}
+  return new Date().toISOString().slice(0, 10);
+}
+
+function toAbsoluteAppUrl(pathOrUrl) {
+  const raw = String(pathOrUrl || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base =
+    String(process.env.PUBLIC_BASE_URL || "").trim() ||
+    String(process.env.NEXT_PUBLIC_APP_URL || "").trim();
+  if (!base) return "";
+  try {
+    return new URL(raw, base).toString();
+  } catch {
+    return "";
+  }
+}
+
+function parseBooleanFlag(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return fallback;
+  return ["1", "true", "yes", "on", "enabled"].includes(normalized);
+}
+
+function getMainMenuBannerConfig(templates = {}) {
+  const botFlow = templates?.bot_flow || {};
+  const menuBanner = botFlow?.menu_banner || {};
+  const enabled = parseBooleanFlag(
+    menuBanner?.enabled ?? botFlow?.menu_banner_enabled ?? templates?.menu_banner_enabled,
+    false
+  );
+  const imageUrl = toAbsoluteAppUrl(
+    menuBanner?.image_url ||
+      menuBanner?.url ||
+      botFlow?.menu_banner_image_url ||
+      templates?.menu_banner_image_url ||
+      "/assets/whatsapp/sdrc_banner.png"
+  );
+  const caption =
+    String(
+      menuBanner?.caption ||
+        botFlow?.menu_banner_caption ||
+        templates?.menu_banner_caption ||
+        ""
+    ).trim() || "";
+  return {
+    enabled: Boolean(enabled && imageUrl),
+    imageUrl,
+    caption
+  };
 }
 
 function extractStatusEvents(body) {
@@ -1043,6 +1111,45 @@ async function fetchLabById(labId) {
     return data || null;
   } catch {
     return null;
+  }
+}
+
+async function markMainMenuBannerSentToday(session, istDayKey) {
+  if (!session?.id) return;
+  const nextContext = {
+    ...(session?.context || {}),
+    main_menu_banner_ist_date: istDayKey,
+    main_menu_banner_sent_at: new Date().toISOString()
+  };
+  await supabase
+    .from("chat_sessions")
+    .update({
+      context: nextContext,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", session.id);
+  session.context = nextContext;
+}
+
+async function sendMainMenuWithDailyBanner({ session, phone, templates = null }) {
+  const resolvedTemplates =
+    templates && typeof templates === "object"
+      ? templates
+      : await fetchWhatsappTemplatesForLab(session?.lab_id);
+  const bannerConfig = getMainMenuBannerConfig(resolvedTemplates);
+  const istDayKey = getIstDateKey();
+  const lastSentIstDate = String(session?.context?.main_menu_banner_ist_date || "").trim();
+  const shouldAttachBanner =
+    Boolean(bannerConfig?.enabled) && lastSentIstDate !== istDayKey;
+
+  await sendMainMenu({
+    labId: session.lab_id,
+    phone,
+    bannerImageUrl: shouldAttachBanner ? bannerConfig.imageUrl : ""
+  });
+
+  if (shouldAttachBanner) {
+    await markMainMenuBannerSentToday(session, istDayKey);
   }
 }
 
@@ -2917,7 +3024,7 @@ export async function POST(req) {
     switch (result.replyType) {
 
       case "MAIN_MENU":
-        await sendMainMenu({ labId: session.lab_id, phone });
+        await sendMainMenuWithDailyBanner({ session, phone, templates });
         break;
 
       case "MORE_SERVICES_MENU":
@@ -3621,7 +3728,7 @@ export async function POST(req) {
         break;
 
       default:
-        await sendMainMenu({ labId: session.lab_id, phone });
+        await sendMainMenuWithDailyBanner({ session, phone, templates });
     }
     } catch (sendError) {
       console.error("[bot] send failed", JSON.stringify({

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+  name="txn_patient_master_print" pageWidth="595" pageHeight="842" orientation="Portrait"
+  columnWidth="555" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
+  whenNoDataType="AllSectionsNoDetail" uuid="1ba6fcf4-8ebd-4ddb-b16a-8691d6f1592e">
+
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="patient_id" class="java.lang.String"/>
+  <parameter name="REPORT_LOGO_URL" class="java.lang.String" isForPrompting="false"/>
+
+  <queryString><![CDATA[
+    select
+      p.id as patient_id,
+      p.name,
+      p.phone,
+      p.gender,
+      p.dob,
+      pa.area,
+      pa.address_line,
+      pa.lat,
+      pa.lng
+    from patients p
+    left join patient_addresses pa on pa.patient_id = p.id and pa.is_default = true
+    where p.id::text = $P{patient_id}
+  ]]></queryString>
+
+  <field name="patient_id" class="java.lang.String"/>
+  <field name="name" class="java.lang.String"/>
+  <field name="phone" class="java.lang.String"/>
+  <field name="gender" class="java.lang.String"/>
+  <field name="dob" class="java.sql.Date"/>
+  <field name="area" class="java.lang.String"/>
+  <field name="address_line" class="java.lang.String"/>
+  <field name="lat" class="java.math.BigDecimal"/>
+  <field name="lng" class="java.math.BigDecimal"/>
+
+  <title>
+    <band height="62">
+      <image onErrorType="Blank">
+        <reportElement x="0" y="0" width="56" height="40"/>
+        <imageExpression><![CDATA[$P{REPORT_LOGO_URL} == null || $P{REPORT_LOGO_URL}.trim().isEmpty() ? null : new java.net.URL($P{REPORT_LOGO_URL})]]></imageExpression>
+      </image>
+      <staticText><reportElement x="60" y="0" width="495" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Patient Master Print]]></text></staticText>
+      <textField><reportElement x="60" y="24" width="495" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name}]]></textFieldExpression></textField>
+      <textField><reportElement x="60" y="42" width="495" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Patient ID: " + $P{patient_id}]]></textFieldExpression></textField>
+    </band>
+  </title>
+
+  <detail>
+    <band height="190">
+      <staticText><reportElement x="0" y="0" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Name]]></text></staticText>
+      <textField><reportElement x="170" y="0" width="385" height="22"/><textFieldExpression><![CDATA[$F{name}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="24" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Phone]]></text></staticText>
+      <textField><reportElement x="170" y="24" width="385" height="22"/><textFieldExpression><![CDATA[$F{phone}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="48" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Gender]]></text></staticText>
+      <textField><reportElement x="170" y="48" width="385" height="22"/><textFieldExpression><![CDATA[$F{gender}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="72" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[DOB]]></text></staticText>
+      <textField pattern="dd-MMM-yyyy"><reportElement x="170" y="72" width="385" height="22"/><textFieldExpression><![CDATA[$F{dob}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="96" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Area]]></text></staticText>
+      <textField><reportElement x="170" y="96" width="385" height="22"/><textFieldExpression><![CDATA[$F{area}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="120" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Address]]></text></staticText>
+      <textField isStretchWithOverflow="true"><reportElement x="170" y="120" width="385" height="40"/><textFieldExpression><![CDATA[$F{address_line}]]></textFieldExpression></textField>
+
+      <staticText><reportElement x="0" y="164" width="170" height="22"/><textElement><font isBold="true"/></textElement><text><![CDATA[Coordinates]]></text></staticText>
+      <textField><reportElement x="170" y="164" width="385" height="22"/><textFieldExpression><![CDATA[$F{lat} == null || $F{lng} == null ? "-" : ($F{lat}.toString() + ", " + $F{lng}.toString())]]></textFieldExpression></textField>
+    </band>
+  </detail>
+
+</jasperReport>

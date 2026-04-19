@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+  name="mis_tat_visit_lifecycle" pageWidth="842" pageHeight="595" orientation="Landscape"
+  columnWidth="802" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
+  whenNoDataType="AllSectionsNoDetail" uuid="3f12e3d1-a553-47ca-848f-a6fdb15e4f2f">
+
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="from_date" class="java.sql.Date"/>
+  <parameter name="to_date" class="java.sql.Date"/>
+  <parameter name="executive_id" class="java.lang.String" isForPrompting="false"/>
+
+  <queryString><![CDATA[
+    select
+      v.id as visit_id,
+      v.visit_date,
+      v.status,
+      e.name as executive_name,
+      min(case when lower(coalesce(a.new_value->>'status','')) = 'booked' then a.created_at end) as booked_at,
+      min(case when lower(coalesce(a.new_value->>'status','')) in ('assigned','accepted') then a.created_at end) as assigned_at,
+      min(case when lower(coalesce(a.new_value->>'status','')) in ('in_progress','started') then a.created_at end) as started_at,
+      min(case when lower(coalesce(a.new_value->>'status','')) = 'sample_picked' then a.created_at end) as sample_picked_at,
+      min(case when lower(coalesce(a.new_value->>'status','')) in ('completed','sample_dropped') then a.created_at end) as completed_at
+    from visits v
+    left join executives e on e.id = v.executive_id
+    left join visit_activity_log a on a.visit_id = v.id
+    where v.lab_id::text = $P{lab_id}
+      and v.visit_date between $P{from_date} and $P{to_date}
+      and ($P{executive_id} is null or $P{executive_id} = '' or v.executive_id::text = $P{executive_id})
+    group by v.id, v.visit_date, v.status, e.name
+    order by v.visit_date desc
+  ]]></queryString>
+
+  <field name="visit_id" class="java.lang.String"/>
+  <field name="visit_date" class="java.sql.Date"/>
+  <field name="status" class="java.lang.String"/>
+  <field name="executive_name" class="java.lang.String"/>
+  <field name="booked_at" class="java.sql.Timestamp"/>
+  <field name="assigned_at" class="java.sql.Timestamp"/>
+  <field name="started_at" class="java.sql.Timestamp"/>
+  <field name="sample_picked_at" class="java.sql.Timestamp"/>
+  <field name="completed_at" class="java.sql.Timestamp"/>
+
+  <title>
+    <band height="44">
+      <staticText><reportElement x="0" y="0" width="802" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Visit TAT Lifecycle]]></text></staticText>
+      <textField><reportElement x="0" y="26" width="802" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name} + " | Date: " + $P{from_date} + " to " + $P{to_date}]]></textFieldExpression></textField>
+    </band>
+  </title>
+
+  <columnHeader>
+    <band height="22">
+      <staticText><reportElement x="0" y="0" width="110" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Visit ID]]></text></staticText>
+      <staticText><reportElement x="110" y="0" width="90" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Visit Date]]></text></staticText>
+      <staticText><reportElement x="200" y="0" width="120" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Phlebo]]></text></staticText>
+      <staticText><reportElement x="320" y="0" width="90" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Status]]></text></staticText>
+      <staticText><reportElement x="410" y="0" width="98" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Booked At]]></text></staticText>
+      <staticText><reportElement x="508" y="0" width="98" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Assigned At]]></text></staticText>
+      <staticText><reportElement x="606" y="0" width="98" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Started At]]></text></staticText>
+      <staticText><reportElement x="704" y="0" width="98" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Completed At]]></text></staticText>
+    </band>
+  </columnHeader>
+
+  <detail>
+    <band height="20">
+      <textField><reportElement x="0" y="0" width="110" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{visit_id}]]></textFieldExpression></textField>
+      <textField pattern="dd-MMM-yyyy"><reportElement x="110" y="0" width="90" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{visit_date}]]></textFieldExpression></textField>
+      <textField><reportElement x="200" y="0" width="120" height="20"/><textElement textAlignment="Left"/><textFieldExpression><![CDATA[$F{executive_name}]]></textFieldExpression></textField>
+      <textField><reportElement x="320" y="0" width="90" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{status}]]></textFieldExpression></textField>
+      <textField pattern="dd-MMM HH:mm"><reportElement x="410" y="0" width="98" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{booked_at}]]></textFieldExpression></textField>
+      <textField pattern="dd-MMM HH:mm"><reportElement x="508" y="0" width="98" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{assigned_at}]]></textFieldExpression></textField>
+      <textField pattern="dd-MMM HH:mm"><reportElement x="606" y="0" width="98" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{started_at}]]></textFieldExpression></textField>
+      <textField pattern="dd-MMM HH:mm"><reportElement x="704" y="0" width="98" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{completed_at}]]></textFieldExpression></textField>
+    </band>
+  </detail>
+
+</jasperReport>

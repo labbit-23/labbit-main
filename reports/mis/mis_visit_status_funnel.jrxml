@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd" name="mis_visit_status_funnel" pageWidth="595" pageHeight="842" orientation="Portrait" columnWidth="555" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20" whenNoDataType="AllSectionsNoDetail" uuid="e438de56-41c8-45f7-892d-f3105b2ddffe">
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="from_date" class="java.sql.Date"/>
+  <parameter name="to_date" class="java.sql.Date"/>
+  <queryString><![CDATA[
+    select lower(coalesce(status,'unassigned')) as status_code, count(*) as visits
+    from visits where lab_id::text = $P{lab_id}
+      and visit_date between $P{from_date} and $P{to_date}
+    group by 1 order by 2 desc
+  ]]></queryString>
+  <field name="status_code" class="java.lang.String"/>
+  <field name="visits" class="java.lang.Long"/>
+  <title><band height="44"><staticText><reportElement x="0" y="0" width="555" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Visit Status Funnel]]></text></staticText><textField><reportElement x="0" y="26" width="555" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name} + " | Date: " + $P{from_date} + " to " + $P{to_date}]]></textFieldExpression></textField></band></title>
+  <columnHeader><band height="22"><staticText><reportElement x="0" y="0" width="330" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Status]]></text></staticText><staticText><reportElement x="330" y="0" width="225" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Visits]]></text></staticText></band></columnHeader>
+  <detail><band height="20"><textField><reportElement x="0" y="0" width="330" height="20"/><textFieldExpression><![CDATA[$F{status_code}]]></textFieldExpression></textField><textField><reportElement x="330" y="0" width="225" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{visits}]]></textFieldExpression></textField></band></detail>
+</jasperReport>

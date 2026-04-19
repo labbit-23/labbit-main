@@ -73,10 +73,12 @@ const keySystems = [
 ];
 const SERVICE_FRESHNESS_MS = 10 * 60 * 1000;
 const TREND_RANGE_OPTIONS = [
-  { value: "7d", label: "7 Days" },
+  { value: "today", label: "Today" },
+  { value: "24h", label: "Last 24 Hours" },
+  { value: "7d", label: "Daily (7 Days)" },
   { value: "30d", label: "30 Days" },
-  { value: "12w", label: "12 Weeks" },
-  { value: "12m", label: "12 Months" },
+  { value: "12w", label: "Weekly (12 Weeks)" },
+  { value: "12m", label: "Monthly (12 Months)" },
 ];
 
 function worstStatus(statuses) {
@@ -291,13 +293,39 @@ function isWhatsappMetric(service) {
   return service?.category === "whatsapp" || String(baseKey || "").startsWith("whatsapp_bot_");
 }
 
-function toChartY(value, height, padding) {
-  const clamped = Math.max(0, Math.min(100, Number(value || 0)));
+function toChartY(value, height, padding, { min = 0, max = 100 } = {}) {
+  const normalizedMin = Number.isFinite(min) ? min : 0;
+  const normalizedMax = Number.isFinite(max) && max > normalizedMin ? max : normalizedMin + 1;
+  const clamped = Math.max(normalizedMin, Math.min(normalizedMax, Number(value ?? normalizedMin)));
   const drawable = Math.max(1, height - padding * 2);
-  return padding + ((100 - clamped) / 100) * drawable;
+  return padding + ((normalizedMax - clamped) / (normalizedMax - normalizedMin)) * drawable;
 }
 
-function buildTrendPath(points, valueAccessor, width, height, padding) {
+function parseHourBucketToUtc(bucketKey) {
+  const key = String(bucketKey || "");
+  if (!key.includes(" ")) return null;
+  const parsed = new Date(key.replace(" ", "T") + ":00.000Z");
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatBucketLabelIst(bucketKey) {
+  const parsed = parseHourBucketToUtc(bucketKey);
+  if (!parsed) return String(bucketKey || "");
+  const day = parsed.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "Asia/Kolkata"
+  });
+  const time = parsed.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Kolkata"
+  });
+  return `${day} ${time}`;
+}
+
+function buildTrendPath(points, valueAccessor, width, height, padding, yDomain = { min: 0, max: 100 }) {
   if (!Array.isArray(points) || points.length === 0) return "";
   const step = points.length === 1 ? 0 : (width - padding * 2) / (points.length - 1);
   let path = "";
@@ -311,7 +339,7 @@ function buildTrendPath(points, valueAccessor, width, height, padding) {
       continue;
     }
     const x = points.length === 1 ? width / 2 : padding + step * index;
-    const y = toChartY(raw, height, padding);
+    const y = toChartY(raw, height, padding, yDomain);
     path += `${hasStarted ? "L" : "M"} ${x} ${y} `;
     hasStarted = true;
   }
@@ -394,48 +422,86 @@ function buildTrendChartModel(rawPoints = [], range = "30d") {
   };
 }
 
-function buildHostTrendChartModel(rawPoints = []) {
+function buildSingleMetricHostChartModel(rawPoints = [], metricKey = "host_memory_pct") {
   const ordered = [...(Array.isArray(rawPoints) ? rawPoints : [])].sort((a, b) =>
     String(a?.bucket_key || "").localeCompare(String(b?.bucket_key || ""))
   );
-  const points = ordered.length > 36
-    ? ordered.filter((_, idx) => idx % Math.ceil(ordered.length / 36) === 0)
-    : ordered;
-  const width = 560;
-  const height = 180;
-  const padding = 26;
+  const isHourlyBuckets = ordered.some((point) => String(point?.bucket_key || "").includes(" "));
+  const filledPoints = [];
+  if (isHourlyBuckets) {
+    const keyed = new Map(ordered.map((point) => [String(point?.bucket_key || ""), point]));
+    const firstKey = String(ordered[0]?.bucket_key || "");
+    const lastKey = String(ordered[ordered.length - 1]?.bucket_key || "");
+    const first = parseHourBucketToUtc(firstKey);
+    const last = parseHourBucketToUtc(lastKey);
+    const startUtc = first || last;
+    const currentHourUtc = last || first;
+    if (startUtc && currentHourUtc) {
+      for (let hourTs = startUtc.getTime(); hourTs <= currentHourUtc.getTime(); hourTs += 60 * 60 * 1000) {
+        const dt = new Date(hourTs);
+        const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")} ${String(dt.getUTCHours()).padStart(2, "0")}:00`;
+        filledPoints.push(keyed.get(key) || { bucket_key: key, bucket_label: formatBucketLabelIst(key), [metricKey]: null });
+      }
+    }
+  }
+  const points = filledPoints.length > 0 ? filledPoints : ordered;
+  const width = 520;
+  const height = 140;
+  const padding = 24;
 
-  const memoryPath = buildTrendPath(points, (point) => {
-    const value = Number(point?.host_memory_pct);
+  const metricValues = points
+    .map((point) => Number(point?.[metricKey]))
+    .filter((value) => Number.isFinite(value));
+  const metricMax = metricValues.length > 0 ? Math.max(...metricValues) : 100;
+  const roundedMax = Math.ceil(metricMax / 10) * 10;
+  const yMax = Math.max(100, roundedMax || 100);
+  const yDomain = { min: 0, max: yMax };
+  const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map((tick) => Number(tick.toFixed(2)));
+
+  const path = buildTrendPath(points, (point) => {
+    const value = Number(point?.[metricKey]);
     return Number.isFinite(value) ? value : null;
-  }, width, height, padding);
-  const diskPath = buildTrendPath(points, (point) => {
-    const value = Number(point?.host_disk_pct);
-    return Number.isFinite(value) ? value : null;
-  }, width, height, padding);
-  const swapPath = buildTrendPath(points, (point) => {
-    const value = Number(point?.host_swap_pct);
-    return Number.isFinite(value) ? value : null;
-  }, width, height, padding);
-  const loadPerCorePath = buildTrendPath(points, (point) => {
-    const value = Number(point?.host_load_per_core_pct);
-    return Number.isFinite(value) ? value : null;
-  }, width, height, padding);
+  }, width, height, padding, yDomain);
+
+  let singlePointY = null;
+  if (points.length === 1) {
+    const value = Number(points[0]?.[metricKey]);
+    singlePointY = Number.isFinite(value) ? toChartY(value, height, padding, yDomain) : null;
+  }
+
+  const step = points.length === 1 ? 0 : (width - padding * 2) / (points.length - 1);
+  const plotPoints = points.map((point, index) => {
+    const value = Number(point?.[metricKey]);
+    const finite = Number.isFinite(value);
+    const x = points.length === 1 ? width / 2 : padding + step * index;
+    const y = finite ? toChartY(value, height, padding, yDomain) : null;
+    const label = String(point?.bucket_key || "").includes(" ")
+      ? formatBucketLabelIst(point?.bucket_key)
+      : (point?.bucket_label || point?.bucket_key || "");
+    return {
+      x,
+      y,
+      value: finite ? value : null,
+      label
+    };
+  });
+  const latestPoint = [...plotPoints].reverse().find((point) => Number.isFinite(point.value)) || null;
 
   return {
     points,
     width,
     height,
     padding,
-    memoryPath,
-    diskPath,
-    swapPath,
-    loadPerCorePath,
-    hasPath: Boolean(memoryPath || diskPath || swapPath || loadPerCorePath),
+    path,
+    hasPath: Boolean(path),
+    singlePointY,
+    plotPoints,
+    latestPoint,
+    yDomain,
+    yTicks,
     xLabels: {
-      start: points[0]?.bucket_label || "",
-      mid: points[Math.floor(points.length / 2)]?.bucket_label || "",
-      end: points[points.length - 1]?.bucket_label || ""
+      start: points[0]?.bucket_key ? formatBucketLabelIst(points[0].bucket_key) : (points[0]?.bucket_label || ""),
+      end: points[points.length - 1]?.bucket_key ? formatBucketLabelIst(points[points.length - 1].bucket_key) : (points[points.length - 1]?.bucket_label || "")
     }
   };
 }
@@ -451,7 +517,7 @@ function CtoDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState("");
-  const [trendRange, setTrendRange] = useState("30d");
+  const [trendRange, setTrendRange] = useState("today");
   const [trendVpsServiceKey, setTrendVpsServiceKey] = useState("");
   const [trendLocalServiceKey, setTrendLocalServiceKey] = useState("");
   const [trendData, setTrendData] = useState({ points: [], summary: {}, source: {}, service_key: "" });
@@ -459,6 +525,7 @@ function CtoDashboardPage() {
   const [trendWowData, setTrendWowData] = useState({ points: [], summary: {}, source: {} });
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
+  const [hostMetricHover, setHostMetricHover] = useState({});
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
   const [activeStatusFilter, setActiveStatusFilter] = useState("");
   const [eventsRows, setEventsRows] = useState([]);
@@ -1017,7 +1084,35 @@ function CtoDashboardPage() {
   const trendChartModel = useMemo(() => buildTrendChartModel(trendPoints, trendRange), [trendPoints, trendRange]);
   const trendCompareChartModel = useMemo(() => buildTrendChartModel(trendComparePoints, trendRange), [trendComparePoints, trendRange]);
   const vpsHostTrendPoints = useMemo(() => (Array.isArray(trendData?.host_points) ? trendData.host_points : []), [trendData]);
-  const vpsHostTrendModel = useMemo(() => buildHostTrendChartModel(vpsHostTrendPoints), [vpsHostTrendPoints]);
+  const vpsHostMemoryModel = useMemo(
+    () => buildSingleMetricHostChartModel(vpsHostTrendPoints, "host_memory_pct"),
+    [vpsHostTrendPoints]
+  );
+  const vpsHostDiskModel = useMemo(
+    () => buildSingleMetricHostChartModel(vpsHostTrendPoints, "host_disk_pct"),
+    [vpsHostTrendPoints]
+  );
+  const vpsHostSwapModel = useMemo(
+    () => buildSingleMetricHostChartModel(vpsHostTrendPoints, "host_swap_pct"),
+    [vpsHostTrendPoints]
+  );
+  const vpsHostLoadModel = useMemo(
+    () => buildSingleMetricHostChartModel(vpsHostTrendPoints, "host_load_per_core_pct"),
+    [vpsHostTrendPoints]
+  );
+  const vpsHostCompactMetrics = useMemo(() => {
+    const rows = [
+      { key: "memory", label: "Memory", unit: "%", point: vpsHostMemoryModel.latestPoint },
+      { key: "disk", label: "Disk", unit: "%", point: vpsHostDiskModel.latestPoint },
+      { key: "swap", label: "Swap", unit: "%", point: vpsHostSwapModel.latestPoint },
+      { key: "load", label: "Load/Core", unit: "%", point: vpsHostLoadModel.latestPoint }
+    ];
+    return rows.map((row) => ({
+      ...row,
+      value: Number.isFinite(row?.point?.value) ? `${Math.round(row.point.value)}${row.unit}` : "n/a",
+      at: row?.point?.label || ""
+    }));
+  }, [vpsHostDiskModel.latestPoint, vpsHostLoadModel.latestPoint, vpsHostMemoryModel.latestPoint, vpsHostSwapModel.latestPoint]);
 
   const trendWow = useMemo(() => {
     const points = Array.isArray(trendWowData?.points) ? trendWowData.points : [];
@@ -1867,102 +1962,134 @@ function CtoDashboardPage() {
             </HStack>
           </Flex>
 
-          <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
-            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Host Memory Pressure</Text>
-              <Text fontSize="2xl" fontWeight="800" color={pressureTone(vpsHealth.hostMemoryPct) === "red" ? "red.300" : pressureTone(vpsHealth.hostMemoryPct) === "yellow" ? "yellow.300" : pressureTone(vpsHealth.hostMemoryPct) === "green" ? "green.300" : "whiteAlpha.900"}>
-                {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
-              </Text>
-              <Text fontSize="xs" color="whiteAlpha.600" mt={1}>
-                Peak RAM usage seen in VPS payloads
-              </Text>
-            </Box>
-
-            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Process Memory Peak</Text>
-              <Text fontSize="2xl" fontWeight="800" color="cyan.200">
-                {Number.isFinite(vpsHealth.maxProcessMemoryMb) ? `${Math.round(vpsHealth.maxProcessMemoryMb)} MB` : "n/a"}
-              </Text>
-              <Text fontSize="xs" color="whiteAlpha.600" mt={1} noOfLines={1}>
-                {vpsHealth.maxProcessMemoryService?.label || vpsHealth.maxProcessMemoryService?.service_key || "Waiting for metrics"}
-              </Text>
-            </Box>
-
-            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>CPU Peak (Process)</Text>
-              <Text fontSize="2xl" fontWeight="800" color={pressureTone(vpsHealth.maxCpu, { warn: 60, critical: 85 }) === "red" ? "red.300" : pressureTone(vpsHealth.maxCpu, { warn: 60, critical: 85 }) === "yellow" ? "yellow.300" : pressureTone(vpsHealth.maxCpu, { warn: 60, critical: 85 }) === "green" ? "green.300" : "whiteAlpha.900"}>
-                {Number.isFinite(vpsHealth.maxCpu) ? `${Math.round(vpsHealth.maxCpu)}%` : "n/a"}
-              </Text>
-              <Text fontSize="xs" color="whiteAlpha.600" mt={1} noOfLines={1}>
-                {vpsHealth.maxCpuService?.label || vpsHealth.maxCpuService?.service_key || "Waiting for metrics"}
-              </Text>
-            </Box>
-
-            <Box p={4} borderRadius="18px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Disk / Swap / Load</Text>
-              <VStack align="flex-start" spacing={1} mt={1}>
-                <Text fontSize="sm" color="whiteAlpha.900">
-                  Disk: {Number.isFinite(vpsHealth.hostDiskPct) ? `${Math.round(vpsHealth.hostDiskPct)}%` : "n/a"}
-                </Text>
-                <Text fontSize="sm" color="whiteAlpha.900">
-                  Swap: {Number.isFinite(vpsHealth.hostSwapPct) ? `${Math.round(vpsHealth.hostSwapPct)}%` : "n/a"}
-                </Text>
-                <Text fontSize="sm" color="whiteAlpha.900">
-                  Load(1m): {Number.isFinite(vpsHealth.hostLoad1) ? vpsHealth.hostLoad1.toFixed(2) : "n/a"}
-                  {Number.isFinite(vpsHealth.hostCpuCores) ? ` / ${Math.round(vpsHealth.hostCpuCores)} cores` : ""}
-                  {Number.isFinite(vpsHealth.hostLoadPerCorePct) ? ` (${Math.round(vpsHealth.hostLoadPerCorePct)}%)` : ""}
-                </Text>
-              </VStack>
-            </Box>
-          </SimpleGrid>
-
           {!trendLoading && vpsHostTrendPoints.length > 0 && (
             <Box mt={4} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
-              <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
+              <HStack spacing={3} mb={3} justify="space-between" align="center" flexWrap="wrap">
                 <Text fontSize="sm" color="whiteAlpha.900" fontWeight="700">
                   VPS Host Pressure Trend
                 </Text>
-                <HStack spacing={3} color="whiteAlpha.700" fontSize="xs" flexWrap="wrap">
-                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#34d399" /><Text>Memory %</Text></HStack>
-                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#60a5fa" /><Text>Disk %</Text></HStack>
-                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#f59e0b" /><Text>Swap %</Text></HStack>
-                  <HStack spacing={1}><Box w={2.5} h={2.5} borderRadius="full" bg="#f87171" /><Text>Load/Core %</Text></HStack>
+                <HStack spacing={2} flexWrap="wrap" justify="flex-end">
+                  {vpsHostCompactMetrics.map((item) => (
+                    <Box key={item.key} px={2.5} py={1.5} borderRadius="10px" bg="rgba(255,255,255,0.05)" border="1px solid rgba(255,255,255,0.12)">
+                      <Text fontSize="10px" color="whiteAlpha.700" lineHeight="1.1">{item.label}</Text>
+                      <Text fontSize="sm" color="whiteAlpha.950" fontWeight="700" lineHeight="1.1">{item.value}</Text>
+                    </Box>
+                  ))}
+                  <Button
+                    size="xs"
+                    variant={trendRange === "today" ? "solid" : "outline"}
+                    onClick={() => setTrendRange("today")}
+                    colorScheme="teal"
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant={trendRange === "7d" ? "solid" : "outline"}
+                    onClick={() => setTrendRange("7d")}
+                    colorScheme="teal"
+                  >
+                    History
+                  </Button>
                 </HStack>
               </HStack>
 
-              <svg
-                width="100%"
-                height={vpsHostTrendModel.height}
-                viewBox={`0 0 ${vpsHostTrendModel.width} ${vpsHostTrendModel.height}`}
-                role="img"
-                aria-label="VPS host pressure trend chart"
-              >
-                {[0, 25, 50, 75, 100].map((level) => {
-                  const y = toChartY(level, vpsHostTrendModel.height, vpsHostTrendModel.padding);
-                  return (
-                    <g key={level}>
-                      <line
-                        x1={vpsHostTrendModel.padding}
-                        x2={vpsHostTrendModel.width - vpsHostTrendModel.padding}
-                        y1={y}
-                        y2={y}
-                        stroke="rgba(255,255,255,0.14)"
-                        strokeWidth="1"
-                        strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
-                      />
-                    </g>
-                  );
-                })}
-                {vpsHostTrendModel.memoryPath && <path d={vpsHostTrendModel.memoryPath} stroke="#34d399" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
-                {vpsHostTrendModel.diskPath && <path d={vpsHostTrendModel.diskPath} stroke="#60a5fa" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
-                {vpsHostTrendModel.swapPath && <path d={vpsHostTrendModel.swapPath} stroke="#f59e0b" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
-                {vpsHostTrendModel.loadPerCorePath && <path d={vpsHostTrendModel.loadPerCorePath} stroke="#f87171" strokeWidth="2.2" fill="none" strokeLinecap="round" />}
-              </svg>
-              <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
-                <Text noOfLines={1} maxW="32%">{vpsHostTrendModel.xLabels.start}</Text>
-                <Text noOfLines={1} maxW="32%" textAlign="center">{vpsHostTrendModel.xLabels.mid}</Text>
-                <Text noOfLines={1} maxW="32%" textAlign="right">{vpsHostTrendModel.xLabels.end}</Text>
-              </HStack>
+              <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
+                {[
+                  { label: "Memory %", color: "#34d399", model: vpsHostMemoryModel },
+                  { label: "Disk %", color: "#60a5fa", model: vpsHostDiskModel },
+                  { label: "Swap %", color: "#f59e0b", model: vpsHostSwapModel },
+                  { label: "Load/Core %", color: "#f87171", model: vpsHostLoadModel }
+                ].map((metric) => (
+                  <Box key={metric.label} p={3} borderRadius="12px" border="1px solid rgba(255,255,255,0.08)" bg="rgba(255,255,255,0.02)">
+                    <HStack justify="space-between" mb={2} align="flex-start">
+                      <Text fontSize="xs" color="whiteAlpha.800">{metric.label}</Text>
+                      <VStack spacing={0} align="flex-end">
+                        <Text fontSize="xs" color="whiteAlpha.900" fontWeight="700" lineHeight="1.1">
+                          {(() => {
+                            const hovered = hostMetricHover[metric.label];
+                            const point = Number.isFinite(hovered?.value) ? hovered : metric.model.latestPoint;
+                            return Number.isFinite(point?.value) ? `${point.value.toFixed(1)}%` : "n/a";
+                          })()}
+                        </Text>
+                        <Text fontSize="10px" color="whiteAlpha.600" lineHeight="1.1">
+                          {(() => {
+                            const hovered = hostMetricHover[metric.label];
+                            const point = Number.isFinite(hovered?.value) ? hovered : metric.model.latestPoint;
+                            return point?.label || "";
+                          })()}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                    <svg
+                      width="100%"
+                      height={metric.model.height}
+                      viewBox={`0 0 ${metric.model.width} ${metric.model.height}`}
+                      role="img"
+                      aria-label={`VPS ${metric.label} trend chart`}
+                      onMouseLeave={() => setHostMetricHover((prev) => ({ ...prev, [metric.label]: null }))}
+                      onMouseMove={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const xPx = event.clientX - rect.left;
+                        const x = (xPx / rect.width) * metric.model.width;
+                        const nearest = (metric.model.plotPoints || [])
+                          .filter((point) => Number.isFinite(point?.value))
+                          .reduce((best, point) => {
+                            if (!best) return point;
+                            return Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best;
+                          }, null);
+                        setHostMetricHover((prev) => ({ ...prev, [metric.label]: nearest }));
+                      }}
+                    >
+                      {(metric.model.yTicks || [0, 25, 50, 75, 100]).map((level, levelIndex) => {
+                        const y = toChartY(level, metric.model.height, metric.model.padding, metric.model.yDomain);
+                        return (
+                          <g key={`${metric.label}-${level}`}>
+                          <line
+                            x1={metric.model.padding}
+                            x2={metric.model.width - metric.model.padding}
+                            y1={y}
+                            y2={y}
+                            stroke="rgba(255,255,255,0.12)"
+                            strokeWidth="1"
+                            strokeDasharray={levelIndex === 0 || levelIndex === ((metric.model.yTicks || [0, 25, 50, 75, 100]).length - 1) ? "0" : "4 4"}
+                          />
+                          <text
+                            x={metric.model.padding - 6}
+                            y={y + 3}
+                            fill="rgba(255,255,255,0.6)"
+                            fontSize="9"
+                            textAnchor="end"
+                          >
+                            {Math.round(level)}
+                          </text>
+                          </g>
+                        );
+                      })}
+                      {metric.model.path && (
+                        <path d={metric.model.path} stroke={metric.color} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+                      )}
+                      {metric.model.singlePointY != null && (
+                        <circle cx={metric.model.width / 2} cy={metric.model.singlePointY} r="3.5" fill={metric.color} />
+                      )}
+                    </svg>
+                    <HStack justify="space-between" mt={1} color="whiteAlpha.650" fontSize="xs">
+                      <Text noOfLines={1}>{metric.model.xLabels.start}</Text>
+                      <Text noOfLines={1} textAlign="right">{metric.model.xLabels.end}</Text>
+                    </HStack>
+                  </Box>
+                ))}
+              </SimpleGrid>
+            </Box>
+          )}
+          {!trendLoading && vpsHostTrendPoints.length === 0 && (
+            <Box mt={4} borderRadius="12px" bg="rgba(9,15,26,0.35)" p={3} border="1px dashed rgba(255,255,255,0.16)">
+              <Text fontSize="sm" color="whiteAlpha.800">
+                VPS host pressure trend is unavailable for the selected range.
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.600" mt={1}>
+                Waiting for recent VPS host samples in CTO logs.
+              </Text>
             </Box>
           )}
 

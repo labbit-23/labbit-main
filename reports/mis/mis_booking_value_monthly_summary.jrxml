@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd" name="mis_booking_value_monthly_summary" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="802" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20" whenNoDataType="AllSectionsNoDetail" uuid="ca748e37-3a2f-4592-b50f-ab09cc02ff22">
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="from_date" class="java.sql.Date"/>
+  <parameter name="to_date" class="java.sql.Date"/>
+  <queryString><![CDATA[
+    select to_char(created_at,'YYYY-MM') as month_key, count(*) as bookings,
+    sum(coalesce((request_payload_json->>'total')::numeric,0)) as booked_value
+    from quickbookings
+    where lab_id::text = $P{lab_id}
+      and date(created_at) between $P{from_date} and $P{to_date}
+    group by 1 order by 1
+  ]]></queryString>
+  <field name="month_key" class="java.lang.String"/>
+  <field name="bookings" class="java.lang.Long"/>
+  <field name="booked_value" class="java.math.BigDecimal"/>
+  <title><band height="44"><staticText><reportElement x="0" y="0" width="802" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Monthly Booking Value Summary]]></text></staticText><textField><reportElement x="0" y="26" width="802" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name} + " | Date: " + $P{from_date} + " to " + $P{to_date}]]></textFieldExpression></textField></band></title>
+  <columnHeader><band height="22"><staticText><reportElement x="0" y="0" width="240" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Month]]></text></staticText><staticText><reportElement x="240" y="0" width="240" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Bookings]]></text></staticText><staticText><reportElement x="480" y="0" width="322" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Booked Value]]></text></staticText></band></columnHeader>
+  <detail><band height="20"><textField><reportElement x="0" y="0" width="240" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{month_key}]]></textFieldExpression></textField><textField><reportElement x="240" y="0" width="240" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{bookings}]]></textFieldExpression></textField><textField pattern="#,##0.00"><reportElement x="480" y="0" width="322" height="20"/><textElement textAlignment="Right"/><textFieldExpression><![CDATA[$F{booked_value}]]></textFieldExpression></textField></band></detail>
+</jasperReport>

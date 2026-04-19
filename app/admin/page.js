@@ -1,13 +1,23 @@
 // File: /app/admin/page.js
 "use client";
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
-  Box, Tabs, TabList, TabPanels, Tab, TabPanel,
+  Box, Tabs, TabPanels, TabPanel,
   Button, useDisclosure, Flex, Text, Heading,
-  useToast, IconButton, Badge, Tooltip, HStack, Icon
+  useToast, IconButton, Badge, HStack, Icon, Menu, MenuButton, MenuList, MenuItem, Tooltip, useBreakpointValue
 } from "@chakra-ui/react";
-import { AddIcon, DownloadIcon, LinkIcon, RepeatIcon } from "@chakra-ui/icons";
+import { AddIcon, DownloadIcon, HamburgerIcon, LinkIcon, RepeatIcon } from "@chakra-ui/icons";
+import {
+  FiCalendar,
+  FiUsers,
+  FiClipboard,
+  FiUserCheck,
+  FiMapPin,
+  FiShield,
+  FiBarChart2,
+  FiPlayCircle
+} from "react-icons/fi";
 import dayjs from "dayjs";
 
 import { supabase } from "../../lib/supabaseClient";
@@ -25,6 +35,7 @@ import RequireAuth from "../../components/RequireAuth";
 import QuickBookTab from "./components/QuickBookTab";
 import BookingRequestStatusCards from "./components/BookingRequestStatusCards";
 import html2canvas from "html2canvas";
+import { useUser } from "@/app/context/UserContext";
 
 const CLICKUP_DASHBOARD_URL =
   process.env.NEXT_PUBLIC_CLICKUP_URL || "https://app.clickup.com/";
@@ -34,6 +45,14 @@ const CLICKUP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/clickup.svg";
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
 const BOOKING_HISTORY_PAGE_SIZE = 120;
+const ADMIN_SECTION_ORDER = [
+  "visits",
+  "patients",
+  "bookings",
+  "executives",
+  "collection_centres",
+  "uac"
+];
 
 function ReportDispatchIcon(props) {
   return (
@@ -43,6 +62,61 @@ function ReportDispatchIcon(props) {
         d="M7 2a2 2 0 0 0-2 2v5h2V4h10v5h2V4a2 2 0 0 0-2-2H7Zm-3 8a2 2 0 0 0-2 2v5h3v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4h3v-5a2 2 0 0 0-2-2H4Zm3 9v-6h10v6H7Zm8-3h-2v-2h-2v2H9v2h2v2h2v-2h2v-2Z"
       />
     </Icon>
+  );
+}
+
+function ShortcutAction({
+  label,
+  icon,
+  onClick,
+  href,
+  target,
+  rel,
+  badgeCount = 0,
+  colorScheme = "gray",
+  variant = "outline",
+  isActive = false,
+  isDisabled = false,
+}) {
+  const safeCount = Number(badgeCount || 0);
+  return (
+    <Box position="relative">
+      <Tooltip label={label} hasArrow>
+        <IconButton
+          size="sm"
+          minW="36px"
+          w={{ base: "36px", lg: "40px" }}
+          variant={isActive ? "solid" : variant}
+          colorScheme={isActive ? "teal" : colorScheme}
+          icon={icon}
+          aria-label={label}
+          onClick={onClick}
+          as={href ? "a" : undefined}
+          href={href}
+          target={target}
+          rel={rel}
+          isDisabled={isDisabled}
+        />
+      </Tooltip>
+      {safeCount > 0 ? (
+        <Badge
+          position="absolute"
+          top="-6px"
+          right="-5px"
+          colorScheme="red"
+          borderRadius="full"
+          fontSize="0.62rem"
+          minW="18px"
+          textAlign="center"
+          px={1}
+          py="2px"
+          lineHeight="1"
+          pointerEvents="none"
+        >
+          {safeCount > 99 ? "99+" : safeCount}
+        </Badge>
+      ) : null}
+    </Box>
   );
 }
 
@@ -87,10 +161,20 @@ function isUnreadTodaySession(session) {
   return createdMs >= startOfToday;
 }
 
+function roleKeyFromUser(user) {
+  if (!user) return "";
+  if (user.userType === "executive") {
+    return String(user.executiveType || user.roleKey || "").toLowerCase().trim();
+  }
+  return String(user.userType || user.roleKey || "").toLowerCase().trim();
+}
+
 export default function AdminDashboard() {
   const toast = useToast();
+  const { user } = useUser();
+  const isMobileNav = useBreakpointValue({ base: true, md: false });
 
-  const [tabIndex, setTabIndex] = useState(0);
+  const [activeSection, setActiveSection] = useState("visits");
   const [visits, setVisits] = useState([]);
   const [executives, setExecutives] = useState([]);
   const [labs, setLabs] = useState([]);
@@ -109,6 +193,8 @@ export default function AdminDashboard() {
   const [whatsappBlink, setWhatsappBlink] = useState(false);
   const [themeMode, setThemeMode] = useState("light");
   const [collectionRefreshHandler, setCollectionRefreshHandler] = useState(null);
+  const [rolePermissions, setRolePermissions] = useState([]);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
@@ -123,8 +209,8 @@ export default function AdminDashboard() {
   const bookingHistoryOffsetRef = useRef(0);
   const prevUnreadRef = useRef(0);
 
-  const handleTabChange = useCallback((nextIndex) => {
-    setTabIndex((prev) => (prev === nextIndex ? prev : nextIndex));
+  const handleSectionChange = useCallback((nextKey) => {
+    setActiveSection((prev) => (prev === nextKey ? prev : nextKey));
   }, []);
 
   const isPendingBookingRequest = useCallback((booking) => {
@@ -381,6 +467,157 @@ const exportVisitsImage = async () => {
     fetchBaseData();
   }, [fetchBaseData]);
 
+  const activeRoleKey = roleKeyFromUser(user);
+  const hasWildcard = rolePermissions.includes("*");
+  const hasAnyPermission = useCallback((keys = []) => {
+    if (hasWildcard) return true;
+    return keys.some((key) => rolePermissions.includes(key));
+  }, [hasWildcard, rolePermissions]);
+
+  const adminSections = useMemo(() => ([
+    {
+      key: "visits",
+      label: "Visits",
+      shortLabel: "Visit",
+      icon: FiCalendar,
+      visible: hasAnyPermission(["visits.create", "visits.update"]),
+    },
+    {
+      key: "patients",
+      label: "Patients",
+      shortLabel: "Pts",
+      icon: FiUsers,
+      visible: hasAnyPermission(["patients.create", "patients.update", "patients.update_identity"]),
+    },
+    {
+      key: "bookings",
+      label: "Booking Requests",
+      shortLabel: "Bookings",
+      icon: FiClipboard,
+      visible: hasAnyPermission(["quickbook.update"]),
+    },
+    {
+      key: "executives",
+      label: "Executives",
+      shortLabel: "Exec",
+      icon: FiUserCheck,
+      visible: hasAnyPermission(["executives.status.update"]),
+    },
+    {
+      key: "collection_centres",
+      label: "Collection Centres",
+      shortLabel: "Centres",
+      icon: FiMapPin,
+      visible: hasAnyPermission(["visits.update", "executives.status.update"]),
+    },
+    {
+      key: "uac",
+      label: "UAC",
+      shortLabel: "UAC",
+      icon: FiShield,
+      visible: ["director", "admin"].includes(activeRoleKey) || hasAnyPermission(["uac.view"]),
+    },
+  ]), [activeRoleKey, hasAnyPermission]);
+  const canUseReportDispatch = hasAnyPermission(["reports.dispatch"]);
+  const canUseReportSetup = hasAnyPermission(["reports.setup"]);
+  const canRunReports = canUseReportSetup || hasAnyPermission(["reports.run.mis", "reports.run.transaction"]);
+  const visibleSections = adminSections.filter((item) => item.visible);
+  const activeTabIndex = Math.max(0, ADMIN_SECTION_ORDER.indexOf(activeSection));
+
+  useEffect(() => {
+    const fallbackForRole = () => {
+      if (activeRoleKey === "director") return ["*"];
+      if (activeRoleKey === "admin") {
+        return [
+          "uac.view",
+          "uac.manage",
+          "patients.create",
+          "patients.update",
+          "patients.update_identity",
+          "visits.create",
+          "visits.update",
+          "quickbook.update",
+          "executives.status.update",
+          "reports.setup",
+          "reports.run.mis",
+          "reports.run.transaction",
+          "reports.logs.view",
+          "reports.dispatch"
+        ];
+      }
+      if (activeRoleKey === "manager") {
+        return [
+          "patients.create",
+          "patients.update",
+          "visits.create",
+          "visits.update",
+          "quickbook.update",
+          "reports.run.mis",
+          "reports.run.transaction",
+          "reports.logs.view",
+          "reports.dispatch"
+        ];
+      }
+      return [];
+    };
+
+    const primaryLabId =
+      String(user?.labId || "").trim() ||
+      (Array.isArray(user?.labIds) ? String(user.labIds[0] || "").trim() : "") ||
+      String(labs?.[0]?.id || "").trim();
+
+    if (!activeRoleKey) {
+      setPermissionsLoaded(false);
+      setRolePermissions([]);
+      return;
+    }
+
+    if (!primaryLabId) {
+      setRolePermissions(fallbackForRole());
+      setPermissionsLoaded(true);
+      return;
+    }
+
+    setPermissionsLoaded(false);
+    let cancelled = false;
+    fetch(`/api/admin/uac/permissions?lab_id=${encodeURIComponent(primaryLabId)}`, { cache: "no-store" })
+      .then(async (res) => {
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to load permissions");
+        const policy = payload?.policy || {};
+        const granted = Array.isArray(policy?.[activeRoleKey]) ? policy[activeRoleKey] : [];
+        if (!cancelled) {
+          setRolePermissions(granted);
+          setPermissionsLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRolePermissions(fallbackForRole());
+          setPermissionsLoaded(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRoleKey, labs, user]);
+
+  useEffect(() => {
+    if (!permissionsLoaded) return;
+    if (!visibleSections.length) return;
+    if (activeSection === "uac" && visibleSections.some((item) => item.key === "visits")) {
+      setActiveSection("visits");
+      return;
+    }
+    if (visibleSections.some((item) => item.key === activeSection)) return;
+    if (visibleSections.some((item) => item.key === "visits")) {
+      setActiveSection("visits");
+    } else {
+      setActiveSection(visibleSections[0].key);
+    }
+  }, [permissionsLoaded, visibleSections, activeSection]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const storedTheme = window.localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
@@ -601,29 +838,21 @@ const exportVisitsImage = async () => {
     { unprocessed: 0, in_progress: 0, booked: 0, rejected: 0, closed: 0, other: 0, total: 0 }
   );
   const showBookingRequestsLoadingState = !bookingRequestsInitialized || bookingRequestsLoading;
-  const darkActionButtonProps = themeMode === "dark"
-    ? {
-        bg: "rgba(255,255,255,0.10)",
-        color: "white",
-        borderColor: "whiteAlpha.400",
-        _hover: { bg: "rgba(255,255,255,0.18)" },
-      }
-    : {};
   const refreshVisibleTab = useCallback(async () => {
-    if (tabIndex === 4 && typeof collectionRefreshHandler === "function") {
+    if (activeSection === "collection_centres" && typeof collectionRefreshHandler === "function") {
       await collectionRefreshHandler();
       return;
     }
-    if (tabIndex === 0) {
+    if (activeSection === "visits") {
       await fetchVisitsData();
       return;
     }
-    if (tabIndex === 2) {
+    if (activeSection === "bookings") {
       await fetchBaseData();
       return;
     }
     await fetchAll();
-  }, [tabIndex, collectionRefreshHandler, fetchAll, fetchBaseData, fetchVisitsData]);
+  }, [activeSection, collectionRefreshHandler, fetchAll, fetchBaseData, fetchVisitsData]);
 
   const sortedTodaysVisits = [...visits].sort((a, b) => {
     if (a.status === "disabled" && b.status !== "disabled") return 1;
@@ -634,26 +863,158 @@ const exportVisitsImage = async () => {
   const nonDisabledTodaysVisits = sortedTodaysVisits.filter(
     (v) => v.status !== "disabled"
   );
+  const sectionBadgeCounts = useMemo(() => ({
+    visits: unassignedVisitCount,
+    bookings: pendingQuickbookCount,
+  }), [unassignedVisitCount, pendingQuickbookCount]);
 
-  const adminTabBaseStyles = {
-    borderWidth: "1px",
-    borderColor: themeMode === "dark" ? "whiteAlpha.300" : "gray.300",
-    borderRadius: "md",
-    fontWeight: "semibold",
-    bg: themeMode === "dark" ? "blackAlpha.300" : "gray.100",
-    px: 4,
-    minH: "38px",
-    color: themeMode === "dark" ? "whiteAlpha.900" : "gray.800",
-    _hover: {
-      bg: themeMode === "dark" ? "whiteAlpha.200" : "gray.200"
-    },
-    _selected: {
-      bg: themeMode === "dark" ? "teal.300" : "teal.500",
-      color: themeMode === "dark" ? "gray.900" : "white",
-      borderColor: themeMode === "dark" ? "teal.300" : "teal.600",
-      boxShadow: themeMode === "dark" ? "none" : "0 1px 0 rgba(0,0,0,0.05)"
-    }
-  };
+  const shortcutActions = useMemo(() => {
+    const sectionActions = visibleSections.map((section) => ({
+      key: section.key,
+      label: section.label,
+      icon: <section.icon />,
+      onClick: () => handleSectionChange(section.key),
+      isActive: activeSection === section.key,
+      badgeCount: sectionBadgeCounts[section.key] || 0,
+    }));
+
+    const common = [
+      {
+        key: "run_reports",
+        label: "Run Reports",
+        icon: <FiPlayCircle />,
+        href: "/admin/reports/run",
+        hidden: !canRunReports,
+      },
+      {
+        key: "report_master",
+        label: "Report Master",
+        icon: <FiBarChart2 />,
+        href: "/admin/reports/master",
+        hidden: !canUseReportSetup,
+      },
+      ...(canUseReportDispatch
+        ? [{
+            key: "dispatch",
+            label: "Dispatch",
+            icon: <ReportDispatchIcon boxSize={4} />,
+            href: "/admin/report-dispatch",
+          }]
+        : []),
+      {
+        key: "whatsapp",
+        label: "WhatsApp",
+        icon: (
+          <img
+            src={WHATSAPP_ICON_URL}
+            alt=""
+            style={{ width: 14, height: 14 }}
+          />
+        ),
+        href: "/admin/whatsapp",
+        badgeCount: unreadWhatsAppCount,
+        colorScheme: unreadWhatsAppCount > 0 ? "red" : "green",
+        variant: unreadWhatsAppCount > 0 || whatsappBlink ? "solid" : "outline",
+      },
+      {
+        key: "collection",
+        label: "Collection",
+        icon: <LinkIcon />,
+        href: "/collection-centre",
+      },
+      {
+        key: "clickup",
+        label: "ClickUp",
+        icon: (
+          <img
+            src={CLICKUP_ICON_URL}
+            alt=""
+            style={{ width: 14, height: 14, filter: themeMode === "dark" ? "invert(1) brightness(1.2)" : "none" }}
+          />
+        ),
+        href: CLICKUP_DASHBOARD_URL,
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
+      {
+        key: "refresh",
+        label: "Refresh",
+        icon: <RepeatIcon />,
+        onClick: refreshVisibleTab,
+      },
+      {
+        key: "export_visits",
+        label: "Export Visits",
+        icon: <DownloadIcon />,
+        onClick: exportVisitsImage,
+        isDisabled: activeSection !== "visits",
+      },
+    ];
+
+    return [...sectionActions, ...common].filter((item) => !item.hidden);
+  }, [
+    activeSection,
+    canUseReportDispatch,
+    canUseReportSetup,
+    canRunReports,
+    handleSectionChange,
+    refreshVisibleTab,
+    sectionBadgeCounts,
+    unreadWhatsAppCount,
+    visibleSections,
+    whatsappBlink,
+    themeMode,
+  ]);
+
+  const shortcutMenu = (
+    isMobileNav ? (
+      <Menu isLazy>
+        <MenuButton
+          as={IconButton}
+          aria-label="Open admin shortcuts"
+          icon={<HamburgerIcon />}
+          size="sm"
+          variant="outline"
+        />
+        <MenuList minW="220px" maxH="70vh" overflowY="auto">
+          {shortcutActions.map((action) => (
+            <MenuItem
+              key={action.key}
+              icon={action.icon}
+              as={action.href ? "a" : "button"}
+              href={action.href}
+              target={action.target}
+              rel={action.rel}
+              onClick={action.onClick}
+              isDisabled={action.isDisabled}
+              fontWeight={action.isActive ? "700" : "500"}
+            >
+              {action.label}{action.badgeCount > 0 ? ` (${action.badgeCount > 99 ? "99+" : action.badgeCount})` : ""}
+            </MenuItem>
+          ))}
+        </MenuList>
+      </Menu>
+    ) : (
+      <HStack spacing={1} align="center">
+        {shortcutActions.map((action) => (
+          <ShortcutAction
+            key={action.key}
+            label={action.label}
+            icon={action.icon}
+            onClick={action.onClick}
+            href={action.href}
+            target={action.target}
+            rel={action.rel}
+            badgeCount={action.badgeCount}
+            colorScheme={action.colorScheme}
+            variant={action.variant}
+            isActive={action.isActive}
+            isDisabled={action.isDisabled}
+          />
+        ))}
+      </HStack>
+    )
+  );
 
   const perExecVisitCounts = nonDisabledTodaysVisits.reduce((acc, v) => {
     const execId = v.executive?.id ?? (typeof v.executive_id === "object" ? v.executive_id?.id : v.executive_id);
@@ -688,10 +1049,10 @@ const exportVisitsImage = async () => {
 }
 
   useEffect(() => {
-    if (tabIndex !== 2) return;
+    if (activeSection !== "bookings") return;
     if (bookingRequestsInitialized) return;
     fetchBaseData().catch(() => {});
-  }, [tabIndex, bookingRequestsInitialized, fetchBaseData]);
+  }, [activeSection, bookingRequestsInitialized, fetchBaseData]);
 
   const loadMoreBookingRequestHistory = useCallback(async () => {
     setErrorMsg("");
@@ -760,6 +1121,7 @@ const exportVisitsImage = async () => {
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           executives={executives}
+          rightContent={shortcutMenu}
           themeMode={themeMode}
           onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
         />
@@ -784,103 +1146,6 @@ const exportVisitsImage = async () => {
               <Heading className="dashboard-theme-heading" size="xl" flex="1 1 auto">
                 Labit Admin Dashboard
               </Heading>
-              <Box
-                w={{ base: "100%", md: "auto" }}
-                overflowX={{ base: "auto", md: "visible" }}
-                className="no-export admin-header-actions"
-              >
-                <HStack spacing={2} minW="max-content">
-                  <Button
-                    as="a"
-                    href="/admin/whatsapp"
-                    colorScheme={unreadWhatsAppCount > 0 ? "red" : "green"}
-                    variant={unreadWhatsAppCount > 0 ? "solid" : "outline"}
-                    px={3}
-                    transform={whatsappBlink ? "scale(1.05)" : "scale(1)"}
-                    transition="transform 0.2s ease, box-shadow 0.2s ease"
-                    boxShadow={whatsappBlink ? "0 0 0 3px rgba(245,101,101,0.35)" : undefined}
-                    {...(themeMode === "dark" && unreadWhatsAppCount === 0 ? darkActionButtonProps : {})}
-                  >
-                    <img
-                      src={WHATSAPP_ICON_URL}
-                      alt="WhatsApp"
-                      style={{ width: 18, height: 18 }}
-                    />
-                    {unreadWhatsAppCount > 0 && (
-                      <Badge ml={2} colorScheme="whiteAlpha" borderRadius="full">
-                        {unreadWhatsAppCount}
-                      </Badge>
-                    )}
-                  </Button>
-                  <Button
-                    as="a"
-                    href={CLICKUP_DASHBOARD_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    colorScheme="blue"
-                    variant="outline"
-                    px={3}
-                    {...darkActionButtonProps}
-                  >
-                    <img
-                      src={CLICKUP_ICON_URL}
-                      alt="ClickUp"
-                      style={{
-                        width: 18,
-                        height: 18,
-                        filter: themeMode === "dark" ? "invert(1) brightness(1.2)" : "none"
-                      }}
-                    />
-                  </Button>
-                  <Tooltip label="Open Logistics">
-                    <IconButton
-                      as="a"
-                      href="/collection-centre"
-                      aria-label="Open logistics dashboard"
-                      icon={<LinkIcon />}
-                      size="md"
-                      variant="outline"
-                      {...(themeMode === "dark"
-                        ? {
-                            color: "white",
-                            bg: "rgba(255,255,255,0.08)",
-                            borderColor: "whiteAlpha.400",
-                            _hover: { bg: "rgba(255,255,255,0.18)" },
-                          }
-                        : {
-                            borderColor: "gray.300",
-                          })}
-                    />
-                  </Tooltip>
-                  <Tooltip label="Report Dispatch">
-                    <IconButton
-                      as="a"
-                      href="/admin/report-dispatch"
-                      aria-label="Open report dispatch"
-                      icon={<ReportDispatchIcon boxSize={5} />}
-                      size="md"
-                      variant="outline"
-                      {...(themeMode === "dark"
-                        ? {
-                            color: "white",
-                            bg: "rgba(255,255,255,0.08)",
-                            borderColor: "whiteAlpha.400",
-                            _hover: { bg: "rgba(255,255,255,0.18)" },
-                          }
-                        : {
-                            borderColor: "gray.300",
-                          })}
-                    />
-                  </Tooltip>
-                  <IconButton
-                    icon={<DownloadIcon />}
-                    aria-label="Download Visits Schedule"
-                    size="md"
-                    onClick={exportVisitsImage}
-                    {...darkActionButtonProps}
-                  />
-                </HStack>
-              </Box>
             </Flex>
 
             {errorMsg && (
@@ -889,7 +1154,7 @@ const exportVisitsImage = async () => {
               </Text>
             )}
 
-            {tabIndex === 2 ? (
+            {activeSection === "bookings" ? (
               <Box mb={6}>
                 <BookingRequestStatusCards
                   summary={bookingRequestSummary}
@@ -932,148 +1197,50 @@ const exportVisitsImage = async () => {
             )}
 
             <Tabs
-              index={tabIndex}
-              onChange={handleTabChange}
+              index={activeTabIndex}
+              onChange={(nextIndex) => {
+                const nextKey = ADMIN_SECTION_ORDER[nextIndex];
+                if (nextKey) handleSectionChange(nextKey);
+              }}
               variant="enclosed"
               colorScheme="green"
               isLazy
               lazyBehavior="keepMounted"
             >
-              <Flex
-                align={{ base: "stretch", md: "center" }}
-                direction={{ base: "column", md: "row" }}
-                justify="space-between"
-                mb={2}
-                gap={2}
-              >
-                <Box
-                  flex="1 1 auto"
-                  overflowX="auto"
-                  overflowY="hidden"
-                  className="admin-tabs-scroll"
-                >
-                  <TabList
-                    alignItems="center"
-                    gap={2}
-                    borderWidth="1px"
-                    borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
-                    borderRadius="lg"
-                    px={2}
-                    py={2}
-                    bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"}
-                    minW="max-content"
-                  >
-                    <Tab {...adminTabBaseStyles}>
-                      <Text as="span" display={{ base: "none", sm: "inline" }}>Visits</Text>
-                      <Text as="span" display={{ base: "inline", sm: "none" }}>Visit</Text>{" "}
-                      {unassignedVisitCount > 0 && (
-                        <Tooltip
-                          label={
-                            <Box>
-                              {Object.entries(unassignedByDate)
-                                .sort(([a], [b]) => a.localeCompare(b))
-                                .map(([date, count]) => (
-                                  <Text key={date}>
-                                    {date} — {count}
-                                  </Text>
-                                ))}
-                            </Box>
-                          }
-                          hasArrow
-                          bg="white"
-                          color="black"
-                          p={3}
-                          borderRadius="md"
-                        >
-                          <Badge
-                            ml={2}
-                            colorScheme="red"
-                            borderRadius="full"
-                            cursor="default"
-                          >
-                            {unassignedVisitCount}
-                          </Badge>
-                        </Tooltip>
-                      )}
-                    </Tab>
-                    <Tab {...adminTabBaseStyles}>
-                      <Text as="span" display={{ base: "none", sm: "inline" }}>Patients</Text>
-                      <Text as="span" display={{ base: "inline", sm: "none" }}>Pts</Text>
-                    </Tab>
-                    <Tab {...adminTabBaseStyles}>
-                      <Text as="span" display={{ base: "none", md: "inline" }}>Booking Requests</Text>
-                      <Text as="span" display={{ base: "inline", md: "none" }}>Bookings</Text>{" "}
-                      {showBookingRequestsLoadingState ? (
-                        <Badge ml={2} colorScheme="orange" borderRadius="full" variant="solid">
-                          ...
-                        </Badge>
-                      ) : pendingQuickbookCount > 0 ? (
-                        <Badge ml={2} colorScheme="red" borderRadius="full" variant="solid">
-                          {pendingQuickbookCount}
-                        </Badge>
-                      ) : null}
-                    </Tab>
-                    <Tab {...adminTabBaseStyles}>
-                      <Text as="span" display={{ base: "none", sm: "inline" }}>Executives</Text>
-                      <Text as="span" display={{ base: "inline", sm: "none" }}>Exec</Text>
-                    </Tab>
-                    <Tab {...adminTabBaseStyles}>
-                      <Text as="span" display={{ base: "none", md: "inline" }}>Collection Centres</Text>
-                      <Text as="span" display={{ base: "inline", md: "none" }}>Centres</Text>
-                    </Tab>
-                    <Tab {...adminTabBaseStyles}>
-                      <Text as="span" display={{ base: "none", sm: "inline" }}>UAC</Text>
-                      <Text as="span" display={{ base: "inline", sm: "none" }}>UAC</Text>
-                    </Tab>
-                  </TabList>
-                </Box>
-                <HStack spacing={2} className="no-export" flex="0 0 auto" justify={{ base: "flex-end", md: "flex-start" }}>
-                  <Tooltip label="Refresh visible tab">
-                    <IconButton
-                      aria-label="Refresh current tab"
-                      icon={<RepeatIcon />}
-                      size="sm"
-                      variant="outline"
-                      onClick={refreshVisibleTab}
-                      {...(themeMode === "dark"
-                        ? {
-                            color: "white",
-                            bg: "rgba(255,255,255,0.08)",
-                            borderColor: "whiteAlpha.400",
-                            _hover: { bg: "rgba(255,255,255,0.18)" },
-                          }
-                        : {
-                            borderColor: "gray.300",
-                          })}
-                    />
-                  </Tooltip>
-                </HStack>
-              </Flex>
-
               <TabPanels>
                 <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   {/* Per-executive visit chips for selected date */}
-                  <Flex mb={4} wrap="wrap" gap={2}>
-                    {executives
-                      .filter((exec) => perExecVisitCounts[exec.id])
-                      .map((exec) => (
-                        <Flex
-                          key={exec.id}
-                          align="center"
-                          className="dashboard-theme-chip"
-                          borderRadius="full"
-                          px={3}
-                          py={1}
-                          fontSize="sm"
-                        >
-                          <Text fontWeight="medium" mr={2}>
-                            {exec.name}
-                          </Text>
-                          <Badge borderRadius="full" px={2} colorScheme="blue">
-                            {perExecVisitCounts[exec.id]}
-                          </Badge>
-                        </Flex>
-                      ))}
+                  <Flex mb={4} align="center" justify="space-between" gap={3} wrap="wrap">
+                    <Flex wrap="wrap" gap={2}>
+                      {executives
+                        .filter((exec) => perExecVisitCounts[exec.id])
+                        .map((exec) => (
+                          <Flex
+                            key={exec.id}
+                            align="center"
+                            className="dashboard-theme-chip"
+                            borderRadius="full"
+                            px={3}
+                            py={1}
+                            fontSize="sm"
+                          >
+                            <Text fontWeight="medium" mr={2}>
+                              {exec.name}
+                            </Text>
+                            <Badge borderRadius="full" px={2} colorScheme="blue">
+                              {perExecVisitCounts[exec.id]}
+                            </Badge>
+                          </Flex>
+                        ))}
+                    </Flex>
+                    <Button
+                      leftIcon={<AddIcon />}
+                      colorScheme="teal"
+                      size="sm"
+                      onClick={() => handleSectionChange("patients")}
+                    >
+                      Book Patient
+                    </Button>
                   </Flex>
 
                   <VisitsTable
@@ -1128,7 +1295,7 @@ const exportVisitsImage = async () => {
                     onLoadMoreHistory={loadMoreBookingRequestHistory}
                     onRefresh={fetchBaseData}
                     onAcceptVisitComplete={async () => {
-                      setTabIndex(0);
+                      setActiveSection("visits");
                       await fetchVisitsData();
                     }}
                     themeMode={themeMode}

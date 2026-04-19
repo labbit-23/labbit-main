@@ -80,7 +80,7 @@ function PhleboContent({ userRole = "executive" }) {
         setExecutives(data || []);
         if (!lockExecutive && data?.length > 0) {
           setSelectedExecutiveId(data[0].id);
-          setSelectedExecutiveName(data.name);
+          setSelectedExecutiveName(data[0]?.name ?? null);
         }
       } catch (error) {
         console.error("Failed to fetch executives", error);

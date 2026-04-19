@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd" name="mis_quickbooking_conversion" pageWidth="595" pageHeight="842" orientation="Portrait" columnWidth="555" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20" whenNoDataType="AllSectionsNoDetail" uuid="4cb7da43-68a8-40f4-9a53-2b5649577f92">
+  <parameter name="lab_id" class="java.lang.String"/>
+  <parameter name="lab_name" class="java.lang.String"/>
+  <parameter name="from_date" class="java.sql.Date"/>
+  <parameter name="to_date" class="java.sql.Date"/>
+  <queryString><![CDATA[
+    select lower(coalesce(status,'pending')) as booking_status, count(*) as bookings
+    from quickbookings
+    where lab_id::text = $P{lab_id}
+      and date(created_at) between $P{from_date} and $P{to_date}
+    group by 1 order by 2 desc
+  ]]></queryString>
+  <field name="booking_status" class="java.lang.String"/>
+  <field name="bookings" class="java.lang.Long"/>
+  <title><band height="44"><staticText><reportElement x="0" y="0" width="555" height="24"/><textElement textAlignment="Center"><font size="14" isBold="true"/></textElement><text><![CDATA[Quickbooking Conversion]]></text></staticText><textField><reportElement x="0" y="26" width="555" height="16"/><textElement textAlignment="Center"><font size="10"/></textElement><textFieldExpression><![CDATA["Lab: " + $P{lab_name} + " | Date: " + $P{from_date} + " to " + $P{to_date}]]></textFieldExpression></textField></band></title>
+  <columnHeader><band height="22"><staticText><reportElement x="0" y="0" width="330" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Booking Status]]></text></staticText><staticText><reportElement x="330" y="0" width="225" height="22" backcolor="#E9EDF5" mode="Opaque"/><textElement textAlignment="Center"><font isBold="true"/></textElement><text><![CDATA[Count]]></text></staticText></band></columnHeader>
+  <detail><band height="20"><textField><reportElement x="0" y="0" width="330" height="20"/><textFieldExpression><![CDATA[$F{booking_status}]]></textFieldExpression></textField><textField><reportElement x="330" y="0" width="225" height="20"/><textElement textAlignment="Center"/><textFieldExpression><![CDATA[$F{bookings}]]></textFieldExpression></textField></band></detail>
+</jasperReport>

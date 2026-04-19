@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import {
   Table, Thead, Tbody, Tr, Th, Td,
-  Badge, IconButton, Spinner, HStack, Wrap, WrapItem,
+  Badge, IconButton, Spinner, HStack,
   Text, Select, Box
 } from "@chakra-ui/react";
 import { EditIcon, DeleteIcon, AddIcon, ViewIcon } from "@chakra-ui/icons";
@@ -289,75 +289,65 @@ export default function VisitsTable({
                       </Td>
                       {/* Actions */}
                       <Td className="no-export" isNumeric borderColor={rowBorderColor}>
-                        <Wrap spacing={2} justify="flex-end">
-                          <WrapItem>
-                            <IconButton
-                              aria-label="View"
-                              icon={<ViewIcon />}
-                              size="sm"
-                              bg={actionButtonBg}
-                              color={isDark ? "whiteAlpha.900" : undefined}
-                              _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
-                              onClick={() => onView ? onView(visit) : (onEdit && onEdit(visit))}
-                            />
-                          </WrapItem>
-                          <WrapItem>
-                            <IconButton
-                              aria-label="Edit"
-                              icon={<EditIcon />}
-                              size="sm"
-                              bg={actionButtonBg}
-                              color={isDark ? "whiteAlpha.900" : undefined}
-                              _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
-                              onClick={() => onEdit && onEdit(visit)}
-                            />
-                          </WrapItem>
-                          <WrapItem>
-                            <IconButton
-                              aria-label="Disable"
-                              icon={<DeleteIcon />}
-                              size="sm"
-                              colorScheme="red"
-                              onClick={() => handleDisable(visit)}
-                            />
-                          </WrapItem>
+                        <HStack spacing={2} justify="flex-end" flexWrap="nowrap">
+                          <IconButton
+                            aria-label="View"
+                            icon={<ViewIcon />}
+                            size="sm"
+                            bg={actionButtonBg}
+                            color={isDark ? "whiteAlpha.900" : undefined}
+                            _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
+                            onClick={() => onView ? onView(visit) : (onEdit && onEdit(visit))}
+                          />
+                          <IconButton
+                            aria-label="Edit"
+                            icon={<EditIcon />}
+                            size="sm"
+                            bg={actionButtonBg}
+                            color={isDark ? "whiteAlpha.900" : undefined}
+                            _hover={isDark ? { bg: "rgba(255,255,255,0.16)" } : undefined}
+                            onClick={() => onEdit && onEdit(visit)}
+                          />
+                          <IconButton
+                            aria-label="Disable"
+                            icon={<DeleteIcon />}
+                            size="sm"
+                            colorScheme="red"
+                            onClick={() => handleDisable(visit)}
+                          />
                           {isUnassigned && exec === null && (
                             <>
-                              <WrapItem>
-                                <Select
-                                  size="xs"
-                                  w={120}
-                                  placeholder="Assign Exec"
-                                  bg={isDark ? "rgba(15,23,42,0.88)" : undefined}
-                                  color={isDark ? "whiteAlpha.900" : undefined}
-                                  borderColor={isDark ? "whiteAlpha.300" : undefined}
-                                  onChange={(e) => setSelectedExec((prev) => ({
-                                    ...prev,
-                                    [visit.id]: e.target.value
-                                  }))}
-                                  value={selectedExec[visit.id] ?? ""}
-                                >
-                                  {executives.map((execItem) => (
-                                    <option key={execItem.id} value={execItem.id}>
-                                      {execItem.name}
-                                    </option>
-                                  ))}
-                                </Select>
-                              </WrapItem>
-                              <WrapItem>
-                                <IconButton
-                                  aria-label="Assign"
-                                  icon={<AddIcon />}
-                                  size="xs"
-                                  colorScheme="green"
-                                  onClick={() => handleAssign(visit)}
-                                  isDisabled={!selectedExec[visit.id]}
-                                  isLoading={assigning.has(visit.id)}
-                                />
-                              </WrapItem>
+                              <Select
+                                size="xs"
+                                w={120}
+                                placeholder="Assign Exec"
+                                bg={isDark ? "rgba(15,23,42,0.88)" : undefined}
+                                color={isDark ? "whiteAlpha.900" : undefined}
+                                borderColor={isDark ? "whiteAlpha.300" : undefined}
+                                onChange={(e) => setSelectedExec((prev) => ({
+                                  ...prev,
+                                  [visit.id]: e.target.value
+                                }))}
+                                value={selectedExec[visit.id] ?? ""}
+                              >
+                                {executives.map((execItem) => (
+                                  <option key={execItem.id} value={execItem.id}>
+                                    {execItem.name}
+                                  </option>
+                                ))}
+                              </Select>
+                              <IconButton
+                                aria-label="Assign"
+                                icon={<AddIcon />}
+                                size="xs"
+                                colorScheme="green"
+                                onClick={() => handleAssign(visit)}
+                                isDisabled={!selectedExec[visit.id]}
+                                isLoading={assigning.has(visit.id)}
+                              />
                             </>
                           )}
-                        </Wrap>
+                        </HStack>
                       </Td>
                     </Tr>
                   );
