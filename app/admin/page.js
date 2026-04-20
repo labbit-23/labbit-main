@@ -606,10 +606,6 @@ const exportVisitsImage = async () => {
   useEffect(() => {
     if (!permissionsLoaded) return;
     if (!visibleSections.length) return;
-    if (activeSection === "uac" && visibleSections.some((item) => item.key === "visits")) {
-      setActiveSection("visits");
-      return;
-    }
     if (visibleSections.some((item) => item.key === activeSection)) return;
     if (visibleSections.some((item) => item.key === "visits")) {
       setActiveSection("visits");

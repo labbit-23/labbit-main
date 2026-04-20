@@ -188,6 +188,14 @@ async function hasRecentWhatsappFeedback({ labId, phone, nowMs = Date.now() }) {
 }
 
 async function canPromptFeedbackNow({ context = {}, labId, phone }) {
+  if (context?.feedback_prompted_once_in_session) return false;
+  const promptedAt = String(context?.feedback_last_prompted_at || "").trim();
+  if (promptedAt) {
+    const promptedMs = new Date(promptedAt).getTime();
+    if (Number.isFinite(promptedMs) && Date.now() - promptedMs < FEEDBACK_REPEAT_COOLDOWN_MS) {
+      return false;
+    }
+  }
   if (isFeedbackCooldownActiveInContext(context)) return false;
   const hasRecent = await hasRecentWhatsappFeedback({ labId, phone });
   return !hasRecent;
@@ -249,6 +257,14 @@ function parseFeedbackRating(input) {
   if (normalized.includes("good")) return 4;
   if (normalized.includes("excellent") || normalized.includes("great")) return 5;
 
+  return null;
+}
+
+function parseStrictNumericFeedbackRating(input) {
+  const text = String(input || "").trim();
+  if (!text) return null;
+  const exact = text.match(/^[1-5]$/);
+  if (exact) return Number(exact[0]);
   return null;
 }
 
@@ -466,6 +482,7 @@ function schedulePostReportFeedbackPrompt({
         prompted_at: new Date().toISOString()
       });
       nextContext.feedback_last_prompted_at = new Date().toISOString();
+      nextContext.feedback_prompted_once_in_session = true;
 
       await supabase
         .from("chat_sessions")
@@ -493,8 +510,10 @@ async function handlePostReportFeedbackInbound({
   if (session?.context?.suppress_feedback_once) return { handled: false };
   const nowIso = new Date().toISOString();
   const trimmedInput = String(userInput || "").trim();
-  const ratingInput = parseFeedbackRating(trimmedInput);
   let flow = getFeedbackFlow(session?.context);
+  const ratingInput = flow?.stage
+    ? parseFeedbackRating(trimmedInput)
+    : parseStrictNumericFeedbackRating(trimmedInput);
   const canBootstrapFeedbackFromLateRating =
     Boolean(ratingInput) &&
     (
@@ -2638,7 +2657,7 @@ export async function POST(req) {
 
     const hasActiveFeedbackStage = Boolean(getFeedbackFlow(session?.context)?.stage);
     const isFeedbackResponseCandidate =
-      Boolean(parseFeedbackRating(userInput)) ||
+      Boolean(hasActiveFeedbackStage ? parseFeedbackRating(userInput) : parseStrictNumericFeedbackRating(userInput)) ||
       isSkipChoice(userInput) ||
       isDoneChoice(userInput) ||
       isHelpChoice(userInput) ||
@@ -2763,7 +2782,8 @@ export async function POST(req) {
         .update({
           context: {
             ...withFeedbackFlowContext(session?.context || {}, feedbackFlow),
-            feedback_last_prompted_at: new Date().toISOString()
+            feedback_last_prompted_at: new Date().toISOString(),
+            feedback_prompted_once_in_session: true
           },
           updated_at: new Date().toISOString()
         })
@@ -3282,7 +3302,8 @@ export async function POST(req) {
           result.newState || session.current_state || "START",
           {
             ...withFeedbackFlowContext(nextContext, feedbackFlow),
-            feedback_last_prompted_at: new Date().toISOString()
+            feedback_last_prompted_at: new Date().toISOString(),
+            feedback_prompted_once_in_session: true
           },
           messageTimestamp
         );
@@ -3668,6 +3689,7 @@ export async function POST(req) {
         }
         const shouldPromptPostReportFeedback =
           !feedbackSuppressedForDeliveryFailure &&
+          !Boolean(nextContext?.feedback_prompted_once_in_session) &&
           (await canPromptFeedbackNow({ context: nextContext || {}, labId: session.lab_id, phone }));
         if (shouldPromptPostReportFeedback) {
           const reportFeedbackContext = withFeedbackFlowContext(
@@ -3678,8 +3700,7 @@ export async function POST(req) {
               last_report_delivery_reqid: dispatchReqid || null,
               last_report_delivery_reqno: dispatchReqno || result.reportStatusReqno || null,
               last_report_feedback_armed: true,
-              last_report_feedback_disarmed_at: null,
-              feedback_last_prompted_at: new Date().toISOString()
+              last_report_feedback_disarmed_at: null
             },
             null
           );
