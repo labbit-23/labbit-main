@@ -19,6 +19,14 @@ function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
 }
 
+function normalizeKey(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function parseRangePreset(value) {
   return RANGE_PRESETS[String(value || "24h").toLowerCase()] || RANGE_PRESETS["24h"];
 }
@@ -395,13 +403,25 @@ function matchesNodeRole(serviceKey = "", nodeRole = "") {
   return false;
 }
 
-function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "") {
+function matchesNodeSuffix(serviceKey = "", nodeSuffixFilter = "") {
+  if (!nodeSuffixFilter) return true;
+  const { nodeSuffix } = parseServiceKey(serviceKey);
+  return nodeSuffix === nodeSuffixFilter;
+}
+
+function aggregateDigestRowsToServiceDay(
+  rows,
+  serviceKeyFilter = "",
+  nodeRoleFilter = "",
+  nodeSuffixFilter = ""
+) {
   const byServiceDay = new Map();
 
   for (const row of rows || []) {
     if (!row?.day_date || !row?.service_key) continue;
     if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
     if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
+    if (!matchesNodeSuffix(row.service_key, nodeSuffixFilter)) continue;
     const dayKey = String(row.day_date).slice(0, 10);
     const serviceKey = String(row.service_key);
     const composedKey = `${serviceKey}::${dayKey}`;
@@ -426,7 +446,13 @@ function aggregateDigestRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFi
   return byServiceDay;
 }
 
-function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilter = "", granularity = "day") {
+function aggregateRawRowsToServiceDay(
+  rows,
+  serviceKeyFilter = "",
+  nodeRoleFilter = "",
+  nodeSuffixFilter = "",
+  granularity = "day"
+) {
   const byServiceDay = new Map();
   const latenciesByServiceDay = new Map();
 
@@ -434,6 +460,7 @@ function aggregateRawRowsToServiceDay(rows, serviceKeyFilter = "", nodeRoleFilte
     if (!row?.checked_at || !row?.service_key) continue;
     if (serviceKeyFilter && row.service_key !== serviceKeyFilter) continue;
     if (!matchesNodeRole(row.service_key, nodeRoleFilter)) continue;
+    if (!matchesNodeSuffix(row.service_key, nodeSuffixFilter)) continue;
 
     const checkedAt = new Date(row.checked_at);
     if (Number.isNaN(checkedAt.getTime())) continue;
@@ -547,6 +574,8 @@ export async function GET(request) {
     const serviceKey = String(url.searchParams.get("service_key") || "").trim();
     const nodeRole = String(url.searchParams.get("node_role") || "").trim().toLowerCase();
     const nodeRoleFilter = ["vps", "local"].includes(nodeRole) ? nodeRole : "";
+    const nodeSuffix = normalizeKey(String(url.searchParams.get("node_suffix") || "").trim());
+    const nodeSuffixFilter = nodeSuffix && nodeRoleFilter === "vps" ? nodeSuffix : "";
     const rangeInput = String(url.searchParams.get("range") || "24h").trim().toLowerCase();
     const preset = parseRangePreset(rangeInput);
     const granularity = String(url.searchParams.get("bucket") || preset.granularity).trim().toLowerCase();
@@ -636,9 +665,15 @@ export async function GET(request) {
 
     const rawRows = Array.isArray(rawData) ? rawData : [];
     const digestServiceDay = useDigest
-      ? aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter)
+      ? aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter, nodeSuffixFilter)
       : new Map();
-    const rawServiceDay = aggregateRawRowsToServiceDay(rawRows, serviceKey, nodeRoleFilter, bucketType);
+    const rawServiceDay = aggregateRawRowsToServiceDay(
+      rawRows,
+      serviceKey,
+      nodeRoleFilter,
+      nodeSuffixFilter,
+      bucketType
+    );
 
     // Raw rows override same-day service digest rows to keep in-progress windows accurate.
     const mergedServiceDay = new Map(digestServiceDay);
@@ -692,7 +727,11 @@ export async function GET(request) {
         if (!hostDigestError && Array.isArray(hostDigestData)) {
           hostDigestRows = hostDigestData.filter((row) => {
             const key = String(row?.service_key || "").toLowerCase();
-            return key.startsWith("vps_host__") && matchesNodeRole(key, nodeRoleFilter);
+            return (
+              key.startsWith("vps_host__") &&
+              matchesNodeRole(key, nodeRoleFilter) &&
+              matchesNodeSuffix(key, nodeSuffixFilter)
+            );
           });
         }
       }
@@ -709,7 +748,11 @@ export async function GET(request) {
       if (!hostRawError && Array.isArray(hostRawData)) {
         hostRawRows = hostRawData.filter((row) => {
           const key = String(row?.service_key || "").toLowerCase();
-          return key.startsWith("vps_host__") && matchesNodeRole(key, nodeRoleFilter);
+          return (
+            key.startsWith("vps_host__") &&
+            matchesNodeRole(key, nodeRoleFilter) &&
+            matchesNodeSuffix(key, nodeSuffixFilter)
+          );
         });
       }
     }
@@ -759,6 +802,7 @@ export async function GET(request) {
         lab_id: labId,
         service_key: serviceKey || null,
         node_role: nodeRoleFilter || null,
+        node_suffix: nodeSuffixFilter || null,
         range: rangeInput,
         bucket: bucketType,
         points,

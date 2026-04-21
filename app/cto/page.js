@@ -519,6 +519,7 @@ function CtoDashboardPage() {
   const [loadError, setLoadError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [trendRange, setTrendRange] = useState("today");
+  const [selectedVpsNode, setSelectedVpsNode] = useState("vps1");
   const [trendVpsServiceKey, setTrendVpsServiceKey] = useState("");
   const [trendLocalServiceKey, setTrendLocalServiceKey] = useState("");
   const [trendData, setTrendData] = useState({ points: [], summary: {}, source: {}, service_key: "" });
@@ -658,6 +659,7 @@ function CtoDashboardPage() {
           ts: String(Date.now())
         });
         if (selectedLabId) vpsParams.set("lab_id", selectedLabId);
+        if (selectedVpsNode) vpsParams.set("node_suffix", selectedVpsNode);
         if (trendVpsServiceKey) vpsParams.set("service_key", trendVpsServiceKey);
 
         const localParams = new URLSearchParams({
@@ -675,6 +677,7 @@ function CtoDashboardPage() {
           ts: String(Date.now())
         });
         if (selectedLabId) wowParams.set("lab_id", selectedLabId);
+        if (selectedVpsNode) wowParams.set("node_suffix", selectedVpsNode);
         if (trendVpsServiceKey) wowParams.set("service_key", trendVpsServiceKey);
 
         const fetches = [
@@ -729,7 +732,7 @@ function CtoDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedLabId, trendRange, trendVpsServiceKey, trendLocalServiceKey]);
+  }, [selectedLabId, trendRange, selectedVpsNode, trendVpsServiceKey, trendLocalServiceKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -906,6 +909,33 @@ function CtoDashboardPage() {
         isFreshService(service)
     );
   }, [latest.services]);
+
+  const vpsNodeOptions = useMemo(() => {
+    return [...new Set(
+      realServices
+        .filter(isVpsService)
+        .map((service) => String(parseServiceKey(service?.service_key).nodeRole || ""))
+        .filter((role) => role.startsWith("vps"))
+    )].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [realServices]);
+
+  useEffect(() => {
+    if (vpsNodeOptions.length === 0) return;
+    if (vpsNodeOptions.includes(selectedVpsNode)) return;
+    if (vpsNodeOptions.includes("vps1")) {
+      setSelectedVpsNode("vps1");
+      return;
+    }
+    setSelectedVpsNode(vpsNodeOptions[0]);
+  }, [selectedVpsNode, vpsNodeOptions]);
+
+  useEffect(() => {
+    if (!trendVpsServiceKey) return;
+    const nodeRole = String(parseServiceKey(trendVpsServiceKey).nodeRole || "");
+    if (nodeRole && nodeRole !== selectedVpsNode) {
+      setTrendVpsServiceKey("");
+    }
+  }, [selectedVpsNode, trendVpsServiceKey]);
 
   const staleServices = useMemo(() => {
     return (latest.services || []).filter(
@@ -1181,10 +1211,10 @@ function CtoDashboardPage() {
         .map((service) => String(service.service_key || ""))
         .filter((key) => {
           const suffix = String(parseServiceKey(key).nodeRole || "");
-          return suffix.startsWith("vps");
+          return suffix === selectedVpsNode;
         })
     )].sort((a, b) => a.localeCompare(b));
-  }, [realServices]);
+  }, [realServices, selectedVpsNode]);
   const trendLocalServiceOptions = useMemo(() => {
     return [...new Set(
       realServices
@@ -1264,7 +1294,11 @@ function CtoDashboardPage() {
   }, [eventsRows, feedbackData?.summary?.positive_rate, latest?.website_analytics, serviceByBaseKey]);
 
   const vpsHealth = useMemo(() => {
-    const vpsServices = realServices.filter(isVpsService);
+    const vpsServices = realServices.filter((service) => {
+      if (!isVpsService(service)) return false;
+      const suffix = String(parseServiceKey(service?.service_key).nodeRole || "");
+      return suffix === selectedVpsNode;
+    });
     const byStatus = vpsServices.reduce(
       (acc, service) => {
         acc.total += 1;
@@ -1334,7 +1368,7 @@ function CtoDashboardPage() {
       hostCpuCores,
       hostLoadPerCorePct
     };
-  }, [realServices]);
+  }, [realServices, selectedVpsNode]);
 
   const hasVpsIncident = useMemo(
     () => (vpsHealth.byStatus.down || 0) > 0 || (vpsHealth.byStatus.degraded || 0) > 0,
@@ -1581,7 +1615,7 @@ function CtoDashboardPage() {
                   placement="top"
                   bg="gray.900"
                   color="white"
-                  label={`VPS: ${(vpsHealth.byStatus.down || 0) > 0 ? `${vpsHealth.byStatus.down} down` : (vpsHealth.byStatus.degraded || 0) > 0 ? `${vpsHealth.byStatus.degraded} degraded` : "healthy"} • Mem ${Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"} • Disk ${Number.isFinite(vpsHealth.hostDiskPct) ? `${Math.round(vpsHealth.hostDiskPct)}%` : "n/a"}`}
+                  label={`${selectedVpsNode.toUpperCase()}: ${(vpsHealth.byStatus.down || 0) > 0 ? `${vpsHealth.byStatus.down} down` : (vpsHealth.byStatus.degraded || 0) > 0 ? `${vpsHealth.byStatus.degraded} degraded` : "healthy"} • Mem ${Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"} • Disk ${Number.isFinite(vpsHealth.hostDiskPct) ? `${Math.round(vpsHealth.hostDiskPct)}%` : "n/a"}`}
                 >
                   <Flex
                     align="center"
@@ -1605,7 +1639,7 @@ function CtoDashboardPage() {
                       }
                     />
                     <Text fontSize="xs" color="whiteAlpha.900" noOfLines={1}>
-                      VPS
+                      {selectedVpsNode.toUpperCase()}
                     </Text>
                   </Flex>
                 </Tooltip>
@@ -1757,11 +1791,13 @@ function CtoDashboardPage() {
                 <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Tap to open Operational Domains</Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>VPS Capacity</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>{selectedVpsNode.toUpperCase()} Capacity</Text>
                 <Text fontSize="2xl" fontWeight="800" color="cyan.200">
                   {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Host memory pressure (tap for VPS Health)</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                  {`Host memory pressure (tap for ${selectedVpsNode.toUpperCase()} Health)`}
+                </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(feedbackSectionRef)}>
                 <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Patient Feedback</Text>
@@ -1952,6 +1988,20 @@ function CtoDashboardPage() {
               </Text>
             </Box>
             <HStack spacing={2}>
+              <HStack spacing={1} mr={1} bg="rgba(255,255,255,0.06)" p={1} borderRadius="full">
+                {vpsNodeOptions.map((node) => (
+                  <Button
+                    key={node}
+                    size="xs"
+                    borderRadius="full"
+                    variant={selectedVpsNode === node ? "solid" : "ghost"}
+                    colorScheme={selectedVpsNode === node ? "teal" : "whiteAlpha"}
+                    onClick={() => setSelectedVpsNode(node)}
+                  >
+                    {node.toUpperCase()}
+                  </Button>
+                ))}
+              </HStack>
               <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : vpsHealth.byStatus.degraded > 0 ? "degraded" : "healthy")} borderRadius="full" px={3} py={1}>
                 {vpsHealth.byStatus.total} services
               </Badge>
@@ -1970,7 +2020,7 @@ function CtoDashboardPage() {
             <Box mt={4} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
               <HStack spacing={3} mb={3} justify="space-between" align="center" flexWrap="wrap">
                 <Text fontSize="sm" color="whiteAlpha.900" fontWeight="700">
-                  VPS Host Pressure Trend
+                  {selectedVpsNode.toUpperCase()} Host Pressure Trend
                 </Text>
                 <HStack spacing={2} flexWrap="wrap" justify="flex-end">
                   {vpsHostCompactMetrics.map((item) => (
@@ -2626,11 +2676,11 @@ function CtoDashboardPage() {
               {[
                 {
                   key: trendVpsServiceKey || "all_vps",
-                  label: trendVpsServiceKey || "All VPS",
+                  label: trendVpsServiceKey || `All ${selectedVpsNode.toUpperCase()}`,
                   model: trendChartModel,
                   selectedServiceKey: trendVpsServiceKey,
                   options: trendVpsServiceOptions,
-                  allLabel: "All VPS",
+                  allLabel: `All ${selectedVpsNode.toUpperCase()}`,
                   onChange: (value) => setTrendVpsServiceKey(value),
                 },
                 {
