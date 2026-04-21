@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
-import { phoneVariantsIndia } from "@/lib/phone";
+import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
 import {
   getLatestReportUrl,
   getReportStatus,
@@ -11,7 +11,7 @@ import {
   getTrendReportUrl
 } from "@/lib/neosoft/client";
 import { lookupReportSelection } from "@/lib/neosoft/reportSelection";
-import { sendDocumentMessage, sendTextMessage } from "@/lib/whatsapp/sender";
+import { sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp/sender";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 import { cookies } from "next/headers";
 
@@ -42,6 +42,41 @@ async function getChatSessionForPhone(phone, labIds = []) {
   const { data: sessions, error } = await sessionQuery;
   if (error) throw error;
   return sessions?.[0] || null;
+}
+
+function parseMaybeJson(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function validatePhoneForTemplate(phone) {
+  const digits = digitsOnly(phone);
+  if (!(digits.length === 10 || digits.length === 12)) {
+    return { ok: false, error: "Phone must be 10 digits or 12 digits (with country code)." };
+  }
+  if (digits.length === 12 && !digits.startsWith("91")) {
+    return { ok: false, error: "12-digit phone must start with 91." };
+  }
+  const canonical = toCanonicalIndiaPhone(digits);
+  if (!canonical || canonical.length !== 12) {
+    return { ok: false, error: "Invalid phone number format." };
+  }
+  return { ok: true, canonical };
+}
+
+function isWithin24Hours(lastInboundAt) {
+  if (!lastInboundAt) return false;
+  const parsed = new Date(lastInboundAt);
+  if (!parsed || Number.isNaN(parsed.getTime())) return false;
+  return Date.now() - parsed.getTime() < 24 * 60 * 60 * 1000;
 }
 
 function getStatusRowValue(row, ...keys) {
@@ -105,6 +140,22 @@ function extractMrnoFromStatus(reportStatus) {
       getStatusRowValue(row, "MRNO", "mrno", "CREGNO", "cregno", "UHID", "uhid") || ""
     ).trim();
     if (mrno) return mrno;
+  }
+  return null;
+}
+
+function extractReqidFromStatus(reportStatus) {
+  const topLevel = String(
+    getStatusRowValue(reportStatus, "REQID", "reqid", "REQ_ID", "req_id", "REQUISITIONID", "requisitionid") || ""
+  ).trim();
+  if (topLevel) return topLevel;
+
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  for (const row of tests) {
+    const reqid = String(
+      getStatusRowValue(row, "REQID", "reqid", "REQ_ID", "req_id", "REQUISITIONID", "requisitionid") || ""
+    ).trim();
+    if (reqid) return reqid;
   }
   return null;
 }
@@ -261,7 +312,7 @@ export async function POST(request) {
     const reqid = String(body?.reqid || "").trim();
     const reqno = String(body?.reqno || "").trim();
 
-    if (!phone || !["send_report", "send_status", "send_report_and_status", "preview_status", "send_latest_report", "send_latest_trend_report"].includes(action)) {
+    if (!phone || !["send_report", "send_status", "send_report_and_status", "preview_status", "send_latest_report", "send_latest_trend_report", "send_report_template"].includes(action)) {
       return new Response("Invalid request", { status: 400 });
     }
 
@@ -287,7 +338,308 @@ export async function POST(request) {
     }
 
     const labIds = Array.isArray(user.labIds) ? user.labIds.filter(Boolean) : [];
-    const chatSession = await getChatSessionForPhone(phone, labIds);
+    const phoneCheck = validatePhoneForTemplate(phone);
+    if (!phoneCheck.ok) {
+      return new Response(phoneCheck.error, { status: 400 });
+    }
+    let chatSession = await getChatSessionForPhone(phoneCheck.canonical, labIds);
+
+    if (action === "send_report_template") {
+      const dryRun = Boolean(body?.dry_run);
+      const patientName = String(body?.patient_name || "").trim();
+      const reportLabel = String(body?.report_label || "").trim();
+      const reportSource = String(body?.report_source || "latest_report").trim().toLowerCase();
+      const registeredPhoneRaw = String(body?.registered_phone || "").trim();
+      const authorizationConfirmed = Boolean(body?.authorization_confirmed);
+      const authorizationType = String(body?.authorization_type || "").trim();
+      const authorizationEvidence = String(body?.authorization_evidence || "").trim();
+      if (!dryRun) {
+        if (!patientName) return new Response("Patient name is required", { status: 400 });
+        if (!reportLabel) return new Response("Report/tests label is required", { status: 400 });
+        if (!authorizationConfirmed) {
+          return new Response("Recipient authorization confirmation is required.", { status: 400 });
+        }
+        if (!authorizationType) {
+          return new Response("Confirmation type is required.", { status: 400 });
+        }
+        if (!authorizationEvidence) {
+          return new Response("Confirmation evidence is required.", { status: 400 });
+        }
+      }
+
+      const within24 = isWithin24Hours(chatSession?.last_user_message_at);
+      if (!dryRun && within24) {
+        return new Response(
+          "This patient is already in 24-hour window. Send free text in the existing chat instead of template.",
+          { status: 409 }
+        );
+      }
+
+      const targetLabId = String(chatSession?.lab_id || labIds[0] || user?.lab_id || user?.labId || "").trim();
+      if (!targetLabId) {
+        return new Response("Lab scope not found for this user", { status: 400 });
+      }
+
+      let templateName = "";
+      let languageCode = "en";
+      if (!dryRun) {
+        const { data: waApiConfig, error: waApiError } = await supabase
+          .from("labs_apis")
+          .select("templates")
+          .eq("lab_id", targetLabId)
+          .eq("api_name", "whatsapp_outbound")
+          .maybeSingle();
+        if (waApiError) {
+          return new Response(waApiError?.message || "Failed to load WhatsApp template config", { status: 500 });
+        }
+        const templates = parseMaybeJson(waApiConfig?.templates);
+        templateName = String(templates?.chat_console_settings?.report_send_template_name || "").trim();
+        languageCode = String(templates?.chat_console_settings?.report_send_template_language || "en").trim() || "en";
+        if (!templateName) {
+          return new Response(
+            "Missing templates.chat_console_settings.report_send_template_name in labs_apis config",
+            { status: 400 }
+          );
+        }
+      }
+
+      let documentUrl = null;
+      let filename = "SDRC_Report.pdf";
+      let resolvedReqid = null;
+      let resolvedReqno = null;
+      let resolvedMrno = null;
+      let resolvedPatientName = patientName;
+
+      if (reportSource === "latest_report") {
+        const registeredCheck = validatePhoneForTemplate(registeredPhoneRaw || phoneCheck.canonical);
+        if (!registeredCheck.ok) {
+          return new Response("Registered phone must be 10 digits or 12 digits.", { status: 400 });
+        }
+        documentUrl = getLatestReportUrl(registeredCheck.canonical);
+        const latestPdfAvailable = await isReachablePdfDocument(documentUrl);
+        if (!latestPdfAvailable) {
+          return new Response("Latest report PDF was not found for this registered phone.", { status: 400 });
+        }
+
+        try {
+          const { recentReports } = await lookupReportSelection(registeredCheck.canonical);
+          resolvedReqid = String(recentReports?.[0]?.reqid || "").trim() || null;
+          resolvedReqno = String(recentReports?.[0]?.reqno || "").trim() || null;
+          resolvedPatientName = String(recentReports?.[0]?.patient_name || resolvedPatientName).trim() || resolvedPatientName;
+        } catch (statusError) {
+          console.warn("[admin-report-tools] report template lookup skipped", {
+            phone: registeredCheck.canonical,
+            error: statusError?.message || String(statusError)
+          });
+        }
+      } else if (reportSource === "requisition_report") {
+        const rawReqno = String(body?.reqno || "").trim();
+        if (!rawReqno) return new Response("Requisition No is required.", { status: 400 });
+        let statusByReqno;
+        try {
+          statusByReqno = await getReportStatus(rawReqno);
+        } catch (statusErr) {
+          return new Response(`Status lookup failed for requisition ${rawReqno}: ${statusErr?.message || "Unknown NeoSoft error"}`, { status: 400 });
+        }
+        const reqid = extractReqidFromStatus(statusByReqno);
+        if (!reqid) {
+          return new Response(`Could not find report mapping for requisition no ${rawReqno}.`, { status: 400 });
+        }
+        documentUrl = getReportUrl(reqid, { reqno: rawReqno });
+        const requisitionPdfAvailable = await isReachablePdfDocument(documentUrl);
+        if (!requisitionPdfAvailable) {
+          return new Response(`Report PDF was not found for requisition ${rawReqno}.`, { status: 400 });
+        }
+        resolvedReqid = reqid;
+        resolvedReqno = rawReqno;
+      } else if (reportSource === "trend_report") {
+        const rawMrno = String(body?.mrno || "").trim();
+        if (!rawMrno) return new Response("MRNO is required for trend report.", { status: 400 });
+        documentUrl = getTrendReportUrl(rawMrno);
+        const trendPdfAvailable = await isReachablePdfDocument(documentUrl);
+        if (!trendPdfAvailable) {
+          return new Response(`Trend report PDF was not found for MRNO ${rawMrno}.`, { status: 400 });
+        }
+        resolvedMrno = rawMrno;
+      } else {
+        return new Response("Invalid report source selected.", { status: 400 });
+      }
+
+      if (reportSource === "trend_report") {
+        filename = `SDRC_Trend_Report_${resolvedMrno || "Patient"}.pdf`;
+      } else {
+        filename = buildReportFilename({
+          reqid: resolvedReqid || null,
+          reqno: resolvedReqno || null,
+          patient_name: resolvedPatientName || patientName || ""
+        });
+      }
+
+      if (dryRun) {
+        return NextResponse.json(
+          {
+            ok: true,
+            dry_run: true,
+            source: reportSource,
+            resolved: {
+              reqid: resolvedReqid,
+              reqno: resolvedReqno,
+              mrno: resolvedMrno,
+              patient_name: resolvedPatientName || null,
+              filename,
+              phone: phoneCheck.canonical
+            }
+          },
+          { status: 200 }
+        );
+      }
+
+      const sender = {
+        id: user.id || null,
+        name: user.name || "Agent",
+        role: getRoleKey(user) || null,
+        userType: user.userType || null
+      };
+      const templateDispatchStartedAt = Date.now();
+      let templateSendResult = null;
+      const privacyPayload = {
+        manual_privacy_send: true,
+        confirmed: true,
+        type: authorizationType,
+        evidence: authorizationEvidence
+      };
+      const reportTypeForLog =
+        reportSource === "trend_report"
+          ? "trend"
+          : "combined";
+
+      try {
+        templateSendResult = await sendTemplateMessage({
+          labId: targetLabId,
+          phone: phoneCheck.canonical,
+          templateName,
+          languageCode,
+          templateParams: [patientName, reportLabel],
+          sender,
+          headerDocumentUrl: documentUrl,
+          headerDocumentFilename: filename,
+          logPayloadExtra: {
+            privacy_authorization: privacyPayload
+          }
+        });
+
+        await logReportDispatch({
+          labId: targetLabId,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: resolvedReqid,
+          reqno: resolvedReqno,
+          phone: phoneCheck.canonical,
+          reportType: reportTypeForLog,
+          headerMode: "default",
+          status: "success",
+          resultCode: "AGENT_PRIVACY_SEND_OK",
+          resultMessage: "Manual report template sent with document header and authorization confirmation",
+          providerMessageId: extractProviderMessageId(templateSendResult),
+          requestPayload: {
+            action: "send_report_template",
+            report_source: reportSource,
+            document_url: documentUrl,
+            registered_phone: registeredPhoneRaw || null,
+            mrno: resolvedMrno,
+            template_name: templateName,
+            template_language: languageCode,
+            authorization: privacyPayload
+          },
+          responsePayload: {
+            template_send: templateSendResult
+          },
+          durationMs: Date.now() - templateDispatchStartedAt,
+          documentUrl
+        });
+      } catch (sendError) {
+        await logReportDispatch({
+          labId: targetLabId,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: resolvedReqid,
+          reqno: resolvedReqno,
+          phone: phoneCheck.canonical,
+          reportType: reportTypeForLog,
+          headerMode: "default",
+          status: "failed",
+          resultCode: "AGENT_PRIVACY_SEND_FAILED",
+          resultMessage: sendError?.message || "Unknown manual privacy send error",
+          requestPayload: {
+            action: "send_report_template",
+            report_source: reportSource,
+            document_url: documentUrl,
+            registered_phone: registeredPhoneRaw || null,
+            mrno: resolvedMrno,
+            template_name: templateName,
+            template_language: languageCode,
+            authorization: privacyPayload
+          },
+          responsePayload: {
+            template_send: templateSendResult
+          },
+          durationMs: Date.now() - templateDispatchStartedAt,
+          documentUrl
+        });
+        throw sendError;
+      }
+
+      if (chatSession?.id) {
+        const nextContext = {
+          ...(chatSession.context || {}),
+          ever_agent_intervened: true,
+          last_handled_by: "agent",
+          last_handled_at: new Date().toISOString(),
+          suppress_feedback_once: false
+        };
+        await supabase
+          .from("chat_sessions")
+          .update({ context: nextContext, last_message_at: new Date(), updated_at: new Date() })
+          .eq("id", chatSession.id);
+      } else {
+        const { data: createdSession, error: createError } = await supabase
+          .from("chat_sessions")
+          .insert({
+            lab_id: targetLabId,
+            phone: phoneCheck.canonical,
+            patient_name: patientName,
+            status: "active",
+            current_state: "HUMAN_HANDOVER",
+            unread_count: 0,
+            context: {
+              ever_agent_intervened: true,
+              last_handled_by: "agent",
+              last_handled_at: new Date().toISOString(),
+              suppress_feedback_once: false
+            },
+            last_message_at: new Date(),
+            created_at: new Date(),
+            updated_at: new Date()
+          })
+          .select("*")
+          .single();
+        if (createError) {
+          return new Response(createError?.message || "Failed to create chat session", { status: 500 });
+        }
+        chatSession = createdSession;
+      }
+
+      return NextResponse.json({ ok: true, phone: phoneCheck.canonical }, { status: 200 });
+    }
+
     if (!chatSession) return new Response("Session not found", { status: 404 });
     const agentContext = {
       ...(chatSession.context || {}),

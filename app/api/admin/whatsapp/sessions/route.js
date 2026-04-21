@@ -198,6 +198,10 @@ async function buildLitePage({ labIds = [], offset = 0, pageLimit = 60, searchTe
       const searchDigits = digitsOnly(normalizedSearch);
       if (searchDigits.length >= 7) {
         query = query.in("phone", phoneCandidates(searchDigits));
+      } else if (searchDigits.length > 0) {
+        const safeDigits = searchDigits.slice(0, 12);
+        const safeText = normalizedSearch.replace(/[%_,]/g, " ");
+        query = query.or(`phone.ilike.%${safeDigits}%,patient_name.ilike.%${safeText}%`);
       } else {
         const safe = normalizedSearch.replace(/[%_,]/g, " ");
         query = query.ilike("patient_name", `%${safe}%`);

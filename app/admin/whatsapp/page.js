@@ -14,6 +14,8 @@ const HEADER_WHATSAPP_NUMBER =
   process.env.NEXT_PUBLIC_BUSINESS_WHATSAPP_NUMBER ||
   "";
 const WHATSAPP_THEME_STORAGE_KEY = "labbit-whatsapp-theme";
+const REPORT_TEMPLATE_TEXT =
+  "Dear {{1}}, please find attached your {{2}} reports for the test/s done at SDRC.\n\nPlease reply with *Hi* for any queries, appointment booking, trend reports or other information. Our Whatsapp Bot will be available to help you.";
 
 const DEFAULT_CHAT_SETTINGS = {
   shortcuts: [
@@ -237,6 +239,16 @@ function canonicalPhone(value) {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+function canonicalIndiaPhone(value) {
+  const digits = digitsOnly(value);
+  if (!digits) return "";
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  if (digits.length > 12) return `91${digits.slice(-10)}`;
+  return digits;
+}
+
 function formatWhatsappNumberDisplay(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -385,6 +397,15 @@ function getDisplayMessageText(msg, botLabelMap) {
         requestPayload?.template_name ||
         rawMessage;
       const templateParams = extractTemplateTextParams(requestPayload?.template || {});
+      const normalizedTemplateName = String(templateName || "").trim().toLowerCase();
+      if (normalizedTemplateName === "reports_pdf") {
+        const patient = String(templateParams?.[0] || "").trim();
+        const reportKind = String(templateParams?.[1] || "Report").trim() || "Report";
+        const lines = ["Report template sent"];
+        if (patient) lines.push(`Patient: ${patient}`);
+        if (reportKind) lines.push(`Type: ${reportKind}`);
+        return decodeMessageEntities(lines.join("\n"));
+      }
       const pretty = humanizeMachineToken(templateName);
       if (templateParams.length > 0) {
         const paramText = templateParams.map((item) => `- ${item}`).join("\n");
@@ -452,6 +473,30 @@ function shouldUpdateSelectedSession(currentSession, nextSession) {
 
 function getMessageMedia(msg) {
   const media = msg?.payload?.media;
+  const templateComponents = Array.isArray(msg?.payload?.request?.template?.components)
+    ? msg.payload.request.template.components
+    : [];
+  const headerComponent = templateComponents.find(
+    (component) => String(component?.type || "").toLowerCase() === "header"
+  );
+  const headerParameters = Array.isArray(headerComponent?.parameters) ? headerComponent.parameters : [];
+  const headerDocumentParameter = headerParameters.find(
+    (param) => String(param?.type || "").toLowerCase() === "document"
+  );
+  const templateHeaderDocumentLink =
+    headerDocumentParameter?.document?.link ||
+    headerDocumentParameter?.document?.url ||
+    null;
+  const templateHeaderDocumentName =
+    headerDocumentParameter?.document?.filename ||
+    null;
+  const canonicalFilename =
+    String(msg?.payload?.request?.document?.filename || "").trim() ||
+    String(templateHeaderDocumentName || "").trim() ||
+    String(media?.filename || "").trim() ||
+    String(msg?.payload?.raw_message?.document?.filename || "").trim() ||
+    String(msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.filename || "").trim() ||
+    null;
   const fallbackUrl =
     media?.url ||
     media?.link ||
@@ -461,6 +506,7 @@ function getMessageMedia(msg) {
     msg?.payload?.raw_message?.document?.link ||
     msg?.payload?.raw_message?.document?.url ||
     msg?.payload?.raw_message?.document?.document_url ||
+    templateHeaderDocumentLink ||
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.link ||
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.url ||
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.link ||
@@ -468,9 +514,9 @@ function getMessageMedia(msg) {
 
   if (fallbackUrl) {
     return {
-      type: media.type || "file",
+      type: media?.type || "file",
       url: fallbackUrl,
-      filename: media?.filename || msg?.payload?.raw_message?.document?.filename || null
+      filename: canonicalFilename
     };
   }
 
@@ -479,7 +525,7 @@ function getMessageMedia(msg) {
     return {
       type: "document",
       url: doc.link,
-      filename: doc.filename || null
+      filename: canonicalFilename || doc.filename || null
     };
   }
 // InstaAlerts media extractor
@@ -500,11 +546,7 @@ try {
 
 if (filedata) {
   const fileType = rawMsg?.document?.id ? "document" : "image";
-  const fallbackName =
-    rawMsg?.document?.filename ||
-    msg?.payload?.raw_message?.document?.filename ||
-    msg?.payload?.media?.filename ||
-    null;
+  const fallbackName = canonicalFilename;
   const query = new URLSearchParams({
     filedata: String(filedata),
     kind: fileType
@@ -700,6 +742,7 @@ export default function WhatsAppDashboard() {
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [isSendingAttachment, setIsSendingAttachment] = useState(false);
   const [isSendingReportTool, setIsSendingReportTool] = useState(false);
+  const [isSendingReportTemplate, setIsSendingReportTemplate] = useState(false);
   const [attachingLocationMessageId, setAttachingLocationMessageId] = useState(null);
   const [showBotFlowMenu, setShowBotFlowMenu] = useState(false);
   const [showResolveMenu, setShowResolveMenu] = useState(false);
@@ -721,6 +764,21 @@ export default function WhatsAppDashboard() {
   const [pendingTaskAction, setPendingTaskAction] = useState("followup");
   const [themeMode, setThemeMode] = useState("dark");
   const [isPageVisible, setIsPageVisible] = useState(true);
+  const [showReportTemplateModal, setShowReportTemplateModal] = useState(false);
+  const [reportTemplatePhone, setReportTemplatePhone] = useState("");
+  const [reportTemplatePatientName, setReportTemplatePatientName] = useState("");
+  const [reportTemplateLabel, setReportTemplateLabel] = useState("");
+  const [reportTemplateSource, setReportTemplateSource] = useState("latest_report");
+  const [reportTemplateRegisteredPhone, setReportTemplateRegisteredPhone] = useState("");
+  const [reportTemplateReqno, setReportTemplateReqno] = useState("");
+  const [reportTemplateMrno, setReportTemplateMrno] = useState("");
+  const [reportAuthConfirmed, setReportAuthConfirmed] = useState(false);
+  const [reportAuthType, setReportAuthType] = useState("");
+  const [reportAuthEvidence, setReportAuthEvidence] = useState("");
+  const [isLookingUpRegisteredPhone, setIsLookingUpRegisteredPhone] = useState(false);
+  const [registeredLookupResolvedPhone, setRegisteredLookupResolvedPhone] = useState("");
+  const [registeredLookupSummary, setRegisteredLookupSummary] = useState("");
+  const [reportModalError, setReportModalError] = useState("");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -1849,6 +1907,242 @@ export default function WhatsAppDashboard() {
     }
   };
 
+  const openReportTemplateModal = ({ phone = "", patientName = "" } = {}) => {
+    setError("");
+    setHint("");
+    const normalizedPhone = String(phone || selectedSession?.phone || "").trim();
+    setReportTemplatePhone(normalizedPhone);
+    const defaultName =
+      String(patientName || selectedSession?.patient_name || "").trim() &&
+      String(patientName || selectedSession?.patient_name || "").trim() !== String(normalizedPhone || "").trim()
+        ? String(patientName || selectedSession?.patient_name || "").trim()
+        : "";
+    setReportTemplatePatientName(defaultName);
+    setReportTemplateLabel("Latest");
+    setReportTemplateSource("latest_report");
+    setReportTemplateRegisteredPhone(normalizedPhone);
+    setReportTemplateReqno("");
+    setReportTemplateMrno("");
+    setReportAuthConfirmed(false);
+    setReportAuthType("");
+    setReportAuthEvidence("");
+    setRegisteredLookupResolvedPhone("");
+    setRegisteredLookupSummary("");
+    setReportModalError("");
+    setShowReportTemplateModal(true);
+  };
+
+  const handleSendReportTemplate = async () => {
+    const phoneRaw = String(reportTemplatePhone || "").trim();
+    const phoneDigits = digitsOnly(phoneRaw);
+    if (!(phoneDigits.length === 10 || phoneDigits.length === 12)) {
+      setReportModalError("Phone must be 10 digits or 12 digits (with country code).");
+      return;
+    }
+    if (phoneDigits.length === 12 && !phoneDigits.startsWith("91")) {
+      setReportModalError("12-digit phone must start with 91.");
+      return;
+    }
+
+    const canonicalTargetPhone = canonicalIndiaPhone(phoneRaw);
+    const selectedCanonicalPhone = canonicalIndiaPhone(selectedSession?.phone || "");
+    if (selectedSessionWithin24 && canonicalTargetPhone && canonicalTargetPhone === selectedCanonicalPhone) {
+      setReportModalError("This chat is already in 24-hour live window. Send free text here instead of template.");
+      return;
+    }
+
+    const patientName = String(reportTemplatePatientName || "").trim();
+    if (!patientName) {
+      setReportModalError("Patient name is required.");
+      return;
+    }
+    const source = String(reportTemplateSource || "latest_report").trim();
+    const reportLabel =
+      source === "trend_report"
+        ? "Trend"
+        : source === "requisition_report"
+          ? "Test"
+          : "Latest";
+    const registeredPhone = String(reportTemplateRegisteredPhone || "").trim();
+    const reqno = String(reportTemplateReqno || "").trim();
+    const mrno = String(reportTemplateMrno || "").trim();
+    if (source === "latest_report") {
+      const regDigits = digitsOnly(registeredPhone);
+      if (!(regDigits.length === 10 || regDigits.length === 12)) {
+        setReportModalError("Registered phone must be 10 digits or 12 digits.");
+        return;
+      }
+      const canonicalRegisteredPhone = canonicalIndiaPhone(registeredPhone);
+      if (!canonicalRegisteredPhone || registeredLookupResolvedPhone !== canonicalRegisteredPhone) {
+        setReportModalError("Run registered phone lookup before sending latest report.");
+        return;
+      }
+    }
+    if (source === "requisition_report" && !reqno) {
+      setReportModalError("Requisition No is required for report PDF.");
+      return;
+    }
+    if (source === "trend_report" && !mrno) {
+      setReportModalError("MRNO is required for trend report PDF.");
+      return;
+    }
+    if (!reportAuthConfirmed) {
+      setReportModalError("Please confirm recipient authorization before sending.");
+      return;
+    }
+    if (!String(reportAuthType || "").trim()) {
+      setReportModalError("Please select confirmation type.");
+      return;
+    }
+    if (!String(reportAuthEvidence || "").trim()) {
+      setReportModalError("Please enter confirmation evidence details.");
+      return;
+    }
+    if (!reportSourceLookupOk) {
+      setReportModalError("Run lookup for the selected attachment source before sending.");
+      return;
+    }
+
+    setReportModalError("");
+    setHint("");
+    setIsSendingReportTemplate(true);
+
+    try {
+      const response = await fetch("/api/admin/whatsapp/report-tools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "send_report_template",
+          phone: phoneRaw,
+          patient_name: patientName,
+          report_label: reportLabel,
+          report_source: source,
+          registered_phone: registeredPhone,
+          reqno,
+          mrno,
+          authorization_confirmed: reportAuthConfirmed,
+          authorization_type: reportAuthType,
+          authorization_evidence: reportAuthEvidence
+        })
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to send report template.");
+      }
+
+      setShowReportTemplateModal(false);
+      setHint("Latest report + template sent.");
+      const refreshedSessions = await fetchSessions();
+      const target = (refreshedSessions || []).find(
+        (row) => canonicalIndiaPhone(row?.phone || "") === canonicalTargetPhone
+      );
+      if (target?.phone) {
+        await handleSelect(target);
+      }
+    } catch (err) {
+      setReportModalError(err?.message || "Failed to send report template.");
+    } finally {
+      setIsSendingReportTemplate(false);
+    }
+  };
+
+  const handleLookupRegisteredPhone = async () => {
+    const targetPhone = String(reportTemplatePhone || "").trim();
+    const source = String(reportTemplateSource || "latest_report").trim().toLowerCase();
+    const registeredPhone = String(reportTemplateRegisteredPhone || "").trim();
+    const reqno = String(reportTemplateReqno || "").trim();
+    const mrno = String(reportTemplateMrno || "").trim();
+    const destinationDigits = digitsOnly(targetPhone);
+    if (!(destinationDigits.length === 10 || destinationDigits.length === 12)) {
+      setReportModalError("Enter a valid destination WhatsApp number first.");
+      return;
+    }
+
+    if (source === "latest_report") {
+      const regDigits = digitsOnly(registeredPhone);
+      if (!(regDigits.length === 10 || regDigits.length === 12)) {
+        setReportModalError("Registered phone must be 10 digits or 12 digits.");
+        return;
+      }
+      if (regDigits.length === 12 && !regDigits.startsWith("91")) {
+        setReportModalError("12-digit registered phone must start with 91.");
+        return;
+      }
+    }
+    if (source === "requisition_report" && !reqno) {
+      setReportModalError("Enter requisition number first.");
+      return;
+    }
+    if (source === "trend_report" && !mrno) {
+      setReportModalError("Enter MRNO first.");
+      return;
+    }
+
+    setReportModalError("");
+    setHint("");
+    setRegisteredLookupSummary("");
+    setIsLookingUpRegisteredPhone(true);
+
+    try {
+      const response = await fetch("/api/admin/whatsapp/report-tools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "send_report_template",
+          dry_run: true,
+          phone: targetPhone,
+          report_source: source,
+          registered_phone: registeredPhone,
+          reqno,
+          mrno
+        })
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Lookup failed.");
+      }
+      const body = await response.json().catch(() => ({}));
+      const resolved = body?.resolved || {};
+      const lookedPatientName = String(resolved?.patient_name || "").trim();
+      const lookedReqno = String(resolved?.reqno || reqno || "").trim();
+      const lookedMrno = String(resolved?.mrno || mrno || "").trim();
+      if (lookedPatientName) {
+        setReportTemplatePatientName(lookedPatientName);
+      }
+      if (lookedReqno) {
+        setReportTemplateReqno(lookedReqno);
+      }
+      if (lookedMrno) {
+        setReportTemplateMrno(lookedMrno);
+      }
+      const canonicalKey =
+        source === "latest_report"
+          ? canonicalIndiaPhone(registeredPhone)
+          : source === "requisition_report"
+            ? `REQNO:${lookedReqno || reqno}`
+            : `MRNO:${lookedMrno || mrno}`;
+      setRegisteredLookupResolvedPhone(canonicalKey);
+      setRegisteredLookupSummary(
+        [
+          lookedPatientName || String(reportTemplatePatientName || "").trim() || "Patient",
+          lookedReqno ? `Req ${lookedReqno}` : "",
+          lookedMrno ? `MRNO ${lookedMrno}` : "",
+          source === "trend_report" ? "Trend validated" : "Report validated"
+        ]
+          .filter(Boolean)
+          .join(" • ")
+      );
+    } catch (err) {
+      setRegisteredLookupResolvedPhone("");
+      setRegisteredLookupSummary("");
+      setReportModalError(err?.message || "Lookup failed.");
+    } finally {
+      setIsLookingUpRegisteredPhone(false);
+    }
+  };
+
   const handleSend = async (text) => {
     const content = toPlainComposerText(String(text ?? composerText ?? ""));
     if (!selectedSession || !content || isSending) return;
@@ -2157,6 +2451,11 @@ export default function WhatsAppDashboard() {
       setError("Select a conversation first.");
       return;
     }
+    if (!selectedSessionWithin24) {
+      setError("Cannot insert bot flow after the 24-hour window has expired.");
+      setShowBotFlowMenu(false);
+      return;
+    }
     const flowLabel =
       flow === "reports"
         ? "Reports flow"
@@ -2244,6 +2543,51 @@ export default function WhatsAppDashboard() {
 
   const hasManyPatients = (session) => Number(session?.matched_patient_count || 0) > 1;
   const currentSessionPhone = String(selectedSession?.phone || "").trim();
+  const searchDigits = digitsOnly(search);
+  const searchIsPhoneCandidate = searchDigits.length === 10 || searchDigits.length === 12;
+  const searchCanonicalPhone = searchIsPhoneCandidate ? canonicalIndiaPhone(searchDigits) : "";
+  const searchExactMatch = searchCanonicalPhone
+    ? (sessions || []).find((row) => canonicalIndiaPhone(row?.phone || "") === searchCanonicalPhone) || null
+    : null;
+  const searchPartialMatches =
+    !searchExactMatch && searchDigits.length >= 3
+      ? (sessions || []).filter((row) => digitsOnly(row?.phone || "").includes(searchDigits))
+      : [];
+  const searchHasAmbiguousPartialMatches = !searchExactMatch && searchPartialMatches.length > 1;
+  const searchMatchedSession = searchExactMatch || (searchPartialMatches.length === 1 ? searchPartialMatches[0] : null);
+  const searchCanOpenReportTemplate =
+    !searchHasAmbiguousPartialMatches && (Boolean(searchMatchedSession) || searchIsPhoneCandidate);
+  const searchMatchedWithin24 = Boolean(
+    searchMatchedSession && isWithin24(searchMatchedSession)
+  );
+  const searchCanSendTemplateNow = searchCanOpenReportTemplate && !searchMatchedWithin24;
+  const reportTemplatePreviewText = REPORT_TEMPLATE_TEXT
+    .replace("{{1}}", String(reportTemplatePatientName || "[Patient Name]").trim() || "[Patient Name]")
+    .replace("{{2}}", String(reportTemplateLabel || "Report").trim() || "Report");
+  const reportDestinationDigits = digitsOnly(reportTemplatePhone);
+  const reportDestinationPhoneValid =
+    (reportDestinationDigits.length === 10 || reportDestinationDigits.length === 12) &&
+    !(reportDestinationDigits.length === 12 && !reportDestinationDigits.startsWith("91"));
+  const reportSourceKey =
+    reportTemplateSource === "latest_report"
+      ? canonicalIndiaPhone(reportTemplateRegisteredPhone)
+      : reportTemplateSource === "requisition_report"
+        ? `REQNO:${String(reportTemplateReqno || "").trim()}`
+        : `MRNO:${String(reportTemplateMrno || "").trim()}`;
+  const reportSourceLookupOk = Boolean(
+    registeredLookupResolvedPhone &&
+    reportSourceKey &&
+    registeredLookupResolvedPhone === reportSourceKey
+  );
+  const reportAuthReady =
+    reportAuthConfirmed &&
+    Boolean(String(reportAuthType || "").trim()) &&
+    Boolean(String(reportAuthEvidence || "").trim());
+  const reportTemplateReadyToSend =
+    reportDestinationPhoneValid &&
+    Boolean(String(reportTemplatePatientName || "").trim()) &&
+    reportSourceLookupOk &&
+    reportAuthReady;
 
   const handleCopyPhone = async (phoneValue) => {
     const cleanPhone = String(phoneValue || "").trim();
@@ -2504,12 +2848,36 @@ export default function WhatsAppDashboard() {
                   ))}
                 </div>
                 {(showSearchBox || search) && (
-                  <input
-                    className="wa-ownerSearchInput"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search patient or phone"
-                  />
+                  <div className="wa-ownerSearchTools">
+                    <input
+                      className="wa-ownerSearchInput"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search patient or phone"
+                    />
+                    <button
+                      type="button"
+                      className={`wa-ownerSearchAddBtn ${searchCanSendTemplateNow ? "is-ready" : ""}`}
+                      title={
+                        searchHasAmbiguousPartialMatches
+                          ? "Multiple matches found. Type full number to continue."
+                          : !searchCanOpenReportTemplate
+                          ? "Search patient/phone or enter a 10/12 digit phone"
+                          : searchMatchedWithin24
+                            ? "This number is in 24h window. Send free text in chat."
+                            : "Send Reports to this number"
+                      }
+                      onClick={() =>
+                        openReportTemplateModal({
+                          phone: searchMatchedSession?.phone || search,
+                          patientName: searchMatchedSession?.patient_name || ""
+                        })
+                      }
+                      disabled={!searchCanSendTemplateNow}
+                    >
+                      +
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -3066,8 +3434,8 @@ export default function WhatsAppDashboard() {
                     type="button"
                     className="wa-attachBtn"
                     onClick={() => setShowBotFlowMenu((prev) => !prev)}
-                    disabled={!selectedSession || isSending || isUpdatingStatus || isLockedByAnotherAgent}
-                    title="Insert bot flow into chat"
+                    disabled={!selectedSession || !selectedSessionWithin24 || isSending || isUpdatingStatus || isLockedByAnotherAgent}
+                    title={selectedSession && !selectedSessionWithin24 ? "Reply window expired" : "Insert bot flow into chat"}
                   >
                     🤖
                   </button>
@@ -3179,6 +3547,246 @@ export default function WhatsAppDashboard() {
         </div>
       </div>
 
+      {showReportTemplateModal && (
+        <div className="wa-modalBackdrop" role="presentation" onClick={() => !isSendingReportTemplate && setShowReportTemplateModal(false)}>
+          <div className="wa-modalCard" role="dialog" aria-modal="true" aria-label="Send report template" onClick={(event) => event.stopPropagation()}>
+            <div className="wa-modalHeader">
+              <strong>Send Reports Template</strong>
+              <button
+                type="button"
+                className="wa-modalClose"
+                onClick={() => setShowReportTemplateModal(false)}
+                disabled={isSendingReportTemplate}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <label className="wa-modalLabel">
+              WhatsApp Number
+              <input
+                className="wa-modalInput"
+                value={reportTemplatePhone}
+                onChange={(e) => {
+                  setReportTemplatePhone(e.target.value);
+                  setReportModalError("");
+                }}
+                placeholder="10 or 12 digits (example: 9876543210 or 919876543210)"
+                disabled={isSendingReportTemplate}
+              />
+            </label>
+
+            <label className="wa-modalLabel">
+              Attachment Source
+              <select
+                className="wa-modalInput"
+                value={reportTemplateSource}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setReportTemplateSource(next);
+                  setRegisteredLookupResolvedPhone("");
+                  setRegisteredLookupSummary("");
+                  setReportModalError("");
+                  setReportTemplateLabel(
+                    next === "trend_report"
+                      ? "Trend"
+                      : next === "requisition_report"
+                        ? "Test"
+                        : "Latest"
+                  );
+                }}
+                disabled={isSendingReportTemplate}
+              >
+                <option value="latest_report">Latest Report (by Registered Phone)</option>
+                <option value="requisition_report">Report by Requisition No</option>
+                <option value="trend_report">Trend Report by MRNO</option>
+              </select>
+            </label>
+
+            {reportTemplateSource === "latest_report" && (
+              <label className="wa-modalLabel">
+                Registered Phone
+                <div className="wa-modalLookupRow">
+                  <input
+                    className="wa-modalInput"
+                    value={reportTemplateRegisteredPhone}
+                    onChange={(e) => {
+                      setReportTemplateRegisteredPhone(e.target.value);
+                      setRegisteredLookupResolvedPhone("");
+                      setRegisteredLookupSummary("");
+                      setReportTemplatePatientName("");
+                      setReportTemplateReqno("");
+                      setReportTemplateMrno("");
+                      setReportModalError("");
+                    }}
+                    placeholder="Phone used in lab registration"
+                    disabled={isSendingReportTemplate || isLookingUpRegisteredPhone}
+                  />
+                  <button
+                    type="button"
+                    className="wa-inlineBtn"
+                    onClick={handleLookupRegisteredPhone}
+                    disabled={isSendingReportTemplate || isLookingUpRegisteredPhone}
+                  >
+                    {isLookingUpRegisteredPhone ? "Looking..." : "Lookup"}
+                  </button>
+                </div>
+                {registeredLookupSummary && (
+                  <span className="wa-modalLookupHint">{registeredLookupSummary}</span>
+                )}
+              </label>
+            )}
+
+            {reportTemplateSource === "requisition_report" && (
+              <label className="wa-modalLabel">
+                Requisition No
+                <input
+                  className="wa-modalInput"
+                  value={reportTemplateReqno}
+                  onChange={(e) => {
+                    setReportTemplateReqno(e.target.value);
+                    setRegisteredLookupResolvedPhone("");
+                    setRegisteredLookupSummary("");
+                    setReportModalError("");
+                  }}
+                  placeholder="Example: 20260421060"
+                  disabled={isSendingReportTemplate}
+                />
+                <button
+                  type="button"
+                  className="wa-inlineBtn"
+                  onClick={handleLookupRegisteredPhone}
+                  disabled={isSendingReportTemplate || isLookingUpRegisteredPhone}
+                >
+                  {isLookingUpRegisteredPhone ? "Looking..." : "Lookup"}
+                </button>
+              </label>
+            )}
+
+            {reportTemplateSource === "trend_report" && (
+              <label className="wa-modalLabel">
+                MRNO
+                <input
+                  className="wa-modalInput"
+                  value={reportTemplateMrno}
+                  onChange={(e) => {
+                    setReportTemplateMrno(e.target.value);
+                    setRegisteredLookupResolvedPhone("");
+                    setRegisteredLookupSummary("");
+                    setReportModalError("");
+                  }}
+                  placeholder="Patient MRNO"
+                  disabled={isSendingReportTemplate}
+                />
+                <button
+                  type="button"
+                  className="wa-inlineBtn"
+                  onClick={handleLookupRegisteredPhone}
+                  disabled={isSendingReportTemplate || isLookingUpRegisteredPhone}
+                >
+                  {isLookingUpRegisteredPhone ? "Looking..." : "Lookup"}
+                </button>
+              </label>
+            )}
+
+            <label className="wa-modalLabel">
+              Patient Name ({`{{1}}`})
+              <input
+                className="wa-modalInput"
+                value={reportTemplatePatientName}
+                onChange={(e) => {
+                  setReportTemplatePatientName(e.target.value);
+                  setReportModalError("");
+                }}
+                placeholder="Patient name"
+                disabled={isSendingReportTemplate}
+              />
+            </label>
+
+            <div className="wa-modalLabel">
+              Template report label ({`{{2}}`}): <strong>{reportTemplateLabel || "Report"}</strong>
+            </div>
+
+            <div className="wa-modalTemplatePreview">
+              {reportTemplatePreviewText}
+            </div>
+
+            <label className="wa-modalLabel">
+              <span className="wa-modalCheck">
+                <input
+                  type="checkbox"
+                  checked={reportAuthConfirmed}
+                  onChange={(e) => {
+                    setReportAuthConfirmed(Boolean(e.target.checked));
+                    setReportModalError("");
+                  }}
+                  disabled={isSendingReportTemplate}
+                />
+                Recipient is authorized to receive reports on patient behalf
+              </span>
+            </label>
+
+            <label className="wa-modalLabel">
+              Confirmation Type
+              <select
+                className="wa-modalInput"
+                value={reportAuthType}
+                onChange={(e) => {
+                  setReportAuthType(e.target.value);
+                  setReportModalError("");
+                }}
+                disabled={isSendingReportTemplate}
+              >
+                <option value="">Select confirmation type</option>
+                <option value="bill_sent">Bill Sent</option>
+                <option value="req_phone_name_confirmed">Req No + Phone/Name Confirmed</option>
+                <option value="patient_direct_confirmation">Patient Directly Confirmed</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+
+            <label className="wa-modalLabel">
+              Confirmation Evidence
+              <input
+                className="wa-modalInput"
+                value={reportAuthEvidence}
+                onChange={(e) => {
+                  setReportAuthEvidence(e.target.value);
+                  setReportModalError("");
+                }}
+                placeholder='Example: "Bill sent to +9183xxxx" or "ReqNo 20260421060 + name confirmed"'
+                disabled={isSendingReportTemplate}
+              />
+            </label>
+
+            {reportModalError && <div className="wa-modalError">{reportModalError}</div>}
+            <div className="wa-modalWarn">
+              This sends report PDF + template. Privacy check is mandatory and this send is audit logged.
+            </div>
+
+            <div className="wa-modalActions">
+              <button
+                type="button"
+                className="wa-inlineBtn"
+                onClick={() => setShowReportTemplateModal(false)}
+                disabled={isSendingReportTemplate}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="wa-inlineBtn is-primary"
+                onClick={handleSendReportTemplate}
+                disabled={isSendingReportTemplate || !reportTemplateReadyToSend}
+              >
+                {isSendingReportTemplate ? "Sending..." : "Send Template"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
         .wa-loading {
           min-height: 100vh;
@@ -3275,6 +3883,11 @@ export default function WhatsAppDashboard() {
           cursor: pointer;
         }
 
+        .wa-shortBtn.is-reports {
+          border-color: rgba(126, 244, 215, 0.6);
+          background: rgba(16, 185, 129, 0.2);
+        }
+
         .wa-leftPanelTools {
           padding: 8px 10px 6px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -3365,15 +3978,48 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-ownerTabs {
-          flex: 0 1 auto;
+          flex: 1 1 0;
           min-width: 0;
         }
 
+        .wa-ownerSearchTools {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+          flex: 1 1 0;
+          justify-content: flex-end;
+        }
+
         .wa-ownerSearchInput {
-          flex: 0 0 220px;
-          width: 220px !important;
-          min-width: 160px;
-          max-width: 240px;
+          flex: 1 1 auto;
+          width: 100% !important;
+          min-width: 120px;
+          max-width: 260px;
+        }
+
+        .wa-ownerSearchAddBtn {
+          width: 34px;
+          height: 34px;
+          flex: 0 0 34px;
+          border-radius: 10px;
+          border: 1px solid rgba(148, 163, 184, 0.5);
+          background: rgba(71, 85, 105, 0.35);
+          color: #cbd5e1;
+          font-size: 20px;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .wa-ownerSearchAddBtn.is-ready {
+          border-color: rgba(34, 197, 94, 0.7);
+          background: rgba(34, 197, 94, 0.26);
+          color: #dcfce7;
+        }
+
+        .wa-ownerSearchAddBtn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .wa-leftMeta {
@@ -4531,6 +5177,128 @@ export default function WhatsAppDashboard() {
           cursor: not-allowed;
         }
 
+        .wa-inlineBtn.is-primary {
+          border-color: #0f7f85;
+          background: #0f7f85;
+          color: #fff;
+        }
+
+        .wa-modalBackdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1200;
+          background: rgba(3, 10, 21, 0.68);
+          display: grid;
+          place-items: center;
+          padding: 16px;
+          overflow-y: auto;
+        }
+
+        .wa-modalCard {
+          width: min(560px, 100%);
+          background: #12203a;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 12px;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.42);
+          padding: 14px;
+          display: grid;
+          gap: 10px;
+          max-height: calc(100vh - 32px);
+          overflow-y: auto;
+        }
+
+        .wa-modalHeader {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          color: #f8fafc;
+          font-size: 14px;
+        }
+
+        .wa-modalClose {
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          background: transparent;
+          color: #f8fafc;
+          border-radius: 8px;
+          width: 28px;
+          height: 28px;
+          cursor: pointer;
+        }
+
+        .wa-modalLabel {
+          display: grid;
+          gap: 6px;
+          color: rgba(248, 250, 252, 0.88);
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .wa-modalCheck {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 600;
+        }
+
+        .wa-modalInput {
+          width: 100%;
+          border-radius: 8px;
+          border: 1px solid rgba(159, 184, 214, 0.36);
+          background: #0f1a2d;
+          color: #f8fafc;
+          padding: 10px;
+          font-size: 13px;
+        }
+
+        .wa-modalTemplatePreview {
+          white-space: pre-wrap;
+          border-radius: 8px;
+          border: 1px solid rgba(159, 184, 214, 0.3);
+          background: rgba(15, 26, 45, 0.66);
+          color: rgba(226, 232, 240, 0.92);
+          padding: 10px;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .wa-modalWarn {
+          border-radius: 8px;
+          border: 1px solid rgba(245, 158, 11, 0.32);
+          background: rgba(120, 53, 15, 0.35);
+          color: #fde68a;
+          padding: 8px 10px;
+          font-size: 12px;
+        }
+
+        .wa-modalLookupRow {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .wa-modalLookupHint {
+          font-size: 12px;
+          color: #4ade80;
+          font-weight: 700;
+        }
+
+        .wa-modalError {
+          border-radius: 8px;
+          border: 1px solid rgba(248, 113, 113, 0.45);
+          background: rgba(127, 29, 29, 0.45);
+          color: #fecaca;
+          padding: 8px 10px;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .wa-modalActions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
         .wa-shortcutHintBar {
           font-size: 12px;
           color: #546a86;
@@ -5567,9 +6335,13 @@ export default function WhatsAppDashboard() {
           }
 
           .wa-ownerSearchInput {
-            width: 100% !important;
-            min-width: 100%;
-            max-width: 100%;
+            width: auto !important;
+            min-width: 0;
+            max-width: none;
+          }
+
+          .wa-ownerSearchTools {
+            width: 100%;
           }
 
           .wa-leftPanelTools input:focus {
@@ -5773,6 +6545,70 @@ export default function WhatsAppDashboard() {
           border-color: #d3c4b1;
           background: #fbf6ef;
           color: #2b4668;
+        }
+
+        .wa-root.theme-light .wa-shortBtn.is-reports {
+          border-color: #7ad9c0;
+          background: #dff8ef;
+          color: #145a4f;
+        }
+
+        .wa-root.theme-light .wa-ownerSearchAddBtn {
+          border-color: #cbd5e1;
+          background: #e2e8f0;
+          color: #475569;
+        }
+
+        .wa-root.theme-light .wa-ownerSearchAddBtn.is-ready {
+          border-color: #22c55e;
+          background: #dcfce7;
+          color: #166534;
+        }
+
+        .wa-root.theme-light .wa-modalCard {
+          background: #ffffff;
+          border-color: #d6e2f1;
+        }
+
+        .wa-root.theme-light .wa-modalHeader {
+          color: #1f3552;
+        }
+
+        .wa-root.theme-light .wa-modalClose {
+          border-color: #d3c4b1;
+          color: #2b4668;
+        }
+
+        .wa-root.theme-light .wa-modalLabel {
+          color: #2b4668;
+        }
+
+        .wa-root.theme-light .wa-modalInput {
+          border-color: #d3c4b1;
+          background: #fbf6ef;
+          color: #1f3552;
+        }
+
+        .wa-root.theme-light .wa-modalTemplatePreview {
+          border-color: #d3c4b1;
+          background: #fbf6ef;
+          color: #2b4668;
+        }
+
+        .wa-root.theme-light .wa-modalWarn {
+          border-color: #f5d08a;
+          background: #fff6df;
+          color: #7a4b00;
+        }
+
+        .wa-root.theme-light .wa-modalLookupHint {
+          color: #15803d;
+        }
+
+        .wa-root.theme-light .wa-modalError {
+          border-color: #fca5a5;
+          background: #fee2e2;
+          color: #991b1b;
         }
 
         .wa-root.theme-light .wa-iconToolBtn {
