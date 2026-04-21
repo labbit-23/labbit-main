@@ -228,7 +228,8 @@ function parseServiceKey(serviceKey) {
 }
 
 function isVpsService(service) {
-  return parseServiceKey(service?.service_key).nodeRole === "vps";
+  const role = String(parseServiceKey(service?.service_key).nodeRole || "");
+  return role.startsWith("vps");
 }
 
 function toFiniteNumber(value) {
@@ -1178,7 +1179,10 @@ function CtoDashboardPage() {
     return [...new Set(
       realServices
         .map((service) => String(service.service_key || ""))
-        .filter((key) => key.toLowerCase().endsWith("__vps"))
+        .filter((key) => {
+          const suffix = String(parseServiceKey(key).nodeRole || "");
+          return suffix.startsWith("vps");
+        })
     )].sort((a, b) => a.localeCompare(b));
   }, [realServices]);
   const trendLocalServiceOptions = useMemo(() => {

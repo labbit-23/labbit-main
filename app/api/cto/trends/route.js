@@ -341,7 +341,8 @@ function parseServiceKey(serviceKey = "") {
   const normalized = String(serviceKey || "").trim().toLowerCase();
   const parts = normalized.split("__");
   const baseKey = parts[0] || "";
-  return { normalized, baseKey };
+  const nodeSuffix = parts[1] || "";
+  return { normalized, baseKey, nodeSuffix };
 }
 
 function domainForServiceKey(serviceKey = "") {
@@ -361,9 +362,9 @@ function domainForServiceKey(serviceKey = "") {
 }
 
 function nodeGroupForServiceKey(serviceKey = "") {
-  const normalized = String(serviceKey || "").trim().toLowerCase();
-  if (normalized.endsWith("__vps")) return "VPS";
-  if (normalized.endsWith("__local")) return "Local";
+  const { normalized, nodeSuffix } = parseServiceKey(serviceKey);
+  if (nodeSuffix.startsWith("vps")) return "VPS";
+  if (nodeSuffix === "local") return "Local";
   if (
     normalized.startsWith("vps_host") ||
     normalized.startsWith("pm2_") ||
@@ -377,7 +378,9 @@ function nodeGroupForServiceKey(serviceKey = "") {
 
 function matchesNodeRole(serviceKey = "", nodeRole = "") {
   if (!nodeRole) return true;
-  const normalized = String(serviceKey || "").trim().toLowerCase();
+  const { normalized, nodeSuffix } = parseServiceKey(serviceKey);
+  if (nodeRole === "vps" && nodeSuffix.startsWith("vps")) return true;
+  if (nodeRole === "local" && nodeSuffix === "local") return true;
   if (normalized.endsWith(`__${nodeRole}`)) return true;
 
   // Backward compatibility for older collector keys that did not carry __vps/__local suffix.
@@ -680,7 +683,6 @@ export async function GET(request) {
         let hostDigestQuery = supabase
           .from("cto_service_daily_digest")
           .select("day_date, service_key, host_metric_samples, host_memory_avg_pct, host_disk_avg_pct, host_swap_avg_pct, host_load1_avg, host_load_per_core_avg_pct")
-          .eq("service_key", "vps_host__vps")
           .gte("day_date", formatDayKey(startDay))
           .lt("day_date", formatDayKey(endExclusive))
           .order("day_date", { ascending: true })
@@ -688,14 +690,16 @@ export async function GET(request) {
         if (labId) hostDigestQuery = hostDigestQuery.eq("lab_id", labId);
         const { data: hostDigestData, error: hostDigestError } = await hostDigestQuery;
         if (!hostDigestError && Array.isArray(hostDigestData)) {
-          hostDigestRows = hostDigestData;
+          hostDigestRows = hostDigestData.filter((row) => {
+            const key = String(row?.service_key || "").toLowerCase();
+            return key.startsWith("vps_host__") && matchesNodeRole(key, nodeRoleFilter);
+          });
         }
       }
 
       let hostRawQuery = supabase
         .from("cto_service_logs")
         .select("checked_at, service_key, payload")
-        .eq("service_key", "vps_host__vps")
         .gte("checked_at", effectiveRawStart.toISOString())
         .lt("checked_at", endExclusive.toISOString())
         .order("checked_at", { ascending: true })
@@ -703,7 +707,10 @@ export async function GET(request) {
       if (labId) hostRawQuery = hostRawQuery.eq("lab_id", labId);
       const { data: hostRawData, error: hostRawError } = await hostRawQuery;
       if (!hostRawError && Array.isArray(hostRawData)) {
-        hostRawRows = hostRawData;
+        hostRawRows = hostRawData.filter((row) => {
+          const key = String(row?.service_key || "").toLowerCase();
+          return key.startsWith("vps_host__") && matchesNodeRole(key, nodeRoleFilter);
+        });
       }
     }
 
