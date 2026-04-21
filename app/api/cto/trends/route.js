@@ -723,6 +723,8 @@ export async function GET(request) {
           .order("day_date", { ascending: true })
           .limit(12000);
         if (labId) hostDigestQuery = hostDigestQuery.eq("lab_id", labId);
+        if (nodeSuffixFilter) hostDigestQuery = hostDigestQuery.eq("service_key", `vps_host__${nodeSuffixFilter}`);
+        else hostDigestQuery = hostDigestQuery.like("service_key", "vps_host__%");
         const { data: hostDigestData, error: hostDigestError } = await hostDigestQuery;
         if (!hostDigestError && Array.isArray(hostDigestData)) {
           hostDigestRows = hostDigestData.filter((row) => {
@@ -744,6 +746,8 @@ export async function GET(request) {
         .order("checked_at", { ascending: true })
         .limit(MAX_RAW_ROWS);
       if (labId) hostRawQuery = hostRawQuery.eq("lab_id", labId);
+      if (nodeSuffixFilter) hostRawQuery = hostRawQuery.eq("service_key", `vps_host__${nodeSuffixFilter}`);
+      else hostRawQuery = hostRawQuery.like("service_key", "vps_host__%");
       const { data: hostRawData, error: hostRawError } = await hostRawQuery;
       if (!hostRawError && Array.isArray(hostRawData)) {
         hostRawRows = hostRawData.filter((row) => {
