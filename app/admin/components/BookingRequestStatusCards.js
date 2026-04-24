@@ -6,6 +6,7 @@ export default function BookingRequestStatusCards({
   summary,
   themeMode = "light",
   isLoading = false,
+  onCardClick,
 }) {
   const safe = summary || {
     unprocessed: 0,
@@ -27,5 +28,14 @@ export default function BookingRequestStatusCards({
     { key: "other", label: "Other", value: safe.other, tone: "assigned" },
   ];
 
-  return <MetricCardsStrip items={items} themeMode={themeMode} loading={isLoading} minW="980px" singleRow />;
+  return (
+    <MetricCardsStrip
+      items={items}
+      themeMode={themeMode}
+      loading={isLoading}
+      minW="980px"
+      singleRow
+      onItemClick={onCardClick}
+    />
+  );
 }

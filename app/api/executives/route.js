@@ -8,6 +8,8 @@ const supabase = createClient(
 );
 
 const COLLECTION_ROLES = new Set(["logistics", "b2b"]);
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeExecutiveType(type) {
   const value = (type || "").toString().trim();
@@ -25,6 +27,33 @@ function getCollectionAssignmentRole(type) {
 function normalizeOptionalEmail(value) {
   const text = String(value == null ? "" : value).trim();
   return text || null;
+}
+
+function normalizeLabId(value) {
+  const text = String(value == null ? "" : value).trim();
+  if (!text) return "";
+  return UUID_REGEX.test(text) ? text : "";
+}
+
+async function syncExecutiveLabAssignment(executiveId, labId) {
+  const cleanLabId = normalizeLabId(labId);
+  if (!cleanLabId) {
+    throw new Error("Lab assignment is required");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("executives_labs")
+    .delete()
+    .eq("executive_id", executiveId);
+  if (deleteError) throw deleteError;
+
+  const { error: insertError } = await supabase
+    .from("executives_labs")
+    .insert({
+      executive_id: executiveId,
+      lab_id: cleanLabId,
+    });
+  if (insertError) throw insertError;
 }
 
 async function fetchExecutiveById(executiveId) {
@@ -69,14 +98,12 @@ async function syncCollectionCentreAssignments(executiveId, type, centreIds) {
   if (!COLLECTION_ROLES.has(roleKey)) return;
 
   const assignmentRole = getCollectionAssignmentRole(roleKey);
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const ids = Array.isArray(centreIds)
     ? [
         ...new Set(
           centreIds
             .map((v) => (v == null ? "" : String(v).trim()))
-            .filter((v) => uuidRegex.test(v))
+            .filter((v) => UUID_REGEX.test(v))
         ),
       ]
     : [];
@@ -109,6 +136,9 @@ export async function POST(request) {
   if (!data.name || !data.phone) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
+  if (!normalizeLabId(data.lab_id)) {
+    return NextResponse.json({ error: "Lab assignment is required" }, { status: 400 });
+  }
 
   const { data: insertedExec, error: execError } = await supabase
     .from("executives")
@@ -128,18 +158,13 @@ export async function POST(request) {
     return NextResponse.json({ error: execError.message }, { status: 500 });
   }
 
-  // Link to lab if provided
-  if (data.lab_id) {
-    const { error: linkError } = await supabase
-      .from("executives_labs")
-      .upsert({
-        executive_id: insertedExec.id,
-        lab_id: data.lab_id,
-      }, { onConflict: ["executive_id", "lab_id"] });
-
-    if (linkError) {
-      return NextResponse.json({ error: linkError.message }, { status: 500 });
-    }
+  try {
+    await syncExecutiveLabAssignment(insertedExec.id, data.lab_id);
+  } catch (labError) {
+    return NextResponse.json(
+      { error: labError.message || "Failed to save lab assignment" },
+      { status: 500 }
+    );
   }
 
   try {
@@ -168,6 +193,9 @@ export async function PUT(request) {
   if (!data.id) {
     return NextResponse.json({ error: "Missing ID" }, { status: 400 });
   }
+  if (!normalizeLabId(data.lab_id)) {
+    return NextResponse.json({ error: "Lab assignment is required" }, { status: 400 });
+  }
 
   const { data: updatedExec, error: execError } = await supabase
     .from("executives")
@@ -189,18 +217,13 @@ export async function PUT(request) {
     return NextResponse.json({ error: execError.message }, { status: 500 });
   }
 
-  // Update lab mapping if provided
-  if (data.lab_id) {
-    const { error: linkError } = await supabase
-      .from("executives_labs")
-      .upsert({
-        executive_id: data.id,
-        lab_id: data.lab_id,
-      }, { onConflict: ["executive_id", "lab_id"] });
-
-    if (linkError) {
-      return NextResponse.json({ error: linkError.message }, { status: 500 });
-    }
+  try {
+    await syncExecutiveLabAssignment(data.id, data.lab_id);
+  } catch (labError) {
+    return NextResponse.json(
+      { error: labError.message || "Failed to save lab assignment" },
+      { status: 500 }
+    );
   }
 
   try {

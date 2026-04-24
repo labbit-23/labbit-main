@@ -542,7 +542,8 @@ const exportVisitsImage = async () => {
           "reports.run.mis",
           "reports.run.transaction",
           "reports.logs.view",
-          "reports.dispatch"
+          "reports.dispatch",
+          "cto.view"
         ];
       }
       if (activeRoleKey === "manager") {
@@ -555,7 +556,8 @@ const exportVisitsImage = async () => {
           "reports.run.mis",
           "reports.run.transaction",
           "reports.logs.view",
-          "reports.dispatch"
+          "reports.dispatch",
+          "cto.view"
         ];
       }
       return [];
@@ -1156,6 +1158,12 @@ const exportVisitsImage = async () => {
                   summary={bookingRequestSummary}
                   themeMode={themeMode}
                   isLoading={showBookingRequestsLoadingState}
+                  onCardClick={(item) => {
+                    if (!item?.key) return;
+                    if (item.key === "unprocessed" || item.key === "total") {
+                      handleSectionChange("bookings");
+                    }
+                  }}
                 />
               </Box>
             ) : (
@@ -1172,6 +1180,9 @@ const exportVisitsImage = async () => {
                       : pendingQuickbookCount > 0 ? "red.400" : "green.400"
                   }
                   bg={themeMode === "dark" ? "blackAlpha.300" : "white"}
+                  cursor="pointer"
+                  _hover={{ bg: themeMode === "dark" ? "whiteAlpha.100" : "gray.50" }}
+                  onClick={() => handleSectionChange("bookings")}
                 >
                   <Text
                     fontSize={{ base: "md", md: "lg" }}

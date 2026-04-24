@@ -6,6 +6,7 @@ import { getDeliveryRequisitionsByDate } from "@/lib/neosoft/client";
 import {
   canUseReportDispatch,
   getAllowedDispatchOrgIds,
+  getRoleKey,
   isScopedDispatchRole,
   filterRowsByOrgScope,
 } from "@/lib/reportDispatchScope";
@@ -66,8 +67,34 @@ function readOrgName(row) {
 
 function readOrgId(row) {
   return (
-    readValue(row, "REFDOCTOR", "refdoctor", "REF_DOCTOR", "ref_doctor", "ORG_ID", "org_id", "organization_id", "organisation_id", "org_code", "ORGCODE") ||
-    readValueByNormalizedKeyIncludes(row, ["refdoctor", "orgid", "organizationid", "organisationid", "orgcode", "clientid", "accountid"])
+    readValue(
+      row,
+      "REFDOCTOR",
+      "refdoctor",
+      "REF_DOCTOR",
+      "ref_doctor",
+      "external_org_id",
+      "neosoft_org_id",
+      "ORG_ID",
+      "org_id",
+      "organization_id",
+      "organisation_id",
+      "org_code",
+      "ORGCODE",
+      "client_id",
+      "account_id"
+    ) ||
+    readValueByNormalizedKeyIncludes(row, [
+      "refdoctor",
+      "externalorgid",
+      "neosoftorgid",
+      "orgid",
+      "organizationid",
+      "organisationid",
+      "orgcode",
+      "clientid",
+      "accountid"
+    ])
   );
 }
 
@@ -97,8 +124,10 @@ export async function GET(request) {
       return new Response("Missing date", { status: 400 });
     }
 
+    const effectiveRole = getRoleKey(user);
+    const scoped = isScopedDispatchRole(user);
     let scopedOrgIds = [];
-    if (isScopedDispatchRole(user)) {
+    if (scoped) {
       scopedOrgIds = await getAllowedDispatchOrgIds(user);
       if (scopedOrgIds.length === 0) {
         return NextResponse.json(
@@ -106,7 +135,11 @@ export async function GET(request) {
             ok: true,
             date,
             scoped: true,
+            effective_role: effectiveRole || null,
+            scoped_reason: "role_scoped_but_no_org_mapping",
             allowed_org_ids: [],
+            scope_issue: "missing_allowed_org_ids",
+            upstream_called: false,
             requisitions: []
           },
           { status: 200 }
@@ -114,13 +147,15 @@ export async function GET(request) {
       }
     }
 
+    let upstreamCalled = false;
+    upstreamCalled = true;
     const data = await getDeliveryRequisitionsByDate(date, {
       orgIds: scopedOrgIds
     });
     const allRows = Array.isArray(data?.requisitions) ? data.requisitions : [];
 
     let requisitions = allRows;
-    if (isScopedDispatchRole(user)) {
+    if (scoped) {
       // Safety fallback: enforce local filtering even if upstream ignores org params.
       requisitions = filterRowsByOrgScope(allRows, scopedOrgIds);
     }
@@ -129,8 +164,12 @@ export async function GET(request) {
       {
         ok: true,
         date: String(data?.date || date),
-        scoped: isScopedDispatchRole(user),
+        scoped,
+        effective_role: effectiveRole || null,
+        scoped_reason: scoped ? "role_scoped" : "role_unscoped",
         allowed_org_ids: scopedOrgIds,
+        scope_issue: null,
+        upstream_called: upstreamCalled,
         requisitions: requisitions.map((row) => ({
           reqno: String(row?.reqno || "").trim() || null,
           reqid: String(row?.reqid || "").trim() || null,

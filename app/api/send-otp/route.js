@@ -28,6 +28,22 @@ export async function POST(request) {
 
   let matchedExecutive = null;
 
+  async function resolveExecutiveByPhone(phoneDigits) {
+    const digits = String(phoneDigits || "").replace(/\D/g, "");
+    if (!digits) return null;
+    const candidates = [...new Set([digits, digits.slice(-10)].filter(Boolean))];
+    for (const candidate of candidates) {
+      const { data: rows, error } = await supabase
+        .from("executives")
+        .select("id, phone")
+        .eq("phone", candidate)
+        .limit(2);
+      if (error) continue;
+      if (Array.isArray(rows) && rows.length === 1 && rows[0]?.id) return rows[0];
+    }
+    return null;
+  }
+
   if (!looksLikePhone && !forcePatientLogin) {
     const { data: executives, error: execLookupError } = await supabase
       .from('executives')
@@ -69,17 +85,16 @@ export async function POST(request) {
     }
   }
 
+  if (isExecutive && !matchedExecutive && looksLikePhone) {
+    matchedExecutive = await resolveExecutiveByPhone(phone);
+  }
+
   if (!isExecutive && !forcePatientLogin) {
     try {
-      const { data: executiveRows, error: execError } = await supabase
-        .from('executives')
-        .select('id, phone')
-        .eq('phone', phone)
-        .limit(2);
-
-      if (!execError && Array.isArray(executiveRows) && executiveRows.length === 1 && executiveRows[0]?.id) {
+      const resolvedExecutive = await resolveExecutiveByPhone(phone);
+      if (resolvedExecutive?.id) {
         isExecutive = true;
-        matchedExecutive = executiveRows[0];
+        matchedExecutive = resolvedExecutive;
       }
     } catch (err) {
       // fail silently - treat as patient if there's an error looking up executives
@@ -99,6 +114,13 @@ export async function POST(request) {
     }
 
     labId = labRows[0].lab_id;
+  }
+
+  if (forceEmployeeReset && isExecutive && !matchedExecutive?.id) {
+    return NextResponse.json(
+      { error: "Executive account not found for reset password flow" },
+      { status: 404 }
+    );
   }
 
   if (!phone) {

@@ -528,6 +528,7 @@ function CtoDashboardPage() {
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
   const [hostMetricHover, setHostMetricHover] = useState({});
+  const [vpsHostSeriesByNode, setVpsHostSeriesByNode] = useState({});
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
   const [activeStatusFilter, setActiveStatusFilter] = useState("");
   const [eventsRows, setEventsRows] = useState([]);
@@ -568,6 +569,12 @@ function CtoDashboardPage() {
     setTimeout(() => {
       sectionRef?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 20);
+  }
+
+  function openServiceRca(serviceKey) {
+    if (!serviceKey) return;
+    setSelectedServiceKey(serviceKey);
+    drillToSection(detailSectionRef);
   }
 
   useEffect(() => {
@@ -937,6 +944,49 @@ function CtoDashboardPage() {
     }
   }, [selectedVpsNode, trendVpsServiceKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadVpsNodeSeries() {
+      if (vpsNodeOptions.length === 0) {
+        setVpsHostSeriesByNode({});
+        return;
+      }
+
+      try {
+        const entries = await Promise.all(
+          vpsNodeOptions.map(async (node) => {
+            const params = new URLSearchParams({
+              range: trendRange,
+              node_role: "vps",
+              node_suffix: node,
+              ts: String(Date.now())
+            });
+            if (selectedLabId) params.set("lab_id", selectedLabId);
+            const res = await fetch(`/api/cto/trends?${params.toString()}`, {
+              credentials: "include",
+              cache: "no-store"
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) return [node, []];
+            return [node, Array.isArray(body?.host_points) ? body.host_points : []];
+          })
+        );
+
+        if (!cancelled) {
+          setVpsHostSeriesByNode(Object.fromEntries(entries));
+        }
+      } catch {
+        if (!cancelled) setVpsHostSeriesByNode({});
+      }
+    }
+
+    loadVpsNodeSeries();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLabId, trendRange, vpsNodeOptions]);
+
   const staleServices = useMemo(() => {
     return (latest.services || []).filter(
       (service) =>
@@ -1093,6 +1143,12 @@ function CtoDashboardPage() {
     return Object.entries(payload).slice(0, 6);
   }, [selectedService]);
 
+  const selectedIssueSamples = useMemo(() => {
+    const samples = selectedService?.payload?.issue_samples;
+    if (!Array.isArray(samples)) return [];
+    return samples.slice(0, 10);
+  }, [selectedService]);
+
   const agentPresenceSummary = useMemo(() => {
     return {
       online: agentPresence.filter((a) => a.presence === "online").length,
@@ -1131,6 +1187,26 @@ function CtoDashboardPage() {
     () => buildSingleMetricHostChartModel(vpsHostTrendPoints, "host_load_per_core_pct"),
     [vpsHostTrendPoints]
   );
+  const vpsComparisonNodes = useMemo(() => {
+    const sorted = [...vpsNodeOptions].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (sorted.length === 0) return [];
+    if (!sorted.includes(selectedVpsNode)) return sorted.slice(0, 2);
+    const other = sorted.find((node) => node !== selectedVpsNode);
+    return other ? [selectedVpsNode, other] : [selectedVpsNode];
+  }, [selectedVpsNode, vpsNodeOptions]);
+  const vpsHostMetricModelsByNode = useMemo(() => {
+    const byNode = {};
+    for (const node of vpsComparisonNodes) {
+      const points = Array.isArray(vpsHostSeriesByNode?.[node]) ? vpsHostSeriesByNode[node] : [];
+      byNode[node] = {
+        memory: buildSingleMetricHostChartModel(points, "host_memory_pct"),
+        disk: buildSingleMetricHostChartModel(points, "host_disk_pct"),
+        swap: buildSingleMetricHostChartModel(points, "host_swap_pct"),
+        load: buildSingleMetricHostChartModel(points, "host_load_per_core_pct")
+      };
+    }
+    return byNode;
+  }, [vpsComparisonNodes, vpsHostSeriesByNode]);
   const vpsHostCompactMetrics = useMemo(() => {
     const rows = [
       { key: "memory", label: "Memory", unit: "%", point: vpsHostMemoryModel.latestPoint },
@@ -1369,6 +1445,18 @@ function CtoDashboardPage() {
       hostLoadPerCorePct
     };
   }, [realServices, selectedVpsNode]);
+
+  const vpsHealthAll = useMemo(() => {
+    const allVpsServices = realServices.filter(isVpsService);
+    return allVpsServices.reduce(
+      (acc, service) => {
+        acc.total += 1;
+        acc[service.status] = (acc[service.status] || 0) + 1;
+        return acc;
+      },
+      { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }
+    );
+  }, [realServices]);
 
   const hasVpsIncident = useMemo(
     () => (vpsHealth.byStatus.down || 0) > 0 || (vpsHealth.byStatus.degraded || 0) > 0,
@@ -1615,7 +1703,7 @@ function CtoDashboardPage() {
                   placement="top"
                   bg="gray.900"
                   color="white"
-                  label={`${selectedVpsNode.toUpperCase()}: ${(vpsHealth.byStatus.down || 0) > 0 ? `${vpsHealth.byStatus.down} down` : (vpsHealth.byStatus.degraded || 0) > 0 ? `${vpsHealth.byStatus.degraded} degraded` : "healthy"} • Mem ${Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"} • Disk ${Number.isFinite(vpsHealth.hostDiskPct) ? `${Math.round(vpsHealth.hostDiskPct)}%` : "n/a"}`}
+                  label={`VPS Fleet: ${(vpsHealthAll.down || 0) > 0 ? `${vpsHealthAll.down} down` : (vpsHealthAll.degraded || 0) > 0 ? `${vpsHealthAll.degraded} degraded` : "healthy"} • ${vpsHealthAll.total || 0} services monitored`}
                 >
                   <Flex
                     align="center"
@@ -1631,15 +1719,15 @@ function CtoDashboardPage() {
                       h={2.5}
                       borderRadius="full"
                       bg={
-                        (vpsHealth.byStatus.down || 0) > 0
+                        (vpsHealthAll.down || 0) > 0
                           ? "red.400"
-                          : (vpsHealth.byStatus.degraded || 0) > 0
+                          : (vpsHealthAll.degraded || 0) > 0
                           ? "yellow.300"
                           : "green.400"
                       }
                     />
                     <Text fontSize="xs" color="whiteAlpha.900" noOfLines={1}>
-                      {selectedVpsNode.toUpperCase()}
+                      VPS (All)
                     </Text>
                   </Flex>
                 </Tooltip>
@@ -1663,7 +1751,7 @@ function CtoDashboardPage() {
                       border="1px solid rgba(255,255,255,0.05)"
                       cursor={system.primaryServiceKey ? "pointer" : "default"}
                       onClick={() => {
-                        if (system.primaryServiceKey) setSelectedServiceKey(system.primaryServiceKey);
+                        if (system.primaryServiceKey) openServiceRca(system.primaryServiceKey);
                       }}
                     >
                       <Box
@@ -1898,8 +1986,8 @@ function CtoDashboardPage() {
                 onClick={() => {
                   const firstDown = smartDiagnosis.services.find((service) => service.status === "down") || smartDiagnosis.services[0];
                   if (firstDown) {
-                    setSelectedServiceKey(firstDown.service_key);
                     setActiveStatusFilter("");
+                    openServiceRca(firstDown.service_key);
                   }
                 }}
               >
@@ -2020,9 +2108,30 @@ function CtoDashboardPage() {
             <Box mt={4} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
               <HStack spacing={3} mb={3} justify="space-between" align="center" flexWrap="wrap">
                 <Text fontSize="sm" color="whiteAlpha.900" fontWeight="700">
-                  {selectedVpsNode.toUpperCase()} Host Pressure Trend
+                  {vpsComparisonNodes.length > 1
+                    ? `VPS Host Pressure Trend (${vpsComparisonNodes.map((node) => node.toUpperCase()).join(" vs ")})`
+                    : `${selectedVpsNode.toUpperCase()} Host Pressure Trend`}
                 </Text>
                 <HStack spacing={2} flexWrap="wrap" justify="flex-end">
+                  {vpsComparisonNodes.map((node, index) => (
+                    <HStack
+                      key={`legend-${node}`}
+                      spacing={1.5}
+                      px={2}
+                      py={1}
+                      borderRadius="999px"
+                      bg="rgba(255,255,255,0.05)"
+                      border="1px solid rgba(255,255,255,0.12)"
+                    >
+                      <Box
+                        w={2.5}
+                        h={2.5}
+                        borderRadius="full"
+                        bg={index === 0 ? "#34d399" : "#f97316"}
+                      />
+                      <Text fontSize="10px" color="whiteAlpha.900">{node.toUpperCase()}</Text>
+                    </HStack>
+                  ))}
                   {vpsHostCompactMetrics.map((item) => (
                     <Box key={item.key} px={2.5} py={1.5} borderRadius="10px" bg="rgba(255,255,255,0.05)" border="1px solid rgba(255,255,255,0.12)">
                       <Text fontSize="10px" color="whiteAlpha.700" lineHeight="1.1">{item.label}</Text>
@@ -2042,18 +2151,39 @@ function CtoDashboardPage() {
                     variant={trendRange === "7d" ? "solid" : "outline"}
                     onClick={() => setTrendRange("7d")}
                     colorScheme="teal"
+                    title="7-day historical trend"
                   >
-                    History
+                    7D History
                   </Button>
                 </HStack>
               </HStack>
 
               <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
                 {[
-                  { label: "Memory %", color: "#34d399", model: vpsHostMemoryModel },
-                  { label: "Disk %", color: "#60a5fa", model: vpsHostDiskModel },
-                  { label: "Swap %", color: "#f59e0b", model: vpsHostSwapModel },
-                  { label: "Load/Core %", color: "#f87171", model: vpsHostLoadModel }
+                  {
+                    label: "Memory %",
+                    color: "#34d399",
+                    model: vpsHostMemoryModel,
+                    compareModel: vpsComparisonNodes[1] ? vpsHostMetricModelsByNode?.[vpsComparisonNodes[1]]?.memory : null
+                  },
+                  {
+                    label: "Disk %",
+                    color: "#60a5fa",
+                    model: vpsHostDiskModel,
+                    compareModel: vpsComparisonNodes[1] ? vpsHostMetricModelsByNode?.[vpsComparisonNodes[1]]?.disk : null
+                  },
+                  {
+                    label: "Swap %",
+                    color: "#f59e0b",
+                    model: vpsHostSwapModel,
+                    compareModel: vpsComparisonNodes[1] ? vpsHostMetricModelsByNode?.[vpsComparisonNodes[1]]?.swap : null
+                  },
+                  {
+                    label: "Load/Core %",
+                    color: "#f87171",
+                    model: vpsHostLoadModel,
+                    compareModel: vpsComparisonNodes[1] ? vpsHostMetricModelsByNode?.[vpsComparisonNodes[1]]?.load : null
+                  }
                 ].map((metric) => (
                   <Box key={metric.label} p={3} borderRadius="12px" border="1px solid rgba(255,255,255,0.08)" bg="rgba(255,255,255,0.02)">
                     <HStack justify="space-between" mb={2} align="flex-start">
@@ -2122,6 +2252,16 @@ function CtoDashboardPage() {
                       })}
                       {metric.model.path && (
                         <path d={metric.model.path} stroke={metric.color} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+                      )}
+                      {metric.compareModel?.path && (
+                        <path
+                          d={metric.compareModel.path}
+                          stroke="#f97316"
+                          strokeWidth="2"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray="6 4"
+                        />
                       )}
                       {metric.model.singlePointY != null && (
                         <circle cx={metric.model.width / 2} cy={metric.model.singlePointY} r="3.5" fill={metric.color} />
@@ -2249,7 +2389,7 @@ function CtoDashboardPage() {
                       border={selectedService?.service_key === incident.service_key ? "1px solid rgba(126,244,215,0.32)" : "1px solid rgba(255,255,255,0.08)"}
                       cursor="pointer"
                       _hover={{ bg: "rgba(255,255,255,0.07)" }}
-                      onClick={() => setSelectedServiceKey(incident.service_key)}
+                      onClick={() => openServiceRca(incident.service_key)}
                     >
                       <HStack justify="space-between" mb={2}>
                         <StatusChip
@@ -2398,7 +2538,7 @@ function CtoDashboardPage() {
                                   ? "rgba(250,204,21,0.18)"
                                   : "rgba(255,255,255,0.08)"
                             }}
-                            onClick={() => setSelectedServiceKey(service.service_key)}
+                            onClick={() => openServiceRca(service.service_key)}
                           >
                             <Flex justify="space-between" align="center" gap={3} w="full" minW={0}>
                               <Text fontSize="sm" flex="1" minW={0} noOfLines={1}>
@@ -2450,7 +2590,7 @@ function CtoDashboardPage() {
                     bg={selectedService?.service_key === item.service_key ? "rgba(255,255,255,0.08)" : "transparent"}
                     border={selectedService?.service_key === item.service_key ? "1px solid rgba(126,244,215,0.32)" : "1px solid transparent"}
                     _hover={{ bg: "rgba(255,255,255,0.05)" }}
-                    onClick={() => setSelectedServiceKey(item.service_key)}
+                    onClick={() => openServiceRca(item.service_key)}
                   >
                     <Flex justify="space-between" align="center" mb={2}>
                       <Text fontWeight="600">{item.label || item.service_key}</Text>
@@ -2526,6 +2666,61 @@ function CtoDashboardPage() {
                       {selectedService.message || "No detail available for this service."}
                     </Text>
                   </Box>
+
+                  {selectedIssueSamples.length > 0 && (
+                    <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
+                      <HStack justify="space-between" mb={3}>
+                        <Text fontSize="xs" color="whiteAlpha.600">
+                          SLA Issue Samples (Last 1h)
+                        </Text>
+                        <Text fontSize="xs" color="whiteAlpha.700">
+                          Showing {selectedIssueSamples.length}
+                        </Text>
+                      </HStack>
+                      <Stack spacing={2}>
+                        {selectedIssueSamples.map((sample, index) => (
+                          <Box
+                            key={`${sample?.phone || "unknown"}-${sample?.inbound_ist || index}`}
+                            p={2.5}
+                            borderRadius="12px"
+                            bg="rgba(255,255,255,0.03)"
+                            border="1px solid rgba(255,255,255,0.08)"
+                          >
+                            <HStack justify="space-between" align="start" spacing={3}>
+                              <VStack align="start" spacing={0}>
+                                <HStack spacing={2}>
+                                  <Badge
+                                    colorScheme={String(sample?.issue_type || "").toLowerCase() === "no_reply" ? "red" : "yellow"}
+                                    borderRadius="full"
+                                  >
+                                    {String(sample?.issue_type || "issue").replace(/_/g, " ")}
+                                  </Badge>
+                                  {sample?.phone ? (
+                                    <Link href={`/admin/whatsapp/${encodeURIComponent(String(sample.phone))}`} style={{ color: "#7ef4d7", fontSize: "12px" }}>
+                                      {sample.phone}
+                                    </Link>
+                                  ) : (
+                                    <Text fontSize="xs" color="whiteAlpha.800">Unknown phone</Text>
+                                  )}
+                                </HStack>
+                                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                                  Inbound: {sample?.inbound_ist || "n/a"}{sample?.outbound_ist ? ` • Outbound: ${sample.outbound_ist}` : ""}
+                                </Text>
+                                <Text fontSize="xs" color="whiteAlpha.700">
+                                  Delay: {Number.isFinite(sample?.response_delay_seconds) ? `${sample.response_delay_seconds}s` : "No reply in window"}
+                                </Text>
+                              </VStack>
+                            </HStack>
+                            {sample?.inbound_text && (
+                              <Text fontSize="xs" color="whiteAlpha.800" mt={2} noOfLines={2}>
+                                "{sample.inbound_text}"
+                              </Text>
+                            )}
+                          </Box>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
 
                   <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
                     <Text fontSize="xs" color="whiteAlpha.600" mb={3}>Payload</Text>
@@ -2658,9 +2853,17 @@ function CtoDashboardPage() {
             </Text>
           )}
           {Number(trendSource?.digest_rows || 0) === 0 && (
-            <Text fontSize="xs" color="yellow.200" mb={4}>
-              Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
-            </Text>
+            <Box mb={4} p={3} borderRadius="12px" bg="rgba(250,204,21,0.12)" border="1px solid rgba(250,204,21,0.28)">
+              <Text fontSize="xs" color="yellow.200">
+                Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.800" mt={1}>
+                Raw rows in this range: {Number(trendSource?.raw_rows || 0)}. This usually means CTO compaction has not run yet for selected days.
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                Expected pipeline: collector ingest → `/api/cto/compact` daily compaction (token-auth) → digest-backed trends.
+              </Text>
+            </Box>
           )}
 
           {trendLoading && (

@@ -74,6 +74,12 @@ export default function ReportDispatchWorkspace({
 
   const [phoneReports, setPhoneReports] = useState([]);
   const [dailyRows, setDailyRows] = useState([]);
+  const [dailyMeta, setDailyMeta] = useState({
+    scoped: false,
+    allowedOrgIds: [],
+    scopeIssue: null,
+    upstreamCalled: false
+  });
   const [dailyPage, setDailyPage] = useState(1);
 
   const [status, setStatus] = useState(null);
@@ -286,8 +292,15 @@ export default function ReportDispatchWorkspace({
 
     const force = options?.force === true;
     if (!force && dateCacheRef.current.has(date)) {
-      const cached = dateCacheRef.current.get(date) || [];
+      const cachedEntry = dateCacheRef.current.get(date) || {};
+      const cached = Array.isArray(cachedEntry?.rows) ? cachedEntry.rows : [];
       setDailyRows(cached);
+      setDailyMeta({
+        scoped: Boolean(cachedEntry?.scoped),
+        allowedOrgIds: Array.isArray(cachedEntry?.allowedOrgIds) ? cachedEntry.allowedOrgIds : [],
+        scopeIssue: String(cachedEntry?.scopeIssue || "").trim() || null,
+        upstreamCalled: Boolean(cachedEntry?.upstreamCalled)
+      });
       setDailyPage(1);
       return cached;
     }
@@ -298,12 +311,32 @@ export default function ReportDispatchWorkspace({
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const rows = Array.isArray(json?.requisitions) ? json.requisitions : [];
-      dateCacheRef.current.set(date, rows);
+      const allowedOrgIds = Array.isArray(json?.allowed_org_ids) ? json.allowed_org_ids : [];
+      const cacheEntry = {
+        rows,
+        scoped: Boolean(json?.scoped),
+        allowedOrgIds,
+        scopeIssue: String(json?.scope_issue || "").trim() || null,
+        upstreamCalled: Boolean(json?.upstream_called)
+      };
+      dateCacheRef.current.set(date, cacheEntry);
       setDailyRows(rows);
+      setDailyMeta({
+        scoped: cacheEntry.scoped,
+        allowedOrgIds: cacheEntry.allowedOrgIds,
+        scopeIssue: cacheEntry.scopeIssue,
+        upstreamCalled: cacheEntry.upstreamCalled
+      });
       setDailyPage(1);
       return rows;
     } catch (err) {
       setDailyRows([]);
+      setDailyMeta({
+        scoped: false,
+        allowedOrgIds: [],
+        scopeIssue: null,
+        upstreamCalled: false
+      });
       setError(err?.message || "Failed date-wise requisition lookup");
       return [];
     } finally {
@@ -854,6 +887,21 @@ export default function ReportDispatchWorkspace({
           </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
+            {dailyMeta.scopeIssue === "missing_allowed_org_ids" ? (
+              <Box mb={3} borderWidth="1px" borderColor="orange.300" bg="orange.50" borderRadius="md" p={2}>
+                <Text fontSize="sm" color="orange.800">
+                  This login is scoped but has no mapped org IDs, so Shivam lookup was skipped.
+                </Text>
+                <Text fontSize="xs" color="orange.700" mt={1}>
+                  Assign org mapping on collection centre for this user and retry.
+                </Text>
+              </Box>
+            ) : null}
+            {dailyMeta.scoped ? (
+              <Text fontSize="xs" color="gray.600" mb={2}>
+                Scoped mode: {dailyMeta.allowedOrgIds.length} org ID(s) | Upstream called: {dailyMeta.upstreamCalled ? "Yes" : "No"}
+              </Text>
+            ) : null}
             <Box overflow="auto" maxH="60vh" borderWidth="1px" borderColor="gray.200" borderRadius="md">
               <Table size="sm" variant="simple">
                 <Thead>

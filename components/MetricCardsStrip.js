@@ -34,6 +34,7 @@ export default function MetricCardsStrip({
   minW = "600px",
   singleRow = false,
   compactMobile = false,
+  onItemClick = null,
 }) {
   const fitMobile = compactMobile && singleRow;
   return (
@@ -46,6 +47,7 @@ export default function MetricCardsStrip({
         {items.map((item) => {
           const style = getStyle(themeMode, item?.tone);
           const labelText = fitMobile && item?.shortLabel ? item.shortLabel : (item?.label || "-");
+          const clickable = typeof onItemClick === "function";
           return (
             <Stat
               key={item?.key || item?.label}
@@ -62,6 +64,9 @@ export default function MetricCardsStrip({
               display="flex"
               flexDirection="column"
               justifyContent={fitMobile ? "space-between" : "center"}
+              cursor={clickable ? "pointer" : "default"}
+              _hover={clickable ? { transform: "translateY(-1px)", filter: "brightness(1.03)" } : undefined}
+              onClick={clickable ? () => onItemClick(item) : undefined}
             >
               <StatLabel
                 fontSize={{ base: fitMobile ? "12px" : "sm", md: "md" }}
