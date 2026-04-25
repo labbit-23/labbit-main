@@ -519,7 +519,7 @@ function CtoDashboardPage() {
   const [loadError, setLoadError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [trendRange, setTrendRange] = useState("today");
-  const [selectedVpsNode, setSelectedVpsNode] = useState("vps1");
+  const [selectedVpsNode, setSelectedVpsNode] = useState("vps");
   const [trendVpsServiceKey, setTrendVpsServiceKey] = useState("");
   const [trendLocalServiceKey, setTrendLocalServiceKey] = useState("");
   const [trendData, setTrendData] = useState({ points: [], summary: {}, source: {}, service_key: "" });
@@ -666,7 +666,7 @@ function CtoDashboardPage() {
           ts: String(Date.now())
         });
         if (selectedLabId) vpsParams.set("lab_id", selectedLabId);
-        if (selectedVpsNode) vpsParams.set("node_suffix", selectedVpsNode);
+        if (selectedVpsNode && selectedVpsNode !== "vps") vpsParams.set("node_suffix", selectedVpsNode);
         if (trendVpsServiceKey) vpsParams.set("service_key", trendVpsServiceKey);
 
         const localParams = new URLSearchParams({
@@ -684,7 +684,7 @@ function CtoDashboardPage() {
           ts: String(Date.now())
         });
         if (selectedLabId) wowParams.set("lab_id", selectedLabId);
-        if (selectedVpsNode) wowParams.set("node_suffix", selectedVpsNode);
+        if (selectedVpsNode && selectedVpsNode !== "vps") wowParams.set("node_suffix", selectedVpsNode);
         if (trendVpsServiceKey) wowParams.set("service_key", trendVpsServiceKey);
 
         const fetches = [
@@ -925,20 +925,28 @@ function CtoDashboardPage() {
         .filter((role) => role.startsWith("vps"))
     )].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [realServices]);
+  const vpsNodeSelectorOptions = useMemo(() => {
+    if (vpsNodeOptions.length === 0) return [];
+    return ["vps", ...vpsNodeOptions];
+  }, [vpsNodeOptions]);
 
   useEffect(() => {
-    if (vpsNodeOptions.length === 0) return;
-    if (vpsNodeOptions.includes(selectedVpsNode)) return;
-    if (vpsNodeOptions.includes("vps1")) {
-      setSelectedVpsNode("vps1");
+    if (vpsNodeSelectorOptions.length === 0) return;
+    if (vpsNodeSelectorOptions.includes(selectedVpsNode)) return;
+    if (vpsNodeSelectorOptions.includes("vps")) {
+      setSelectedVpsNode("vps");
       return;
     }
-    setSelectedVpsNode(vpsNodeOptions[0]);
-  }, [selectedVpsNode, vpsNodeOptions]);
+    setSelectedVpsNode(vpsNodeSelectorOptions[0]);
+  }, [selectedVpsNode, vpsNodeSelectorOptions]);
 
   useEffect(() => {
     if (!trendVpsServiceKey) return;
     const nodeRole = String(parseServiceKey(trendVpsServiceKey).nodeRole || "");
+    if (selectedVpsNode === "vps") {
+      if (!nodeRole.startsWith("vps")) setTrendVpsServiceKey("");
+      return;
+    }
     if (nodeRole && nodeRole !== selectedVpsNode) {
       setTrendVpsServiceKey("");
     }
@@ -1190,9 +1198,13 @@ function CtoDashboardPage() {
   const vpsComparisonNodes = useMemo(() => {
     const sorted = [...vpsNodeOptions].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     if (sorted.length === 0) return [];
-    if (!sorted.includes(selectedVpsNode)) return sorted.slice(0, 2);
-    const other = sorted.find((node) => node !== selectedVpsNode);
-    return other ? [selectedVpsNode, other] : [selectedVpsNode];
+    if (selectedVpsNode === "vps") {
+      const preferred = sorted.filter((node) => node === "vps1" || node === "vps2");
+      if (preferred.length >= 2) return preferred.slice(0, 2);
+      return sorted.slice(0, 2);
+    }
+    if (!sorted.includes(selectedVpsNode)) return sorted.slice(0, 1);
+    return [selectedVpsNode];
   }, [selectedVpsNode, vpsNodeOptions]);
   const vpsHostMetricModelsByNode = useMemo(() => {
     const byNode = {};
@@ -1287,6 +1299,7 @@ function CtoDashboardPage() {
         .map((service) => String(service.service_key || ""))
         .filter((key) => {
           const suffix = String(parseServiceKey(key).nodeRole || "");
+          if (selectedVpsNode === "vps") return suffix.startsWith("vps");
           return suffix === selectedVpsNode;
         })
     )].sort((a, b) => a.localeCompare(b));
@@ -1373,6 +1386,7 @@ function CtoDashboardPage() {
     const vpsServices = realServices.filter((service) => {
       if (!isVpsService(service)) return false;
       const suffix = String(parseServiceKey(service?.service_key).nodeRole || "");
+      if (selectedVpsNode === "vps") return suffix.startsWith("vps");
       return suffix === selectedVpsNode;
     });
     const byStatus = vpsServices.reduce(
@@ -2091,7 +2105,7 @@ function CtoDashboardPage() {
                 overflowX="auto"
                 maxW={{ base: "100%", md: "none" }}
               >
-                {vpsNodeOptions.map((node) => (
+                {vpsNodeSelectorOptions.map((node) => (
                   <Button
                     key={node}
                     size="xs"
@@ -2100,7 +2114,7 @@ function CtoDashboardPage() {
                     colorScheme={selectedVpsNode === node ? "teal" : "whiteAlpha"}
                     onClick={() => setSelectedVpsNode(node)}
                   >
-                    {node.toUpperCase()}
+                    {node === "vps" ? "VPS" : node.toUpperCase()}
                   </Button>
                 ))}
               </HStack>
