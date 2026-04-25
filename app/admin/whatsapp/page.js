@@ -3486,20 +3486,20 @@ export default function WhatsAppDashboard() {
                 <button
                   type="button"
                   className="wa-attachBtn"
-                  onClick={handleSendLatestReport}
-                  disabled={!canReply || isSending || isUpdatingStatus || isSendingReportTool || isLockedByAnotherAgent}
-                  title="Send latest report"
-                >
-                  🧾
-                </button>
-                <button
-                  type="button"
-                  className="wa-attachBtn"
                   onClick={handleSendLatestTrendReport}
                   disabled={!canReply || isSending || isUpdatingStatus || isSendingReportTool || isLockedByAnotherAgent}
                   title="Send latest trend report"
                 >
                   📈
+                </button>
+                <button
+                  type="button"
+                  className="wa-attachBtn"
+                  onClick={handleSendLatestReport}
+                  disabled={!canReply || isSending || isUpdatingStatus || isSendingReportTool || isLockedByAnotherAgent}
+                  title="Send latest report"
+                >
+                  🧾
                 </button>
 
                 <textarea

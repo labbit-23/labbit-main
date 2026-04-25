@@ -2075,8 +2075,22 @@ function CtoDashboardPage() {
                 Fast triage view for memory and host pressure across VPS services.
               </Text>
             </Box>
-            <HStack spacing={2}>
-              <HStack spacing={1} mr={1} bg="rgba(255,255,255,0.06)" p={1} borderRadius="full">
+            <HStack
+              spacing={2}
+              flexWrap="wrap"
+              justify={{ base: "flex-start", md: "flex-end" }}
+              rowGap={2}
+              maxW="100%"
+            >
+              <HStack
+                spacing={1}
+                mr={{ base: 0, md: 1 }}
+                bg="rgba(255,255,255,0.06)"
+                p={1}
+                borderRadius="full"
+                overflowX="auto"
+                maxW={{ base: "100%", md: "none" }}
+              >
                 {vpsNodeOptions.map((node) => (
                   <Button
                     key={node}
@@ -2090,14 +2104,14 @@ function CtoDashboardPage() {
                   </Button>
                 ))}
               </HStack>
-              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : vpsHealth.byStatus.degraded > 0 ? "degraded" : "healthy")} borderRadius="full" px={3} py={1}>
+              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : vpsHealth.byStatus.degraded > 0 ? "degraded" : "healthy")} borderRadius="full" px={3} py={1} whiteSpace="nowrap">
                 {vpsHealth.byStatus.total} services
               </Badge>
-              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : "healthy")} borderRadius="full" px={3} py={1}>
+              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : "healthy")} borderRadius="full" px={3} py={1} whiteSpace="nowrap">
                 {vpsHealth.byStatus.down > 0 ? `${vpsHealth.byStatus.down} down` : "No down service"}
               </Badge>
               {hasVpsIncident && (
-                <Badge colorScheme="red" borderRadius="full" px={3} py={1}>
+                <Badge colorScheme="red" borderRadius="full" px={3} py={1} whiteSpace="nowrap">
                   Incident Mode
                 </Badge>
               )}

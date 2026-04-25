@@ -11,7 +11,7 @@ import {
   getTrendReportUrl
 } from "@/lib/neosoft/client";
 import { lookupReportSelection } from "@/lib/neosoft/reportSelection";
-import { sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp/sender";
+import { sendDocumentMessage, sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp/sender";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 import { cookies } from "next/headers";
 
