@@ -674,7 +674,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                     <Button size="sm" variant="outline" onClick={() => runPriceSync(true)} isLoading={syncLoading}>
                       Preview
                     </Button>
-                    {canPriceSync ? (
+                    {canPriceSync && Number(syncResult?.to_update || 0) > 0 ? (
                       <Button size="sm" colorScheme="teal" onClick={() => runPriceSync(false, false, true)} isLoading={syncLoading}>
                         Update Increased to Website
                       </Button>
