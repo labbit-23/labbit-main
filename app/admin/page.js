@@ -14,6 +14,7 @@ import {
   FiClipboard,
   FiUserCheck,
   FiMapPin,
+  FiTool,
   FiShield,
   FiBarChart2,
   FiPlayCircle
@@ -29,6 +30,7 @@ import ExecutiveList from "./components/ExecutiveList";
 import ExecutiveModal from "./components/ExecutiveModal";
 import CollectionCentresTab from "./components/CollectionCentresTab";
 import UacTab from "./components/UacTab";
+import ShivamToolsTab from "./components/ShivamToolsTab";
 import PatientsTab from "../components/PatientsTab";
 import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
@@ -51,6 +53,7 @@ const ADMIN_SECTION_ORDER = [
   "bookings",
   "executives",
   "collection_centres",
+  "shivam_tools",
   "uac"
 ];
 
@@ -511,6 +514,19 @@ const exportVisitsImage = async () => {
       visible: hasAnyPermission(["visits.update", "executives.status.update"]),
     },
     {
+      key: "shivam_tools",
+      label: "Shivam Tools",
+      shortLabel: "Shivam",
+      icon: FiTool,
+      visible:
+        ["director", "admin"].includes(activeRoleKey) ||
+        hasAnyPermission([
+          "shivam.tools.view",
+          "shivam.demographics.update",
+          "shivam.pricelist.sync"
+        ]),
+    },
+    {
       key: "uac",
       label: "UAC",
       shortLabel: "UAC",
@@ -543,6 +559,10 @@ const exportVisitsImage = async () => {
           "reports.run.transaction",
           "reports.logs.view",
           "reports.dispatch",
+          "shivam.tools.view",
+          "shivam.demographics.update",
+          "shivam.demographics.update_identity",
+          "shivam.pricelist.sync",
           "cto.view"
         ];
       }
@@ -557,6 +577,8 @@ const exportVisitsImage = async () => {
           "reports.run.transaction",
           "reports.logs.view",
           "reports.dispatch",
+          "shivam.tools.view",
+          "shivam.demographics.update",
           "cto.view"
         ];
       }
@@ -994,7 +1016,9 @@ const exportVisitsImage = async () => {
       </Menu>
     ) : (
       <HStack spacing={1} align="center">
-        {shortcutActions.map((action) => (
+        {shortcutActions
+          .filter((action) => ["dispatch", "whatsapp", "export_visits"].includes(action.key))
+          .map((action) => (
           <ShortcutAction
             key={action.key}
             label={action.label}
@@ -1010,6 +1034,55 @@ const exportVisitsImage = async () => {
             isDisabled={action.isDisabled}
           />
         ))}
+        <Menu isLazy>
+          <Tooltip label="More actions" hasArrow>
+            <MenuButton
+              as={IconButton}
+              aria-label="More admin actions"
+              icon={<HamburgerIcon />}
+              size="sm"
+              variant="outline"
+            />
+          </Tooltip>
+          <MenuList minW="240px" maxH="70vh" overflowY="auto">
+            {shortcutActions
+              .filter((action) => !["dispatch", "whatsapp", "export_visits", "refresh"].includes(action.key))
+              .map((action) => (
+                <MenuItem
+                  key={action.key}
+                  icon={action.icon}
+                  as={action.href ? "a" : "button"}
+                  href={action.href}
+                  target={action.target}
+                  rel={action.rel}
+                  onClick={action.onClick}
+                  isDisabled={action.isDisabled}
+                  fontWeight={action.isActive ? "700" : "500"}
+                >
+                  {action.label}
+                  {action.badgeCount > 0 ? ` (${action.badgeCount > 99 ? "99+" : action.badgeCount})` : ""}
+                </MenuItem>
+              ))}
+          </MenuList>
+        </Menu>
+        {shortcutActions
+          .filter((action) => action.key === "refresh")
+          .map((action) => (
+            <ShortcutAction
+              key={action.key}
+              label={action.label}
+              icon={action.icon}
+              onClick={action.onClick}
+              href={action.href}
+              target={action.target}
+              rel={action.rel}
+              badgeCount={action.badgeCount}
+              colorScheme={action.colorScheme}
+              variant={action.variant}
+              isActive={action.isActive}
+              isDisabled={action.isDisabled}
+            />
+          ))}
       </HStack>
     )
   );
@@ -1343,6 +1416,15 @@ const exportVisitsImage = async () => {
                     executives={executives}
                     themeMode={themeMode}
                     onRegisterRefresh={setCollectionRefreshHandler}
+                  />
+                </TabPanel>
+
+                <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
+                  <ShivamToolsTab
+                    labs={labs}
+                    themeMode={themeMode}
+                    rolePermissions={rolePermissions}
+                    activeRoleKey={activeRoleKey}
                   />
                 </TabPanel>
 
