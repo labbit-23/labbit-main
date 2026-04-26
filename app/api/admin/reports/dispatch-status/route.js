@@ -67,6 +67,72 @@ function keepNamePartIfComposite(value) {
   return parts[0] || text;
 }
 
+function normalizeOrgHint(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.split("|")[0]?.trim() || text;
+}
+
+function hasOrgScopeSignal(reportStatus) {
+  const topLevelOrg = String(
+    rowValueLoose(
+      reportStatus,
+      "REFDOCTOR",
+      "refdoctor",
+      "REF_DOCTOR",
+      "ref_doctor",
+      "ORG_ID",
+      "org_id",
+      "organization_id",
+      "organisation_id",
+      "org_code",
+      "ORGCODE"
+    ) ||
+      rowValueKeyContains(reportStatus, [
+        "refdoctor",
+        "orgid",
+        "organizationid",
+        "organisationid",
+        "orgcode",
+        "clientid",
+        "accountid"
+      ]) ||
+      ""
+  ).trim();
+  if (topLevelOrg) return true;
+
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  for (const row of tests) {
+    const testOrg = String(
+      rowValueLoose(
+        row,
+        "REFDOCTOR",
+        "refdoctor",
+        "REF_DOCTOR",
+        "ref_doctor",
+        "ORG_ID",
+        "org_id",
+        "organization_id",
+        "organisation_id",
+        "org_code",
+        "ORGCODE"
+      ) ||
+        rowValueKeyContains(row, [
+          "refdoctor",
+          "orgid",
+          "organizationid",
+          "organisationid",
+          "orgcode",
+          "clientid",
+          "accountid"
+        ]) ||
+        ""
+    ).trim();
+    if (testOrg) return true;
+  }
+  return false;
+}
+
 function normalizeReqno(reportStatus) {
   const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
   for (const row of tests) {
@@ -470,6 +536,7 @@ export async function GET(request) {
     const url = new URL(request.url);
     const reqid = String(url.searchParams.get("reqid") || "").trim();
     const reqno = String(url.searchParams.get("reqno") || "").trim();
+    const scopedOrgHint = normalizeOrgHint(url.searchParams.get("org_id") || "");
     const source = String(
       url.searchParams.get("source") ||
         request.headers.get("x-report-source") ||
@@ -512,7 +579,19 @@ export async function GET(request) {
 
     if (user && isScopedDispatchRole(user)) {
       const allowedOrgIds = await getAllowedDispatchOrgIds(user);
-      const allowed = reportStatusMatchesOrgScope(reportStatus, allowedOrgIds);
+      let allowed = reportStatusMatchesOrgScope(reportStatus, allowedOrgIds);
+      if (!allowed && scopedOrgHint) {
+        const allowedSet = new Set(
+          (Array.isArray(allowedOrgIds) ? allowedOrgIds : [])
+            .map((value) => normalizeOrgHint(value))
+            .filter(Boolean)
+        );
+        // Safe fallback:
+        // If upstream status payload carries no org signal, trust scoped requisition row org_id hint.
+        if (allowedSet.has(scopedOrgHint) && !hasOrgScopeSignal(reportStatus)) {
+          allowed = true;
+        }
+      }
       if (!allowed) {
         return new Response("Forbidden for this organization scope", { status: 403 });
       }

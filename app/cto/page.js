@@ -2151,15 +2151,26 @@ function CtoDashboardPage() {
                       bg="rgba(255,255,255,0.05)"
                       border="1px solid rgba(255,255,255,0.12)"
                     >
-                      <Box
-                        w={2.5}
-                        h={2.5}
-                        borderRadius="full"
-                        bg={index === 0 ? "#34d399" : "#f97316"}
-                      />
+                      <Box as="svg" width="18" height="8" viewBox="0 0 18 8" role="img" aria-label={index === 0 ? "solid line" : "dashed line"}>
+                        <line
+                          x1="1"
+                          y1="4"
+                          x2="17"
+                          y2="4"
+                          stroke="rgba(255,255,255,0.9)"
+                          strokeWidth="2"
+                          strokeDasharray={index === 0 ? undefined : "5 3"}
+                          strokeLinecap="round"
+                        />
+                      </Box>
                       <Text fontSize="10px" color="whiteAlpha.900">{node.toUpperCase()}</Text>
                     </HStack>
                   ))}
+                  {vpsComparisonNodes.length > 1 && (
+                    <Text fontSize="10px" color="whiteAlpha.600" px={1}>
+                      Solid = {vpsComparisonNodes[0]?.toUpperCase()} | Dashed = {vpsComparisonNodes[1]?.toUpperCase()}
+                    </Text>
+                  )}
                   {vpsHostCompactMetrics.map((item) => (
                     <Box key={item.key} px={2.5} py={1.5} borderRadius="10px" bg="rgba(255,255,255,0.05)" border="1px solid rgba(255,255,255,0.12)">
                       <Text fontSize="10px" color="whiteAlpha.700" lineHeight="1.1">{item.label}</Text>
@@ -2284,7 +2295,8 @@ function CtoDashboardPage() {
                       {metric.compareModel?.path && (
                         <path
                           d={metric.compareModel.path}
-                          stroke="#f97316"
+                          stroke={metric.color}
+                          opacity="0.6"
                           strokeWidth="2"
                           fill="none"
                           strokeLinecap="round"

@@ -209,6 +209,15 @@ export default function ReportDispatchWorkspace({
     return String(match?.phoneno || "").trim();
   }
 
+  function findOrgIdFromDailyRows(reqnoValue) {
+    const cleanReqno = String(reqnoValue || "").trim();
+    if (!cleanReqno) return "";
+    const match = (Array.isArray(dailyRows) ? dailyRows : []).find(
+      (row) => String(row?.reqno || "").trim() === cleanReqno
+    );
+    return String(match?.org_id || "").trim();
+  }
+
   async function lookupByReqno(reqnoValue, options = {}) {
     setError("");
     setStatus(null);
@@ -222,6 +231,13 @@ export default function ReportDispatchWorkspace({
     setLoadingStatus(true);
     try {
       const query = new URLSearchParams({ reqno: clean });
+      const preferredOrgId = String(
+        options?.preferredOrgId ||
+          selectedReportMeta?.org_id ||
+          findOrgIdFromDailyRows(clean) ||
+          ""
+      ).trim();
+      if (preferredOrgId) query.set("org_id", preferredOrgId);
       const res = await fetch(`/api/admin/reports/dispatch-status?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
@@ -373,7 +389,8 @@ export default function ReportDispatchWorkspace({
       isClosable: true
     });
     await lookupByReqno(reqno, {
-      preferredPhone: String(row?.phoneno || row?.phone || "").trim()
+      preferredPhone: String(row?.phoneno || row?.phone || "").trim(),
+      preferredOrgId: String(row?.org_id || "").trim()
     });
   }
 
