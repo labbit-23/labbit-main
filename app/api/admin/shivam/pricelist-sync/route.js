@@ -80,33 +80,84 @@ function sampleRawRows(payload) {
 }
 
 async function fetchSupabaseLabTests(labId) {
-  const { data, error } = await supabase
-    .from("lab_tests")
-    .select("id, lab_id, internal_code, lab_test_name, price, is_active")
-    .eq("lab_id", labId)
-    .not("internal_code", "is", null);
+  const pageSize = 1000;
+  const rows = [];
+  let from = 0;
 
-  if (error) throw error;
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("lab_tests")
+      .select("id, lab_id, internal_code, lab_test_name, price, is_active")
+      .eq("lab_id", labId)
+      .not("internal_code", "is", null)
+      .range(from, to);
 
-  return (data || []).map((row) => ({
+    if (error) throw error;
+
+    const batch = data || [];
+    rows.push(...batch);
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.map((row) => ({
     ...row,
     internal_code: normalizeCode(row?.internal_code),
     price: asPrice(row?.price)
   }));
 }
 
-function buildDiff(upstreamRows, localRows) {
+function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
   const localByCode = new Map(localRows.map((row) => [row.internal_code, row]));
   const diff = [];
   let missingInSupabase = 0;
+  const comparisonRows = [];
+  let matchedCount = 0;
+  let changedCount = 0;
+  let blockedReductionCount = 0;
 
   for (const upstream of upstreamRows) {
     const local = localByCode.get(upstream.internal_code);
     if (!local) {
       missingInSupabase += 1;
+      comparisonRows.push({
+        internal_code: upstream.internal_code,
+        lab_test_name: upstream.lab_test_name || null,
+        local_price: null,
+        upstream_price: upstream.price,
+        status: "missing_local",
+        delta: null
+      });
       continue;
     }
-    if (local.price === upstream.price) continue;
+    if (local.price === upstream.price) {
+      matchedCount += 1;
+      comparisonRows.push({
+        internal_code: upstream.internal_code,
+        lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
+        local_price: local.price,
+        upstream_price: upstream.price,
+        status: "matched",
+        delta: 0
+      });
+      continue;
+    }
+    changedCount += 1;
+    const isReduction = Number.isFinite(local.price) && Number.isFinite(upstream.price) && upstream.price < local.price;
+    if (isReduction && !allowReduction) {
+      blockedReductionCount += 1;
+      comparisonRows.push({
+        internal_code: upstream.internal_code,
+        lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
+        local_price: local.price,
+        upstream_price: upstream.price,
+        status: "blocked_reduction",
+        delta: upstream.price - local.price
+      });
+      continue;
+    }
     diff.push({
       id: local.id,
       internal_code: upstream.internal_code,
@@ -114,9 +165,33 @@ function buildDiff(upstreamRows, localRows) {
       old_price: local.price,
       new_price: upstream.price
     });
+    comparisonRows.push({
+      internal_code: upstream.internal_code,
+      lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
+      local_price: local.price,
+      upstream_price: upstream.price,
+      status: "changed",
+      delta: upstream.price - local.price
+    });
   }
 
-  return { diff, missingInSupabase };
+  const statusRank = { changed: 0, blocked_reduction: 1, missing_local: 2, matched: 3 };
+  comparisonRows.sort((a, b) => {
+    const rankDiff = (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99);
+    if (rankDiff !== 0) return rankDiff;
+    const codeA = String(a.internal_code || "");
+    const codeB = String(b.internal_code || "");
+    return codeA.localeCompare(codeB);
+  });
+
+  return {
+    diff,
+    missingInSupabase,
+    matchedCount,
+    changedCount,
+    blockedReductionCount,
+    comparisonRows
+  };
 }
 
 async function applyDiff(diff) {
@@ -169,7 +244,12 @@ export async function GET(request) {
       fetchSupabaseLabTests(labId)
     ]);
     const upstreamRows = normalizeUpstreamRows(upstreamPayload);
-    const { diff, missingInSupabase } = buildDiff(upstreamRows, localRows);
+    const compareLimit = Math.max(50, Math.min(2000, Number(url.searchParams.get("compare_limit") || 400)));
+    const { diff, missingInSupabase, matchedCount, changedCount, blockedReductionCount, comparisonRows } = buildDiff(
+      upstreamRows,
+      localRows,
+      { allowReduction: false }
+    );
 
     const response = {
       ok: true,
@@ -178,8 +258,12 @@ export async function GET(request) {
       upstream_rows: upstreamRows.length,
       local_rows: localRows.length,
       to_update: diff.length,
+      matched_count: matchedCount,
+      changed_count: changedCount,
+      blocked_reduction_count: blockedReductionCount,
       missing_in_supabase: missingInSupabase,
-      sample_changes: diff.slice(0, 50)
+      sample_changes: diff.slice(0, 50),
+      comparison_rows: comparisonRows.slice(0, compareLimit)
     };
 
     if (debug) {
@@ -223,6 +307,8 @@ export async function POST(request) {
 
     const body = await request.json().catch(() => ({}));
     const dryRun = Boolean(body?.dry_run);
+    const allowReduction = Boolean(body?.allow_price_reduction);
+    const applyIncreasesOnly = Boolean(body?.apply_increases_only);
     const labId = await resolveLabId(request, user, body);
     if (!labId) {
       return NextResponse.json({ error: "lab_id is required" }, { status: 400 });
@@ -233,11 +319,46 @@ export async function POST(request) {
       fetchSupabaseLabTests(labId)
     ]);
     const upstreamRows = normalizeUpstreamRows(upstreamPayload);
-    const { diff, missingInSupabase } = buildDiff(upstreamRows, localRows);
+    const { diff, missingInSupabase, matchedCount, changedCount, blockedReductionCount, comparisonRows } = buildDiff(
+      upstreamRows,
+      localRows,
+      { allowReduction }
+    );
+
+    if (!dryRun && blockedReductionCount > 0 && !allowReduction && !applyIncreasesOnly) {
+      return NextResponse.json(
+        {
+          ok: false,
+          requires_confirmation: true,
+          message: `Detected ${blockedReductionCount} rate reductions. Confirm to proceed.`,
+          blocked_reduction_count: blockedReductionCount,
+          blocked_reduction_rows: comparisonRows
+            .filter((row) => row.status === "blocked_reduction")
+            .slice(0, 200),
+          to_update_without_reduction: diff.length
+        },
+        { status: 409 }
+      );
+    }
 
     let updatedCount = 0;
-    if (!dryRun && diff.length > 0) {
-      updatedCount = await applyDiff(diff);
+    if (!dryRun && (diff.length > 0 || (allowReduction && blockedReductionCount > 0))) {
+      const finalDiff = allowReduction
+        ? comparisonRows
+            .filter((row) => row.status === "changed" || row.status === "blocked_reduction")
+            .map((row) => {
+              const localRow = localRows.find((l) => l.internal_code === row.internal_code);
+              return {
+                id: localRow?.id,
+                internal_code: row.internal_code,
+                lab_test_name: row.lab_test_name || null,
+                old_price: row.local_price,
+                new_price: row.upstream_price
+              };
+            })
+            .filter((row) => row.id)
+        : diff;
+      updatedCount = await applyDiff(finalDiff);
     }
 
     await writeAuditLog({
@@ -255,7 +376,9 @@ export async function POST(request) {
         local_rows: localRows.length,
         to_update: diff.length,
         updated_count: updatedCount,
-        missing_in_supabase: missingInSupabase
+        missing_in_supabase: missingInSupabase,
+        allow_price_reduction: allowReduction,
+        apply_increases_only: applyIncreasesOnly
       }
     });
 
@@ -266,9 +389,14 @@ export async function POST(request) {
       upstream_rows: upstreamRows.length,
       local_rows: localRows.length,
       to_update: diff.length,
+      matched_count: matchedCount,
+      changed_count: changedCount,
+      blocked_reduction_count: blockedReductionCount,
       updated_count: updatedCount,
       missing_in_supabase: missingInSupabase,
-      sample_changes: diff.slice(0, 50)
+      apply_increases_only: applyIncreasesOnly,
+      sample_changes: diff.slice(0, 50),
+      comparison_rows: comparisonRows.slice(0, 400)
     });
   } catch (error) {
     await writeAuditLog({

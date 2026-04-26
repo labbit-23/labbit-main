@@ -927,7 +927,7 @@ function CtoDashboardPage() {
   }, [realServices]);
   const vpsNodeSelectorOptions = useMemo(() => {
     if (vpsNodeOptions.length === 0) return [];
-    return ["vps", ...vpsNodeOptions];
+    return Array.from(new Set(["vps", ...vpsNodeOptions]));
   }, [vpsNodeOptions]);
 
   useEffect(() => {
