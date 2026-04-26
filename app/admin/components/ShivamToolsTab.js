@@ -119,6 +119,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
     hasWildcard ||
     ["director", "admin"].includes(String(activeRoleKey || "").toLowerCase()) ||
     rolePermissions.includes("shivam.demographics.update_identity");
+  const canPriceSync = hasWildcard || rolePermissions.includes("shivam.pricelist.sync");
   const canOpenEditMode = canEditCore || canEditIdentity;
   const [isEditMode, setIsEditMode] = useState(false);
 
@@ -673,9 +674,11 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                     <Button size="sm" variant="outline" onClick={() => runPriceSync(true)} isLoading={syncLoading}>
                       Preview
                     </Button>
-                    <Button size="sm" colorScheme="teal" onClick={() => runPriceSync(false, false, true)} isLoading={syncLoading}>
-                      Update Increased to Website
-                    </Button>
+                    {canPriceSync ? (
+                      <Button size="sm" colorScheme="teal" onClick={() => runPriceSync(false, false, true)} isLoading={syncLoading}>
+                        Update Increased to Website
+                      </Button>
+                    ) : null}
                   </HStack>
 
                   {syncResult ? (
@@ -712,14 +715,16 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                 <GridItem borderWidth="1px" borderColor={panelBorder} bg={panelBg} borderRadius="lg" p={4}>
                   <HStack justify="space-between" mb={3} flexWrap="wrap">
                     <Heading size="sm">INCREASED ({increasedRows.length})</Heading>
-                    <Button
-                      size="sm"
-                      colorScheme="teal"
-                      onClick={() => runPriceSync(false, false, true)}
-                      isLoading={syncLoading}
-                    >
-                      Update Increased to Website
-                    </Button>
+                    {canPriceSync ? (
+                      <Button
+                        size="sm"
+                        colorScheme="teal"
+                        onClick={() => runPriceSync(false, false, true)}
+                        isLoading={syncLoading}
+                      >
+                        Update Increased to Website
+                      </Button>
+                    ) : null}
                   </HStack>
                   <Box overflowX="auto">
                     <Table size="sm">
@@ -753,15 +758,17 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                 <GridItem borderWidth="1px" borderColor={panelBorder} bg={panelBg} borderRadius="lg" p={4}>
                   <HStack justify="space-between" mb={3} flexWrap="wrap">
                     <Heading size="sm">DECREASED ({decreasedRows.length})</Heading>
-                    <Button
-                      size="sm"
-                      colorScheme="red"
-                      variant="outline"
-                      onClick={() => runPriceSync(false)}
-                      isLoading={syncLoading}
-                    >
-                      Update Decreased to Website
-                    </Button>
+                    {canPriceSync ? (
+                      <Button
+                        size="sm"
+                        colorScheme="red"
+                        variant="outline"
+                        onClick={() => runPriceSync(false)}
+                        isLoading={syncLoading}
+                      >
+                        Update Decreased to Website
+                      </Button>
+                    ) : null}
                   </HStack>
                   <Box overflowX="auto">
                     <Table size="sm">
