@@ -8,6 +8,11 @@ function clean(value) {
   return text || null;
 }
 
+function cleanAllowEmptyString(value) {
+  if (value === null || value === undefined) return null;
+  return String(value).trim();
+}
+
 function asNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -104,6 +109,14 @@ function normalizeDemographics(raw, mrno) {
   };
 }
 
+function normalizedName(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizedPhone(value) {
+  return digitsOnly(value);
+}
+
 export async function GET(request) {
   let user = null;
   let roleKey = "viewer";
@@ -180,7 +193,7 @@ export async function POST(request) {
       dob: clean(body?.dob),
       gender: clean(body?.gender),
       sex: asNumber(body?.sex),
-      email: clean(body?.email),
+      email: cleanAllowEmptyString(body?.email),
       pincode: clean(body?.pincode),
       ageyrs: asNumber(body?.ageyrs),
       agemonths: asNumber(body?.agemonths),
@@ -192,7 +205,19 @@ export async function POST(request) {
       }
     };
 
-    const identityTouched = Boolean(payload.patient_name || payload.mobile_no);
+    let identityTouched = false;
+    if (payload.patient_name !== null || payload.mobile_no !== null) {
+      const existingRaw = await getShivamDemographicsByMrno(mrno);
+      const existing = normalizeDemographics(existingRaw, mrno);
+      const nameChanged =
+        payload.patient_name !== null &&
+        normalizedName(payload.patient_name) !== normalizedName(existing?.patient_name);
+      const mobileChanged =
+        payload.mobile_no !== null &&
+        normalizedPhone(payload.mobile_no) !== normalizedPhone(existing?.mobile_no);
+      identityTouched = nameChanged || mobileChanged;
+    }
+
     if (identityTouched) {
       const identityPermission = await checkPermission(user, "shivam.demographics.update_identity");
       if (!identityPermission.ok && !roleBypass) {
@@ -217,7 +242,19 @@ export async function POST(request) {
       }
     }
 
-    const hasAtLeastOneField = ["patient_name", "mobile_no", "age", "dob", "gender"].some(
+    const hasAtLeastOneField = [
+      "patient_name",
+      "mobile_no",
+      "age",
+      "dob",
+      "gender",
+      "sex",
+      "email",
+      "pincode",
+      "ageyrs",
+      "agemonths",
+      "agedays"
+    ].some(
       (key) => payload[key] !== null
     );
     if (!hasAtLeastOneField) {

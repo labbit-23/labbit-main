@@ -98,6 +98,7 @@ function applyDemographicsState(setter, d, prevMrno = "") {
     mrno: d?.mrno || prevMrno || "",
     patient_name: d?.patient_name || "",
     mobile_no: d?.mobile_no || "",
+    email: d?.email || "",
     age: d?.age ?? "",
     ageyrs: d?.ageyrs ?? "",
     agemonths: d?.agemonths ?? "",
@@ -127,6 +128,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
     mrno: "",
     patient_name: "",
     mobile_no: "",
+    email: "",
     age: "",
     ageyrs: "",
     agemonths: "",
@@ -188,6 +190,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
         mrno: d.mrno || "",
         patient_name: d.patient_name || "",
         mobile_no: d.mobile_no || "",
+        email: d.email || "",
         age: d.age ?? "",
         ageyrs: d.ageyrs ?? "",
         agemonths: d.agemonths ?? "",
@@ -199,6 +202,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
       const normalizedBody = {
         patient_name: body?.patient_name ?? "",
         mobile_no: body?.mobile_no ?? "",
+        email: body?.email ?? "",
         age: body?.age ?? "",
         ageyrs: body?.ageyrs ?? "",
         agemonths: body?.agemonths ?? "",
@@ -209,6 +213,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
       const effective = {
         patient_name: d?.patient_name ?? "",
         mobile_no: d?.mobile_no ?? "",
+        email: d?.email ?? "",
         age: d?.age ?? "",
         ageyrs: d?.ageyrs ?? "",
         agemonths: d?.agemonths ?? "",
@@ -256,6 +261,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
       mrno: demographics.mrno || null,
       patient_name: demographics.patient_name || null,
       mobile_no: demographics.mobile_no || null,
+      email: demographics.email ?? "",
       age: demographics.age === "" ? null : toNumberOrEmpty(demographics.age),
       ageyrs: demographics.ageyrs === "" ? null : toNumberOrEmpty(demographics.ageyrs),
       agemonths: demographics.agemonths === "" ? null : toNumberOrEmpty(demographics.agemonths),
@@ -267,6 +273,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
     const fieldLabels = {
       patient_name: "Patient Name",
       mobile_no: "Mobile No",
+      email: "Email",
       age: "Age",
       ageyrs: "AgeYrs",
       agemonths: "AgeMonths",
@@ -323,6 +330,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
       const hasDemographics =
         Boolean(String(d.patient_name || "").trim()) ||
         Boolean(String(d.mobile_no || "").trim()) ||
+        Boolean(String(d.email || "").trim()) ||
         Boolean(String(d.dob || "").trim()) ||
         d.age !== null && d.age !== undefined ||
         d.ageyrs !== null && d.ageyrs !== undefined ||
@@ -337,6 +345,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
         mrno: d.mrno || "",
         patient_name: d.patient_name || "",
         mobile_no: d.mobile_no || "",
+        email: d.email || "",
         age: d.age ?? "",
         ageyrs: d.ageyrs ?? "",
         agemonths: d.agemonths ?? "",
@@ -512,6 +521,16 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                   onChange={(e) => onChangeDemographics("mobile_no", e.target.value)}
                   isDisabled={!isEditMode || !canEditIdentity}
                   fontWeight="700"
+                />
+              </FormControl>
+              <FormControl maxW="280px">
+                <FormLabel fontSize="sm">Email</FormLabel>
+                <Input
+                  size="sm"
+                  type="email"
+                  value={demographics.email}
+                  onChange={(e) => onChangeDemographics("email", e.target.value)}
+                  isDisabled={!isEditMode || !canOpenEditMode}
                 />
               </FormControl>
               <FormControl maxW="140px">
