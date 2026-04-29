@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+xset s off
+xset -dpms
+xset s noblank
+unclutter -idle 1 -root &
+
+chromium-browser \
+  --kiosk \
+  --incognito \
+  --disable-translate \
+  --disable-features=TranslateUI \
+  --noerrdialogs \
+  --disable-infobars \
+  --check-for-update-interval=31536000 \
+  "https://api.sdrc.in/kiosk/display"
