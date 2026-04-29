@@ -32,11 +32,12 @@ import {
   InputRightElement,
 } from '@chakra-ui/react';
 import { useRouter } from 'next/navigation';
-import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
+import { CheckIcon, ViewIcon, ViewOffIcon, WarningIcon } from '@chakra-ui/icons';
 
 import ModularPatientModal from '../components/ModularPatientModal';
 import RedirectIfAuth from '../../components/RedirectIfAuth'; // Adjust or create this as per your auth flow
 import { useUser } from '../context/UserContext'; // <-- import context
+import { getPasswordValidationStatus, isValidPassword } from '@/lib/passwordPolicy';
 
 
 function OtpInput({ value, onChange }) {
@@ -103,11 +104,13 @@ export default function LoginPage() {
   const [employeeOtpPhone, setEmployeeOtpPhone] = useState('');
   const [employeeOtpVerifying, setEmployeeOtpVerifying] = useState(false);
   const [employeeNewPassword, setEmployeeNewPassword] = useState('');
+  const [employeeConfirmPassword, setEmployeeConfirmPassword] = useState('');
   const [employeeResetStep, setEmployeeResetStep] = useState('otp'); // 'otp' | 'reset'
 
   // Password visibility toggles
   const [showEmployeePassword, setShowEmployeePassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
 
   // Error and loading states
   const [errorMsg, setErrorMsg] = useState(null);
@@ -182,6 +185,58 @@ export default function LoginPage() {
 
   // -- Handlers --
 
+  const initiateEmployeeResetOtp = async ({ skipConfirm = false, setupFromLogin = false } = {}) => {
+    if (!employeeIdentifier) {
+      toast({
+        title: 'Please enter your Email or Phone first',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    if (!skipConfirm) {
+      const confirmed = window.confirm(`Send OTP to reset password to ${employeeIdentifier}?`);
+      if (!confirmed) return;
+    }
+
+    let phoneToSend = employeeIdentifier;
+    if (/^\d{10}$/.test(employeeIdentifier)) {
+      phoneToSend = normalizePhone(employeeIdentifier);
+    }
+
+    const res = await fetch('/api/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: phoneToSend,
+        labId: (employeeLabIds.length > 0 && employeeLabIds[0]) || selectedLabId || '',
+        purpose: 'employee_reset'
+      }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || 'Failed to send OTP.');
+
+    toast({
+      title: 'OTP sent',
+      description: setupFromLogin
+        ? 'Account needs password setup. Verify OTP to create your password.'
+        : 'Please check your phone for the OTP to reset password.',
+      status: 'success',
+      duration: 4500,
+      isClosable: true,
+    });
+
+    setEmployeeOtpSent(true);
+    setEmployeeOtpPhone(data.resolvedPhone || '');
+    if (data.resolvedLabId) {
+      setEmployeeLabIds((prev) => (prev.includes(data.resolvedLabId) ? prev : [data.resolvedLabId, ...prev]));
+    }
+    setEmployeeResetStep('otp');
+  };
+
   const handleEmployeeLogin = async (e) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -208,7 +263,14 @@ export default function LoginPage() {
         setEmployeeLabIds(data.labIds);
       }
 
-      if (!res.ok) throw new Error(data.error || 'Failed to login.');
+      if (!res.ok) {
+        if (data?.requiresPasswordSetup) {
+          setErrorMsg('Password not set yet. OTP flow started to create password.');
+          await initiateEmployeeResetOtp({ skipConfirm: true, setupFromLogin: true });
+          return;
+        }
+        throw new Error(data.error || 'Failed to login.');
+      }
 
       toast({
         title: 'Login successful!',
@@ -376,6 +438,8 @@ export default function LoginPage() {
         isClosable: true,
       });
 
+      setEmployeeNewPassword('');
+      setEmployeeConfirmPassword('');
       setEmployeeResetStep('reset');
     } catch (err) {
       setErrorMsg(err.message);
@@ -386,8 +450,19 @@ export default function LoginPage() {
 
   const handleEmployeePasswordReset = async () => {
     setErrorMsg(null);
-    if (!employeeNewPassword || employeeNewPassword.length < 6) {
-      setErrorMsg('Password must be at least 6 characters.');
+    if (!employeeConfirmPassword || employeeNewPassword !== employeeConfirmPassword) {
+      setErrorMsg('Confirm password must match new password.');
+      return;
+    }
+    if (!employeeNewPassword || !isValidPassword(employeeNewPassword)) {
+      const failedRules = getPasswordValidationStatus(employeeNewPassword)
+        .filter((rule) => !rule.passed)
+        .map((rule) => rule.message);
+      setErrorMsg(
+        failedRules.length > 0
+          ? `Password rules: ${failedRules.join(', ')}.`
+          : 'Password does not meet required rules.'
+      );
       return;
     }
 
@@ -402,7 +477,11 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: phoneToSend, newPassword: employeeNewPassword }),
+        body: JSON.stringify({
+          identifier: phoneToSend,
+          newPassword: employeeNewPassword,
+          confirmPassword: employeeConfirmPassword,
+        }),
       });
       const data = await res.json();
 
@@ -419,6 +498,9 @@ export default function LoginPage() {
       setEmployeeOtp('');
       setEmployeeOtpPhone('');
       setEmployeeNewPassword('');
+      setEmployeeConfirmPassword('');
+      setShowNewPassword(false);
+      setShowConfirmNewPassword(false);
       setEmployeeResetStep('otp');
     } catch (err) {
       setErrorMsg(err.message);
@@ -428,52 +510,8 @@ export default function LoginPage() {
   };
 
   const handleForgotPassword = async () => {
-    if (!employeeIdentifier) {
-      toast({
-        title: 'Please enter your Email or Phone first',
-        status: 'warning',
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    const confirmed = window.confirm(`Send OTP to reset password to ${employeeIdentifier}?`);
-    if (!confirmed) return;
-
     try {
-      let phoneToSend = employeeIdentifier;
-      if (/^\d{10}$/.test(employeeIdentifier)) {
-        phoneToSend = normalizePhone(employeeIdentifier);
-      }
-
-      const res = await fetch('/api/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: phoneToSend,
-          labId: (employeeLabIds.length > 0 && employeeLabIds[0]) || selectedLabId || '',
-          purpose: 'employee_reset'
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.error || 'Failed to send OTP.');
-
-      toast({
-        title: 'OTP sent',
-        description: 'Please check your phone for the OTP to reset password.',
-        status: 'success',
-        duration: 4000,
-        isClosable: true,
-      });
-
-      setEmployeeOtpSent(true);
-      setEmployeeOtpPhone(data.resolvedPhone || '');
-      if (data.resolvedLabId) {
-        setEmployeeLabIds((prev) => (prev.includes(data.resolvedLabId) ? prev : [data.resolvedLabId, ...prev]));
-      }
-      setEmployeeResetStep('otp');
+      await initiateEmployeeResetOtp();
     } catch (error) {
       toast({
         title: 'Error',
@@ -530,6 +568,30 @@ export default function LoginPage() {
     </InputGroup>
   );
 
+  const EmployeeConfirmPasswordInput = (
+    <InputGroup>
+      <Input
+        type={showConfirmNewPassword ? 'text' : 'password'}
+        placeholder="Confirm new password"
+        value={employeeConfirmPassword}
+        onChange={(e) => setEmployeeConfirmPassword(e.target.value)}
+      />
+      <InputRightElement h="full">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowConfirmNewPassword((show) => !show)}
+          tabIndex={-1}
+          aria-label={showConfirmNewPassword ? 'Hide password' : 'Show password'}
+        >
+          {showConfirmNewPassword ? <ViewOffIcon /> : <ViewIcon />}
+        </Button>
+      </InputRightElement>
+    </InputGroup>
+  );
+
+  const employeePasswordRuleStatus = getPasswordValidationStatus(employeeNewPassword);
+
   // -- JSX UI --
   return (
     <RedirectIfAuth>
@@ -570,6 +632,9 @@ export default function LoginPage() {
               setEmployeeOtpSent(false);
               setEmployeeOtp('');
               setEmployeeNewPassword('');
+              setEmployeeConfirmPassword('');
+              setShowNewPassword(false);
+              setShowConfirmNewPassword(false);
               setEmployeeResetStep('otp');
               setLabIds([]);
               setSelectedLabId('');
@@ -708,6 +773,29 @@ export default function LoginPage() {
                           <FormLabel>New Password</FormLabel>
                           {EmployeeNewPasswordInput}
                         </FormControl>
+                        <FormControl isRequired>
+                          <FormLabel>Confirm New Password</FormLabel>
+                          {EmployeeConfirmPasswordInput}
+                        </FormControl>
+                        <Box borderWidth="1px" borderRadius="md" p={3} bg="gray.50" w="100%">
+                          <Text fontSize="sm" fontWeight="semibold" mb={2}>
+                            Password Rules
+                          </Text>
+                          <VStack align="stretch" spacing={1.5}>
+                            {employeePasswordRuleStatus.map((rule) => (
+                              <HStack key={rule.id} spacing={2} color={rule.passed ? 'green.600' : 'gray.600'}>
+                                {rule.passed ? <CheckIcon boxSize={3} /> : <WarningIcon boxSize={3} />}
+                                <Text fontSize="sm">{rule.message}</Text>
+                              </HStack>
+                            ))}
+                            {employeeConfirmPassword && employeeConfirmPassword !== employeeNewPassword && (
+                              <HStack spacing={2} color="red.600">
+                                <WarningIcon boxSize={3} />
+                                <Text fontSize="sm">Confirm password must match new password</Text>
+                              </HStack>
+                            )}
+                          </VStack>
+                        </Box>
                         {errorMsg && (
                           <Alert status="error" borderRadius="md">
                             <AlertIcon />

@@ -99,11 +99,12 @@ export async function POST(req) {
     if (!executive.password_hash) {
       return NextResponse.json(
         {
-          error: "Invalid email/phone or password.",
+          error: "Password setup required. Verify OTP and create a password.",
           exists: true,
           labIds,
+          requiresPasswordSetup: true,
         },
-        { status: 401 }
+        { status: 403 }
       );
     }
 

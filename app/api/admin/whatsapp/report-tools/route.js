@@ -356,15 +356,6 @@ export async function POST(request) {
       if (!dryRun) {
         if (!patientName) return new Response("Patient name is required", { status: 400 });
         if (!reportLabel) return new Response("Report/tests label is required", { status: 400 });
-        if (!authorizationConfirmed) {
-          return new Response("Recipient authorization confirmation is required.", { status: 400 });
-        }
-        if (!authorizationType) {
-          return new Response("Confirmation type is required.", { status: 400 });
-        }
-        if (!authorizationEvidence) {
-          return new Response("Confirmation evidence is required.", { status: 400 });
-        }
       }
 
       const within24 = isWithin24Hours(chatSession?.last_user_message_at);
@@ -409,12 +400,14 @@ export async function POST(request) {
       let resolvedReqno = null;
       let resolvedMrno = null;
       let resolvedPatientName = patientName;
+      let authorizationRequired = false;
 
       if (reportSource === "latest_report") {
         const registeredCheck = validatePhoneForTemplate(registeredPhoneRaw || phoneCheck.canonical);
         if (!registeredCheck.ok) {
           return new Response("Registered phone must be 10 digits or 12 digits.", { status: 400 });
         }
+        authorizationRequired = phoneCheck.canonical !== registeredCheck.canonical;
         documentUrl = getLatestReportUrl(registeredCheck.canonical);
         const latestPdfAvailable = await isReachablePdfDocument(documentUrl);
         if (!latestPdfAvailable) {
@@ -465,6 +458,18 @@ export async function POST(request) {
         return new Response("Invalid report source selected.", { status: 400 });
       }
 
+      if (!dryRun && authorizationRequired) {
+        if (!authorizationConfirmed) {
+          return new Response("Recipient authorization confirmation is required.", { status: 400 });
+        }
+        if (!authorizationType) {
+          return new Response("Confirmation type is required.", { status: 400 });
+        }
+        if (!authorizationEvidence) {
+          return new Response("Confirmation evidence is required.", { status: 400 });
+        }
+      }
+
       if (reportSource === "trend_report") {
         filename = `SDRC_Trend_Report_${resolvedMrno || "Patient"}.pdf`;
       } else {
@@ -504,9 +509,10 @@ export async function POST(request) {
       let templateSendResult = null;
       const privacyPayload = {
         manual_privacy_send: true,
-        confirmed: true,
-        type: authorizationType,
-        evidence: authorizationEvidence
+        required: authorizationRequired,
+        confirmed: authorizationRequired ? true : false,
+        type: authorizationRequired ? authorizationType : "",
+        evidence: authorizationRequired ? authorizationEvidence : ""
       };
       const reportTypeForLog =
         reportSource === "trend_report"

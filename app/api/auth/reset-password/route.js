@@ -3,21 +3,32 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabase } from "@/lib/supabaseServer";
+import { getPasswordValidationStatus, isValidPassword } from "@/lib/passwordPolicy";
 
 export async function POST(req) {
   try {
-    const { identifier, newPassword } = await req.json();
+    const { identifier, newPassword, confirmPassword } = await req.json();
 
     // Basic validations
-    if (!identifier || !newPassword) {
+    if (!identifier || !newPassword || !confirmPassword) {
       return NextResponse.json(
-        { error: "Missing identifier or new password." },
+        { error: "Missing identifier, new password, or confirm password." },
         { status: 400 }
       );
     }
-    if (typeof newPassword !== "string" || newPassword.length < 6) {
+    if (newPassword !== confirmPassword) {
       return NextResponse.json(
-        { error: "Password must be at least 6 characters." },
+        { error: "New password and confirm password do not match." },
+        { status: 400 }
+      );
+    }
+    const passwordValidation = getPasswordValidationStatus(newPassword);
+    if (!isValidPassword(newPassword)) {
+      return NextResponse.json(
+        {
+          error: "Password does not meet required password rules.",
+          passwordValidation,
+        },
         { status: 400 }
       );
     }

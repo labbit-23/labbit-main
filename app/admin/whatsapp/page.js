@@ -1986,17 +1986,19 @@ export default function WhatsAppDashboard() {
       setReportModalError("MRNO is required for trend report PDF.");
       return;
     }
-    if (!reportAuthConfirmed) {
-      setReportModalError("Please confirm recipient authorization before sending.");
-      return;
-    }
-    if (!String(reportAuthType || "").trim()) {
-      setReportModalError("Please select confirmation type.");
-      return;
-    }
-    if (!String(reportAuthEvidence || "").trim()) {
-      setReportModalError("Please enter confirmation evidence details.");
-      return;
+    if (reportAuthorizationRequired) {
+      if (!reportAuthConfirmed) {
+        setReportModalError("Please confirm recipient authorization before sending.");
+        return;
+      }
+      if (!String(reportAuthType || "").trim()) {
+        setReportModalError("Please select confirmation type.");
+        return;
+      }
+      if (!String(reportAuthEvidence || "").trim()) {
+        setReportModalError("Please enter confirmation evidence details.");
+        return;
+      }
     }
     if (!reportSourceLookupOk) {
       setReportModalError("Run lookup for the selected attachment source before sending.");
@@ -2142,6 +2144,33 @@ export default function WhatsAppDashboard() {
       setIsLookingUpRegisteredPhone(false);
     }
   };
+
+  useEffect(() => {
+    if (!showReportTemplateModal) return;
+    if (String(reportTemplateSource || "").trim().toLowerCase() !== "latest_report") return;
+    if (isSendingReportTemplate || isLookingUpRegisteredPhone) return;
+
+    const destinationDigits = digitsOnly(reportTemplatePhone);
+    const registeredDigits = digitsOnly(reportTemplateRegisteredPhone);
+    if (!(destinationDigits.length === 10 || destinationDigits.length === 12)) return;
+    if (!(registeredDigits.length === 10 || registeredDigits.length === 12)) return;
+
+    const lookupKey = canonicalIndiaPhone(reportTemplateRegisteredPhone);
+    if (!lookupKey) return;
+    if (registeredLookupResolvedPhone === lookupKey && registeredLookupSummary) return;
+
+    void handleLookupRegisteredPhone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    showReportTemplateModal,
+    reportTemplateSource,
+    reportTemplatePhone,
+    reportTemplateRegisteredPhone,
+    isSendingReportTemplate,
+    isLookingUpRegisteredPhone,
+    registeredLookupResolvedPhone,
+    registeredLookupSummary
+  ]);
 
   const handleSend = async (text) => {
     const content = toPlainComposerText(String(text ?? composerText ?? ""));
@@ -2579,10 +2608,16 @@ export default function WhatsAppDashboard() {
     reportSourceKey &&
     registeredLookupResolvedPhone === reportSourceKey
   );
+  const reportAuthorizationRequired =
+    reportTemplateSource === "latest_report" &&
+    Boolean(canonicalIndiaPhone(reportTemplatePhone || "")) &&
+    Boolean(canonicalIndiaPhone(reportTemplateRegisteredPhone || "")) &&
+    canonicalIndiaPhone(reportTemplatePhone || "") !== canonicalIndiaPhone(reportTemplateRegisteredPhone || "");
   const reportAuthReady =
-    reportAuthConfirmed &&
-    Boolean(String(reportAuthType || "").trim()) &&
-    Boolean(String(reportAuthEvidence || "").trim());
+    !reportAuthorizationRequired ||
+    (reportAuthConfirmed &&
+      Boolean(String(reportAuthType || "").trim()) &&
+      Boolean(String(reportAuthEvidence || "").trim()));
   const reportTemplateReadyToSend =
     reportDestinationPhoneValid &&
     Boolean(String(reportTemplatePatientName || "").trim()) &&
@@ -3712,53 +3747,61 @@ export default function WhatsAppDashboard() {
               {reportTemplatePreviewText}
             </div>
 
-            <label className="wa-modalLabel">
-              <span className="wa-modalCheck">
-                <input
-                  type="checkbox"
-                  checked={reportAuthConfirmed}
-                  onChange={(e) => {
-                    setReportAuthConfirmed(Boolean(e.target.checked));
-                    setReportModalError("");
-                  }}
-                  disabled={isSendingReportTemplate}
-                />
-                Recipient is authorized to receive reports on patient behalf
-              </span>
-            </label>
+            {reportAuthorizationRequired && (
+              <>
+            {reportAuthorizationRequired && (
+              <>
+                <label className="wa-modalLabel">
+                  <span className="wa-modalCheck">
+                    <input
+                      type="checkbox"
+                      checked={reportAuthConfirmed}
+                      onChange={(e) => {
+                        setReportAuthConfirmed(Boolean(e.target.checked));
+                        setReportModalError("");
+                      }}
+                      disabled={isSendingReportTemplate}
+                    />
+                    Recipient is authorized to receive reports on patient behalf
+                  </span>
+                </label>
 
-            <label className="wa-modalLabel">
-              Confirmation Type
-              <select
-                className="wa-modalInput"
-                value={reportAuthType}
-                onChange={(e) => {
-                  setReportAuthType(e.target.value);
-                  setReportModalError("");
-                }}
-                disabled={isSendingReportTemplate}
-              >
-                <option value="">Select confirmation type</option>
-                <option value="bill_sent">Bill Sent</option>
-                <option value="req_phone_name_confirmed">Req No + Phone/Name Confirmed</option>
-                <option value="patient_direct_confirmation">Patient Directly Confirmed</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
+                <label className="wa-modalLabel">
+                  Confirmation Type
+                  <select
+                    className="wa-modalInput"
+                    value={reportAuthType}
+                    onChange={(e) => {
+                      setReportAuthType(e.target.value);
+                      setReportModalError("");
+                    }}
+                    disabled={isSendingReportTemplate}
+                  >
+                    <option value="">Select confirmation type</option>
+                    <option value="bill_sent">Bill Sent</option>
+                    <option value="req_phone_name_confirmed">Req No + Phone/Name Confirmed</option>
+                    <option value="patient_direct_confirmation">Patient Directly Confirmed</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
 
-            <label className="wa-modalLabel">
-              Confirmation Evidence
-              <input
-                className="wa-modalInput"
-                value={reportAuthEvidence}
-                onChange={(e) => {
-                  setReportAuthEvidence(e.target.value);
-                  setReportModalError("");
-                }}
-                placeholder='Example: "Bill sent to +9183xxxx" or "ReqNo 20260421060 + name confirmed"'
-                disabled={isSendingReportTemplate}
-              />
-            </label>
+                <label className="wa-modalLabel">
+                  Confirmation Evidence
+                  <input
+                    className="wa-modalInput"
+                    value={reportAuthEvidence}
+                    onChange={(e) => {
+                      setReportAuthEvidence(e.target.value);
+                      setReportModalError("");
+                    }}
+                    placeholder='Example: "Bill sent to +9183xxxx" or "ReqNo 20260421060 + name confirmed"'
+                    disabled={isSendingReportTemplate}
+                  />
+                </label>
+              </>
+            )}
+              </>
+            )}
 
             {reportModalError && <div className="wa-modalError">{reportModalError}</div>}
             <div className="wa-modalWarn">

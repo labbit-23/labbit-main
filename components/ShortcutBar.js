@@ -16,13 +16,14 @@ import {
   Circle,
 } from "@chakra-ui/react";
 import { MoonIcon, SunIcon } from "@chakra-ui/icons";
-import { FiBell, FiBellOff, FiHome, FiLogOut, FiUserCheck, FiUserX } from "react-icons/fi";
+import { FiBell, FiBellOff, FiHome, FiKey, FiLogOut, FiUserCheck, FiUserX } from "react-icons/fi";
 import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 import { useUser } from "../app/context/UserContext";
 import AppNotifications from "./AppNotifications";
 import NotificationsHelper from "../lib/notificationsHelper";
+import PasswordManagementModal from "./PasswordManagementModal";
 
 // Map roles to display label and color scheme
 const ROLE_MARKERS = {
@@ -75,6 +76,7 @@ export default function ShortcutBar({
   const { user, refreshUser } = useUser();
   const toast = useToast();
   const [notificationPermission, setNotificationPermission] = React.useState("unknown");
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = React.useState(false);
 
   React.useEffect(() => {
     const syncNotificationPermission = () => {
@@ -229,6 +231,7 @@ export default function ShortcutBar({
   const execType = String(user?.executiveType || user?.roleKey || "").toLowerCase();
   const userType = String(user?.userType || "").toLowerCase();
   const isDirector = (userType === "executive" || userType === "director") && execType === "director";
+  const canManagePassword = Boolean(user) && (userType === "executive" || Boolean(user?.executiveType));
   const supportMode = Boolean(user?.supportMode);
   const supportPatientPhone = String(user?.supportPatientPhone || "").trim();
   const notificationLabel =
@@ -549,6 +552,19 @@ export default function ShortcutBar({
               </Tooltip>
             </>
           )}
+          {canManagePassword && (
+            <Tooltip label="Change Password">
+              <IconButton
+                icon={<FiKey />}
+                onClick={() => setIsPasswordModalOpen(true)}
+                variant="ghost"
+                size={{ base: "sm", sm: "md" }}
+                color={themeMode === "dark" ? "whiteAlpha.900" : undefined}
+                _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : undefined}
+                aria-label="Change password"
+              />
+            </Tooltip>
+          )}
           {rightContent ? (
             <Box display="inline-flex" alignItems="center" gap={2}>
               {rightContent}
@@ -582,6 +598,10 @@ export default function ShortcutBar({
           <DateSelector date={selectedDate} setDate={setSelectedDate} />
         </Box>
       )}
+      <PasswordManagementModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => setIsPasswordModalOpen(false)}
+      />
     </Box>
   );
 }
