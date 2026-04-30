@@ -96,6 +96,16 @@ export default function KioskQueueDisplayPage() {
     [items]
   );
 
+  const pendingApprovalItems = useMemo(
+    () =>
+      items.filter(
+        (x) =>
+          String(x?.performed || "").trim() === "1" &&
+          String(x?.approved_flg || "").trim() !== "1"
+      ),
+    [items]
+  );
+
   const pendingApprovalCount = useMemo(
     () =>
       items.filter(
@@ -584,12 +594,3 @@ export default function KioskQueueDisplayPage() {
     </Box>
   );
 }
-  const pendingApprovalItems = useMemo(
-    () =>
-      items.filter(
-        (x) =>
-          String(x?.performed || "").trim() === "1" &&
-          String(x?.approved_flg || "").trim() !== "1"
-      ),
-    [items]
-  );
