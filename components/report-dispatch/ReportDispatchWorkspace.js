@@ -103,6 +103,8 @@ function queueTimeForDisplay(job) {
 function deriveDeliveryStatus(job) {
   const pr = job?.provider_response;
   const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
+  const explicit = String(job?.delivery_status || "").trim().toLowerCase();
+  if (explicit) return explicit;
   const direct = String(
     payload?.delivery_status || payload?.message_status || payload?.status || payload?.deliveryState || ""
   ).trim().toLowerCase();

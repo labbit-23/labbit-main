@@ -38,6 +38,40 @@ async function can(user, permission) {
   return hasPermission(user, permission, { labId: normalizeLabIds(user)[0] || null });
 }
 
+function parseMaybeJson(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function extractProviderMessageIdFromJob(job) {
+  const payload = parseMaybeJson(job?.provider_response);
+  const id = String(
+    payload?.provider_message_id ||
+      payload?.id ||
+      payload?.message_id ||
+      payload?.messages?.[0]?.id ||
+      ""
+  ).trim();
+  return id || null;
+}
+
+function deliveryRank(status) {
+  const key = String(status || "").toLowerCase();
+  if (key === "failed") return 0;
+  if (key === "sent") return 1;
+  if (key === "delivered") return 2;
+  if (key === "read") return 3;
+  return -1;
+}
+
 export async function GET(request) {
   try {
     const user = await getUser();
@@ -78,6 +112,51 @@ export async function GET(request) {
       return new Response(jobsError.message || "Failed to load jobs", { status: 500 });
     }
 
+    let enrichedJobs = Array.isArray(jobs) ? [...jobs] : [];
+    const providerIds = Array.from(
+      new Set(
+        enrichedJobs
+          .map((row) => extractProviderMessageIdFromJob(row))
+          .filter(Boolean)
+      )
+    );
+
+    if (providerIds.length > 0) {
+      let statusQuery = supabase
+        .from("whatsapp_messages")
+        .select("message_id,payload,created_at")
+        .eq("direction", "status")
+        .in("message_id", providerIds)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      statusQuery = applyLabScope(statusQuery, labIds);
+
+      const { data: statusRows } = await statusQuery;
+      const byMessageId = new Map();
+      for (const row of statusRows || []) {
+        const messageId = String(row?.message_id || "").trim();
+        if (!messageId) continue;
+        const payload = parseMaybeJson(row?.payload);
+        const statusKey = String(payload?.status || "").trim().toLowerCase();
+        if (!statusKey) continue;
+        const prev = byMessageId.get(messageId);
+        if (!prev || deliveryRank(statusKey) >= deliveryRank(prev.status)) {
+          byMessageId.set(messageId, { status: statusKey, at: row?.created_at || null });
+        }
+      }
+
+      enrichedJobs = enrichedJobs.map((row) => {
+        const providerMessageId = extractProviderMessageIdFromJob(row);
+        const delivery = providerMessageId ? byMessageId.get(providerMessageId) : null;
+        return {
+          ...row,
+          provider_message_id: providerMessageId,
+          delivery_status: delivery?.status || null,
+          delivery_status_at: delivery?.at || null,
+        };
+      });
+    }
+
     let events = [];
     if (jobId) {
       let eventsQuery = supabase
@@ -96,7 +175,7 @@ export async function GET(request) {
 
     return NextResponse.json(
       {
-        jobs: Array.isArray(jobs) ? jobs : [],
+        jobs: enrichedJobs,
         events,
         count: Number(count || 0),
         scoped_lab_ids: labIds,
