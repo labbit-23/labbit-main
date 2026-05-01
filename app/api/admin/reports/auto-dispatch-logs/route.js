@@ -63,6 +63,23 @@ function extractProviderMessageIdFromJob(job) {
   return id || null;
 }
 
+function extractProviderMessageIdFromAny(value) {
+  const payload = parseMaybeJson(value);
+  if (!payload || typeof payload !== "object") return null;
+  const direct = String(
+    payload?.provider_message_id ||
+      payload?.message_id ||
+      payload?.id ||
+      payload?.messages?.[0]?.id ||
+      payload?.providerResponse?.message_id ||
+      payload?.providerResponse?.messages?.[0]?.id ||
+      payload?.response?.message_id ||
+      payload?.response?.messages?.[0]?.id ||
+      ""
+  ).trim();
+  return direct || null;
+}
+
 function deliveryRank(status) {
   const key = String(status || "").toLowerCase();
   if (key === "failed") return 0;
@@ -70,6 +87,16 @@ function deliveryRank(status) {
   if (key === "delivered") return 2;
   if (key === "read") return 3;
   return -1;
+}
+
+function normalizeDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function phoneLast10(value) {
+  const digits = normalizeDigits(value);
+  if (!digits) return "";
+  return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
 export async function GET(request) {
@@ -113,41 +140,116 @@ export async function GET(request) {
     }
 
     let enrichedJobs = Array.isArray(jobs) ? [...jobs] : [];
-    const providerIds = Array.from(
+    const providerIdByJobId = new Map();
+    for (const row of enrichedJobs) {
+      const id = extractProviderMessageIdFromJob(row);
+      if (id) providerIdByJobId.set(Number(row?.id), id);
+    }
+
+    const unresolvedJobIds = enrichedJobs
+      .map((row) => Number(row?.id))
+      .filter((id) => Number.isFinite(id) && !providerIdByJobId.has(id));
+
+    if (unresolvedJobIds.length > 0) {
+      const { data: eventRows } = await supabase
+        .from(EVENTS_TABLE)
+        .select("job_id,payload,created_at")
+        .in("job_id", unresolvedJobIds)
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      for (const ev of eventRows || []) {
+        const jobIdNum = Number(ev?.job_id);
+        if (!Number.isFinite(jobIdNum) || providerIdByJobId.has(jobIdNum)) continue;
+        const fromEvent = extractProviderMessageIdFromAny(ev?.payload);
+        if (fromEvent) providerIdByJobId.set(jobIdNum, fromEvent);
+      }
+    }
+
+    const providerIds = Array.from(new Set(Array.from(providerIdByJobId.values()).filter(Boolean)));
+
+    // Pull recent status rows once; use message_id-first matching, then phone+time fallback.
+    let statusRows = [];
+    const statusWindowStartIso = new Date(Date.now() - (3 * 24 * 60 * 60 * 1000)).toISOString();
+    const statusPhones = Array.from(
       new Set(
         enrichedJobs
-          .map((row) => extractProviderMessageIdFromJob(row))
+          .map((row) => phoneLast10(row?.phone))
           .filter(Boolean)
       )
     );
+    if (providerIds.length > 0 || statusPhones.length > 0) {
+      const rows = [];
+      if (providerIds.length > 0) {
+        const { data } = await supabase
+          .from("whatsapp_messages")
+          .select("message_id,phone,status,payload,created_at")
+          .eq("direction", "status")
+          .gte("created_at", statusWindowStartIso)
+          .in("message_id", providerIds)
+          .order("created_at", { ascending: false })
+          .limit(5000);
+        if (Array.isArray(data)) rows.push(...data);
+      }
+      if (statusPhones.length > 0 && statusPhones.length <= 200) {
+        const indiaPhones = statusPhones.map((p) => `91${p}`);
+        const { data } = await supabase
+          .from("whatsapp_messages")
+          .select("message_id,phone,status,payload,created_at")
+          .eq("direction", "status")
+          .gte("created_at", statusWindowStartIso)
+          .in("phone", indiaPhones)
+          .order("created_at", { ascending: false })
+          .limit(5000);
+        if (Array.isArray(data)) rows.push(...data);
+      }
+      const dedup = new Map();
+      for (const row of rows) {
+        const k = `${String(row?.message_id || "")}|${String(row?.phone || "")}|${String(row?.created_at || "")}|${String(row?.status || "")}`;
+        if (!dedup.has(k)) dedup.set(k, row);
+      }
+      statusRows = Array.from(dedup.values());
+    }
 
-    if (providerIds.length > 0) {
-      let statusQuery = supabase
-        .from("whatsapp_messages")
-        .select("message_id,payload,created_at")
-        .eq("direction", "status")
-        .in("message_id", providerIds)
-        .order("created_at", { ascending: false })
-        .limit(1000);
-      statusQuery = applyLabScope(statusQuery, labIds);
-
-      const { data: statusRows } = await statusQuery;
+    if (statusRows.length > 0) {
       const byMessageId = new Map();
+      const byPhone = new Map();
       for (const row of statusRows || []) {
         const messageId = String(row?.message_id || "").trim();
         if (!messageId) continue;
         const payload = parseMaybeJson(row?.payload);
-        const statusKey = String(payload?.status || "").trim().toLowerCase();
+        const statusKey = String(row?.status || payload?.status || "").trim().toLowerCase();
         if (!statusKey) continue;
         const prev = byMessageId.get(messageId);
         if (!prev || deliveryRank(statusKey) >= deliveryRank(prev.status)) {
           byMessageId.set(messageId, { status: statusKey, at: row?.created_at || null });
         }
+
+        const p10 = phoneLast10(row?.phone || payload?.recipient_id);
+        if (p10) {
+          if (!byPhone.has(p10)) byPhone.set(p10, []);
+          byPhone.get(p10).push({ status: statusKey, at: row?.created_at || null });
+        }
       }
 
       enrichedJobs = enrichedJobs.map((row) => {
-        const providerMessageId = extractProviderMessageIdFromJob(row);
-        const delivery = providerMessageId ? byMessageId.get(providerMessageId) : null;
+        const providerMessageId = providerIdByJobId.get(Number(row?.id)) || extractProviderMessageIdFromJob(row);
+        let delivery = providerMessageId ? byMessageId.get(providerMessageId) : null;
+        if (!delivery) {
+          // Fallback correlation: same phone, first statuses after sent_at (or created_at).
+          const p10 = phoneLast10(row?.phone);
+          const candidates = p10 ? (byPhone.get(p10) || []) : [];
+          const sentTs = new Date(row?.sent_at || row?.updated_at || row?.created_at || 0).getTime();
+          if (Number.isFinite(sentTs) && sentTs > 0 && candidates.length > 0) {
+            const horizon = sentTs + (12 * 60 * 60 * 1000);
+            let best = null;
+            for (const c of candidates) {
+              const t = new Date(c?.at || 0).getTime();
+              if (!Number.isFinite(t) || t < sentTs - 30_000 || t > horizon) continue;
+              if (!best || deliveryRank(c.status) >= deliveryRank(best.status)) best = c;
+            }
+            delivery = best;
+          }
+        }
         return {
           ...row,
           provider_message_id: providerMessageId,
