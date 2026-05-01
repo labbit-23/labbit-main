@@ -258,7 +258,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing template_name and no default_campaign found" }, { status: 400 });
     }
 
-    await sendTemplateMessage({
+    const templateResult = await sendTemplateMessage({
       labId: session.lab_id,
       phone: session.phone,
       templateName,
@@ -273,7 +273,9 @@ export async function POST(request) {
         success: true,
         ok: true,
         kind: "template",
-        template_name: templateName
+        template_name: templateName,
+        provider_message_id: extractProviderMessageId(templateResult),
+        provider_response: templateResult
       },
       { status: 200 }
     );
