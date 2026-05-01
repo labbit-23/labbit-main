@@ -29,10 +29,11 @@ import {
   Th,
   Thead,
   Tr,
+  Tooltip,
   useDisclosure,
   useToast
 } from "@chakra-ui/react";
-import { DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon, ViewIcon } from "@chakra-ui/icons";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon, ViewIcon } from "@chakra-ui/icons";
 import { FiActivity, FiPause, FiPlay, FiSend, FiShare2, FiUploadCloud } from "react-icons/fi";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
@@ -75,6 +76,71 @@ function formatIstDateTime(value) {
     minute: "2-digit",
     hour12: true
   });
+}
+
+function stateHint(job) {
+  const status = String(job?.status || "").trim().toLowerCase();
+  if (status === "cooling_off") {
+    return `Cooling until ${formatIstDateTime(job?.scheduled_at || job?.next_attempt_at)}`;
+  }
+  if (status === "queued") {
+    return `Waiting readiness check (next ${formatIstDateTime(job?.next_attempt_at)})`;
+  }
+  if (status === "retrying") {
+    return `Retry scheduled at ${formatIstDateTime(job?.next_attempt_at)}`;
+  }
+  if (status === "eligible") {
+    return "Ready to send on next worker cycle";
+  }
+  if (status === "sent") {
+    return `Sent at ${formatIstDateTime(job?.sent_at)}`;
+  }
+  if (status === "failed") {
+    return "Max retries reached or terminal send failure";
+  }
+  return "-";
+}
+
+function smartTimestamp(job) {
+  const status = String(job?.status || "").trim().toLowerCase();
+  if (status === "cooling_off") return `COOLING_OFF: ${formatIstDateTime(job?.scheduled_at || job?.next_attempt_at)}`;
+  if (status === "queued") return `QUEUED: ${formatIstDateTime(job?.next_attempt_at)}`;
+  if (status === "retrying") return `RETRYING: ${formatIstDateTime(job?.next_attempt_at)}`;
+  if (status === "eligible") return `ELIGIBLE: ${formatIstDateTime(job?.next_attempt_at)}`;
+  if (status === "sending") return `SENDING: ${formatIstDateTime(job?.last_attempt_at)}`;
+  if (status === "sent") return `SENT: ${formatIstDateTime(job?.sent_at)}`;
+  if (status === "failed") return `FAILED: ${formatIstDateTime(job?.updated_at)}`;
+  return `${String(status || "UPDATED").toUpperCase()}: ${formatIstDateTime(job?.updated_at)}`;
+}
+
+function parseSnapshot(snapshot) {
+  if (!snapshot) return null;
+  if (typeof snapshot === "object") return snapshot;
+  if (typeof snapshot === "string") {
+    try {
+      return JSON.parse(snapshot);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function queuedBlockers(job) {
+  const snap = parseSnapshot(job?.last_status_snapshot);
+  const tests = Array.isArray(snap?.tests) ? snap.tests : [];
+  const pending = tests
+    .filter((row) => String(row?.SAMEDAYREPORT || row?.samedayreport || "").trim() === "1")
+    .filter((row) => {
+      const approved = String(row?.APPROVEDFLG || row?.approvedflg || "").trim() === "1";
+      const reportStatus = String(row?.REPORT_STATUS || row?.report_status || "").trim().toUpperCase();
+      return !(approved || reportStatus === "LAB_READY" || reportStatus === "RADIOLOGY_READY");
+    })
+    .map((row) => String(row?.TESTNM || row?.testnm || row?.test_name || "").trim())
+    .filter(Boolean);
+  if (!pending.length) return "";
+  const short = pending.slice(0, 2).join(", ");
+  return pending.length > 2 ? `${short} +${pending.length - 2} more` : short;
 }
 
 function fallbackAutoPermissions(role) {
@@ -503,7 +569,7 @@ export default function ReportDispatchWorkspace({
       setAutoJobs(Array.isArray(json?.jobs) ? json.jobs : []);
       setAutoJobsCount(Number(json?.count || 0));
       setAutoScopedLabIds(Array.isArray(json?.scoped_lab_ids) ? json.scoped_lab_ids : []);
-      setAutoPage(1);
+      if (options?.resetPage) setAutoPage(1);
       return true;
     } catch (err) {
       setError(err?.message || "Failed to load auto-dispatch jobs");
@@ -555,7 +621,7 @@ export default function ReportDispatchWorkspace({
         duration: 1800,
         isClosable: true
       });
-      await loadAutoDispatchJobs({ limit: 120 });
+      await loadAutoDispatchJobs({ limit: 120, resetPage: false });
       if (selectedJob && String(selectedJob?.id || "") === jobId && autoEventsModal.isOpen) {
         await openAutoEvents({ id: jobId });
       }
@@ -804,7 +870,7 @@ export default function ReportDispatchWorkspace({
                 onClick={async () => {
                   const next = !monitorOpen;
                   setMonitorOpen(next);
-                  if (next) await loadAutoDispatchJobs({ limit: 120 });
+                  if (next) await loadAutoDispatchJobs({ limit: 120, resetPage: true });
                 }}
                 leftIcon={<ViewIcon />}
               >
@@ -967,10 +1033,21 @@ export default function ReportDispatchWorkspace({
                     <option value="failed">failed</option>
                     <option value="cancelled">cancelled</option>
                   </Select>
-                  <Button size="sm" leftIcon={<RepeatIcon />} variant="outline" onClick={() => loadAutoDispatchJobs({ limit: 120 })} isLoading={autoLoading}>Refresh</Button>
+                  <IconButton
+                    type="button"
+                    size="sm"
+                    aria-label="Refresh"
+                    icon={<RepeatIcon />}
+                    variant="outline"
+                    onClick={() => loadAutoDispatchJobs({ limit: 120 })}
+                    isLoading={autoLoading}
+                  />
                   {canAutoPauseAll ? (
-                    <Button
+                    <IconButton
                       size="sm"
+                      type="button"
+                      aria-label="Pause all visible"
+                      icon={<FiPause />}
                       colorScheme="orange"
                       variant="solid"
                       onClick={() => runAutoJobAction("", "pause_all", {
@@ -979,50 +1056,103 @@ export default function ReportDispatchWorkspace({
                           .map((row) => row?.id)
                       })}
                       isLoading={autoActionLoading}
-                    >
-                      Pause All Visible
-                    </Button>
+                    />
                   ) : null}
                 </HStack>
               </Flex>
 
-              <Box overflow="auto" borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" maxH="50vh">
-                <Table
-                  size="sm"
-                  variant="simple"
-                  sx={{
-                    "th, td": { fontSize: "xs", py: 2, verticalAlign: "top" },
-                    th: {
-                      position: "sticky",
-                      top: 0,
-                      zIndex: 1,
-                      bg: themeMode === "dark" ? "gray.800" : "gray.50",
-                      letterSpacing: "0.08em"
-                    }
-                  }}
-                >
-                  <Thead>
-                    <Tr>
-                      <Th>Status</Th>
-                      <Th>REQNO</Th>
-                      <Th>Patient</Th>
-                      <Th>Phone</Th>
-                      <Th>Attempts</Th>
-                      <Th>Last Error</Th>
-                      <Th>Updated</Th>
-                      <Th>Paused</Th>
-                      <Th>Actions</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {pagedAutoJobs.map((job) => {
+              {isMobileViewport ? (
+                <Box>
+                  {pagedAutoJobs.map((job) => {
+                    const jobId = String(job?.id || "");
+                    const statusValue = String(job?.status || "");
+                    const canResumeRow = canAutoPause && Boolean(job?.is_paused);
+                    const canPauseRow = canAutoPause && !job?.is_paused;
+                    const canPushRow = canAutoPush;
+                    const canSendToRow = canAutoSendTo;
+                    const isTerminalRow = ["sent", "cancelled"].includes(String(job?.status || "").toLowerCase());
+                    const canTogglePause = (canPauseRow || canResumeRow) && !isTerminalRow;
+                    const pauseAction = job?.is_paused ? "resume" : "pause";
+                    const pauseLabel = job?.is_paused ? "Resume" : "Pause";
+                    const pauseIcon = job?.is_paused ? <FiPlay /> : <FiPause />;
+                    const pauseColor = job?.is_paused ? "green" : "orange";
+                    const whyText =
+                      displayValue(job?.last_error) !== "-"
+                        ? displayValue(job?.last_error)
+                        : String(job?.status || "").toLowerCase() === "queued" && queuedBlockers(job)
+                          ? `Pending tests: ${queuedBlockers(job)}`
+                          : stateHint(job);
+                    return (
+                      <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
+                        <Flex justify="space-between" align="center" mb={1.5}>
+                          <Badge colorScheme={statusValue === "sent" ? "green" : statusValue === "failed" ? "red" : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying" ? "orange" : "blue"} borderRadius="md" px={2} textTransform="lowercase">
+                            {displayValue(statusValue)}
+                          </Badge>
+                          <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : "Active"}</Badge>
+                        </Flex>
+                        <Text fontSize="xs" fontWeight="semibold">{displayValue(job?.reqno)} • {displayValue(job?.patient_name)}</Text>
+                        <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)} • {Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Text>
+                        <Tooltip label={whyText} hasArrow openDelay={250}>
+                          <Text fontSize="xs" mt={1} noOfLines={2}>Why: {whyText}</Text>
+                        </Tooltip>
+                        <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
+                          <Text fontSize="xs" noOfLines={1}>Time: {smartTimestamp(job)}</Text>
+                        </Tooltip>
+                        <HStack spacing={1.5} mt={2} wrap="nowrap">
+                          <Tooltip label="Events" hasArrow openDelay={250}>
+                            <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={autoActionLoading} />
+                          </Tooltip>
+                          <Tooltip label="Push now" hasArrow openDelay={250}>
+                            <IconButton size="xs" type="button" aria-label="Push now" colorScheme="blue" icon={<FiSend />} onClick={() => runAutoJobAction(jobId, "push_now")} isDisabled={!canPushRow} isLoading={autoActionLoading} />
+                          </Tooltip>
+                          <Tooltip label="Push to" hasArrow openDelay={250}>
+                            <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<FiUploadCloud />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
+                          </Tooltip>
+                          <Tooltip label={pauseLabel} hasArrow openDelay={250}>
+                            <IconButton size="xs" type="button" aria-label={pauseLabel} colorScheme={pauseColor} variant={canTogglePause ? "solid" : "outline"} icon={pauseIcon} onClick={() => runAutoJobAction(jobId, pauseAction)} isDisabled={!canTogglePause} isLoading={autoActionLoading} />
+                          </Tooltip>
+                        </HStack>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ) : (
+                <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflow="visible">
+                  <Table
+                    size="sm"
+                    variant="simple"
+                    sx={{
+                      tableLayout: "fixed",
+                      "th, td": { fontSize: "xs", py: 2, verticalAlign: "top" },
+                      th: {
+                        bg: themeMode === "dark" ? "gray.800" : "gray.50",
+                        letterSpacing: "0.08em"
+                      }
+                    }}
+                  >
+                    <Thead>
+                      <Tr>
+                        <Th>Status</Th>
+                        <Th>REQNO</Th>
+                        <Th>Patient</Th>
+                        <Th>Phone</Th>
+                        <Th>Attempts</Th>
+                        <Th>Why / State</Th>
+                        <Th>Timeline (IST)</Th>
+                        <Th>Paused</Th>
+                        <Th>Actions</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {pagedAutoJobs.map((job) => {
                       const jobId = String(job?.id || "");
                       const statusValue = String(job?.status || "");
                       const canResumeRow = canAutoPause && Boolean(job?.is_paused);
                       const canPauseRow = canAutoPause && !job?.is_paused;
                       const canPushRow = canAutoPush;
                       const canSendToRow = canAutoSendTo;
-                      const canTogglePause = canPauseRow || canResumeRow;
+                      const isTerminalRow = ["sent", "cancelled"].includes(String(job?.status || "").toLowerCase());
+                      const canTogglePause = (canPauseRow || canResumeRow) && !isTerminalRow;
                       const pauseAction = job?.is_paused ? "resume" : "pause";
                       const pauseLabel = job?.is_paused ? "Resume" : "Pause";
                       const pauseIcon = job?.is_paused ? <FiPlay /> : <FiPause />;
@@ -1047,72 +1177,137 @@ export default function ReportDispatchWorkspace({
                               {displayValue(statusValue)}
                             </Badge>
                           </Td>
-                          <Td>{displayValue(job?.reqno)}</Td>
-                          <Td>{displayValue(job?.patient_name)}</Td>
-                          <Td>{displayValue(job?.phone)}</Td>
+                          <Td w="10%">{displayValue(job?.reqno)}</Td>
+                          <Td w="13%">{displayValue(job?.patient_name)}</Td>
+                          <Td w="10%">{displayValue(job?.phone)}</Td>
                           <Td>{Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Td>
-                          <Td maxW="220px"><Text noOfLines={2}>{displayValue(job?.last_error)}</Text></Td>
-                          <Td whiteSpace="nowrap">{formatIstDateTime(job?.updated_at)}</Td>
+                          <Td w="20%">
+                            <Tooltip
+                              label={
+                                displayValue(job?.last_error) !== "-"
+                                  ? displayValue(job?.last_error)
+                                  : String(job?.status || "").toLowerCase() === "queued" && queuedBlockers(job)
+                                    ? `Pending tests: ${queuedBlockers(job)}`
+                                    : stateHint(job)
+                              }
+                              hasArrow
+                              openDelay={250}
+                            >
+                              <Text noOfLines={2}>
+                                {displayValue(job?.last_error) !== "-"
+                                  ? displayValue(job?.last_error)
+                                  : String(job?.status || "").toLowerCase() === "queued" && queuedBlockers(job)
+                                    ? `Pending tests: ${queuedBlockers(job)}`
+                                    : stateHint(job)}
+                              </Text>
+                            </Tooltip>
+                          </Td>
+                          <Td w="14%">
+                            <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
+                              <Text noOfLines={1}>{smartTimestamp(job)}</Text>
+                            </Tooltip>
+                          </Td>
                           <Td><Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Yes" : "No"}</Badge></Td>
-                          <Td minW="360px">
-                            <HStack spacing={1.5} mb={1.5} wrap="wrap">
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                leftIcon={<FiActivity />}
-                                onClick={() => openAutoEvents(job)}
-                                isLoading={autoActionLoading}
-                                _hover={{ bg: "gray.100" }}
-                              >
-                                Events
-                              </Button>
-                              <Button
-                                size="xs"
-                                colorScheme="blue"
-                                leftIcon={<FiSend />}
-                                onClick={() => runAutoJobAction(jobId, "push_now")}
-                                isDisabled={!canPushRow}
-                                isLoading={autoActionLoading}
-                                _hover={{ transform: "translateY(-1px)" }}
-                              >
-                                Push
-                              </Button>
-                              <Button
-                                size="xs"
-                                colorScheme="purple"
-                                leftIcon={<FiUploadCloud />}
-                                onClick={() => openPushTemplateModal(job)}
-                                isDisabled={!canSendToRow}
-                                _hover={{ transform: "translateY(-1px)" }}
-                              >
-                                Push To
-                              </Button>
-                              <Button
-                                size="xs"
-                                colorScheme={pauseColor}
-                                variant={canTogglePause ? "solid" : "outline"}
-                                leftIcon={pauseIcon}
-                                onClick={() => runAutoJobAction(jobId, pauseAction)}
-                                isDisabled={!canTogglePause}
-                                isLoading={autoActionLoading}
-                                _hover={{ transform: "translateY(-1px)" }}
-                              >
-                                {pauseLabel}
-                              </Button>
+                          <Td w="24%">
+                            <HStack spacing={1.5} mb={1.5} wrap="nowrap">
+                              <Tooltip label="Events" hasArrow openDelay={250}>
+                                <IconButton
+                                  size="xs"
+                                  type="button"
+                                  aria-label="Events"
+                                  variant="outline"
+                                  icon={<FiActivity />}
+                                  onClick={() => openAutoEvents(job)}
+                                  isLoading={autoActionLoading}
+                                  _hover={{ bg: "gray.100" }}
+                                />
+                              </Tooltip>
+                              <Tooltip label="Push now" hasArrow openDelay={250}>
+                                <IconButton
+                                  size="xs"
+                                  type="button"
+                                  aria-label="Push now"
+                                  colorScheme="blue"
+                                  icon={<FiSend />}
+                                  onClick={() => runAutoJobAction(jobId, "push_now")}
+                                  isDisabled={!canPushRow}
+                                  isLoading={autoActionLoading}
+                                  _hover={{ transform: "translateY(-1px)" }}
+                                />
+                              </Tooltip>
+                              <Tooltip label="Push to" hasArrow openDelay={250}>
+                                <IconButton
+                                  size="xs"
+                                  type="button"
+                                  aria-label="Push to"
+                                  colorScheme="purple"
+                                  icon={<FiUploadCloud />}
+                                  onClick={() => openPushTemplateModal(job)}
+                                  isDisabled={!canSendToRow}
+                                  _hover={{ transform: "translateY(-1px)" }}
+                                />
+                              </Tooltip>
+                              <Tooltip label={pauseLabel} hasArrow openDelay={250}>
+                                <IconButton
+                                  size="xs"
+                                  type="button"
+                                  aria-label={pauseLabel}
+                                  colorScheme={pauseColor}
+                                  variant={canTogglePause ? "solid" : "outline"}
+                                  icon={pauseIcon}
+                                  onClick={() => runAutoJobAction(jobId, pauseAction)}
+                                  isDisabled={!canTogglePause}
+                                  isLoading={autoActionLoading}
+                                  _hover={{ transform: "translateY(-1px)" }}
+                                />
+                              </Tooltip>
                             </HStack>
                           </Td>
                         </Tr>
                       );
-                    })}
-                  </Tbody>
-                </Table>
-              </Box>
+                      })}
+                    </Tbody>
+                  </Table>
+                </Box>
+              )}
               <Flex mt={3} align="center" justify="space-between">
                 <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
                 <HStack spacing={2}>
-                  <Button size="xs" onClick={() => setAutoPage((p) => Math.max(1, p - 1))} isDisabled={safeAutoPage <= 1}>Prev</Button>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="First page"
+                    icon={<ChevronLeftIcon />}
+                    onClick={() => setAutoPage(1)}
+                    isDisabled={safeAutoPage <= 1}
+                    variant="outline"
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Previous page"
+                    icon={<ChevronLeftIcon />}
+                    onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
+                    isDisabled={safeAutoPage <= 1}
+                  />
                   <Text fontSize="xs">Page {safeAutoPage} / {totalAutoPages}</Text>
-                  <Button size="xs" onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))} isDisabled={safeAutoPage >= totalAutoPages}>Next</Button>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Next page"
+                    icon={<ChevronRightIcon />}
+                    onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Last page"
+                    icon={<ChevronRightIcon />}
+                    onClick={() => setAutoPage(totalAutoPages)}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                    variant="outline"
+                  />
                 </HStack>
               </Flex>
             </Box>

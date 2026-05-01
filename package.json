@@ -5,6 +5,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "sync:health-packages": "node scripts/sync-health-packages.mjs",
     "bot:test": "node scripts/test-whatsapp-bot.mjs",
     "deploy:vps:frontend": "bash scripts/deploy-vps-frontend.sh"
   },
