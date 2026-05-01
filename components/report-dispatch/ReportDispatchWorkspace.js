@@ -20,6 +20,7 @@ import {
   ModalHeader,
   ModalOverlay,
   Progress,
+  Select,
   SimpleGrid,
   Table,
   Tbody,
@@ -31,13 +32,16 @@ import {
   useDisclosure,
   useToast
 } from "@chakra-ui/react";
-import { DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
-import { FiShare2 } from "react-icons/fi";
+import { DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon, ViewIcon } from "@chakra-ui/icons";
+import { FiActivity, FiPause, FiPlay, FiSend, FiShare2, FiUploadCloud } from "react-icons/fi";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
+import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
 
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
 const DAILY_PAGE_SIZE = 10;
+const AUTO_JOBS_PAGE_SIZE = 12;
+const IST_TIMEZONE = "Asia/Kolkata";
 
 function toneByMode(mode) {
   if (mode === "allow_full" || mode === "try_pending_print_once") return "green";
@@ -57,6 +61,40 @@ function byReqnoDesc(a, b) {
   const nb = Number(rb);
   if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return nb - na;
   return rb.localeCompare(ra);
+}
+
+function formatIstDateTime(value) {
+  if (!value) return "-";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return displayValue(value);
+  return dt.toLocaleString("en-IN", {
+    timeZone: IST_TIMEZONE,
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+}
+
+function fallbackAutoPermissions(role) {
+  const roleKey = String(role || "").trim().toLowerCase();
+  if (roleKey === "director" || roleKey === "admin") {
+    return [
+      "reports.auto_dispatch.view",
+      "reports.auto_dispatch.push",
+      "reports.auto_dispatch.send_to",
+      "reports.auto_dispatch.pause",
+      "reports.auto_dispatch.pause_all"
+    ];
+  }
+  if (roleKey === "manager") {
+    return ["reports.auto_dispatch.view", "reports.auto_dispatch.push", "reports.auto_dispatch.send_to"];
+  }
+  if (roleKey === "agent" || roleKey === "executive") {
+    return ["reports.auto_dispatch.view"];
+  }
+  return [];
 }
 
 export default function ReportDispatchWorkspace({
@@ -81,6 +119,16 @@ export default function ReportDispatchWorkspace({
     upstreamCalled: false
   });
   const [dailyPage, setDailyPage] = useState(1);
+  const [autoStatusFilter, setAutoStatusFilter] = useState("");
+  const [autoJobs, setAutoJobs] = useState([]);
+  const [autoEvents, setAutoEvents] = useState([]);
+  const [autoJobsCount, setAutoJobsCount] = useState(0);
+  const [autoScopedLabIds, setAutoScopedLabIds] = useState([]);
+  const [autoPage, setAutoPage] = useState(1);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [monitorOpen, setMonitorOpen] = useState(false);
+  const [grantedPermissions, setGrantedPermissions] = useState([]);
+  const [pushTemplateJob, setPushTemplateJob] = useState(null);
 
   const [status, setStatus] = useState(null);
   const [selectedReportMeta, setSelectedReportMeta] = useState(null);
@@ -88,6 +136,8 @@ export default function ReportDispatchWorkspace({
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [dailyLoading, setDailyLoading] = useState(false);
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoActionLoading, setAutoActionLoading] = useState(false);
   const [error, setError] = useState("");
 
   const [headerRequired, setHeaderRequired] = useState(false);
@@ -95,6 +145,8 @@ export default function ReportDispatchWorkspace({
 
   const phoneModal = useDisclosure();
   const dateModal = useDisclosure();
+  const autoEventsModal = useDisclosure();
+  const pushTemplateModal = useDisclosure();
 
   const phoneCacheRef = useRef(new Map());
   const dateCacheRef = useRef(new Map());
@@ -145,6 +197,31 @@ export default function ReportDispatchWorkspace({
     setDailyPage(1);
   }, [selectedDate]);
 
+  useEffect(() => {
+    setAutoPage(1);
+  }, [autoStatusFilter]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/admin/uac/permissions", { cache: "no-store" });
+        if (!res.ok) throw new Error("uac-permissions-unavailable");
+        const json = await res.json();
+        const rolePerms = Array.isArray(json?.policy?.[String(userRole || "").toLowerCase()])
+          ? json.policy[String(userRole || "").toLowerCase()]
+          : [];
+        if (active) setGrantedPermissions(rolePerms);
+      } catch {
+        if (active) setGrantedPermissions(fallbackAutoPermissions(userRole));
+      }
+    }
+    loadPermissions();
+    return () => {
+      active = false;
+    };
+  }, [userRole]);
+
   const readyPct = useMemo(() => {
     const ready = Number(status?.live_status?.lab_ready || 0);
     const total = Number(status?.live_status?.lab_total || 0);
@@ -173,6 +250,20 @@ export default function ReportDispatchWorkspace({
     safeDailyPage * DAILY_PAGE_SIZE
   );
 
+  const autoFilteredJobs = useMemo(() => {
+    const rows = [...(Array.isArray(autoJobs) ? autoJobs : [])].sort(byReqnoDesc);
+    const status = String(autoStatusFilter || "").trim().toLowerCase();
+    if (!status) return rows;
+    return rows.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
+  }, [autoJobs, autoStatusFilter]);
+
+  const totalAutoPages = Math.max(1, Math.ceil(autoFilteredJobs.length / AUTO_JOBS_PAGE_SIZE));
+  const safeAutoPage = Math.min(autoPage, totalAutoPages);
+  const pagedAutoJobs = autoFilteredJobs.slice(
+    (safeAutoPage - 1) * AUTO_JOBS_PAGE_SIZE,
+    safeAutoPage * AUTO_JOBS_PAGE_SIZE
+  );
+
   function currentReqid() {
     return String(status?.reqid || selectedReportMeta?.reqid || "").trim();
   }
@@ -199,6 +290,12 @@ export default function ReportDispatchWorkspace({
   const canTrend = Boolean(currentMrno());
   const canSmartTrends = Boolean(currentMrno());
   const canDispatch = Boolean(currentReqid() || currentReqno());
+  const hasWildcard = grantedPermissions.includes("*");
+  const canAutoView = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.view");
+  const canAutoPush = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.push");
+  const canAutoSendTo = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.send_to");
+  const canAutoPause = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.pause");
+  const canAutoPauseAll = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.pause_all");
 
   function findPhoneFromDailyRows(reqnoValue) {
     const cleanReqno = String(reqnoValue || "").trim();
@@ -392,6 +489,86 @@ export default function ReportDispatchWorkspace({
       preferredPhone: String(row?.phoneno || row?.phone || "").trim(),
       preferredOrgId: String(row?.org_id || "").trim()
     });
+  }
+
+  async function loadAutoDispatchJobs(options = {}) {
+    setAutoLoading(true);
+    try {
+      const limit = Number(options?.limit || 120);
+      const query = new URLSearchParams({ limit: String(limit) });
+      if (autoStatusFilter) query.set("status", autoStatusFilter);
+      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setAutoJobs(Array.isArray(json?.jobs) ? json.jobs : []);
+      setAutoJobsCount(Number(json?.count || 0));
+      setAutoScopedLabIds(Array.isArray(json?.scoped_lab_ids) ? json.scoped_lab_ids : []);
+      setAutoPage(1);
+      return true;
+    } catch (err) {
+      setError(err?.message || "Failed to load auto-dispatch jobs");
+      return false;
+    } finally {
+      setAutoLoading(false);
+    }
+  }
+
+  async function openAutoEvents(job) {
+    const jobId = String(job?.id || "").trim();
+    if (!jobId) return;
+    setAutoActionLoading(true);
+    try {
+      const query = new URLSearchParams({ job_id: jobId, limit: "200" });
+      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setSelectedJob(job);
+      setAutoEvents(Array.isArray(json?.events) ? json.events : []);
+      autoEventsModal.onOpen();
+    } catch (err) {
+      setError(err?.message || "Failed to load events");
+    } finally {
+      setAutoActionLoading(false);
+    }
+  }
+
+  async function runAutoJobAction(jobIdValue, action, extra = {}) {
+    const jobId = String(jobIdValue || "").trim();
+    if (!action) return;
+    if (!jobId && action !== "pause_all") return;
+    setAutoActionLoading(true);
+    try {
+      const body = { action };
+      if (jobId) body.job_id = jobId;
+      if (extra?.phone) body.phone = String(extra.phone || "");
+      if (Array.isArray(extra?.job_ids)) body.job_ids = extra.job_ids;
+      const res = await fetch("/api/admin/reports/auto-dispatch-logs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast({
+        title: "Action queued",
+        description: action === "pause_all" ? "Paused all visible eligible jobs." : `Applied ${action} on job #${jobId}`,
+        status: "success",
+        duration: 1800,
+        isClosable: true
+      });
+      await loadAutoDispatchJobs({ limit: 120 });
+      if (selectedJob && String(selectedJob?.id || "") === jobId && autoEventsModal.isOpen) {
+        await openAutoEvents({ id: jobId });
+      }
+    } catch (err) {
+      setError(err?.message || "Failed to update job");
+    } finally {
+      setAutoActionLoading(false);
+    }
+  }
+
+  async function openPushTemplateModal(job) {
+    setPushTemplateJob(job || null);
+    pushTemplateModal.onOpen();
   }
 
   async function openDocument(reportScope, extra = {}) {
@@ -619,6 +796,21 @@ export default function ReportDispatchWorkspace({
         >
           <Flex align="center" justify="space-between" wrap="wrap" gap={3}>
             <Heading className="dashboard-theme-heading" size="lg">Report Dispatch</Heading>
+            {canAutoView ? (
+              <Button
+                size="sm"
+                variant={monitorOpen ? "solid" : "outline"}
+                colorScheme="blue"
+                onClick={async () => {
+                  const next = !monitorOpen;
+                  setMonitorOpen(next);
+                  if (next) await loadAutoDispatchJobs({ limit: 120 });
+                }}
+                leftIcon={<ViewIcon />}
+              >
+                Dispatch Monitor
+              </Button>
+            ) : null}
           </Flex>
 
           <Box
@@ -747,6 +939,184 @@ export default function ReportDispatchWorkspace({
               </SimpleGrid>
             </Box>
           </Flex>
+
+          {monitorOpen ? (
+            <Box
+              borderWidth="1px"
+              borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
+              borderRadius="xl"
+              p={3}
+              bg={themeMode === "dark" ? "rgba(255,255,255,0.03)" : "white"}
+              boxShadow={themeMode === "dark" ? "none" : "sm"}
+            >
+              <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={3}>
+                <HStack spacing={2} align="center">
+                  <Text fontWeight="bold" fontSize="lg">Auto Dispatch Monitor</Text>
+                  <Badge colorScheme="blue" px={2} py={1} borderRadius="md">{autoJobsCount} Total</Badge>
+                  <Badge px={2} py={1} borderRadius="md">{autoScopedLabIds.length} Lab(s)</Badge>
+                </HStack>
+                <HStack spacing={2}>
+                  <Select size="sm" maxW="220px" borderRadius="md" value={autoStatusFilter} onChange={(e) => setAutoStatusFilter(e.target.value)}>
+                    <option value="">All statuses</option>
+                    <option value="queued">queued</option>
+                    <option value="cooling_off">cooling_off</option>
+                    <option value="retrying">retrying</option>
+                    <option value="eligible">eligible</option>
+                    <option value="sending">sending</option>
+                    <option value="sent">sent</option>
+                    <option value="failed">failed</option>
+                    <option value="cancelled">cancelled</option>
+                  </Select>
+                  <Button size="sm" leftIcon={<RepeatIcon />} variant="outline" onClick={() => loadAutoDispatchJobs({ limit: 120 })} isLoading={autoLoading}>Refresh</Button>
+                  {canAutoPauseAll ? (
+                    <Button
+                      size="sm"
+                      colorScheme="orange"
+                      variant="solid"
+                      onClick={() => runAutoJobAction("", "pause_all", {
+                        job_ids: autoFilteredJobs
+                          .filter((row) => ["queued", "cooling_off", "retrying"].includes(String(row?.status || "")))
+                          .map((row) => row?.id)
+                      })}
+                      isLoading={autoActionLoading}
+                    >
+                      Pause All Visible
+                    </Button>
+                  ) : null}
+                </HStack>
+              </Flex>
+
+              <Box overflow="auto" borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" maxH="50vh">
+                <Table
+                  size="sm"
+                  variant="simple"
+                  sx={{
+                    "th, td": { fontSize: "xs", py: 2, verticalAlign: "top" },
+                    th: {
+                      position: "sticky",
+                      top: 0,
+                      zIndex: 1,
+                      bg: themeMode === "dark" ? "gray.800" : "gray.50",
+                      letterSpacing: "0.08em"
+                    }
+                  }}
+                >
+                  <Thead>
+                    <Tr>
+                      <Th>Status</Th>
+                      <Th>REQNO</Th>
+                      <Th>Patient</Th>
+                      <Th>Phone</Th>
+                      <Th>Attempts</Th>
+                      <Th>Last Error</Th>
+                      <Th>Updated</Th>
+                      <Th>Paused</Th>
+                      <Th>Actions</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {pagedAutoJobs.map((job) => {
+                      const jobId = String(job?.id || "");
+                      const statusValue = String(job?.status || "");
+                      const canResumeRow = canAutoPause && Boolean(job?.is_paused);
+                      const canPauseRow = canAutoPause && !job?.is_paused;
+                      const canPushRow = canAutoPush;
+                      const canSendToRow = canAutoSendTo;
+                      const canTogglePause = canPauseRow || canResumeRow;
+                      const pauseAction = job?.is_paused ? "resume" : "pause";
+                      const pauseLabel = job?.is_paused ? "Resume" : "Pause";
+                      const pauseIcon = job?.is_paused ? <FiPlay /> : <FiPause />;
+                      const pauseColor = job?.is_paused ? "green" : "orange";
+                      return (
+                        <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
+                          <Td>
+                            <Badge
+                              colorScheme={
+                                statusValue === "sent"
+                                  ? "green"
+                                  : statusValue === "failed"
+                                    ? "red"
+                                    : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying"
+                                      ? "orange"
+                                      : "blue"
+                              }
+                              borderRadius="md"
+                              px={2}
+                              textTransform="lowercase"
+                            >
+                              {displayValue(statusValue)}
+                            </Badge>
+                          </Td>
+                          <Td>{displayValue(job?.reqno)}</Td>
+                          <Td>{displayValue(job?.patient_name)}</Td>
+                          <Td>{displayValue(job?.phone)}</Td>
+                          <Td>{Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Td>
+                          <Td maxW="220px"><Text noOfLines={2}>{displayValue(job?.last_error)}</Text></Td>
+                          <Td whiteSpace="nowrap">{formatIstDateTime(job?.updated_at)}</Td>
+                          <Td><Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Yes" : "No"}</Badge></Td>
+                          <Td minW="360px">
+                            <HStack spacing={1.5} mb={1.5} wrap="wrap">
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                leftIcon={<FiActivity />}
+                                onClick={() => openAutoEvents(job)}
+                                isLoading={autoActionLoading}
+                                _hover={{ bg: "gray.100" }}
+                              >
+                                Events
+                              </Button>
+                              <Button
+                                size="xs"
+                                colorScheme="blue"
+                                leftIcon={<FiSend />}
+                                onClick={() => runAutoJobAction(jobId, "push_now")}
+                                isDisabled={!canPushRow}
+                                isLoading={autoActionLoading}
+                                _hover={{ transform: "translateY(-1px)" }}
+                              >
+                                Push
+                              </Button>
+                              <Button
+                                size="xs"
+                                colorScheme="purple"
+                                leftIcon={<FiUploadCloud />}
+                                onClick={() => openPushTemplateModal(job)}
+                                isDisabled={!canSendToRow}
+                                _hover={{ transform: "translateY(-1px)" }}
+                              >
+                                Push To
+                              </Button>
+                              <Button
+                                size="xs"
+                                colorScheme={pauseColor}
+                                variant={canTogglePause ? "solid" : "outline"}
+                                leftIcon={pauseIcon}
+                                onClick={() => runAutoJobAction(jobId, pauseAction)}
+                                isDisabled={!canTogglePause}
+                                isLoading={autoActionLoading}
+                                _hover={{ transform: "translateY(-1px)" }}
+                              >
+                                {pauseLabel}
+                              </Button>
+                            </HStack>
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </Tbody>
+                </Table>
+              </Box>
+              <Flex mt={3} align="center" justify="space-between">
+                <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
+                <HStack spacing={2}>
+                  <Button size="xs" onClick={() => setAutoPage((p) => Math.max(1, p - 1))} isDisabled={safeAutoPage <= 1}>Prev</Button>
+                  <Text fontSize="xs">Page {safeAutoPage} / {totalAutoPages}</Text>
+                  <Button size="xs" onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))} isDisabled={safeAutoPage >= totalAutoPages}>Next</Button>
+                </HStack>
+              </Flex>
+            </Box>
+          ) : null}
 
           <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} display="flex" flexDirection="column">
             <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={2} mb={1}>
@@ -962,6 +1332,60 @@ export default function ReportDispatchWorkspace({
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      <Modal isOpen={autoEventsModal.isOpen} onClose={autoEventsModal.onClose} size="4xl" isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Dispatch Events: Job #{displayValue(selectedJob?.id)}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Box overflow="auto" maxH="60vh" borderWidth="1px" borderColor="gray.200" borderRadius="md">
+              <Table size="sm" variant="simple">
+                <Thead>
+                  <Tr>
+                    <Th>Time</Th>
+                    <Th>Event</Th>
+                    <Th>Message</Th>
+                    <Th>Phone</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {(Array.isArray(autoEvents) ? autoEvents : []).map((row) => (
+                    <Tr key={String(row?.id || `${row?.job_id || ""}_${row?.created_at || ""}`)}>
+                      <Td>{formatIstDateTime(row?.created_at)}</Td>
+                      <Td>{displayValue(row?.event_type)}</Td>
+                      <Td>{displayValue(row?.message)}</Td>
+                      <Td>{displayValue(row?.phone)}</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={autoEventsModal.onClose}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <SendReportTemplateModal
+        isOpen={pushTemplateModal.isOpen}
+        onClose={pushTemplateModal.onClose}
+        defaultPhone={String(pushTemplateJob?.phone || "")}
+        registeredPhone={String(pushTemplateJob?.phone || "")}
+        defaultPatientName={String(pushTemplateJob?.patient_name || "")}
+        defaultReqno={String(pushTemplateJob?.reqno || "")}
+        defaultMrno={String(pushTemplateJob?.mrno || "")}
+        onSent={({ phone }) => {
+          toast({
+            title: "Template sent",
+            description: `Report template queued for ${phone}`,
+            status: "success",
+            duration: 2200,
+            isClosable: true
+          });
+        }}
+      />
     </Box>
   );
 }
