@@ -668,6 +668,15 @@ export default function ReportDispatchKioskPage() {
             </Box>
           </Flex>
           <Flex align="center" gap={3}>
+            <Button
+              as="a"
+              href="/kiosk/display"
+              variant="outline"
+              colorScheme="teal"
+              h="44px"
+            >
+              Queue Display
+            </Button>
             {authenticated ? (
               <Button
                 type="button"

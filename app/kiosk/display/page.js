@@ -293,6 +293,15 @@ export default function KioskQueueDisplayPage() {
 
           <HStack spacing={2} flexShrink={0}>
             <Button
+              as="a"
+              href="/kiosk"
+              size={{ base: "sm", md: "md" }}
+              variant="outline"
+              colorScheme="teal"
+            >
+              Dispatch Kiosk
+            </Button>
+            <Button
               size={{ base: "sm", md: "md" }}
               variant="ghost"
               fontWeight="700"
