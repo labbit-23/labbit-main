@@ -59,7 +59,7 @@ export async function GET(request) {
 
     let jobsQuery = supabase
       .from(JOBS_TABLE)
-      .select("id,lab_id,reqno,reqid,mrno,phone,patient_name,report_label,status,is_paused,force_send_now,cooloff_minutes,scheduled_at,next_attempt_at,sent_at,attempt_count,max_attempts,last_attempt_at,last_error,created_at,updated_at", { count: "exact" })
+      .select("id,lab_id,reqno,reqid,mrno,phone,patient_name,report_label,status,is_paused,force_send_now,cooloff_minutes,scheduled_at,next_attempt_at,sent_at,attempt_count,max_attempts,last_attempt_at,last_error,provider_response,created_at,updated_at", { count: "exact" })
       .order("updated_at", { ascending: false })
       .limit(limit);
 

@@ -78,16 +78,50 @@ function formatIstDateTime(value) {
   });
 }
 
+function nextWindowIstFromNow() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(7, 30, 0, 0);
+  if (now >= next) {
+    next.setDate(next.getDate() + 1);
+    next.setHours(7, 30, 0, 0);
+  }
+  return next;
+}
+
+function queueTimeForDisplay(job) {
+  const raw = job?.scheduled_at || job?.next_attempt_at;
+  const dt = raw ? new Date(raw) : null;
+  if (!dt || Number.isNaN(dt.getTime())) return raw || null;
+  const status = String(job?.status || "").trim().toLowerCase();
+  if (["queued", "retrying", "eligible", "cooling_off"].includes(status) && dt.getTime() < Date.now()) {
+    return nextWindowIstFromNow().toISOString();
+  }
+  return raw;
+}
+
+function deriveDeliveryStatus(job) {
+  const pr = job?.provider_response;
+  const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
+  const direct = String(
+    payload?.delivery_status || payload?.message_status || payload?.status || payload?.deliveryState || ""
+  ).trim().toLowerCase();
+  const nested = String(payload?.statuses?.[0]?.status || payload?.messages?.[0]?.status || "").trim().toLowerCase();
+  const state = nested || direct;
+  if (["read", "delivered", "sent", "failed", "queued", "accepted"].includes(state)) return state;
+  return "sent";
+}
+
 function stateHint(job) {
   const status = String(job?.status || "").trim().toLowerCase();
   if (status === "cooling_off") {
-    return `Cooling until ${formatIstDateTime(job?.scheduled_at || job?.next_attempt_at)}`;
+    return `Cooling until ${formatIstDateTime(queueTimeForDisplay(job))}`;
   }
   if (status === "queued") {
-    return `Waiting readiness check (next ${formatIstDateTime(job?.next_attempt_at)})`;
+    return `Waiting readiness check (next ${formatIstDateTime(queueTimeForDisplay(job))})`;
   }
   if (status === "retrying") {
-    return `Retry scheduled at ${formatIstDateTime(job?.next_attempt_at)}`;
+    return `Retry scheduled at ${formatIstDateTime(queueTimeForDisplay(job))}`;
   }
   if (status === "eligible") {
     return "Ready to send on next worker cycle";
@@ -103,10 +137,10 @@ function stateHint(job) {
 
 function smartTimestamp(job) {
   const status = String(job?.status || "").trim().toLowerCase();
-  if (status === "cooling_off") return `COOLING_OFF: ${formatIstDateTime(job?.scheduled_at || job?.next_attempt_at)}`;
-  if (status === "queued") return `QUEUED: ${formatIstDateTime(job?.next_attempt_at)}`;
-  if (status === "retrying") return `RETRYING: ${formatIstDateTime(job?.next_attempt_at)}`;
-  if (status === "eligible") return `ELIGIBLE: ${formatIstDateTime(job?.next_attempt_at)}`;
+  if (status === "cooling_off") return `COOLING_OFF: ${formatIstDateTime(queueTimeForDisplay(job))}`;
+  if (status === "queued") return `QUEUED: ${formatIstDateTime(queueTimeForDisplay(job))}`;
+  if (status === "retrying") return `RETRYING: ${formatIstDateTime(queueTimeForDisplay(job))}`;
+  if (status === "eligible") return `ELIGIBLE: ${formatIstDateTime(queueTimeForDisplay(job))}`;
   if (status === "sending") return `SENDING: ${formatIstDateTime(job?.last_attempt_at)}`;
   if (status === "sent") return `SENT: ${formatIstDateTime(job?.sent_at)}`;
   if (status === "failed") return `FAILED: ${formatIstDateTime(job?.updated_at)}`;
@@ -850,7 +884,7 @@ export default function ReportDispatchWorkspace({
       <Flex align="stretch" justify="center" pt={{ base: "116px", md: "64px" }} px={[2, 4]} pb={[2, 4]}>
         <Box
           w="full"
-          maxW="7xl"
+          maxW={monitorOpen ? "100%" : "7xl"}
           className="dashboard-theme-card"
           borderRadius="xl"
           px={[3, 5]}
@@ -1088,7 +1122,7 @@ export default function ReportDispatchWorkspace({
                           <Badge colorScheme={statusValue === "sent" ? "green" : statusValue === "failed" ? "red" : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying" ? "orange" : "blue"} borderRadius="md" px={2} textTransform="lowercase">
                             {displayValue(statusValue)}
                           </Badge>
-                          <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : "Active"}</Badge>
+                          <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Running")}</Badge>
                         </Flex>
                         <Text fontSize="xs" fontWeight="semibold">{displayValue(job?.reqno)} • {displayValue(job?.patient_name)}</Text>
                         <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)} • {Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Text>
@@ -1207,7 +1241,7 @@ export default function ReportDispatchWorkspace({
                               <Text noOfLines={1}>{smartTimestamp(job)}</Text>
                             </Tooltip>
                           </Td>
-                          <Td><Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Yes" : "No"}</Badge></Td>
+                          <Td><Badge colorScheme={job?.is_paused ? "orange" : (String(job?.status || "").toLowerCase() === "sent" ? "blue" : "green")}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? `Delivery: ${deriveDeliveryStatus(job)}` : "Running")}</Badge></Td>
                           <Td w="24%">
                             <HStack spacing={1.5} mb={1.5} wrap="nowrap">
                               <Tooltip label="Events" hasArrow openDelay={250}>
