@@ -1154,6 +1154,46 @@ export default function ReportDispatchWorkspace({
                   ) : null}
                 </HStack>
               </Flex>
+              <Flex mb={3} align="center" justify="space-between" wrap="wrap" gap={2}>
+                <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
+                <HStack spacing={2}>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="First page"
+                    icon={<ChevronLeftIcon />}
+                    onClick={() => setAutoPage(1)}
+                    isDisabled={safeAutoPage <= 1}
+                    variant="outline"
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Previous page"
+                    icon={<ChevronLeftIcon />}
+                    onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
+                    isDisabled={safeAutoPage <= 1}
+                  />
+                  <Text fontSize="xs">Page {safeAutoPage} / {totalAutoPages}</Text>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Next page"
+                    icon={<ChevronRightIcon />}
+                    onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Last page"
+                    icon={<ChevronRightIcon />}
+                    onClick={() => setAutoPage(totalAutoPages)}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                    variant="outline"
+                  />
+                </HStack>
+              </Flex>
 
               {isMobileViewport ? (
                 <Box>
@@ -1364,46 +1404,6 @@ export default function ReportDispatchWorkspace({
                   </Table>
                 </Box>
               )}
-              <Flex mt={3} align="center" justify="space-between">
-                <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
-                <HStack spacing={2}>
-                  <IconButton
-                    size="xs"
-                    type="button"
-                    aria-label="First page"
-                    icon={<ChevronLeftIcon />}
-                    onClick={() => setAutoPage(1)}
-                    isDisabled={safeAutoPage <= 1}
-                    variant="outline"
-                  />
-                  <IconButton
-                    size="xs"
-                    type="button"
-                    aria-label="Previous page"
-                    icon={<ChevronLeftIcon />}
-                    onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
-                    isDisabled={safeAutoPage <= 1}
-                  />
-                  <Text fontSize="xs">Page {safeAutoPage} / {totalAutoPages}</Text>
-                  <IconButton
-                    size="xs"
-                    type="button"
-                    aria-label="Next page"
-                    icon={<ChevronRightIcon />}
-                    onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
-                    isDisabled={safeAutoPage >= totalAutoPages}
-                  />
-                  <IconButton
-                    size="xs"
-                    type="button"
-                    aria-label="Last page"
-                    icon={<ChevronRightIcon />}
-                    onClick={() => setAutoPage(totalAutoPages)}
-                    isDisabled={safeAutoPage >= totalAutoPages}
-                    variant="outline"
-                  />
-                </HStack>
-              </Flex>
             </Box>
           ) : null}
 
