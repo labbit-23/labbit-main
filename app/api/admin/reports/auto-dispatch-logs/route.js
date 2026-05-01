@@ -8,6 +8,7 @@ import { hasPermission } from "@/lib/uac/policy";
 
 const JOBS_TABLE = "report_auto_dispatch_jobs";
 const EVENTS_TABLE = "report_auto_dispatch_events";
+const METRICS_TABLE = "report_auto_dispatch_daily_metrics";
 const ALLOWED_ACTIONS = new Set(["pause", "resume", "push_now", "cancel", "pause_all", "send_to"]);
 const ELIGIBLE_STATUSES = ["queued", "cooling_off", "retrying"];
 
@@ -99,6 +100,48 @@ function phoneLast10(value) {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+function ymdKeyFromIsoDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const m = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return "";
+  return `${m[1]}${m[2]}${m[3]}`;
+}
+
+function parseSnapshotTests(job) {
+  const snap = parseMaybeJson(job?.last_status_snapshot);
+  return Array.isArray(snap?.tests) ? snap.tests : [];
+}
+
+function summarizeSnapshotBuckets(job) {
+  const tests = parseSnapshotTests(job);
+  const out = {
+    tests_total: 0,
+    sameday_tests_total: 0,
+    lab: { total: 0, sameday_total: 0, approved: 0, pending_approval: 0, ready: 0, waiting: 0 },
+    radiology: { total: 0, sameday_total: 0, approved: 0, pending_approval: 0, ready: 0, waiting: 0 }
+  };
+  for (const row of tests) {
+    out.tests_total += 1;
+    const group = String(row?.GROUPNM ?? row?.groupnm ?? "").trim().toUpperCase();
+    const bucket = group === "RADIOLOGY" ? out.radiology : out.lab;
+    bucket.total += 1;
+    const sameday = String(row?.SAMEDAYREPORT ?? row?.samedayreport ?? "").trim() === "1";
+    if (sameday) {
+      out.sameday_tests_total += 1;
+      bucket.sameday_total += 1;
+    }
+    const approved = String(row?.APPROVEDFLG ?? row?.approvedflg ?? "").trim() === "1";
+    const reportStatus = String(row?.REPORT_STATUS ?? row?.report_status ?? "").trim().toUpperCase();
+    const ready = reportStatus === "LAB_READY" || reportStatus === "RADIOLOGY_READY";
+    if (approved) bucket.approved += 1;
+    else bucket.pending_approval += 1;
+    if (ready) bucket.ready += 1;
+    else bucket.waiting += 1;
+  }
+  return out;
+}
+
 export async function GET(request) {
   try {
     const user = await getUser();
@@ -116,11 +159,12 @@ export async function GET(request) {
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "").trim();
     const limit = Math.min(toInt(url.searchParams.get("limit"), 50), 200);
+    const selectedDate = String(url.searchParams.get("selected_date") || "").trim();
     const jobId = String(url.searchParams.get("job_id") || "").trim();
 
     let jobsQuery = supabase
       .from(JOBS_TABLE)
-      .select("id,lab_id,reqno,reqid,mrno,phone,patient_name,report_label,status,is_paused,force_send_now,cooloff_minutes,scheduled_at,next_attempt_at,sent_at,attempt_count,max_attempts,last_attempt_at,last_error,provider_response,created_at,updated_at", { count: "exact" })
+      .select("id,lab_id,reqno,reqid,mrno,phone,patient_name,report_label,status,is_paused,force_send_now,cooloff_minutes,scheduled_at,next_attempt_at,sent_at,attempt_count,max_attempts,last_attempt_at,last_error,last_status_snapshot,provider_response,created_at,updated_at", { count: "exact" })
       .order("updated_at", { ascending: false })
       .limit(limit);
 
@@ -275,10 +319,88 @@ export async function GET(request) {
       events = Array.isArray(evRows) ? evRows : [];
     }
 
+    const selectedDateKey = ymdKeyFromIsoDate(selectedDate) || ymdKeyFromIsoDate(new Date().toISOString().slice(0, 10));
+    const dateJobs = enrichedJobs.filter((row) => String(row?.reqno || "").startsWith(selectedDateKey));
+    const summary = {
+      selected_date: selectedDate || new Date().toISOString().slice(0, 10),
+      total_jobs: dateJobs.length,
+      queued_jobs: 0,
+      cooling_off_jobs: 0,
+      retrying_jobs: 0,
+      sent_jobs: 0,
+      failed_jobs: 0,
+      paused_jobs: 0,
+      delivery_read_jobs: 0,
+      delivery_delivered_jobs: 0,
+      delivery_sent_only_jobs: 0,
+      tests_total: 0,
+      sameday_tests_total: 0,
+      lab_total: 0,
+      lab_sameday_total: 0,
+      lab_approved_tests: 0,
+      lab_pending_approval_tests: 0,
+      lab_ready_tests: 0,
+      lab_waiting_tests: 0,
+      radiology_total: 0,
+      radiology_sameday_total: 0,
+      radiology_approved_tests: 0,
+      radiology_pending_approval_tests: 0,
+      radiology_ready_tests: 0,
+      radiology_waiting_tests: 0
+    };
+    for (const row of dateJobs) {
+      const st = String(row?.status || "").trim().toLowerCase();
+      if (st === "queued") summary.queued_jobs += 1;
+      else if (st === "cooling_off") summary.cooling_off_jobs += 1;
+      else if (st === "retrying") summary.retrying_jobs += 1;
+      else if (st === "sent") summary.sent_jobs += 1;
+      else if (st === "failed") summary.failed_jobs += 1;
+      if (row?.is_paused) summary.paused_jobs += 1;
+      if (st === "sent") {
+        const d = String(row?.delivery_status || "").trim().toLowerCase();
+        if (d === "read") summary.delivery_read_jobs += 1;
+        else if (d === "delivered") summary.delivery_delivered_jobs += 1;
+        else summary.delivery_sent_only_jobs += 1;
+      }
+      const b = summarizeSnapshotBuckets(row);
+      summary.tests_total += b.tests_total;
+      summary.sameday_tests_total += b.sameday_tests_total;
+      summary.lab_total += b.lab.total;
+      summary.lab_sameday_total += b.lab.sameday_total;
+      summary.lab_approved_tests += b.lab.approved;
+      summary.lab_pending_approval_tests += b.lab.pending_approval;
+      summary.lab_ready_tests += b.lab.ready;
+      summary.lab_waiting_tests += b.lab.waiting;
+      summary.radiology_total += b.radiology.total;
+      summary.radiology_sameday_total += b.radiology.sameday_total;
+      summary.radiology_approved_tests += b.radiology.approved;
+      summary.radiology_pending_approval_tests += b.radiology.pending_approval;
+      summary.radiology_ready_tests += b.radiology.ready;
+      summary.radiology_waiting_tests += b.radiology.waiting;
+    }
+
+    // Best-effort persistence for CEO metrics; non-blocking if table missing.
+    try {
+      const labScopeKey = [...labIds].sort().join(",");
+      await supabase.from(METRICS_TABLE).upsert(
+        {
+          metric_date: summary.selected_date,
+          lab_scope_key: labScopeKey,
+          lab_ids,
+          summary,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: "metric_date,lab_scope_key" }
+      );
+    } catch (metricErr) {
+      console.warn("[auto-dispatch-logs] metrics upsert skipped", metricErr?.message || String(metricErr));
+    }
+
     return NextResponse.json(
       {
         jobs: enrichedJobs,
         events,
+        summary,
         count: Number(count || 0),
         scoped_lab_ids: labIds,
       },

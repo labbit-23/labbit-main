@@ -224,6 +224,7 @@ export default function ReportDispatchWorkspace({
   const [autoStatusFilter, setAutoStatusFilter] = useState("");
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
+  const [autoSummary, setAutoSummary] = useState(null);
   const [autoJobsCount, setAutoJobsCount] = useState(0);
   const [autoScopedLabIds, setAutoScopedLabIds] = useState([]);
   const [autoPage, setAutoPage] = useState(1);
@@ -358,6 +359,37 @@ export default function ReportDispatchWorkspace({
     if (!status) return rows;
     return rows.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
   }, [autoJobs, autoStatusFilter]);
+
+  const monitorDateStats = useMemo(() => {
+    const key = String(selectedDate || "").replace(/-/g, "");
+    const dateJobs = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) =>
+      String(row?.reqno || "").startsWith(key)
+    );
+    const stats = {
+      total: dateJobs.length,
+      queued: 0,
+      cooling_off: 0,
+      retrying: 0,
+      sent: 0,
+      failed: 0,
+      paused: 0,
+      read: 0,
+      delivered: 0,
+      sent_only: 0
+    };
+    for (const row of dateJobs) {
+      const status = String(row?.status || "").trim().toLowerCase();
+      if (status in stats) stats[status] += 1;
+      if (row?.is_paused) stats.paused += 1;
+      if (status === "sent") {
+        const d = deriveDeliveryStatus(row);
+        if (d === "read") stats.read += 1;
+        else if (d === "delivered") stats.delivered += 1;
+        else stats.sent_only += 1;
+      }
+    }
+    return stats;
+  }, [autoJobs, selectedDate]);
 
   const totalAutoPages = Math.max(1, Math.ceil(autoFilteredJobs.length / AUTO_JOBS_PAGE_SIZE));
   const safeAutoPage = Math.min(autoPage, totalAutoPages);
@@ -599,10 +631,12 @@ export default function ReportDispatchWorkspace({
       const limit = Number(options?.limit || 120);
       const query = new URLSearchParams({ limit: String(limit) });
       if (autoStatusFilter) query.set("status", autoStatusFilter);
+      if (selectedDate) query.set("selected_date", selectedDate);
       const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       setAutoJobs(Array.isArray(json?.jobs) ? json.jobs : []);
+      setAutoSummary(json?.summary || null);
       setAutoJobsCount(Number(json?.count || 0));
       setAutoScopedLabIds(Array.isArray(json?.scoped_lab_ids) ? json.scoped_lab_ids : []);
       if (options?.resetPage) setAutoPage(1);
@@ -915,87 +949,90 @@ export default function ReportDispatchWorkspace({
             ) : null}
           </Flex>
 
-          <Box
-            borderWidth="1px"
-            borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
-            borderRadius="lg"
-            p={3}
-            bg={themeMode === "dark" ? "rgba(19,22,30,0.96)" : "rgba(255,255,255,0.97)"}
-          >
-            <Flex direction="column" gap={2}>
-              <Flex direction={{ base: "column", xl: "row" }} gap={2} align={{ base: "stretch", xl: "center" }} justify="space-between">
-                <form onSubmit={handleLookup} style={{ width: "100%", minWidth: 0 }}>
-                  <Flex direction="column" gap={2} maxW={{ base: "full", xl: "700px" }}>
-                    {!isScopedMode && (
-                      <Flex gap={2} wrap="nowrap" align="center">
-                        <Input
-                          size="sm"
-                          flex="1"
-                          minW={0}
-                          maxW={{ base: "none", xl: "240px" }}
-                          value={reqnoInput}
-                          onChange={(e) => setReqnoInput(e.target.value)}
-                          placeholder="REQNO"
-                        />
-                        <Button type="submit" leftIcon={<SearchIcon />} size="sm" colorScheme="blue" isLoading={loadingStatus} flexShrink={0}>
-                          Check Status
-                        </Button>
-                      </Flex>
-                    )}
-                    <Button
-                      size="sm"
-                      leftIcon={<SearchIcon />}
-                      colorScheme="blue"
-                      onClick={handleOpenDateModal}
-                      isLoading={dailyLoading}
-                      flexShrink={0}
-                      w={{ base: "full", sm: "auto" }}
-                    >
-                      Requisitions of {selectedDate}
-                    </Button>
-                    <Text
-                      fontSize="xs"
-                      color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}
-                      whiteSpace="nowrap"
-                      alignSelf="center"
-                      display={{ base: "none", md: "block" }}
-                    >
-                      Cache: {(Array.isArray(dailyRows) ? dailyRows.length : 0)}
-                    </Text>
-                  </Flex>
-                </form>
+          {!monitorOpen ? (
+            <Box
+              borderWidth="1px"
+              borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
+              borderRadius="lg"
+              p={3}
+              bg={themeMode === "dark" ? "rgba(19,22,30,0.96)" : "rgba(255,255,255,0.97)"}
+            >
+              <Flex direction="column" gap={2}>
+                <Flex direction={{ base: "column", xl: "row" }} gap={2} align={{ base: "stretch", xl: "center" }} justify="space-between">
+                  <form onSubmit={handleLookup} style={{ width: "100%", minWidth: 0 }}>
+                    <Flex direction="column" gap={2} maxW={{ base: "full", xl: "700px" }}>
+                      {!isScopedMode && (
+                        <Flex gap={2} wrap="nowrap" align="center">
+                          <Input
+                            size="sm"
+                            flex="1"
+                            minW={0}
+                            maxW={{ base: "none", xl: "240px" }}
+                            value={reqnoInput}
+                            onChange={(e) => setReqnoInput(e.target.value)}
+                            placeholder="REQNO"
+                          />
+                          <Button type="submit" leftIcon={<SearchIcon />} size="sm" colorScheme="blue" isLoading={loadingStatus} flexShrink={0}>
+                            Check Status
+                          </Button>
+                        </Flex>
+                      )}
+                      <Button
+                        size="sm"
+                        leftIcon={<SearchIcon />}
+                        colorScheme="blue"
+                        onClick={handleOpenDateModal}
+                        isLoading={dailyLoading}
+                        flexShrink={0}
+                        w={{ base: "full", sm: "auto" }}
+                      >
+                        Requisitions of {selectedDate}
+                      </Button>
+                      <Text
+                        fontSize="xs"
+                        color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}
+                        whiteSpace="nowrap"
+                        alignSelf="center"
+                        display={{ base: "none", md: "block" }}
+                      >
+                        Cache: {(Array.isArray(dailyRows) ? dailyRows.length : 0)}
+                      </Text>
+                    </Flex>
+                  </form>
 
-                <Flex gap={2} wrap={{ base: "wrap", lg: "nowrap" }} align="center" justify={{ base: "flex-start", xl: "flex-end" }}>
-                  <Text fontSize="sm" fontWeight="semibold" whiteSpace="nowrap">Output:</Text>
-                  <ButtonGroup size="sm" isAttached variant="outline">
-                    <Button
-                      leftIcon={isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />}
-                      colorScheme={(actionMode === "open" || actionMode === "share") ? "blue" : "gray"}
-                      variant={(actionMode === "open" || actionMode === "share") ? "solid" : "outline"}
-                      onClick={() => setActionMode(isMobileViewport ? "share" : "open")}
-                    >
-                      {isMobileViewport ? "Share" : "Open"}
-                    </Button>
-                    <Button
-                      leftIcon={<DownloadIcon />}
-                      colorScheme={actionMode === "download" ? "blue" : "gray"}
-                      variant={actionMode === "download" ? "solid" : "outline"}
-                      onClick={() => setActionMode("download")}
-                    >
-                      Download
-                    </Button>
-                  </ButtonGroup>
-                  <HStack spacing={2}>
-                    <Text fontSize="sm">Header</Text>
-                    <Switch colorScheme="purple" size="md" isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} />
-                  </HStack>
+                  <Flex gap={2} wrap={{ base: "wrap", lg: "nowrap" }} align="center" justify={{ base: "flex-start", xl: "flex-end" }}>
+                    <Text fontSize="sm" fontWeight="semibold" whiteSpace="nowrap">Output:</Text>
+                    <ButtonGroup size="sm" isAttached variant="outline">
+                      <Button
+                        leftIcon={isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />}
+                        colorScheme={(actionMode === "open" || actionMode === "share") ? "blue" : "gray"}
+                        variant={(actionMode === "open" || actionMode === "share") ? "solid" : "outline"}
+                        onClick={() => setActionMode(isMobileViewport ? "share" : "open")}
+                      >
+                        {isMobileViewport ? "Share" : "Open"}
+                      </Button>
+                      <Button
+                        leftIcon={<DownloadIcon />}
+                        colorScheme={actionMode === "download" ? "blue" : "gray"}
+                        variant={actionMode === "download" ? "solid" : "outline"}
+                        onClick={() => setActionMode("download")}
+                      >
+                        Download
+                      </Button>
+                    </ButtonGroup>
+                    <HStack spacing={2}>
+                      <Text fontSize="sm">Header</Text>
+                      <Switch colorScheme="purple" size="md" isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} />
+                    </HStack>
+                  </Flex>
                 </Flex>
               </Flex>
-            </Flex>
-          </Box>
+            </Box>
+          ) : null}
 
           {error ? <Text color="red.400" fontSize="sm">{error}</Text> : null}
 
+          {!monitorOpen ? (
           <Flex gap={2} direction={{ base: "column", md: "row" }}>
             {!isScopedMode && (
               <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
@@ -1041,6 +1078,7 @@ export default function ReportDispatchWorkspace({
               </SimpleGrid>
             </Box>
           </Flex>
+          ) : null}
 
           {monitorOpen ? (
             <Box
@@ -1051,6 +1089,20 @@ export default function ReportDispatchWorkspace({
               bg={themeMode === "dark" ? "rgba(255,255,255,0.03)" : "white"}
               boxShadow={themeMode === "dark" ? "none" : "sm"}
             >
+              <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={2} mb={3}>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Date</Text><Text fontWeight="bold">{selectedDate}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Total Jobs</Text><Text fontWeight="bold">{autoSummary?.total_jobs ?? monitorDateStats.total}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{(autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying)}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Lab Pending Approval</Text><Text fontWeight="bold">{autoSummary?.lab_pending_approval_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Lab Waiting Report</Text><Text fontWeight="bold">{autoSummary?.lab_waiting_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Lab Ready</Text><Text fontWeight="bold">{autoSummary?.lab_ready_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Scans Pending Approval</Text><Text fontWeight="bold">{autoSummary?.radiology_pending_approval_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Scans Waiting Report</Text><Text fontWeight="bold">{autoSummary?.radiology_waiting_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Scans Ready</Text><Text fontWeight="bold">{autoSummary?.radiology_ready_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Read / Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read} / {autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Sent Only / Paused</Text><Text fontWeight="bold">{autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only} / {autoSummary?.paused_jobs ?? monitorDateStats.paused}</Text></Box>
+              </SimpleGrid>
+
               <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={3}>
                 <HStack spacing={2} align="center">
                   <Text fontWeight="bold" fontSize="lg">Auto Dispatch Monitor</Text>
