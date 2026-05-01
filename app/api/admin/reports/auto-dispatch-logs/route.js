@@ -127,10 +127,9 @@ function summarizeSnapshotBuckets(job) {
     const bucket = group === "RADIOLOGY" ? out.radiology : out.lab;
     bucket.total += 1;
     const sameday = String(row?.SAMEDAYREPORT ?? row?.samedayreport ?? "").trim() === "1";
-    if (sameday) {
-      out.sameday_tests_total += 1;
-      bucket.sameday_total += 1;
-    }
+    if (!sameday) continue;
+    out.sameday_tests_total += 1;
+    bucket.sameday_total += 1;
     const approved = String(row?.APPROVEDFLG ?? row?.approvedflg ?? "").trim() === "1";
     const reportStatus = String(row?.REPORT_STATUS ?? row?.report_status ?? "").trim().toUpperCase();
     const ready = reportStatus === "LAB_READY" || reportStatus === "RADIOLOGY_READY";
@@ -161,6 +160,7 @@ export async function GET(request) {
     const limit = Math.min(toInt(url.searchParams.get("limit"), 50), 200);
     const selectedDate = String(url.searchParams.get("selected_date") || "").trim();
     const jobId = String(url.searchParams.get("job_id") || "").trim();
+    const selectedDateKey = ymdKeyFromIsoDate(selectedDate);
 
     let jobsQuery = supabase
       .from(JOBS_TABLE)
@@ -172,6 +172,10 @@ export async function GET(request) {
 
     if (status) {
       jobsQuery = jobsQuery.eq("status", status);
+    }
+
+    if (selectedDateKey) {
+      jobsQuery = jobsQuery.like("reqno", `${selectedDateKey}%`);
     }
 
     if (jobId) {
@@ -319,8 +323,8 @@ export async function GET(request) {
       events = Array.isArray(evRows) ? evRows : [];
     }
 
-    const selectedDateKey = ymdKeyFromIsoDate(selectedDate) || ymdKeyFromIsoDate(new Date().toISOString().slice(0, 10));
-    const dateJobs = enrichedJobs.filter((row) => String(row?.reqno || "").startsWith(selectedDateKey));
+    const summaryDateKey = selectedDateKey || ymdKeyFromIsoDate(new Date().toISOString().slice(0, 10));
+    const dateJobs = enrichedJobs.filter((row) => String(row?.reqno || "").startsWith(summaryDateKey));
     const summary = {
       selected_date: selectedDate || new Date().toISOString().slice(0, 10),
       total_jobs: dateJobs.length,

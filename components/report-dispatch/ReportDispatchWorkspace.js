@@ -305,6 +305,12 @@ export default function ReportDispatchWorkspace({
   }, [autoStatusFilter]);
 
   useEffect(() => {
+    if (!monitorOpen) return;
+    loadAutoDispatchJobs({ limit: 120, resetPage: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  useEffect(() => {
     let active = true;
     async function loadPermissions() {
       try {
@@ -1090,17 +1096,17 @@ export default function ReportDispatchWorkspace({
               boxShadow={themeMode === "dark" ? "none" : "sm"}
             >
               <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={2} mb={3}>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Date</Text><Text fontWeight="bold">{selectedDate}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Total Jobs</Text><Text fontWeight="bold">{autoSummary?.total_jobs ?? monitorDateStats.total}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{(autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying)}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Lab Pending Approval</Text><Text fontWeight="bold">{autoSummary?.lab_pending_approval_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Lab Waiting Report</Text><Text fontWeight="bold">{autoSummary?.lab_waiting_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Lab Ready</Text><Text fontWeight="bold">{autoSummary?.lab_ready_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Scans Pending Approval</Text><Text fontWeight="bold">{autoSummary?.radiology_pending_approval_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Scans Waiting Report</Text><Text fontWeight="bold">{autoSummary?.radiology_waiting_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Scans Ready</Text><Text fontWeight="bold">{autoSummary?.radiology_ready_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Read / Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read} / {autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md"><Text fontSize="xs" opacity={0.7}>Sent Only / Paused</Text><Text fontWeight="bold">{autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only} / {autoSummary?.paused_jobs ?? monitorDateStats.paused}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Date</Text><Text fontWeight="bold">{selectedDate}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Total Jobs</Text><Text fontWeight="bold">{autoSummary?.total_jobs ?? monitorDateStats.total}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{(autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying)}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Lab Pending Approval (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_pending_approval_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.900" : "yellow.50"}><Text fontSize="xs" opacity={0.7}>Lab Waiting Report (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_waiting_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Lab Ready (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_ready_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Scans Pending Approval (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_pending_approval_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.900" : "yellow.50"}><Text fontSize="xs" opacity={0.7}>Scans Waiting Report (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_waiting_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Scans Ready (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_ready_tests ?? 0}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Read / Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read} / {autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Sent Only / Paused</Text><Text fontWeight="bold">{autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only} / {autoSummary?.paused_jobs ?? monitorDateStats.paused}</Text></Box>
               </SimpleGrid>
 
               <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={3}>
