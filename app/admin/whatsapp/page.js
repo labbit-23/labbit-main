@@ -348,6 +348,7 @@ function getDisplayMessageText(msg, botLabelMap) {
   const sender = msg?.payload?.sender;
   const isBotOutbound = msg.direction === "outbound" && !sender?.id && !sender?.name;
   const rawMessage = msg.message || "";
+  const requestPayload = msg?.payload?.request;
 
   if (msg.direction === "inbound") {
     const inboundInteractive =
@@ -395,10 +396,9 @@ function getDisplayMessageText(msg, botLabelMap) {
     return decodeMessageEntities(rawMessage);
   }
 
-  if (!isBotOutbound) return decodeMessageEntities(rawMessage);
-
-  const requestPayload = msg?.payload?.request;
-  if (requestPayload && typeof requestPayload === "object") {
+  // For outbound entries, prefer structured request payload over raw DB message
+  // (raw message may be machine token like "reports_pdf").
+  if (msg.direction === "outbound" && requestPayload && typeof requestPayload === "object") {
     if (requestPayload.type === "text" && requestPayload.text?.body) {
       return decodeMessageEntities(requestPayload.text.body);
     }
@@ -477,6 +477,8 @@ function getDisplayMessageText(msg, botLabelMap) {
       return decodeMessageEntities(parts.length ? `Shared location:\n${parts.join("\n")}` : "Shared location");
     }
   }
+
+  if (!isBotOutbound) return decodeMessageEntities(rawMessage);
 
   const mapped = botLabelMap?.[rawMessage];
   if (mapped) return decodeMessageEntities(mapped);
