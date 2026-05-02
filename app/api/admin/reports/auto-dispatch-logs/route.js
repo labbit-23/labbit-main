@@ -9,7 +9,7 @@ import { hasPermission } from "@/lib/uac/policy";
 const JOBS_TABLE = "report_auto_dispatch_jobs";
 const EVENTS_TABLE = "report_auto_dispatch_events";
 const METRICS_TABLE = "report_auto_dispatch_daily_metrics";
-const ALLOWED_ACTIONS = new Set(["pause", "resume", "push_now", "cancel", "pause_all", "send_to"]);
+const ALLOWED_ACTIONS = new Set(["pause", "resume", "push_now", "cancel", "pause_all", "resume_all", "send_to"]);
 const ELIGIBLE_STATUSES = ["queued", "cooling_off", "retrying"];
 
 function toInt(value, fallback) {
@@ -114,7 +114,8 @@ function parseSnapshotTests(job) {
 }
 
 function summarizeSnapshotBuckets(job) {
-  const tests = parseSnapshotTests(job);
+  const snap = parseMaybeJson(job?.last_status_snapshot) || {};
+  const tests = Array.isArray(snap?.tests) ? snap.tests : [];
   const out = {
     tests_total: 0,
     sameday_tests_total: 0,
@@ -123,20 +124,65 @@ function summarizeSnapshotBuckets(job) {
   };
   for (const row of tests) {
     out.tests_total += 1;
-    const group = String(row?.GROUPNM ?? row?.groupnm ?? "").trim().toUpperCase();
+    let group = String(row?.GROUPNM ?? row?.groupnm ?? "").trim().toUpperCase();
+    const gid = String(row?.GROUPID ?? row?.groupid ?? "").trim().toUpperCase();
+    const dept = String(row?.DEPTID ?? row?.deptid ?? "").trim().toUpperCase();
+    const reportStatus = String(row?.REPORT_STATUS ?? row?.report_status ?? "").trim().toUpperCase();
+    const testName = String(row?.TESTNM ?? row?.testnm ?? row?.test_name ?? "").trim().toUpperCase();
+
+    if (!group) {
+      if (gid === "GDEP0002") group = "RADIOLOGY";
+      else if (gid === "GDEP0001") group = "LAB";
+    }
+    if (!group && reportStatus.startsWith("RADIOLOGY")) group = "RADIOLOGY";
+    if (!group && reportStatus.startsWith("LAB")) group = "LAB";
+    if (!group && /\b(XRAY|X-RAY|CT|MRI|USG|ULTRASOUND|SONOGRAPHY|DOPPLER|MAMMO|SCAN)\b/.test(testName)) {
+      group = "RADIOLOGY";
+    }
+    if (!group && dept.startsWith("RAD")) group = "RADIOLOGY";
+    if (!group) group = "LAB";
+
     const bucket = group === "RADIOLOGY" ? out.radiology : out.lab;
     bucket.total += 1;
     const sameday = String(row?.SAMEDAYREPORT ?? row?.samedayreport ?? "").trim() === "1";
-    if (!sameday) continue;
-    out.sameday_tests_total += 1;
-    bucket.sameday_total += 1;
+    if (sameday) {
+      out.sameday_tests_total += 1;
+      bucket.sameday_total += 1;
+    }
     const approved = String(row?.APPROVEDFLG ?? row?.approvedflg ?? "").trim() === "1";
-    const reportStatus = String(row?.REPORT_STATUS ?? row?.report_status ?? "").trim().toUpperCase();
     const ready = reportStatus === "LAB_READY" || reportStatus === "RADIOLOGY_READY";
+    const performedRaw = String(
+      row?.TESTPERFORMEDFLG ??
+      row?.testperformedflg ??
+      row?.TESTPERFORMED ??
+      row?.testperformed ??
+      row?.PERFORMEDFLG ??
+      row?.performedflg ??
+      ""
+    ).trim().toUpperCase();
+    const performed = ["1", "Y", "YES", "TRUE", "DONE"].includes(performedRaw);
     if (approved) bucket.approved += 1;
-    else bucket.pending_approval += 1;
+    else if (performed) bucket.pending_approval += 1;
     if (ready) bucket.ready += 1;
-    else bucket.waiting += 1;
+    else if (!performed) bucket.waiting += 1;
+  }
+
+  // Fallback for environments where test rows miss reliable radiology markers.
+  // Use aggregate snapshot totals if radiology bucket remained empty.
+  const snapRadTotal = Number(snap?.radiology_total || 0);
+  const snapRadReady = Number(snap?.radiology_ready || 0);
+  if (out.radiology.total === 0 && snapRadTotal > 0) {
+    out.radiology.total = snapRadTotal;
+    out.radiology.ready = Math.max(0, Math.min(snapRadReady, snapRadTotal));
+    out.radiology.waiting = Math.max(0, snapRadTotal - out.radiology.ready);
+  }
+
+  const snapLabTotal = Number(snap?.lab_total || 0);
+  const snapLabReady = Number(snap?.lab_ready || 0);
+  if (out.lab.total === 0 && snapLabTotal > 0) {
+    out.lab.total = snapLabTotal;
+    out.lab.ready = Math.max(0, Math.min(snapLabReady, snapLabTotal));
+    out.lab.waiting = Math.max(0, snapLabTotal - out.lab.ready);
   }
   return out;
 }
@@ -390,7 +436,7 @@ export async function GET(request) {
         {
           metric_date: summary.selected_date,
           lab_scope_key: labScopeKey,
-          lab_ids,
+          lab_ids: labIds,
           summary,
           updated_at: new Date().toISOString()
         },
@@ -436,7 +482,7 @@ export async function POST(request) {
       ? body.job_ids.map((value) => Number(value)).filter((value) => Number.isFinite(value))
       : [];
 
-    if (!jobId && action !== "pause_all") return new Response("Missing job_id", { status: 400 });
+    if (!jobId && action !== "pause_all" && action !== "resume_all") return new Response("Missing job_id", { status: 400 });
     if (!ALLOWED_ACTIONS.has(action)) return new Response("Invalid action", { status: 400 });
     if (action === "send_to" && sendToPhone.length !== 10) {
       return new Response("Valid 10-digit phone is required for send_to", { status: 400 });
@@ -450,38 +496,41 @@ export async function POST(request) {
     if ((action === "push_now" || action === "cancel") && !canPush) return new Response("Forbidden", { status: 403 });
     if (action === "send_to" && !canSendTo) return new Response("Forbidden", { status: 403 });
     if ((action === "pause" || action === "resume") && !canPause) return new Response("Forbidden", { status: 403 });
-    if (action === "pause_all" && !canPauseAll) return new Response("Forbidden", { status: 403 });
+    if ((action === "pause_all" || action === "resume_all") && !canPauseAll) return new Response("Forbidden", { status: 403 });
 
-    if (action === "pause_all") {
+    if (action === "pause_all" || action === "resume_all") {
       const nowIso = new Date().toISOString();
+      const isResumeAll = action === "resume_all";
       let query = supabase
         .from(JOBS_TABLE)
-        .update({ is_paused: true, updated_at: nowIso })
-        .in("status", ELIGIBLE_STATUSES)
+        .update({ is_paused: !isResumeAll ? true : false, updated_at: nowIso });
+      if (!isResumeAll) query = query.in("status", ELIGIBLE_STATUSES);
+      else query = query.eq("is_paused", true);
+      query = query
         .select("id");
       if (pauseAllJobIds.length > 0) query = query.in("id", pauseAllJobIds);
       query = applyLabScope(query, labIds);
       const { data: updatedRows, error: pauseAllError } = await query;
-      if (pauseAllError) return new Response(pauseAllError.message || "Failed pause_all", { status: 500 });
+      if (pauseAllError) return new Response(pauseAllError.message || `Failed ${action}`, { status: 500 });
 
       const payload = {
         actor_user_id: user?.id || null,
         actor_name: user?.name || null,
         actor_role: user?.userType || null,
         updated_count: Array.isArray(updatedRows) ? updatedRows.length : 0,
-        statuses: ELIGIBLE_STATUSES
+        statuses: !isResumeAll ? ELIGIBLE_STATUSES : ["is_paused=true"]
       };
       const { error: eventError } = await supabase.from(EVENTS_TABLE).insert({
         job_id: null,
         reqno: null,
         reqid: null,
         phone: null,
-        event_type: "admin_pause_all",
-        message: "Admin action: pause_all",
+        event_type: `admin_${action}`,
+        message: `Admin action: ${action}`,
         payload,
         created_at: nowIso
       });
-      if (eventError) console.error("[auto-dispatch-logs][POST] pause_all event insert failed", eventError);
+      if (eventError) console.error(`[auto-dispatch-logs][POST] ${action} event insert failed`, eventError);
       return NextResponse.json({ ok: true, action, updated_count: payload.updated_count }, { status: 200 });
     }
 

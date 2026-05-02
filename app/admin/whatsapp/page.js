@@ -79,6 +79,19 @@ function formatMessageTime(value) {
   });
 }
 
+function istTodayYmd() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: IST_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === "year")?.value || "1970";
+  const m = parts.find((p) => p.type === "month")?.value || "01";
+  const d = parts.find((p) => p.type === "day")?.value || "01";
+  return `${y}-${m}-${d}`;
+}
+
 function isWithin24(session, lastInboundAtOverride = null) {
   const sourceTs =
     lastInboundAtOverride ||
@@ -322,6 +335,13 @@ function extractTemplateTextParams(template = {}) {
     .filter(Boolean);
 }
 
+function inferReqnoFromFilename(name) {
+  const text = String(name || "").trim();
+  if (!text) return "";
+  const m = text.match(/SDRC_Report_(\d{8,})_/i) || text.match(/(\d{8,})/);
+  return m?.[1] || "";
+}
+
 function getDisplayMessageText(msg, botLabelMap) {
   if (!msg) return "";
 
@@ -401,9 +421,20 @@ function getDisplayMessageText(msg, botLabelMap) {
       if (normalizedTemplateName === "reports_pdf") {
         const patient = String(templateParams?.[0] || "").trim();
         const reportKind = String(templateParams?.[1] || "Report").trim() || "Report";
+        const headerDoc = requestPayload?.template?.components?.find?.((c) => String(c?.type || "").toLowerCase() === "header");
+        const docParam = Array.isArray(headerDoc?.parameters)
+          ? headerDoc.parameters.find((p) => String(p?.type || "").toLowerCase() === "document")
+          : null;
+        const filename =
+          String(docParam?.document?.filename || "").trim() ||
+          String(requestPayload?.document?.filename || "").trim();
+        const reqno = inferReqnoFromFilename(filename);
+        const recipient = String(requestPayload?.to || msg?.phone || "").replace(/\D/g, "").slice(-10);
         const lines = ["Report template sent"];
         if (patient) lines.push(`Patient: ${patient}`);
-        if (reportKind) lines.push(`Type: ${reportKind}`);
+        if (reportKind) lines.push(`Status sent: ${reportKind}`);
+        if (reqno) lines.push(`Req No: ${reqno}`);
+        if (recipient) lines.push(`Phone: ${recipient}`);
         return decodeMessageEntities(lines.join("\n"));
       }
       const pretty = humanizeMachineToken(templateName);
@@ -779,6 +810,11 @@ export default function WhatsAppDashboard() {
   const [registeredLookupResolvedPhone, setRegisteredLookupResolvedPhone] = useState("");
   const [registeredLookupSummary, setRegisteredLookupSummary] = useState("");
   const [reportModalError, setReportModalError] = useState("");
+  const [showSentReportsModal, setShowSentReportsModal] = useState(false);
+  const [sentReportsDate, setSentReportsDate] = useState(istTodayYmd());
+  const [sentReportsRows, setSentReportsRows] = useState([]);
+  const [isLoadingSentReports, setIsLoadingSentReports] = useState(false);
+  const [sentReportsError, setSentReportsError] = useState("");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -1932,6 +1968,38 @@ export default function WhatsAppDashboard() {
     setShowReportTemplateModal(true);
   };
 
+  const loadSentReports = async (dateValue = sentReportsDate) => {
+    setSentReportsError("");
+    setIsLoadingSentReports(true);
+    try {
+      const query = new URLSearchParams({
+        status: "sent",
+        selected_date: String(dateValue || istTodayYmd()),
+        limit: "300"
+      });
+      const response = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to load sent reports");
+      }
+      const json = await response.json();
+      setSentReportsRows(Array.isArray(json?.jobs) ? json.jobs : []);
+    } catch (err) {
+      setSentReportsRows([]);
+      setSentReportsError(err?.message || "Failed to load sent reports");
+    } finally {
+      setIsLoadingSentReports(false);
+    }
+  };
+
+  const openSentReportsModal = async () => {
+    setShowSentReportsModal(true);
+    await loadSentReports(sentReportsDate);
+  };
+
   const handleSendReportTemplate = async () => {
     const phoneRaw = String(reportTemplatePhone || "").trim();
     const phoneDigits = digitsOnly(phoneRaw);
@@ -2914,6 +2982,14 @@ export default function WhatsAppDashboard() {
                     </button>
                   </div>
                 )}
+                <button
+                  type="button"
+                  className="wa-ownerSearchOpenBtn"
+                  onClick={openSentReportsModal}
+                  title="View sent reports for selected date"
+                >
+                  Sent Reports
+                </button>
               </div>
 
               <div className={`wa-leftMeta ${showSidebarMeta ? "is-open" : ""}`}>
@@ -3582,6 +3658,71 @@ export default function WhatsAppDashboard() {
         </div>
       </div>
 
+      {showSentReportsModal && (
+        <div className="wa-modalBackdrop" role="presentation" onClick={() => !isLoadingSentReports && setShowSentReportsModal(false)}>
+          <div className="wa-modalCard" role="dialog" aria-modal="true" aria-label="Sent reports list" onClick={(event) => event.stopPropagation()}>
+            <div className="wa-modalHeader">
+              <strong>Sent Reports</strong>
+              <button
+                type="button"
+                className="wa-modalClose"
+                onClick={() => setShowSentReportsModal(false)}
+                disabled={isLoadingSentReports}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="wa-modalLookupRow">
+              <input
+                className="wa-modalInput"
+                type="date"
+                value={sentReportsDate}
+                onChange={(e) => setSentReportsDate(e.target.value)}
+                disabled={isLoadingSentReports}
+              />
+              <button
+                type="button"
+                className="wa-modalLookupBtn"
+                onClick={() => loadSentReports(sentReportsDate)}
+                disabled={isLoadingSentReports}
+              >
+                {isLoadingSentReports ? "Loading..." : "Load"}
+              </button>
+            </div>
+            {sentReportsError ? <div className="wa-modalError">{sentReportsError}</div> : null}
+            <div className="wa-sentReportsTableWrap">
+              {sentReportsRows.length === 0 && !isLoadingSentReports ? (
+                <div className="wa-empty">No sent reports for this date.</div>
+              ) : (
+                <table className="wa-sentReportsTable">
+                  <thead>
+                    <tr>
+                      <th>Req No</th>
+                      <th>Patient</th>
+                      <th>Phone</th>
+                      <th>Status Sent</th>
+                      <th>Sent (IST)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sentReportsRows.map((row) => (
+                      <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
+                        <td><strong>{String(row?.reqno || "-")}</strong></td>
+                        <td>{String(row?.patient_name || "-")}</td>
+                        <td>{String(row?.phone || "-")}</td>
+                        <td>{String(row?.report_label || "-")}</td>
+                        <td>{formatMessageTime(row?.sent_at || row?.updated_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showReportTemplateModal && (
         <div className="wa-modalBackdrop" role="presentation" onClick={() => !isSendingReportTemplate && setShowReportTemplateModal(false)}>
           <div className="wa-modalCard" role="dialog" aria-modal="true" aria-label="Send report template" onClick={(event) => event.stopPropagation()}>
@@ -4063,6 +4204,19 @@ export default function WhatsAppDashboard() {
         .wa-ownerSearchAddBtn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+
+        .wa-ownerSearchOpenBtn {
+          height: 34px;
+          border-radius: 10px;
+          border: 1px solid rgba(148, 163, 184, 0.5);
+          background: rgba(59, 130, 246, 0.2);
+          color: #dbeafe;
+          font-size: 12px;
+          font-weight: 700;
+          padding: 0 10px;
+          cursor: pointer;
+          white-space: nowrap;
         }
 
         .wa-leftMeta {
@@ -5342,6 +5496,34 @@ export default function WhatsAppDashboard() {
           gap: 8px;
         }
 
+        .wa-sentReportsTableWrap {
+          border: 1px solid rgba(159, 184, 214, 0.28);
+          border-radius: 10px;
+          overflow: auto;
+          max-height: 52vh;
+        }
+
+        .wa-sentReportsTable {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 12px;
+        }
+
+        .wa-sentReportsTable th,
+        .wa-sentReportsTable td {
+          padding: 8px 10px;
+          border-bottom: 1px solid rgba(159, 184, 214, 0.22);
+          text-align: left;
+          color: #e2e8f0;
+        }
+
+        .wa-sentReportsTable th {
+          position: sticky;
+          top: 0;
+          background: #0f1a2d;
+          z-index: 1;
+        }
+
         .wa-shortcutHintBar {
           font-size: 12px;
           color: #546a86;
@@ -6608,6 +6790,12 @@ export default function WhatsAppDashboard() {
           color: #166534;
         }
 
+        .wa-root.theme-light .wa-ownerSearchOpenBtn {
+          border-color: #93c5fd;
+          background: #eff6ff;
+          color: #1d4ed8;
+        }
+
         .wa-root.theme-light .wa-modalCard {
           background: #ffffff;
           border-color: #d6e2f1;
@@ -6652,6 +6840,20 @@ export default function WhatsAppDashboard() {
           border-color: #fca5a5;
           background: #fee2e2;
           color: #991b1b;
+        }
+
+        .wa-root.theme-light .wa-sentReportsTableWrap {
+          border-color: #d3c4b1;
+        }
+
+        .wa-root.theme-light .wa-sentReportsTable th,
+        .wa-root.theme-light .wa-sentReportsTable td {
+          border-bottom-color: #e5e7eb;
+          color: #1f3552;
+        }
+
+        .wa-root.theme-light .wa-sentReportsTable th {
+          background: #f8fafc;
         }
 
         .wa-root.theme-light .wa-iconToolBtn {

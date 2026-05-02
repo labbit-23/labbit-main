@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogOverlay,
   Badge,
   Box,
   Button,
@@ -33,8 +39,8 @@ import {
   useDisclosure,
   useToast
 } from "@chakra-ui/react";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon, ViewIcon } from "@chakra-ui/icons";
-import { FiActivity, FiPause, FiPlay, FiSend, FiShare2, FiUploadCloud } from "react-icons/fi";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
+import { FiActivity, FiList, FiMessageCircle, FiPause, FiPlay, FiPrinter, FiSend, FiShare2, FiUploadCloud } from "react-icons/fi";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
@@ -78,25 +84,26 @@ function formatIstDateTime(value) {
   });
 }
 
-function nextWindowIstFromNow() {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(7, 30, 0, 0);
-  if (now >= next) {
-    next.setDate(next.getDate() + 1);
-    next.setHours(7, 30, 0, 0);
-  }
-  return next;
+function formatIstDateAndTimeLines(value) {
+  if (!value) return { date: "-", time: "-" };
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return { date: displayValue(value), time: "-" };
+  const date = dt.toLocaleDateString("en-IN", {
+    timeZone: IST_TIMEZONE,
+    day: "2-digit",
+    month: "short"
+  });
+  const time = dt.toLocaleTimeString("en-IN", {
+    timeZone: IST_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+  return { date, time };
 }
 
 function queueTimeForDisplay(job) {
   const raw = job?.scheduled_at || job?.next_attempt_at;
-  const dt = raw ? new Date(raw) : null;
-  if (!dt || Number.isNaN(dt.getTime())) return raw || null;
-  const status = String(job?.status || "").trim().toLowerCase();
-  if (["queued", "retrying", "eligible", "cooling_off"].includes(status) && dt.getTime() < Date.now()) {
-    return nextWindowIstFromNow().toISOString();
-  }
   return raw;
 }
 
@@ -147,6 +154,18 @@ function smartTimestamp(job) {
   if (status === "sent") return `SENT: ${formatIstDateTime(job?.sent_at)}`;
   if (status === "failed") return `FAILED: ${formatIstDateTime(job?.updated_at)}`;
   return `${String(status || "UPDATED").toUpperCase()}: ${formatIstDateTime(job?.updated_at)}`;
+}
+
+function timelineParts(job) {
+  const status = String(job?.status || "").trim().toLowerCase();
+  if (status === "cooling_off") return { label: "COOLING_OFF", ...formatIstDateAndTimeLines(queueTimeForDisplay(job)) };
+  if (status === "queued") return { label: "QUEUED", ...formatIstDateAndTimeLines(queueTimeForDisplay(job)) };
+  if (status === "retrying") return { label: "RETRYING", ...formatIstDateAndTimeLines(queueTimeForDisplay(job)) };
+  if (status === "eligible") return { label: "ELIGIBLE", ...formatIstDateAndTimeLines(queueTimeForDisplay(job)) };
+  if (status === "sending") return { label: "SENDING", ...formatIstDateAndTimeLines(job?.last_attempt_at) };
+  if (status === "sent") return { label: "SENT", ...formatIstDateAndTimeLines(job?.sent_at) };
+  if (status === "failed") return { label: "FAILED", ...formatIstDateAndTimeLines(job?.updated_at) };
+  return { label: String(status || "UPDATED").toUpperCase(), ...formatIstDateAndTimeLines(job?.updated_at) };
 }
 
 function parseSnapshot(snapshot) {
@@ -222,6 +241,8 @@ export default function ReportDispatchWorkspace({
   });
   const [dailyPage, setDailyPage] = useState(1);
   const [autoStatusFilter, setAutoStatusFilter] = useState("");
+  const [autoSearchInput, setAutoSearchInput] = useState("");
+  const [autoSearch, setAutoSearch] = useState("");
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -250,10 +271,14 @@ export default function ReportDispatchWorkspace({
   const dateModal = useDisclosure();
   const autoEventsModal = useDisclosure();
   const pushTemplateModal = useDisclosure();
+  const bulkConfirmDialog = useDisclosure();
+  const sentReportsModal = useDisclosure();
 
   const phoneCacheRef = useRef(new Map());
   const dateCacheRef = useRef(new Map());
   const headerDefaultAppliedRef = useRef(false);
+  const bulkCancelRef = useRef(null);
+  const [bulkActionState, setBulkActionState] = useState({ action: "", jobIds: [] });
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [viewportResolved, setViewportResolved] = useState(false);
 
@@ -362,9 +387,28 @@ export default function ReportDispatchWorkspace({
   const autoFilteredJobs = useMemo(() => {
     const rows = [...(Array.isArray(autoJobs) ? autoJobs : [])].sort(byReqnoDesc);
     const status = String(autoStatusFilter || "").trim().toLowerCase();
-    if (!status) return rows;
-    return rows.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
-  }, [autoJobs, autoStatusFilter]);
+    const byStatus = !status ? rows : rows.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
+    const q = String(autoSearch || "").trim().toLowerCase();
+    if (!q) return byStatus;
+    return byStatus.filter((row) => {
+      const hay = [
+        row?.reqno,
+        row?.reqid,
+        row?.patient_name,
+        row?.phone,
+        row?.status,
+        row?.report_label,
+        row?.last_error
+      ].map((v) => String(v || "").toLowerCase()).join(" ");
+      return hay.includes(q);
+    });
+  }, [autoJobs, autoStatusFilter, autoSearch]);
+
+  const sentDispatchRows = useMemo(() => {
+    return [...(Array.isArray(autoJobs) ? autoJobs : [])]
+      .filter((row) => String(row?.status || "").toLowerCase() === "sent")
+      .sort(byReqnoDesc);
+  }, [autoJobs]);
 
   const monitorDateStats = useMemo(() => {
     const key = String(selectedDate || "").replace(/-/g, "");
@@ -677,7 +721,7 @@ export default function ReportDispatchWorkspace({
   async function runAutoJobAction(jobIdValue, action, extra = {}) {
     const jobId = String(jobIdValue || "").trim();
     if (!action) return;
-    if (!jobId && action !== "pause_all") return;
+    if (!jobId && action !== "pause_all" && action !== "resume_all") return;
     setAutoActionLoading(true);
     try {
       const body = { action };
@@ -692,7 +736,12 @@ export default function ReportDispatchWorkspace({
       if (!res.ok) throw new Error(await res.text());
       toast({
         title: "Action queued",
-        description: action === "pause_all" ? "Paused all visible eligible jobs." : `Applied ${action} on job #${jobId}`,
+        description:
+          action === "pause_all"
+            ? "Paused all visible eligible jobs."
+            : action === "resume_all"
+              ? "Resumed all paused jobs."
+              : `Applied ${action} on job #${jobId}`,
         status: "success",
         duration: 1800,
         isClosable: true
@@ -711,6 +760,25 @@ export default function ReportDispatchWorkspace({
   async function openPushTemplateModal(job) {
     setPushTemplateJob(job || null);
     pushTemplateModal.onOpen();
+  }
+
+  function openBulkConfirm(action, jobIds) {
+    const ids = Array.isArray(jobIds) ? jobIds.filter((id) => Number.isFinite(Number(id))) : [];
+    if (!ids.length) return;
+    setBulkActionState({ action, jobIds: ids });
+    bulkConfirmDialog.onOpen();
+  }
+
+  async function confirmBulkAction() {
+    const action = String(bulkActionState?.action || "").trim().toLowerCase();
+    const jobIds = Array.isArray(bulkActionState?.jobIds) ? bulkActionState.jobIds : [];
+    if (!action || !jobIds.length) {
+      bulkConfirmDialog.onClose();
+      return;
+    }
+    await runAutoJobAction("", action, { job_ids: jobIds });
+    bulkConfirmDialog.onClose();
+    setBulkActionState({ action: "", jobIds: [] });
   }
 
   async function openDocument(reportScope, extra = {}) {
@@ -948,9 +1016,9 @@ export default function ReportDispatchWorkspace({
                   setMonitorOpen(next);
                   if (next) await loadAutoDispatchJobs({ limit: 120, resetPage: true });
                 }}
-                leftIcon={<ViewIcon />}
+                leftIcon={monitorOpen ? <FiPrinter /> : <FiMessageCircle />}
               >
-                Dispatch Monitor
+                {monitorOpen ? "Report Dispatch" : "Dispatch Monitor"}
               </Button>
             ) : null}
           </Flex>
@@ -1116,6 +1184,18 @@ export default function ReportDispatchWorkspace({
                   <Badge px={2} py={1} borderRadius="md">{autoScopedLabIds.length} Lab(s)</Badge>
                 </HStack>
                 <HStack spacing={2}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    leftIcon={<FiList />}
+                    variant="outline"
+                    minW="120px"
+                    onClick={() => {
+                      sentReportsModal.onOpen();
+                    }}
+                  >
+                    View List
+                  </Button>
                   <Select size="sm" maxW="220px" borderRadius="md" value={autoStatusFilter} onChange={(e) => setAutoStatusFilter(e.target.value)}>
                     <option value="">All statuses</option>
                     <option value="queued">queued</option>
@@ -1137,23 +1217,88 @@ export default function ReportDispatchWorkspace({
                     isLoading={autoLoading}
                   />
                   {canAutoPauseAll ? (
-                    <IconButton
-                      size="sm"
-                      type="button"
-                      aria-label="Pause all visible"
-                      icon={<FiPause />}
-                      colorScheme="orange"
-                      variant="solid"
-                      onClick={() => runAutoJobAction("", "pause_all", {
-                        job_ids: autoFilteredJobs
-                          .filter((row) => ["queued", "cooling_off", "retrying"].includes(String(row?.status || "")))
-                          .map((row) => row?.id)
-                      })}
-                      isLoading={autoActionLoading}
-                    />
+                    (() => {
+                      const pausedVisibleJobIds = autoFilteredJobs
+                        .filter((row) => Boolean(row?.is_paused))
+                        .map((row) => row?.id);
+                      const canResumeAllVisible = pausedVisibleJobIds.length > 0;
+                      return (
+                        <IconButton
+                          size="sm"
+                          type="button"
+                          aria-label={canResumeAllVisible ? "Resume all paused" : "Pause all visible"}
+                          icon={canResumeAllVisible ? <FiPlay /> : <FiPause />}
+                          colorScheme={canResumeAllVisible ? "green" : "orange"}
+                          variant="solid"
+                          onClick={() => {
+                            if (canResumeAllVisible) {
+                              openBulkConfirm("resume_all", pausedVisibleJobIds);
+                              return;
+                            }
+                            openBulkConfirm("pause_all", autoFilteredJobs
+                              .filter((row) => ["queued", "cooling_off", "retrying", "eligible"].includes(String(row?.status || "").toLowerCase()))
+                              .map((row) => row?.id));
+                          }}
+                          isLoading={autoActionLoading}
+                        />
+                      );
+                    })()
                   ) : null}
                 </HStack>
               </Flex>
+              <HStack spacing={2} mb={3}>
+                <Input
+                  size="sm"
+                  maxW="320px"
+                  value={autoSearchInput}
+                  onChange={(e) => setAutoSearchInput(e.target.value)}
+                  placeholder="Search reqno/patient/phone/status/error"
+                />
+                <Button type="button" size="sm" leftIcon={<SearchIcon />} onClick={() => { setAutoSearch(autoSearchInput); setAutoPage(1); }}>
+                  Search
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setAutoSearchInput(""); setAutoSearch(""); setAutoPage(1); }}>
+                  Clear
+                </Button>
+              </HStack>
+              <AlertDialog
+                isOpen={bulkConfirmDialog.isOpen}
+                leastDestructiveRef={bulkCancelRef}
+                onClose={() => {
+                  bulkConfirmDialog.onClose();
+                  setBulkActionState({ action: "", jobIds: [] });
+                }}
+                isCentered
+              >
+                <AlertDialogOverlay>
+                  <AlertDialogContent>
+                    <AlertDialogHeader fontSize="lg" fontWeight="700">
+                      {String(bulkActionState?.action || "").toLowerCase() === "resume_all" ? "Resume All Dispatches" : "Pause All Dispatches"}
+                    </AlertDialogHeader>
+                    <AlertDialogBody>
+                      {String(bulkActionState?.action || "").toLowerCase() === "resume_all"
+                        ? "Are you sure you want to resume all paused dispatches?"
+                        : "Are you sure you want to pause ALL dispatches?"}
+                    </AlertDialogBody>
+                    <AlertDialogFooter>
+                      <Button ref={bulkCancelRef} onClick={() => {
+                        bulkConfirmDialog.onClose();
+                        setBulkActionState({ action: "", jobIds: [] });
+                      }}>
+                        No
+                      </Button>
+                      <Button
+                        colorScheme={String(bulkActionState?.action || "").toLowerCase() === "resume_all" ? "green" : "orange"}
+                        onClick={confirmBulkAction}
+                        ml={3}
+                        isLoading={autoActionLoading}
+                      >
+                        Yes, I&apos;m sure
+                      </Button>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialogOverlay>
+              </AlertDialog>
               <Flex mb={3} align="center" justify="space-between" wrap="wrap" gap={2}>
                 <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
                 <HStack spacing={2}>
@@ -1194,6 +1339,46 @@ export default function ReportDispatchWorkspace({
                   />
                 </HStack>
               </Flex>
+              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
+                <Flex align="center" justify="space-between" mb={2}>
+                  <Text fontWeight="semibold" fontSize="sm">Sent Reports</Text>
+                  <Badge colorScheme="green">{sentDispatchRows.length}</Badge>
+                </Flex>
+                {sentDispatchRows.length === 0 ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
+                ) : (
+                  <Box overflowX="auto">
+                    <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
+                      <Thead>
+                        <Tr>
+                          <Th>Req No</Th>
+                          <Th>Patient</Th>
+                          <Th>Phone</Th>
+                          <Th>Status Sent</Th>
+                          <Th>Sent (IST)</Th>
+                          <Th>Delivery</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {sentDispatchRows.slice(0, 100).map((row) => (
+                          <Tr key={`sent_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
+                            <Td fontWeight="bold">{displayValue(row?.reqno)}</Td>
+                            <Td>{displayValue(row?.patient_name)}</Td>
+                            <Td>{displayValue(row?.phone)}</Td>
+                            <Td>{displayValue(row?.report_label)}</Td>
+                            <Td>{formatIstDateTime(row?.sent_at)}</Td>
+                            <Td>
+                              <Badge colorScheme={deriveDeliveryStatus(row) === "read" ? "green" : deriveDeliveryStatus(row) === "delivered" ? "blue" : "gray"}>
+                                {deriveDeliveryStatus(row)}
+                              </Badge>
+                            </Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </Box>
+                )}
+              </Box>
 
               {isMobileViewport ? (
                 <Box>
@@ -1222,7 +1407,7 @@ export default function ReportDispatchWorkspace({
                           <Badge colorScheme={statusValue === "sent" ? "green" : statusValue === "failed" ? "red" : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying" ? "orange" : "blue"} borderRadius="md" px={2} textTransform="lowercase">
                             {displayValue(statusValue)}
                           </Badge>
-                          <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Running")}</Badge>
+                          <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Active")}</Badge>
                         </Flex>
                         <Text fontSize="xs" fontWeight="semibold">{displayValue(job?.reqno)} • {displayValue(job?.patient_name)}</Text>
                         <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)} • {Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Text>
@@ -1273,7 +1458,7 @@ export default function ReportDispatchWorkspace({
                         <Th>Attempts</Th>
                         <Th>Why / State</Th>
                         <Th>Timeline (IST)</Th>
-                        <Th>Paused</Th>
+                        <Th>Send Status</Th>
                         <Th>Actions</Th>
                       </Tr>
                     </Thead>
@@ -1311,7 +1496,7 @@ export default function ReportDispatchWorkspace({
                               {displayValue(statusValue)}
                             </Badge>
                           </Td>
-                          <Td w="10%">{displayValue(job?.reqno)}</Td>
+                          <Td w="10%" fontWeight="bold">{displayValue(job?.reqno)}</Td>
                           <Td w="13%">{displayValue(job?.patient_name)}</Td>
                           <Td w="10%">{displayValue(job?.phone)}</Td>
                           <Td>{Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Td>
@@ -1337,11 +1522,19 @@ export default function ReportDispatchWorkspace({
                             </Tooltip>
                           </Td>
                           <Td w="14%">
-                            <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
-                              <Text noOfLines={1}>{smartTimestamp(job)}</Text>
-                            </Tooltip>
+                            {(() => {
+                              const tp = timelineParts(job);
+                              return (
+                                <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
+                                  <Box>
+                                    <Text noOfLines={1}>{tp.label}: {tp.date}</Text>
+                                    <Text noOfLines={1}>{tp.time}</Text>
+                                  </Box>
+                                </Tooltip>
+                              );
+                            })()}
                           </Td>
-                          <Td><Badge colorScheme={job?.is_paused ? "orange" : (String(job?.status || "").toLowerCase() === "sent" ? "blue" : "green")}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? `Delivery: ${deriveDeliveryStatus(job)}` : "Running")}</Badge></Td>
+                          <Td><Badge colorScheme={job?.is_paused ? "orange" : (String(job?.status || "").toLowerCase() === "sent" ? "blue" : "green")}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? `Delivery: ${deriveDeliveryStatus(job)}` : "Active")}</Badge></Td>
                           <Td w="24%">
                             <HStack spacing={1.5} mb={1.5} wrap="nowrap">
                               <Tooltip label="Events" hasArrow openDelay={250}>
@@ -1653,6 +1846,55 @@ export default function ReportDispatchWorkspace({
           </ModalBody>
           <ModalFooter>
             <Button onClick={autoEventsModal.onClose}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={sentReportsModal.isOpen} onClose={sentReportsModal.onClose} size="6xl" isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Sent Reports ({selectedDate})</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {sentDispatchRows.length === 0 ? (
+              <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
+            ) : (
+              <Box overflowX="auto">
+                <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5, verticalAlign: "top" } }}>
+                  <Thead>
+                    <Tr>
+                      <Th>Req No</Th>
+                      <Th>Patient</Th>
+                      <Th>Phone</Th>
+                      <Th>Status Sent</Th>
+                      <Th>Sent (IST)</Th>
+                      <Th>Delivery Status</Th>
+                      <Th>Delivery Time (IST)</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {sentDispatchRows.slice(0, 400).map((row) => {
+                      const delivery = deriveDeliveryStatus(row);
+                      const color = delivery === "read" ? "green" : delivery === "delivered" ? "blue" : delivery === "failed" ? "red" : "gray";
+                      return (
+                        <Tr key={`sent_modal_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
+                          <Td fontWeight="bold">{displayValue(row?.reqno)}</Td>
+                          <Td>{displayValue(row?.patient_name)}</Td>
+                          <Td>{displayValue(row?.phone)}</Td>
+                          <Td>{displayValue(row?.report_label)}</Td>
+                          <Td>{formatIstDateTime(row?.sent_at)}</Td>
+                          <Td><Badge colorScheme={color}>{delivery}</Badge></Td>
+                          <Td>{formatIstDateTime(row?.delivery_status_at)}</Td>
+                        </Tr>
+                      );
+                    })}
+                  </Tbody>
+                </Table>
+              </Box>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={sentReportsModal.onClose}>Close</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
