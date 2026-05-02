@@ -243,6 +243,7 @@ export default function ReportDispatchWorkspace({
   const [autoStatusFilter, setAutoStatusFilter] = useState("");
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
+  const [showSentInline, setShowSentInline] = useState(false);
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -272,7 +273,6 @@ export default function ReportDispatchWorkspace({
   const autoEventsModal = useDisclosure();
   const pushTemplateModal = useDisclosure();
   const bulkConfirmDialog = useDisclosure();
-  const sentReportsModal = useDisclosure();
 
   const phoneCacheRef = useRef(new Map());
   const dateCacheRef = useRef(new Map());
@@ -757,6 +757,15 @@ export default function ReportDispatchWorkspace({
     }
   }
 
+  function confirmAndPushJob(job) {
+    const statusValue = String(job?.status || "").toLowerCase();
+    if (statusValue === "sent" && typeof window !== "undefined") {
+      const ok = window.confirm("Report already sent. Send again?");
+      if (!ok) return;
+    }
+    runAutoJobAction(String(job?.id || ""), "push_now");
+  }
+
   async function openPushTemplateModal(job) {
     setPushTemplateJob(job || null);
     pushTemplateModal.onOpen();
@@ -1191,10 +1200,10 @@ export default function ReportDispatchWorkspace({
                     variant="outline"
                     minW="120px"
                     onClick={() => {
-                      sentReportsModal.onOpen();
+                      setShowSentInline((v) => !v);
                     }}
                   >
-                    View List
+                    {showSentInline ? "Hide Sent" : "View Sent"}
                   </Button>
                   <Select size="sm" maxW="220px" borderRadius="md" value={autoStatusFilter} onChange={(e) => setAutoStatusFilter(e.target.value)}>
                     <option value="">All statuses</option>
@@ -1339,6 +1348,7 @@ export default function ReportDispatchWorkspace({
                   />
                 </HStack>
               </Flex>
+              {showSentInline ? (
               <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
                 <Flex align="center" justify="space-between" mb={2}>
                   <Text fontWeight="semibold" fontSize="sm">Sent Reports</Text>
@@ -1347,6 +1357,26 @@ export default function ReportDispatchWorkspace({
                 {sentDispatchRows.length === 0 ? (
                   <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
                 ) : (
+                  isMobileViewport ? (
+                  <Box>
+                    {sentDispatchRows.slice(0, 100).map((row) => {
+                      const delivery = deriveDeliveryStatus(row);
+                      const color = delivery === "read" ? "green" : delivery === "delivered" ? "blue" : delivery === "failed" ? "red" : "gray";
+                      return (
+                        <Box key={`sent_card_${row?.id || row?.reqno || row?.phone || Math.random()}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
+                          <Text fontSize="xs" fontWeight="bold">{displayValue(row?.reqno)} • {displayValue(row?.patient_name)}</Text>
+                          <Text fontSize="xs" color="gray.600">{displayValue(row?.phone)}</Text>
+                          <Text fontSize="xs">Status sent: {displayValue(row?.report_label)}</Text>
+                          <Text fontSize="xs">Sent: {formatIstDateTime(row?.sent_at)}</Text>
+                          <HStack spacing={2} mt={1}>
+                            <Badge colorScheme={color}>{delivery}</Badge>
+                            <Text fontSize="10px">{formatIstDateTime(row?.delivery_status_at)}</Text>
+                          </HStack>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                  ) : (
                   <Box overflowX="auto">
                     <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
                       <Thead>
@@ -1357,6 +1387,7 @@ export default function ReportDispatchWorkspace({
                           <Th>Status Sent</Th>
                           <Th>Sent (IST)</Th>
                           <Th>Delivery</Th>
+                          <Th>Receipt Time (IST)</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -1372,13 +1403,16 @@ export default function ReportDispatchWorkspace({
                                 {deriveDeliveryStatus(row)}
                               </Badge>
                             </Td>
+                            <Td>{formatIstDateTime(row?.delivery_status_at)}</Td>
                           </Tr>
                         ))}
                       </Tbody>
                     </Table>
                   </Box>
+                  )
                 )}
               </Box>
+              ) : null}
 
               {isMobileViewport ? (
                 <Box>
@@ -1422,7 +1456,7 @@ export default function ReportDispatchWorkspace({
                             <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={autoActionLoading} />
                           </Tooltip>
                           <Tooltip label="Push now" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="Push now" colorScheme="blue" icon={<FiSend />} onClick={() => runAutoJobAction(jobId, "push_now")} isDisabled={!canPushRow} isLoading={autoActionLoading} />
+                            <IconButton size="xs" type="button" aria-label="Push now" colorScheme="blue" icon={<FiSend />} onClick={() => confirmAndPushJob(job)} isDisabled={!canPushRow} isLoading={autoActionLoading} />
                           </Tooltip>
                           <Tooltip label="Push to" hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<FiUploadCloud />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
@@ -1534,7 +1568,20 @@ export default function ReportDispatchWorkspace({
                               );
                             })()}
                           </Td>
-                          <Td><Badge colorScheme={job?.is_paused ? "orange" : (String(job?.status || "").toLowerCase() === "sent" ? "blue" : "green")}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? `Delivery: ${deriveDeliveryStatus(job)}` : "Active")}</Badge></Td>
+                          <Td>
+                            {job?.is_paused ? (
+                              <Badge colorScheme="orange">Paused</Badge>
+                            ) : String(job?.status || "").toLowerCase() === "sent" ? (
+                              <Box>
+                                <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "green" : deriveDeliveryStatus(job) === "delivered" ? "blue" : deriveDeliveryStatus(job) === "failed" ? "red" : "gray"}>
+                                  Delivery: {deriveDeliveryStatus(job)}
+                                </Badge>
+                                <Text fontSize="10px" mt={0.5}>{formatIstDateTime(job?.delivery_status_at)}</Text>
+                              </Box>
+                            ) : (
+                              <Badge colorScheme="green">Active</Badge>
+                            )}
+                          </Td>
                           <Td w="24%">
                             <HStack spacing={1.5} mb={1.5} wrap="nowrap">
                               <Tooltip label="Events" hasArrow openDelay={250}>
@@ -1556,7 +1603,7 @@ export default function ReportDispatchWorkspace({
                                   aria-label="Push now"
                                   colorScheme="blue"
                                   icon={<FiSend />}
-                                  onClick={() => runAutoJobAction(jobId, "push_now")}
+                                  onClick={() => confirmAndPushJob(job)}
                                   isDisabled={!canPushRow}
                                   isLoading={autoActionLoading}
                                   _hover={{ transform: "translateY(-1px)" }}
@@ -1846,55 +1893,6 @@ export default function ReportDispatchWorkspace({
           </ModalBody>
           <ModalFooter>
             <Button onClick={autoEventsModal.onClose}>Close</Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      <Modal isOpen={sentReportsModal.isOpen} onClose={sentReportsModal.onClose} size="6xl" isCentered>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Sent Reports ({selectedDate})</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            {sentDispatchRows.length === 0 ? (
-              <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
-            ) : (
-              <Box overflowX="auto">
-                <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5, verticalAlign: "top" } }}>
-                  <Thead>
-                    <Tr>
-                      <Th>Req No</Th>
-                      <Th>Patient</Th>
-                      <Th>Phone</Th>
-                      <Th>Status Sent</Th>
-                      <Th>Sent (IST)</Th>
-                      <Th>Delivery Status</Th>
-                      <Th>Delivery Time (IST)</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {sentDispatchRows.slice(0, 400).map((row) => {
-                      const delivery = deriveDeliveryStatus(row);
-                      const color = delivery === "read" ? "green" : delivery === "delivered" ? "blue" : delivery === "failed" ? "red" : "gray";
-                      return (
-                        <Tr key={`sent_modal_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
-                          <Td fontWeight="bold">{displayValue(row?.reqno)}</Td>
-                          <Td>{displayValue(row?.patient_name)}</Td>
-                          <Td>{displayValue(row?.phone)}</Td>
-                          <Td>{displayValue(row?.report_label)}</Td>
-                          <Td>{formatIstDateTime(row?.sent_at)}</Td>
-                          <Td><Badge colorScheme={color}>{delivery}</Badge></Td>
-                          <Td>{formatIstDateTime(row?.delivery_status_at)}</Td>
-                        </Tr>
-                      );
-                    })}
-                  </Tbody>
-                </Table>
-              </Box>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={sentReportsModal.onClose}>Close</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

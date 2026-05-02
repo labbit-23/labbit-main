@@ -108,6 +108,20 @@ function ymdKeyFromIsoDate(value) {
   return `${m[1]}${m[2]}${m[3]}`;
 }
 
+function istDayRange(selectedDate) {
+  const m = String(selectedDate || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const startUtcMs = Date.UTC(year, month - 1, day, 0, 0, 0) - (5.5 * 60 * 60 * 1000);
+  const endUtcMs = startUtcMs + (24 * 60 * 60 * 1000);
+  return {
+    startIso: new Date(startUtcMs).toISOString(),
+    endIso: new Date(endUtcMs).toISOString()
+  };
+}
+
 function parseSnapshotTests(job) {
   const snap = parseMaybeJson(job?.last_status_snapshot);
   return Array.isArray(snap?.tests) ? snap.tests : [];
@@ -221,7 +235,17 @@ export async function GET(request) {
     }
 
     if (selectedDateKey) {
-      jobsQuery = jobsQuery.like("reqno", `${selectedDateKey}%`);
+      const st = String(status || "").toLowerCase();
+      if (st === "sent") {
+        const range = istDayRange(selectedDate);
+        if (range) {
+          jobsQuery = jobsQuery.gte("sent_at", range.startIso).lt("sent_at", range.endIso);
+        } else {
+          jobsQuery = jobsQuery.like("reqno", `${selectedDateKey}%`);
+        }
+      } else {
+        jobsQuery = jobsQuery.like("reqno", `${selectedDateKey}%`);
+      }
     }
 
     if (jobId) {
@@ -546,6 +570,65 @@ export async function POST(request) {
     const { data: job, error: jobError } = await getJobQuery;
     if (jobError) return new Response(jobError.message || "Failed to load job", { status: 500 });
     if (!job) return new Response("Job not found", { status: 404 });
+
+    if (action === "push_now" && String(job?.status || "").toLowerCase() === "sent") {
+      const nowIso = new Date().toISOString();
+      const resendJob = {
+        lab_id: job.lab_id,
+        reqno: job.reqno,
+        reqid: job.reqid,
+        mrno: job.mrno,
+        phone: job.phone,
+        patient_name: job.patient_name,
+        report_label: job.report_label,
+        status: "eligible",
+        is_paused: false,
+        force_send_now: true,
+        cooloff_minutes: job.cooloff_minutes,
+        scheduled_at: nowIso,
+        next_attempt_at: nowIso,
+        sent_at: null,
+        attempt_count: 0,
+        max_attempts: job.max_attempts,
+        last_attempt_at: null,
+        last_error: null,
+        created_at: nowIso,
+        updated_at: nowIso
+      };
+
+      const { data: insertedJob, error: insertError } = await supabase
+        .from(JOBS_TABLE)
+        .insert(resendJob)
+        .select("id,lab_id,status,is_paused,force_send_now,next_attempt_at,updated_at,phone,reqno,reqid,mrno,patient_name")
+        .limit(1)
+        .maybeSingle();
+      if (insertError) return new Response(insertError.message || "Failed to create resend job", { status: 500 });
+
+      const eventRow = {
+        job_id: Number(insertedJob?.id || 0) || null,
+        reqno: insertedJob?.reqno || null,
+        reqid: insertedJob?.reqid || null,
+        phone: insertedJob?.phone || null,
+        event_type: "admin_push_now_resend",
+        message: "Admin action: push_now on sent job (created resend job)",
+        payload: {
+          actor_user_id: user?.id || null,
+          actor_name: user?.name || null,
+          actor_role: user?.userType || null,
+          source_job_id: Number(jobId)
+        },
+        created_at: nowIso
+      };
+      const { error: eventError } = await supabase.from(EVENTS_TABLE).insert(eventRow);
+      if (eventError) {
+        console.error("[auto-dispatch-logs][POST] push_now resend event insert failed", eventError);
+      }
+
+      return NextResponse.json(
+        { ok: true, action, job: insertedJob || null, source_job_id: Number(jobId), mode: "resend_clone" },
+        { status: 200 }
+      );
+    }
 
     if (action === "send_to") {
       const nowIso = new Date().toISOString();
