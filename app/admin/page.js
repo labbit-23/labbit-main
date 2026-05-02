@@ -17,7 +17,9 @@ import {
   FiTool,
   FiShield,
   FiBarChart2,
-  FiPlayCircle
+  FiPlayCircle,
+  FiSettings,
+  FiHelpCircle
 } from "react-icons/fi";
 import dayjs from "dayjs";
 
@@ -941,6 +943,26 @@ const exportVisitsImage = async () => {
         label: "Collection",
         icon: <LinkIcon />,
         href: "/collection-centre",
+      },
+      {
+        key: "whatsapp_setup",
+        label: "WhatsApp Setup",
+        icon: <FiSettings />,
+        href: "/admin/whatsapp-setup",
+        hidden: !["director"].includes(activeRoleKey),
+      },
+      {
+        key: "app_setup",
+        label: "App Setup",
+        icon: <FiSettings />,
+        href: "/admin/app-setup",
+        hidden: !["director"].includes(activeRoleKey),
+      },
+      {
+        key: "app_help",
+        label: "App Help",
+        icon: <FiHelpCircle />,
+        href: "/admin/app-help",
       },
       {
         key: "clickup",

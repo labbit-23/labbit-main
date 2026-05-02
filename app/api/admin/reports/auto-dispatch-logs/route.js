@@ -332,14 +332,16 @@ export async function GET(request) {
       const byMessageId = new Map();
       const byPhone = new Map();
       for (const row of statusRows || []) {
-        const messageId = String(row?.message_id || "").trim();
-        if (!messageId) continue;
         const payload = parseMaybeJson(row?.payload);
         const statusKey = String(row?.status || payload?.status || "").trim().toLowerCase();
         if (!statusKey) continue;
-        const prev = byMessageId.get(messageId);
-        if (!prev || deliveryRank(statusKey) >= deliveryRank(prev.status)) {
-          byMessageId.set(messageId, { status: statusKey, at: row?.created_at || null });
+
+        const messageId = String(row?.message_id || "").trim();
+        if (messageId) {
+          const prev = byMessageId.get(messageId);
+          if (!prev || deliveryRank(statusKey) >= deliveryRank(prev.status)) {
+            byMessageId.set(messageId, { status: statusKey, at: row?.created_at || null });
+          }
         }
 
         const p10 = phoneLast10(row?.phone || payload?.recipient_id);

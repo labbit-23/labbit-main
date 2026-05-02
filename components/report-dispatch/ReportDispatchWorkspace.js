@@ -397,6 +397,7 @@ export default function ReportDispatchWorkspace({
         row?.patient_name,
         row?.phone,
         row?.status,
+        row?.is_paused ? "paused" : "active",
         row?.report_label,
         row?.last_error
       ].map((v) => String(v || "").toLowerCase()).join(" ");
@@ -480,6 +481,31 @@ export default function ReportDispatchWorkspace({
   const canAutoSendTo = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.send_to");
   const canAutoPause = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.pause");
   const canAutoPauseAll = hasWildcard || grantedPermissions.includes("reports.auto_dispatch.pause_all");
+
+  useEffect(() => {
+    if (!monitorOpen) return;
+    if (typeof window === "undefined") return;
+    const onKeyDown = (event) => {
+      const tag = String(event?.target?.tagName || "").toLowerCase();
+      const isTypingTarget = tag === "input" || tag === "textarea" || tag === "select" || Boolean(event?.target?.isContentEditable);
+      if (isTypingTarget) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setAutoPage((p) => Math.max(1, p - 1));
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setAutoPage((p) => Math.min(totalAutoPages, p + 1));
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        setAutoPage(1);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        setAutoPage(totalAutoPages);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [monitorOpen, totalAutoPages]);
 
   function findPhoneFromDailyRows(reqnoValue) {
     const cleanReqno = String(reqnoValue || "").trim();
@@ -1227,10 +1253,16 @@ export default function ReportDispatchWorkspace({
                   />
                   {canAutoPauseAll ? (
                     (() => {
+                      const pausableVisibleJobIds = autoFilteredJobs
+                        .filter((row) => ["queued", "cooling_off", "retrying", "eligible"].includes(String(row?.status || "").toLowerCase()))
+                        .map((row) => row?.id);
                       const pausedVisibleJobIds = autoFilteredJobs
                         .filter((row) => Boolean(row?.is_paused))
                         .map((row) => row?.id);
-                      const canResumeAllVisible = pausedVisibleJobIds.length > 0;
+                      const canResumeAllVisible =
+                        pausedVisibleJobIds.length > 0 &&
+                        pausableVisibleJobIds.length > 0 &&
+                        pausedVisibleJobIds.length >= pausableVisibleJobIds.length;
                       return (
                         <IconButton
                           size="sm"
@@ -1244,9 +1276,7 @@ export default function ReportDispatchWorkspace({
                               openBulkConfirm("resume_all", pausedVisibleJobIds);
                               return;
                             }
-                            openBulkConfirm("pause_all", autoFilteredJobs
-                              .filter((row) => ["queued", "cooling_off", "retrying", "eligible"].includes(String(row?.status || "").toLowerCase()))
-                              .map((row) => row?.id));
+                            openBulkConfirm("pause_all", pausableVisibleJobIds);
                           }}
                           isLoading={autoActionLoading}
                         />
