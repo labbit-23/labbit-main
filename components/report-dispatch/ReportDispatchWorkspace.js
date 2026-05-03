@@ -254,6 +254,7 @@ export default function ReportDispatchWorkspace({
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [grantedPermissions, setGrantedPermissions] = useState([]);
   const [pushTemplateJob, setPushTemplateJob] = useState(null);
+  const [detailLoadedFromMonitor, setDetailLoadedFromMonitor] = useState(false);
 
   const [status, setStatus] = useState(null);
   const [selectedReportMeta, setSelectedReportMeta] = useState(null);
@@ -682,9 +683,10 @@ export default function ReportDispatchWorkspace({
     dateModal.onOpen();
   }
 
-  async function handleUseRow(row) {
+  async function handleUseRow(row, options = {}) {
     phoneModal.onClose();
     dateModal.onClose();
+    setDetailLoadedFromMonitor(Boolean(options?.fromMonitor));
     setSelectedReportMeta(row || null);
     const reqno = String(row?.reqno || "").trim();
     if (!reqno) return;
@@ -713,7 +715,7 @@ export default function ReportDispatchWorkspace({
       org_id: String(job?.org_id || "").trim()
     };
     if (!mapped.reqno) return;
-    await handleUseRow(mapped);
+    await handleUseRow(mapped, { fromMonitor: true });
   }
 
   async function loadAutoDispatchJobs(options = {}) {
@@ -1790,7 +1792,9 @@ export default function ReportDispatchWorkspace({
                       row?.department === "lab"
                         ? row?.dispatched
                           ? "Dispatched"
-                          : "Not Dispatched"
+                          : detailLoadedFromMonitor
+                            ? "-"
+                            : "Not Dispatched"
                         : "-";
 
                     return (
