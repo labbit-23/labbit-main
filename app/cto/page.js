@@ -1237,40 +1237,49 @@ function CtoDashboardPage() {
   }, [trendData]);
   const trendIsHourlyBucket = String(trendData?.bucket || "").toLowerCase() === "hour";
   const trendUptimeDowntime = useMemo(() => {
-    const downRate = Number(trendData?.summary?.down_rate);
-    if (!Number.isFinite(downRate) || downRate < 0) return { uptimeLabel: "n/a", downtimeLabel: "n/a" };
-
     const bucket = String(trendData?.bucket || "").toLowerCase();
-    let totalMinutes = 0;
-    if (bucket === "hour") {
-      totalMinutes = Math.max(0, Math.round(Number(trendSource?.raw_window_hours || 0) * 60));
-    } else if (trendRange === "7d") {
-      totalMinutes = 7 * 24 * 60;
-    } else if (trendRange === "30d") {
-      totalMinutes = 30 * 24 * 60;
-    } else if (trendRange === "12w") {
-      totalMinutes = 84 * 24 * 60;
-    } else if (trendRange === "12m") {
-      totalMinutes = 365 * 24 * 60;
-    } else {
-      totalMinutes = Math.max(0, Math.round(Number(trendSource?.raw_window_hours || 0) * 60));
-    }
-
-    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return { uptimeLabel: "n/a", downtimeLabel: "n/a" };
-
-    const downMinutes = Math.max(0, Math.round(totalMinutes * downRate));
-    const upMinutes = Math.max(0, totalMinutes - downMinutes);
+    const toMinutesPerBucket = () => {
+      if (bucket === "hour") return 60;
+      if (bucket === "day") return 24 * 60;
+      if (bucket === "week") return 7 * 24 * 60;
+      if (bucket === "month") return 30 * 24 * 60;
+      return 60;
+    };
+    const minsPerBucket = toMinutesPerBucket();
     const formatMinutes = (mins) => {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       return `${h}h ${String(m).padStart(2, "0")}m`;
     };
 
+    // Merge visible VPS+Local buckets and treat any non-100% healthy bucket as downtime.
+    const byBucket = new Map();
+    for (const point of [...trendPoints, ...trendComparePoints]) {
+      const key = String(point?.bucket_key || "");
+      if (!key) continue;
+      const healthyRate = Number(point?.healthy_rate);
+      if (!Number.isFinite(healthyRate)) continue;
+      const current = byBucket.get(key);
+      if (current == null) byBucket.set(key, healthyRate);
+      else byBucket.set(key, Math.min(current, healthyRate));
+    }
+
+    const bucketCount = byBucket.size;
+    if (bucketCount === 0) return { uptimeLabel: "n/a", downtimeLabel: "n/a" };
+
+    let downtimeBuckets = 0;
+    for (const rate of byBucket.values()) {
+      if (rate < 0.999) downtimeBuckets += 1;
+    }
+
+    const totalMinutes = bucketCount * minsPerBucket;
+    const downMinutes = downtimeBuckets * minsPerBucket;
+    const upMinutes = Math.max(0, totalMinutes - downMinutes);
     return {
       uptimeLabel: formatMinutes(upMinutes),
       downtimeLabel: formatMinutes(downMinutes)
     };
-  }, [trendData?.bucket, trendData?.summary?.down_rate, trendRange, trendSource?.raw_window_hours]);
+  }, [trendData?.bucket, trendPoints, trendComparePoints]);
 
   const trendChartModel = useMemo(() => buildTrendChartModel(trendPoints, trendRange), [trendPoints, trendRange]);
   const trendCompareChartModel = useMemo(() => buildTrendChartModel(trendComparePoints, trendRange), [trendComparePoints, trendRange]);
