@@ -14,6 +14,9 @@ const RANGE_PRESETS = {
 
 const MAX_RAW_ROWS = 25000;
 const RECENT_RAW_DAYS = 2;
+const RAW_FALLBACK_DAY_LIMIT = 5000;
+const RAW_FALLBACK_HOUR_LIMIT = 2500;
+const IST_TIME_ZONE = "Asia/Kolkata";
 
 function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
@@ -53,6 +56,12 @@ function addUtcDays(date, days) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+function nextUtcMidnight(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+}
+
 function formatDayKey(date) {
   return startOfUtcDay(date).toISOString().slice(0, 10);
 }
@@ -72,7 +81,17 @@ function monthKey(date) {
 function hourKey(date) {
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:00`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: IST_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(d);
+  const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day} ${map.hour}:00`;
 }
 
 function bucketKeyFromDate(date, granularity) {
@@ -84,11 +103,14 @@ function bucketKeyFromDate(date, granularity) {
 
 function bucketLabelFromKey(key, granularity) {
   if (granularity === "hour") {
-    const parsed = new Date(String(key).replace(" ", "T") + ":00.000Z");
-    if (Number.isNaN(parsed.getTime())) return key;
-    const day = parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" });
-    const time = parsed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
-    return `${day} ${time}`;
+    const text = String(key || "");
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):00$/);
+    if (!match) return text;
+    const [, y, m, d, h] = match;
+    const parsed = new Date(`${y}-${m}-${d}T${h}:00:00`);
+    if (Number.isNaN(parsed.getTime())) return text;
+    const day = parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+    return `${day} ${h}:00`;
   }
   if (granularity === "month") return key;
   const parsed = new Date(`${key}T00:00:00.000Z`);
@@ -645,25 +667,96 @@ export async function GET(request) {
     const effectiveRawStart = rawWindowStart > startDay ? rawWindowStart : startTs;
 
     const rawAscending = hasDigestRows;
+    let rawRows = [];
 
-    let rawQuery = supabase
-      .from("cto_service_logs")
-      .select("checked_at, service_key, status, latency_ms, payload")
-      .gte("checked_at", effectiveRawStart.toISOString())
-      .lt("checked_at", endExclusive.toISOString())
-      .order("checked_at", { ascending: rawAscending })
-      .limit(MAX_RAW_ROWS);
+    // Hourly ranges: sample per-hour to avoid time-window collapse under high row volume.
+    if (!useDigest) {
+      let cursor = new Date(effectiveRawStart);
+      const sampledRows = [];
 
-    if (labId) rawQuery = rawQuery.eq("lab_id", labId);
+      while (cursor < endExclusive && sampledRows.length < MAX_RAW_ROWS) {
+        const nextHour = new Date(Math.min(endExclusive.getTime(), cursor.getTime() + 60 * 60 * 1000));
+        let hourQuery = supabase
+          .from("cto_service_logs")
+          .select("checked_at, service_key, status, latency_ms, payload")
+          .gte("checked_at", cursor.toISOString())
+          .lt("checked_at", nextHour.toISOString())
+          .order("checked_at", { ascending: false })
+          .limit(RAW_FALLBACK_HOUR_LIMIT);
 
-    const { data: rawData, error: rawError } = await rawQuery;
+        if (labId) hourQuery = hourQuery.eq("lab_id", labId);
 
-    if (rawError) {
-      console.error("[cto/trends] raw query failed", rawError);
-      return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+        const { data: hourData, error: hourError } = await hourQuery;
+        if (hourError) {
+          console.error("[cto/trends] hourly raw fallback query failed", {
+            from: cursor.toISOString(),
+            to: nextHour.toISOString(),
+            error: hourError
+          });
+          return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+        }
+
+        if (Array.isArray(hourData) && hourData.length > 0) sampledRows.push(...hourData);
+        cursor = nextHour;
+      }
+
+      rawRows = sampledRows.sort(
+        (a, b) => new Date(a?.checked_at || 0).getTime() - new Date(b?.checked_at || 0).getTime()
+      );
+    // Day/week/month ranges without digest: sample per-day to spread coverage.
+    } else if (!hasDigestRows) {
+      let cursor = new Date(effectiveRawStart);
+      const dailyRows = [];
+
+      while (cursor < endExclusive && dailyRows.length < MAX_RAW_ROWS) {
+        const nextDay = nextUtcMidnight(cursor) || endExclusive;
+        const sliceEnd = nextDay < endExclusive ? nextDay : endExclusive;
+        let dayQuery = supabase
+          .from("cto_service_logs")
+          .select("checked_at, service_key, status, latency_ms, payload")
+          .gte("checked_at", cursor.toISOString())
+          .lt("checked_at", sliceEnd.toISOString())
+          .order("checked_at", { ascending: false })
+          .limit(RAW_FALLBACK_DAY_LIMIT);
+
+        if (labId) dayQuery = dayQuery.eq("lab_id", labId);
+
+        const { data: dayData, error: dayError } = await dayQuery;
+        if (dayError) {
+          console.error("[cto/trends] daily raw fallback query failed", {
+            day: formatDayKey(cursor),
+            error: dayError
+          });
+          return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+        }
+
+        if (Array.isArray(dayData) && dayData.length > 0) {
+          dailyRows.push(...dayData);
+        }
+        cursor = nextDay;
+      }
+
+      rawRows = dailyRows;
+    } else {
+      let rawQuery = supabase
+        .from("cto_service_logs")
+        .select("checked_at, service_key, status, latency_ms, payload")
+        .gte("checked_at", effectiveRawStart.toISOString())
+        .lt("checked_at", endExclusive.toISOString())
+        .order("checked_at", { ascending: rawAscending })
+        .limit(MAX_RAW_ROWS);
+
+      if (labId) rawQuery = rawQuery.eq("lab_id", labId);
+
+      const { data: rawData, error: rawError } = await rawQuery;
+
+      if (rawError) {
+        console.error("[cto/trends] raw query failed", rawError);
+        return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+      }
+
+      rawRows = Array.isArray(rawData) ? rawData : [];
     }
-
-    const rawRows = Array.isArray(rawData) ? rawData : [];
     const digestServiceDay = useDigest
       ? aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter, nodeSuffixFilter)
       : new Map();

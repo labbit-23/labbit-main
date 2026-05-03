@@ -607,12 +607,59 @@ function isStoppedLike(row) {
   return message.includes("stopped") || message.includes("exited");
 }
 
+function isOnlineLike(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const states = [
+    payload.pm2_status,
+    payload.process_status,
+    payload.process_state,
+    payload.status,
+    payload.state
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean);
+
+  return states.some((value) =>
+    ["online", "running", "up", "active", "healthy"].some((hint) => value.includes(hint))
+  );
+}
+
+function isPm2ManagedService(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const key = String(row?.service_key || "").toLowerCase();
+  if (key.startsWith("pm2_")) return true;
+  return [payload.pm2_status, payload.pm2_id, payload.pm2_name].some((value) => value != null);
+}
+
+function parseRestartAt(row = {}) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const candidates = [
+    payload.last_restart_at,
+    payload.last_start_at,
+    payload.last_started_at,
+    payload.started_at,
+    payload.last_boot_at
+  ];
+  for (const value of candidates) {
+    const parsed = parseIsoDate(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 function normalizeServiceStatus(row, nowMs = Date.now()) {
   const status = String(row?.status || "").trim().toLowerCase() || "unknown";
   const runAt = parseRecentRunAt(row);
   const ranWithin24h = runAt ? nowMs - runAt.getTime() <= 24 * 60 * 60 * 1000 : false;
   const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
   const key = String(row?.service_key || "").toLowerCase();
+  const runAgeMs = runAt ? nowMs - runAt.getTime() : null;
+  const isFreshRun = Number.isFinite(runAgeMs) && runAgeMs <= 10 * 60 * 1000;
+  const restartAt = parseRestartAt(row);
+  const restartAgeMs = restartAt ? nowMs - restartAt.getTime() : null;
+  const restartedRecently = Number.isFinite(restartAgeMs) && restartAgeMs <= 15 * 60 * 1000;
+  const onlineNow = isOnlineLike(row);
+  const isPm2 = isPm2ManagedService(row);
 
   // Realtime is optional in many deployments; do not raise scary degradation unless explicitly required.
   if (key.includes("supabase_realtime")) {
@@ -622,6 +669,28 @@ function normalizeServiceStatus(row, nowMs = Date.now()) {
         ...row,
         status: "healthy",
         message: row?.message || "Supabase Realtime is optional/unused for this deployment."
+      };
+    }
+  }
+
+  // PM2-managed services: controlled restarts should not show as hard-down.
+  if (isPm2 && ["down", "degraded", "unknown"].includes(status)) {
+    if (onlineNow && isFreshRun) {
+      return {
+        ...row,
+        status: "healthy",
+        message:
+          row?.message ||
+          "Process is online and recently checked after restart/hotfix."
+      };
+    }
+    if (restartedRecently) {
+      return {
+        ...row,
+        status: "degraded",
+        message:
+          row?.message ||
+          "Recent controlled restart detected; monitoring stabilization window."
       };
     }
   }

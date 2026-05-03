@@ -294,6 +294,66 @@ function isWhatsappMetric(service) {
   return service?.category === "whatsapp" || String(baseKey || "").startsWith("whatsapp_bot_");
 }
 
+function toFiniteInt(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.round(num) : fallback;
+}
+
+function formatMinutesAgoCompact(value) {
+  const mins = Number(value);
+  if (!Number.isFinite(mins) || mins < 0) return "n/a";
+  if (mins < 60) return `${Math.round(mins)}m ago`;
+  const hours = Math.floor(mins / 60);
+  const rem = Math.round(mins % 60);
+  return rem > 0 ? `${hours}h ${rem}m ago` : `${hours}h ago`;
+}
+
+function formatWhatsappMetricValue(service) {
+  const payload = service?.payload && typeof service.payload === "object" ? service.payload : {};
+  const baseKey = parseServiceKey(service?.service_key).baseKey;
+
+  if (baseKey === "whatsapp_bot_activity") {
+    return [
+      payload?.last_bot_message_ist || "No recent bot msg",
+      `24h: ${toFiniteInt(payload?.bot_messages_24h)}`
+    ];
+  }
+
+  if (baseKey === "whatsapp_bot_chats_24h") {
+    return [`24h: ${toFiniteInt(payload?.count_24h)}`, `1h: ${toFiniteInt(payload?.count_1h)}`];
+  }
+
+  if (baseKey === "whatsapp_bot_reports_24h") {
+    return [`24h: ${toFiniteInt(payload?.count_24h)}`, `1h: ${toFiniteInt(payload?.count_1h)}`];
+  }
+
+  if (baseKey === "whatsapp_bot_last_report") {
+    return [
+      payload?.last_bot_report_sent_ist || "No recent report",
+      formatMinutesAgoCompact(payload?.last_bot_report_minutes_ago)
+    ];
+  }
+
+  if (baseKey === "whatsapp_bot_response_sla_1m") {
+    const total = toFiniteInt(payload?.count_1h);
+    const within = toFiniteInt(payload?.replied_within_sla_1h);
+    const late = toFiniteInt(payload?.late_replies_1h);
+    const noReply = toFiniteInt(payload?.no_reply_1h);
+    const pct = total > 0 ? Math.round((within / total) * 100) : 0;
+    return [`SLA: ${pct}% (${within}/${total})`, `Late: ${late} • No reply: ${noReply}`];
+  }
+
+  if (baseKey === "whatsapp_bot_help_waits_24h") {
+    return [`24h: ${toFiniteInt(payload?.count_24h)}`, "Exec handoff waits"];
+  }
+
+  if (baseKey === "whatsapp_bot_report_waits_24h") {
+    return [`24h: ${toFiniteInt(payload?.count_24h)}`, "Report verification waits"];
+  }
+
+  return [payload?.last_bot_message_ist || payload?.last_bot_report_sent_ist || "Activity"];
+}
+
 function toChartY(value, height, padding, { min = 0, max = 100 } = {}) {
   const normalizedMin = Number.isFinite(min) ? min : 0;
   const normalizedMax = Number.isFinite(max) && max > normalizedMin ? max : normalizedMin + 1;
@@ -1175,6 +1235,42 @@ function CtoDashboardPage() {
   const trendSource = useMemo(() => {
     return trendData?.source || {};
   }, [trendData]);
+  const trendIsHourlyBucket = String(trendData?.bucket || "").toLowerCase() === "hour";
+  const trendUptimeDowntime = useMemo(() => {
+    const downRate = Number(trendData?.summary?.down_rate);
+    if (!Number.isFinite(downRate) || downRate < 0) return { uptimeLabel: "n/a", downtimeLabel: "n/a" };
+
+    const bucket = String(trendData?.bucket || "").toLowerCase();
+    let totalMinutes = 0;
+    if (bucket === "hour") {
+      totalMinutes = Math.max(0, Math.round(Number(trendSource?.raw_window_hours || 0) * 60));
+    } else if (trendRange === "7d") {
+      totalMinutes = 7 * 24 * 60;
+    } else if (trendRange === "30d") {
+      totalMinutes = 30 * 24 * 60;
+    } else if (trendRange === "12w") {
+      totalMinutes = 84 * 24 * 60;
+    } else if (trendRange === "12m") {
+      totalMinutes = 365 * 24 * 60;
+    } else {
+      totalMinutes = Math.max(0, Math.round(Number(trendSource?.raw_window_hours || 0) * 60));
+    }
+
+    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return { uptimeLabel: "n/a", downtimeLabel: "n/a" };
+
+    const downMinutes = Math.max(0, Math.round(totalMinutes * downRate));
+    const upMinutes = Math.max(0, totalMinutes - downMinutes);
+    const formatMinutes = (mins) => {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `${h}h ${String(m).padStart(2, "0")}m`;
+    };
+
+    return {
+      uptimeLabel: formatMinutes(upMinutes),
+      downtimeLabel: formatMinutes(downMinutes)
+    };
+  }, [trendData?.bucket, trendData?.summary?.down_rate, trendRange, trendSource?.raw_window_hours]);
 
   const trendChartModel = useMemo(() => buildTrendChartModel(trendPoints, trendRange), [trendPoints, trendRange]);
   const trendCompareChartModel = useMemo(() => buildTrendChartModel(trendComparePoints, trendRange), [trendComparePoints, trendRange]);
@@ -1363,15 +1459,37 @@ function CtoDashboardPage() {
   const managementMetrics = useMemo(() => {
     const botSla = serviceByBaseKey.get("whatsapp_bot_response_sla_1m");
     const botChats24h = serviceByBaseKey.get("whatsapp_bot_chats_24h");
+    const botReports24h = serviceByBaseKey.get("whatsapp_bot_reports_24h");
+    const botLastReport = serviceByBaseKey.get("whatsapp_bot_last_report");
+    const botHelpWaits = serviceByBaseKey.get("whatsapp_bot_help_waits_24h");
+    const botReportWaits = serviceByBaseKey.get("whatsapp_bot_report_waits_24h");
     const website = latest?.website_analytics || {};
     const openEvents = (eventsRows || []).filter((row) => String(row?.status || "open") !== "resolved").length;
     const positiveRate = typeof feedbackData?.summary?.positive_rate === "number"
       ? Math.round(feedbackData.summary.positive_rate * 100)
       : null;
 
+    const slaPayload = botSla?.payload || {};
+    const slaCount1h = toFiniteInt(slaPayload?.count_1h, 0);
+    const slaWithin1h = toFiniteInt(slaPayload?.replied_within_sla_1h, 0);
+    const slaLate1h = toFiniteInt(slaPayload?.late_replies_1h, 0);
+    const slaNoReply1h = toFiniteInt(slaPayload?.no_reply_1h, 0);
+    const slaPct1h = slaCount1h > 0 ? Math.round((slaWithin1h / slaCount1h) * 100) : null;
+
     return {
       botSlaWithin: botSla?.payload?.within_sla_pct ?? null,
       botChats24h: botChats24h?.payload?.chat_sessions_24h ?? null,
+      botReports24h: toFiniteInt(botReports24h?.payload?.count_24h, 0),
+      botReports1h: toFiniteInt(botReports24h?.payload?.count_1h, 0),
+      botLastReportIst: botLastReport?.payload?.last_bot_report_sent_ist || null,
+      botLastReportAgo: formatMinutesAgoCompact(botLastReport?.payload?.last_bot_report_minutes_ago),
+      botHelpWaits24h: toFiniteInt(botHelpWaits?.payload?.count_24h, 0),
+      botReportWaits24h: toFiniteInt(botReportWaits?.payload?.count_24h, 0),
+      botSlaCount1h: slaCount1h,
+      botSlaWithin1h: slaWithin1h,
+      botSlaLate1h: slaLate1h,
+      botSlaNoReply1h: slaNoReply1h,
+      botSlaPct1h: slaPct1h,
       websiteActiveSessions15m:
         typeof website?.active_sessions_15m === "number" ? website.active_sessions_15m : null,
       websiteUniqueVisitorsToday:
@@ -1942,6 +2060,44 @@ function CtoDashboardPage() {
                 </Text>
               </Box>
             </SimpleGrid>
+            <Box mt={3} p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <HStack justify="space-between" align="center" mb={2}>
+                <Text fontSize="xs" color="whiteAlpha.700">WhatsApp Engagement Snapshot</Text>
+                <Text fontSize="xs" color="whiteAlpha.600">
+                  Last report: {managementMetrics.botLastReportIst || "n/a"} ({managementMetrics.botLastReportAgo || "n/a"})
+                </Text>
+              </HStack>
+              <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2}>
+                <Box p={3} borderRadius="12px" bg="rgba(59,130,246,0.10)" border="1px solid rgba(96,165,250,0.25)">
+                  <Text fontSize="xs" color="whiteAlpha.700">Reports Sent</Text>
+                  <Text fontWeight="800" fontSize="lg">{managementMetrics.botReports24h} (24h)</Text>
+                  <Text fontSize="xs" color="whiteAlpha.700">{managementMetrics.botReports1h} in last 1h</Text>
+                </Box>
+                <Box p={3} borderRadius="12px" bg="rgba(16,185,129,0.10)" border="1px solid rgba(74,222,128,0.25)">
+                  <Text fontSize="xs" color="whiteAlpha.700">Reply SLA (1m)</Text>
+                  <Text fontWeight="800" fontSize="lg">
+                    {managementMetrics.botSlaPct1h != null ? `${managementMetrics.botSlaPct1h}%` : "n/a"}
+                  </Text>
+                  <Text fontSize="xs" color="whiteAlpha.700">
+                    {managementMetrics.botSlaWithin1h}/{managementMetrics.botSlaCount1h} within SLA
+                  </Text>
+                </Box>
+                <Box p={3} borderRadius="12px" bg="rgba(245,158,11,0.10)" border="1px solid rgba(251,191,36,0.25)">
+                  <Text fontSize="xs" color="whiteAlpha.700">Late / No Reply (1h)</Text>
+                  <Text fontWeight="800" fontSize="lg">
+                    {managementMetrics.botSlaLate1h} / {managementMetrics.botSlaNoReply1h}
+                  </Text>
+                  <Text fontSize="xs" color="whiteAlpha.700">Escalation watch</Text>
+                </Box>
+                <Box p={3} borderRadius="12px" bg="rgba(139,92,246,0.10)" border="1px solid rgba(167,139,250,0.25)">
+                  <Text fontSize="xs" color="whiteAlpha.700">Wait Messages (24h)</Text>
+                  <Text fontWeight="800" fontSize="lg">
+                    {managementMetrics.botHelpWaits24h} / {managementMetrics.botReportWaits24h}
+                  </Text>
+                  <Text fontSize="xs" color="whiteAlpha.700">Help wait / report wait</Text>
+                </Box>
+              </SimpleGrid>
+            </Box>
             <Box mt={3} p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
               <Text fontSize="xs" color="whiteAlpha.700" mb={2}>Top Website Pages (7d)</Text>
               {managementMetrics.websiteTopPages7d.length === 0 ? (
@@ -2550,6 +2706,7 @@ function CtoDashboardPage() {
                             borderRadius="14px"
                             w="full"
                             minW={0}
+                            overflow="hidden"
                             bg={
                               service.status === "down"
                                 ? "rgba(248,113,113,0.18)"
@@ -2584,13 +2741,25 @@ function CtoDashboardPage() {
                               <Text fontSize="sm" flex="1" minW={0} noOfLines={1}>
                                 {service.label || service.service_key}
                               </Text>
-                              <Text fontSize="xs" color="whiteAlpha.700" flexShrink={0} whiteSpace="nowrap">
-                                {isWhatsappMetric(service)
-                                  ? (service.payload?.last_bot_message_ist || service.payload?.last_bot_report_sent_ist || "Activity")
-                                  : typeof service.latency_ms === "number"
-                                    ? `${service.latency_ms} ms`
-                                    : "n/a"}
-                              </Text>
+                              {isWhatsappMetric(service) ? (
+                                <Box flexShrink={0} minW={0} maxW="54%">
+                                  {formatWhatsappMetricValue(service).map((line, index) => (
+                                    <Text
+                                      key={`${service.service_key}-wm-${index}`}
+                                      fontSize="xs"
+                                      color={index === 0 ? "whiteAlpha.900" : "whiteAlpha.700"}
+                                      textAlign="right"
+                                      noOfLines={1}
+                                    >
+                                      {line}
+                                    </Text>
+                                  ))}
+                                </Box>
+                              ) : (
+                                <Text fontSize="xs" color="whiteAlpha.700" flexShrink={0} whiteSpace="nowrap">
+                                  {typeof service.latency_ms === "number" ? `${service.latency_ms} ms` : "n/a"}
+                                </Text>
+                              )}
                             </Flex>
                           </Box>
                         </Tooltip>
@@ -2720,7 +2889,7 @@ function CtoDashboardPage() {
                       <Stack spacing={2}>
                         {selectedIssueSamples.map((sample, index) => (
                           <Box
-                            key={`${sample?.phone || "unknown"}-${sample?.inbound_ist || index}`}
+                            key={`${sample?.phone || "unknown"}-${sample?.inbound_ist || "na"}-${sample?.outbound_ist || "na"}-${index}`}
                             p={2.5}
                             borderRadius="12px"
                             bg="rgba(255,255,255,0.03)"
@@ -2886,13 +3055,19 @@ function CtoDashboardPage() {
             >
               WoW Latency: {trendWow.hasData && trendWow.latency_delta_ms != null ? `${trendWow.latency_delta_ms >= 0 ? "+" : ""}${trendWow.latency_delta_ms} ms` : "n/a"}
             </Badge>
+            <Badge borderRadius="full" px={3} py={1} bg="rgba(74,222,128,0.14)" color="green.200">
+              Uptime: {trendUptimeDowntime.uptimeLabel}
+            </Badge>
+            <Badge borderRadius="full" px={3} py={1} bg="rgba(248,113,113,0.14)" color="red.200">
+              Downtime: {trendUptimeDowntime.downtimeLabel}
+            </Badge>
           </HStack>
           {!trendWow.hasData && trendWow.reason && (
             <Text fontSize="xs" color="whiteAlpha.700" mb={4}>
               WoW unavailable: {trendWow.reason}
             </Text>
           )}
-          {Number(trendSource?.digest_rows || 0) === 0 && (
+          {!trendIsHourlyBucket && Number(trendSource?.digest_rows || 0) === 0 && (
             <Box mb={4} p={3} borderRadius="12px" bg="rgba(250,204,21,0.12)" border="1px solid rgba(250,204,21,0.28)">
               <Text fontSize="xs" color="yellow.200">
                 Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
