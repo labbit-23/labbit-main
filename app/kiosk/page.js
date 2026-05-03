@@ -21,8 +21,10 @@ import {
   Spinner,
   Stack,
   Text,
-  Textarea
+  Textarea,
+  useToast
 } from "@chakra-ui/react";
+import { keyframes } from "@emotion/react";
 
 const LANGUAGE_OPTIONS = [
   { code: "en", label: "English" },
@@ -31,6 +33,12 @@ const LANGUAGE_OPTIONS = [
   { code: "ur", label: "اردو" }
 ];
 
+const FEEDBACK_TIMEOUT_SECONDS = (() => {
+  const raw = Number(process.env.NEXT_PUBLIC_KIOSK_FEEDBACK_TIMEOUT_SECONDS || 20);
+  if (!Number.isFinite(raw)) return 20;
+  return Math.max(5, Math.min(300, Math.round(raw)));
+})();
+
 const STEP_TEXT = {
   en: {
     scan_title: "Scan Barcode",
@@ -38,8 +46,9 @@ const STEP_TEXT = {
     feedback_title: "Thank You for Your Patronage to SDRC",
     feedback_subtitle: "Please share quick feedback",
     continue: "Continue",
-    print_ready: "Print Ready Reports",
-    print_pending: "Print Pending Reports",
+    print_lab: "Print Lab Reports",
+    load_scan: "Print Scan Reports",
+    print_all: "Print All Reports",
     save_feedback: "Save Feedback",
     next_patient: "Next Patient"
   },
@@ -49,8 +58,9 @@ const STEP_TEXT = {
     feedback_title: "SDRC‌ను ఆదరించినందుకు ధన్యవాదాలు",
     feedback_subtitle: "దయచేసి మీ అభిప్రాయం ఇవ్వండి",
     continue: "కొనసాగించండి",
-    print_ready: "రెడీ రిపోర్ట్స్ ప్రింట్",
-    print_pending: "పెండింగ్ రిపోర్ట్స్ ప్రింట్",
+    print_lab: "ల్యాబ్ రిపోర్ట్స్ ప్రింట్",
+    load_scan: "స్కాన్ రిపోర్ట్స్ ప్రింట్",
+    print_all: "అన్ని రిపోర్ట్స్ ప్రింట్",
     save_feedback: "ఫీడ్‌బ్యాక్ సేవ్",
     next_patient: "తర్వాతి పేషెంట్"
   },
@@ -60,8 +70,9 @@ const STEP_TEXT = {
     feedback_title: "SDRC को आपके सहयोग के लिए धन्यवाद",
     feedback_subtitle: "कृपया फीडबैक दें",
     continue: "आगे बढ़ें",
-    print_ready: "रेडी रिपोर्ट प्रिंट",
-    print_pending: "पेंडिंग रिपोर्ट प्रिंट",
+    print_lab: "लैब रिपोर्ट प्रिंट",
+    load_scan: "स्कैन रिपोर्ट प्रिंट",
+    print_all: "सभी रिपोर्ट प्रिंट",
     save_feedback: "फीडबैक सेव करें",
     next_patient: "अगला मरीज"
   },
@@ -71,8 +82,9 @@ const STEP_TEXT = {
     feedback_title: "SDRC کی سرپرستی کا شکریہ",
     feedback_subtitle: "براہ کرم فیڈبیک دیں",
     continue: "جاری رکھیں",
-    print_ready: "تیار رپورٹ پرنٹ",
-    print_pending: "زیر التوا رپورٹ پرنٹ",
+    print_lab: "لیب رپورٹ پرنٹ",
+    load_scan: "اسکین رپورٹ پرنٹ",
+    print_all: "تمام رپورٹ پرنٹ",
     save_feedback: "فیڈبیک محفوظ کریں",
     next_patient: "اگلا مریض"
   }
@@ -86,6 +98,17 @@ function parseScanValue(raw) {
     reqid: String(reqidRaw || "").trim(),
     password: String(passwordRaw || "").trim()
   };
+}
+
+function parseKioskLoginScan(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { username: "", password: "", valid: false };
+  const [prefixRaw, usernameRaw, passwordRaw] = text.split("|");
+  const prefix = String(prefixRaw || "").trim().toUpperCase();
+  const username = String(usernameRaw || "").trim();
+  const password = String(passwordRaw || "").trim();
+  const valid = prefix === "KIOSK_LOGIN" && Boolean(username) && Boolean(password);
+  return { username, password, valid };
 }
 
 function estimatePdfPageCountFromBuffer(buffer) {
@@ -105,7 +128,39 @@ function getDecisionTone(mode) {
   return "gray";
 }
 
+function getPatientDecisionMessage(decision) {
+  const code = String(decision?.reason_code || "").trim().toUpperCase();
+  if (code === "HISTORY_WITHOUT_TEST_BREAKUP") {
+    return "Bot has already dispatched reports for this requisition.";
+  }
+  return String(decision?.reason || "Load report status.");
+}
+
+function getStatusLabel(status) {
+  const code = String(status || "").trim().toUpperCase();
+  if (code === "FULL_REPORT") return "All Reports are Ready! 👍";
+  return String(status || "Not Loaded");
+}
+
+function shouldEscalateToFirstFloor({ labReady, labTotal, radiologyReady, radiologyTotal }) {
+  const pendingLab = Math.max(0, Number(labTotal || 0) - Number(labReady || 0));
+  const pendingRadiology = Math.max(0, Number(radiologyTotal || 0) - Number(radiologyReady || 0));
+  return pendingLab > 0 || pendingRadiology > 0;
+}
+
+const printBounce = keyframes`
+  0%, 100% { transform: translateY(0px); opacity: 0.9; }
+  50% { transform: translateY(-2px); opacity: 1; }
+`;
+
+const paperFeed = keyframes`
+  0% { transform: translateY(-2px); opacity: 0; }
+  40% { transform: translateY(2px); opacity: 1; }
+  100% { transform: translateY(8px); opacity: 0; }
+`;
+
 export default function ReportDispatchKioskPage() {
+  const toast = useToast();
   const [lang, setLang] = useState("en");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -122,6 +177,7 @@ export default function ReportDispatchKioskPage() {
   const [feedbackCountdown, setFeedbackCountdown] = useState(0);
   const [isPrinting, setIsPrinting] = useState(false);
   const [lastPrintInstruction, setLastPrintInstruction] = useState("");
+  const [loginScanValue, setLoginScanValue] = useState("");
   const [labMeta, setLabMeta] = useState({
     name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
     logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
@@ -129,13 +185,41 @@ export default function ReportDispatchKioskPage() {
 
   const scanInputRef = useRef(null);
   const scanBufferRef = useRef("");
+  const loginScanInputRef = useRef(null);
+  const loginScanBufferRef = useRef("");
 
   const reqid = useMemo(() => String(reqidValue || "").trim(), [reqidValue]);
   const reqno = useMemo(() => String(statusBody?.reqno || "").trim(), [statusBody]);
   const patientName = useMemo(() => String(statusBody?.live_status?.patient_name || "").trim(), [statusBody]);
   const patientPhone = useMemo(() => String(statusBody?.live_status?.patient_phone || "").trim(), [statusBody]);
   const testDate = useMemo(() => String(statusBody?.live_status?.test_date || "").trim(), [statusBody]);
+  const testTime = useMemo(() => String(statusBody?.live_status?.test_time || "").trim(), [statusBody]);
   const readyLabKeys = useMemo(() => statusBody?.live_status?.ready_lab_test_keys || [], [statusBody]);
+  const readyRadiology = useMemo(() => Number(statusBody?.live_status?.radiology_ready || 0), [statusBody]);
+  const hasLabReady = useMemo(() => readyLabKeys.length > 0, [readyLabKeys]);
+  const hasRadiologyReady = useMemo(() => readyRadiology > 0, [readyRadiology]);
+  const labReadyCount = useMemo(() => Number(statusBody?.live_status?.lab_ready || 0), [statusBody]);
+  const labTotalCount = useMemo(() => Number(statusBody?.live_status?.lab_total || 0), [statusBody]);
+  const radiologyReadyCount = useMemo(() => Number(statusBody?.live_status?.radiology_ready || 0), [statusBody]);
+  const radiologyTotalCount = useMemo(() => Number(statusBody?.live_status?.radiology_total || 0), [statusBody]);
+  const showFirstFloorWarning = useMemo(
+    () =>
+      shouldEscalateToFirstFloor({
+        labReady: labReadyCount,
+        labTotal: labTotalCount,
+        radiologyReady: radiologyReadyCount,
+        radiologyTotal: radiologyTotalCount
+      }),
+    [
+      statusBody,
+      labReadyCount,
+      labTotalCount,
+      radiologyReadyCount,
+      radiologyTotalCount,
+      hasLabReady,
+      hasRadiologyReady
+    ]
+  );
   const text = STEP_TEXT[lang] || STEP_TEXT.en;
   const decision = statusBody?.decision || null;
   const decisionTone = getDecisionTone(decision?.mode);
@@ -145,6 +229,33 @@ export default function ReportDispatchKioskPage() {
     if (!total) return 0;
     return Math.max(0, Math.min(100, Math.round((ready / total) * 100)));
   }, [statusBody]);
+
+  const testDateDisplay = useMemo(() => {
+    const rawDate = String(testDate || "").trim();
+    const rawTime = String(testTime || "").trim();
+    if (!rawDate) return "";
+    const cleanedDate = rawDate
+      .replace(/\s+00:00:00(?:\.0+)?$/i, "")
+      .replace(/T00:00:00(?:\.0+)?$/i, "")
+      .trim();
+    let prettyDate = cleanedDate;
+    const dateMatch = cleanedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateMatch) {
+      const [_, y, m, d] = dateMatch;
+      const dt = new Date(`${y}-${m}-${d}T00:00:00`);
+      if (!Number.isNaN(dt.getTime())) {
+        prettyDate = dt.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric"
+        });
+      }
+    }
+    if (rawTime && rawTime !== "00:00:00" && rawTime !== "00:00:00.0") {
+      return `${prettyDate} ${rawTime}`;
+    }
+    return prettyDate;
+  }, [testDate, testTime]);
 
   async function fetchLabMeta() {
     try {
@@ -161,20 +272,23 @@ export default function ReportDispatchKioskPage() {
     }
   }
 
-  async function handleAuth(e) {
-    e.preventDefault();
+  async function authenticateKiosk(nextUsername, nextPassword) {
     setLoading(true);
     setNotice("");
     try {
       const res = await fetch("/api/kiosk/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username: nextUsername, password: nextPassword })
       });
       const data = await res.json().catch(() => ({}));
       if (data?.status === "OK") {
+        setUsername(nextUsername);
+        setPassword("");
         setAuthenticated(true);
-        setNotice("Kiosk authenticated. Scan barcode to continue.");
+        setNotice("");
+        setLoginScanValue("");
+        loginScanBufferRef.current = "";
         await fetchLabMeta();
       } else {
         setAuthenticated(false);
@@ -187,15 +301,53 @@ export default function ReportDispatchKioskPage() {
     }
   }
 
-  async function handleScanSubmit(targetReqid) {
+  async function authenticateKioskByBarcode(barcodeText) {
+    setLoading(true);
+    setNotice("");
+    try {
+      const res = await fetch("/api/kiosk/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_barcode: String(barcodeText || "").trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.status === "OK") {
+        setPassword("");
+        setAuthenticated(true);
+        setNotice("");
+        setLoginScanValue("");
+        loginScanBufferRef.current = "";
+        await fetchLabMeta();
+      } else {
+        setAuthenticated(false);
+        setNotice("Invalid kiosk credentials.");
+      }
+    } catch (error) {
+      setNotice(error?.message || "Authentication failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAuth(e) {
+    e.preventDefault();
+    await authenticateKiosk(username, password);
+  }
+
+  async function handleScanSubmit(targetReqid, targetPassword = "") {
     setLoading(true);
     setNotice("");
     setStatusBody(null);
     try {
       const resolvedReqid = String(targetReqid || reqid || "").trim();
-      if (!resolvedReqid) throw new Error("Invalid barcode. Expected REQID|PASSWORD.");
+      const resolvedPassword = String(targetPassword || scanSecret || "").trim();
+      if (!resolvedReqid || !resolvedPassword) throw new Error("Invalid barcode. Please rescan.");
 
-      const res = await fetch(`/api/admin/reports/dispatch-status?reqid=${encodeURIComponent(resolvedReqid)}&source=kiosk`, {
+      const params = new URLSearchParams({
+        reqid: resolvedReqid,
+        password: resolvedPassword
+      });
+      const res = await fetch(`/api/kiosk/dispatch-status?${params.toString()}`, {
         cache: "no-store",
         headers: { "x-report-source": "kiosk" }
       });
@@ -207,7 +359,15 @@ export default function ReportDispatchKioskPage() {
       const data = await res.json();
       setStatusBody(data);
       setPhase("dispatch");
-      setNotice("Report status loaded.");
+      setNotice("");
+      toast({
+        title: "Report loaded",
+        description: "Status fetched successfully.",
+        status: "success",
+        duration: 2200,
+        isClosable: true,
+        position: "top"
+      });
     } catch (error) {
       setNotice(error?.message || "Failed to load report status.");
     } finally {
@@ -276,44 +436,31 @@ export default function ReportDispatchKioskPage() {
     return pageCount;
   }
 
-  async function handlePrintReady() {
+  async function handlePrintScope(scope) {
     setLoading(true);
     setNotice("");
     setIsPrinting(true);
     try {
       const pages = await printPdfFromApiInMemory("/api/admin/reports/kiosk-print-ready", {
         source: "kiosk",
+        report_scope: scope,
         reqid,
         reqno: reqno || null,
         phone: patientPhone || null,
         ready_lab_test_keys: readyLabKeys
       });
       setLastPrintInstruction(`Reports are being printed. Please collect ${pages} page(s) from the print tray below the screen.`);
+      toast({
+        title: "Print started",
+        description: `${pages} page(s) sent to printer.`,
+        status: "success",
+        duration: 2600,
+        isClosable: true,
+        position: "top"
+      });
       startFeedbackPhase();
     } catch (error) {
       setNotice(error?.message || "Ready print failed.");
-    } finally {
-      setIsPrinting(false);
-      setLoading(false);
-    }
-  }
-
-  async function handlePrintPendingOnce() {
-    setLoading(true);
-    setNotice("");
-    setIsPrinting(true);
-    try {
-      const pages = await printPdfFromApiInMemory("/api/admin/reports/pending-print-once", {
-        source: "kiosk",
-        reqid,
-        reqno: reqno || null,
-        phone: patientPhone || null,
-        ready_lab_test_keys: readyLabKeys
-      });
-      setLastPrintInstruction(`Reports are being printed. Please collect ${pages} page(s) from the print tray below the screen.`);
-      startFeedbackPhase();
-    } catch (error) {
-      setNotice(error?.message || "Pending print failed.");
     } finally {
       setIsPrinting(false);
       setLoading(false);
@@ -347,7 +494,7 @@ export default function ReportDispatchKioskPage() {
   }
 
   function startFeedbackPhase() {
-    setFeedbackCountdown(15);
+    setFeedbackCountdown(FEEDBACK_TIMEOUT_SECONDS);
     setPhase("feedback");
   }
 
@@ -369,7 +516,14 @@ export default function ReportDispatchKioskPage() {
     setLang("en");
     setPhase("scan");
     setFeedbackCountdown(0);
-    setNotice("Session closed. Ready for next scan.");
+    setNotice("");
+    toast({
+      title: "Ready for next scan",
+      status: "success",
+      duration: 2000,
+      isClosable: true,
+      position: "top"
+    });
     setTimeout(() => scanInputRef.current?.focus(), 250);
   }
 
@@ -377,6 +531,11 @@ export default function ReportDispatchKioskPage() {
     if (!authenticated) return;
     if (phase === "scan") setTimeout(() => scanInputRef.current?.focus(), 250);
   }, [phase, authenticated]);
+
+  useEffect(() => {
+    if (authenticated) return;
+    setTimeout(() => loginScanInputRef.current?.focus(), 120);
+  }, [authenticated]);
 
   useEffect(() => {
     if (phase !== "feedback" || feedbackCountdown <= 0) return;
@@ -408,9 +567,9 @@ export default function ReportDispatchKioskPage() {
         setReqidValue(parsed.reqid);
         setScanSecret(parsed.password);
         if (parsed.reqid) {
-          handleScanSubmit(parsed.reqid);
+          handleScanSubmit(parsed.reqid, parsed.password);
         } else {
-          setNotice("Invalid barcode format. Use REQID|PASSWORD.");
+          setNotice("Invalid barcode. Please rescan.");
         }
         scanBufferRef.current = "";
         return;
@@ -431,19 +590,67 @@ export default function ReportDispatchKioskPage() {
     return () => window.removeEventListener("keydown", onScannerKey);
   }, [authenticated, phase, scanValue]);
 
+  useEffect(() => {
+    if (authenticated) return undefined;
+
+    const onLoginScannerKey = (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const key = String(event.key || "");
+
+      if (key === "Enter") {
+        const scanned = String(loginScanBufferRef.current || loginScanValue || "").trim();
+        if (!scanned) return;
+        event.preventDefault();
+        const parsed = parseKioskLoginScan(scanned);
+        setLoginScanValue(scanned);
+        loginScanBufferRef.current = "";
+        if (parsed.valid) {
+          setUsername(parsed.username);
+          setPassword(parsed.password);
+          authenticateKioskByBarcode(scanned);
+        } else {
+          setNotice("Invalid login barcode.");
+        }
+        return;
+      }
+
+      if (key === "Backspace") {
+        loginScanBufferRef.current = loginScanBufferRef.current.slice(0, -1);
+        return;
+      }
+
+      if (key.length === 1) {
+        loginScanBufferRef.current += key;
+        setLoginScanValue(loginScanBufferRef.current);
+      }
+    };
+
+    window.addEventListener("keydown", onLoginScannerKey);
+    return () => window.removeEventListener("keydown", onLoginScannerKey);
+  }, [authenticated, loginScanValue]);
+
   const renderStepScan = () => (
-    <Box bg="white" borderRadius="2xl" boxShadow="xl" p={{ base: 6, md: 8 }} maxW="920px" w="100%">
-      <Text fontSize="sm" color="gray.500" mb={1}>Step 1 of 3</Text>
+    <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 5, md: 6 }} maxW="900px" w="100%">
+      <Text fontSize="sm" color="gray.700" fontWeight="semibold" mb={1}>Step 1 of 3</Text>
       <Flex justify="center" mb={4}>
-        <Image
-          src={labMeta.logo_url}
-          alt={`${labMeta.name || "Lab"} logo`}
-          boxSize={{ base: "132px", md: "168px" }}
-          objectFit="contain"
-        />
+        <Box
+          bg="linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.76))"
+          border="1px solid rgba(255,255,255,0.75)"
+          borderRadius="16px"
+          px={{ base: 4, md: 5 }}
+          py={{ base: 2, md: 3 }}
+          boxShadow="0 10px 30px rgba(15, 23, 42, 0.12)"
+        >
+          <Image
+            src={labMeta.logo_url}
+            alt={`${labMeta.name || "Lab"} logo`}
+            boxSize={{ base: "132px", md: "168px" }}
+            objectFit="contain"
+          />
+        </Box>
       </Flex>
-      <Heading size="xl" mb={5}>{text.scan_title}</Heading>
-      <Flex gap={2} wrap="wrap" mb={5}>
+      <Heading size="lg" mb={4}>{text.scan_title}</Heading>
+      <Flex gap={2} wrap="wrap" mb={4}>
         {LANGUAGE_OPTIONS.map((option) => (
           <Button
             key={option.code}
@@ -466,14 +673,14 @@ export default function ReportDispatchKioskPage() {
           setReqidValue(parsed.reqid);
           setScanSecret(parsed.password);
           if (parsed.reqid) {
-            handleScanSubmit(parsed.reqid);
+            handleScanSubmit(parsed.reqid, parsed.password);
           } else {
-            setNotice("Invalid barcode format. Use REQID|PASSWORD.");
+            setNotice("Invalid barcode. Please rescan.");
           }
         }}
       >
         <FormControl>
-          <FormLabel fontWeight="bold" fontSize="lg">Barcode Input</FormLabel>
+          <FormLabel fontWeight="bold" fontSize="lg" color="#0f172a">Scan Barcode</FormLabel>
           <Input
             ref={scanInputRef}
             size="lg"
@@ -483,19 +690,25 @@ export default function ReportDispatchKioskPage() {
               setScanValue(nextValue);
               scanBufferRef.current = nextValue;
             }}
-            placeholder="Scan REQID|PASSWORD"
-            h="84px"
-            fontSize="2xl"
+            placeholder="Scan Barcode  ||||||||||"
+            h="72px"
+            fontSize="xl"
             borderWidth="2px"
+            bg="rgba(255,255,255,0.72)"
+            color="#0b1220"
+            borderColor="rgba(15, 23, 42, 0.35)"
+            _placeholder={{ color: "rgba(30, 41, 59, 0.72)" }}
+            _hover={{ borderColor: "rgba(15, 23, 42, 0.48)" }}
+            _focusVisible={{
+              borderColor: "#0f172a",
+              boxShadow: "0 0 0 1px #0f172a"
+            }}
             inputMode="text"
             autoCorrect="off"
             autoCapitalize="off"
           />
         </FormControl>
-        <Text mt={2} color="gray.600" fontSize="sm">
-          Dev input: <strong>REQID|DUMMYPASSWORD</strong>. Only REQID is used.
-        </Text>
-        <Button mt={5} size="lg" h="84px" w="100%" colorScheme="blue" type="submit" isLoading={loading} fontSize="2xl">
+        <Button mt={4} size="lg" h="72px" w="100%" colorScheme="blue" type="submit" isLoading={loading} fontSize="xl">
           {text.continue}
         </Button>
       </form>
@@ -509,50 +722,129 @@ export default function ReportDispatchKioskPage() {
   );
 
   const renderStepDispatch = () => (
-    <Box bg="white" borderRadius="2xl" boxShadow="xl" p={{ base: 6, md: 8 }} maxW="980px" w="100%">
-      <Text fontSize="sm" color="gray.500" mb={1}>Step 2 of 3</Text>
-      <Heading size="xl" mb={5}>{text.dispatch_title}</Heading>
+    <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(15, 23, 42, 0.28)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
+      <Text fontSize="sm" color="#334155" fontWeight="semibold" mb={1}>Step 2 of 3</Text>
+      <Heading size="lg" mb={3}>{text.dispatch_title}</Heading>
 
-      <Stack spacing={3} mb={5}>
-        {patientName ? <Text fontSize="lg">Patient: <strong>{patientName}</strong></Text> : null}
-        {testDate ? <Text fontSize="lg">Test Date: <strong>{testDate}</strong></Text> : null}
-        <Text fontSize="lg">
-          Status: <Badge colorScheme={decisionTone}>{statusBody?.live_status?.overall_status || "Not Loaded"}</Badge>
+      <Stack spacing={2} mb={3}>
+        {patientName ? <Text fontSize="md" color="#0f172a">Patient: <strong>{patientName}</strong></Text> : null}
+        {testDateDisplay ? <Text fontSize="md" color="#0f172a">Test Date: <strong>{testDateDisplay}</strong></Text> : null}
+        <Text fontSize="md">
+          Status: <Badge colorScheme={decisionTone}>{getStatusLabel(statusBody?.live_status?.overall_status)}</Badge>
         </Text>
-        <Text fontSize="lg">Ready Lab Reports: {statusBody?.live_status?.lab_ready || 0}/{statusBody?.live_status?.lab_total || 0}</Text>
-        <Progress value={readinessPct} borderRadius="full" colorScheme={decisionTone} h="12px" />
-        <Text color="gray.700" fontSize="lg">{decision?.reason || "Load report status."}</Text>
+        <Text fontSize="md" color="#0f172a">Ready Lab Reports: {statusBody?.live_status?.lab_ready || 0}/{statusBody?.live_status?.lab_total || 0}</Text>
+        <Text fontSize="md" color="#0f172a">Ready Scan Reports: {statusBody?.live_status?.radiology_ready || 0}/{statusBody?.live_status?.radiology_total || 0}</Text>
+        <Progress value={readinessPct} borderRadius="full" colorScheme={decisionTone} h="9px" />
+        <Text color="#1e293b" fontSize="md">{getPatientDecisionMessage(decision)}</Text>
       </Stack>
 
-      <Flex gap={4} direction={{ base: "column", md: "row" }}>
-        <Button
-          colorScheme="blue"
-          size="lg"
-          h="104px"
-          flex={1}
-          fontSize="2xl"
-          onClick={handlePrintReady}
-          isLoading={loading}
-          isDisabled={!readyLabKeys.length}
-        >
-          {text.print_ready}
-        </Button>
-        <Button
-          colorScheme="yellow"
-          variant={decision?.mode === "try_pending_print_once" ? "solid" : "outline"}
-          size="lg"
-          h="104px"
-          flex={1}
-          fontSize="2xl"
-          onClick={handlePrintPendingOnce}
-          isLoading={loading}
-          isDisabled={decision?.mode !== "try_pending_print_once"}
-        >
-          {text.print_pending}
-        </Button>
+      <Flex gap={3} direction={{ base: "column", md: "row" }}>
+        <Box flex={1}>
+          <Button
+            colorScheme="blue"
+            size="lg"
+            h="80px"
+            w="100%"
+            fontSize="lg"
+            onClick={() => handlePrintScope("lab")}
+            isLoading={loading}
+            isDisabled={!hasLabReady}
+          >
+            <Flex align="center" gap={3}>
+              <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
+                <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
+                <Box
+                  position="absolute"
+                  left="4px"
+                  top="-1px"
+                  w="14px"
+                  h="8px"
+                  borderRadius="2px"
+                  bg="whiteAlpha.900"
+                  animation={`${paperFeed} 1.2s ease-in-out infinite`}
+                />
+              </Box>
+              <Text>{text.print_lab}</Text>
+            </Flex>
+          </Button>
+          <Text mt={1} fontSize="xs" color="#1e293b" textAlign="center">Blood work / lab tests</Text>
+        </Box>
+        <Box flex={1}>
+          <Button
+            colorScheme="teal"
+            variant="solid"
+            size="lg"
+            h="80px"
+            w="100%"
+            fontSize="lg"
+            onClick={() => handlePrintScope("radiology")}
+            isLoading={loading}
+            isDisabled={!hasRadiologyReady}
+            bg="#0f766e"
+            color="white"
+            border="1px solid #115e59"
+            _hover={{ bg: "#115e59" }}
+          >
+            <Flex align="center" gap={3}>
+              <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
+                <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
+                <Box
+                  position="absolute"
+                  left="4px"
+                  top="-1px"
+                  w="14px"
+                  h="8px"
+                  borderRadius="2px"
+                  bg="whiteAlpha.900"
+                  animation={`${paperFeed} 1.2s ease-in-out infinite`}
+                />
+              </Box>
+              <Text>{text.load_scan}</Text>
+            </Flex>
+          </Button>
+          <Text mt={1} fontSize="xs" color="#1e293b" textAlign="center">X-Ray / scan reports</Text>
+        </Box>
+        <Box flex={1}>
+          <Button
+            colorScheme="purple"
+            size="lg"
+            h="80px"
+            w="100%"
+            fontSize="lg"
+            onClick={() => handlePrintScope("all")}
+            isLoading={loading}
+            isDisabled={!hasLabReady && !hasRadiologyReady}
+          >
+            <Flex align="center" gap={3}>
+              <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
+                <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
+                <Box
+                  position="absolute"
+                  left="4px"
+                  top="-1px"
+                  w="14px"
+                  h="8px"
+                  borderRadius="2px"
+                  bg="purple.100"
+                  animation={`${paperFeed} 1.2s ease-in-out infinite`}
+                />
+              </Box>
+              <Text>{text.print_all}</Text>
+            </Flex>
+          </Button>
+          <Text mt={1} fontSize="xs" color="#1e293b" textAlign="center">Lab + scan combined</Text>
+        </Box>
       </Flex>
 
-      {decision?.mode === "manual_review" ? (
+      <Box mt={2} p={2} borderRadius="10px" bg="rgba(255,255,255,0.55)" border="1px solid rgba(15,23,42,0.12)">
+        <Text fontSize="sm" fontWeight="semibold" color="#0f172a" mb={1}>Before Print</Text>
+        <Text fontSize="xs" color="#1e293b">
+          Lab: {labReadyCount}/{labTotalCount} ready ({Math.max(0, labTotalCount - labReadyCount)} pending) •
+          Scan: {radiologyReadyCount}/{radiologyTotalCount} ready ({Math.max(0, radiologyTotalCount - radiologyReadyCount)} pending)
+        </Text>
+      </Box>
+
+      {showFirstFloorWarning ? (
         <Alert status="warning" mt={5} borderRadius="lg" fontSize="lg">
           <AlertIcon />
           Please go to the First Floor using the dedicated elevator.
@@ -563,10 +855,10 @@ export default function ReportDispatchKioskPage() {
   );
 
   const renderStepFeedback = () => (
-    <Box bg="white" borderRadius="2xl" boxShadow="xl" p={{ base: 6, md: 8 }} maxW="980px" w="100%">
+    <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
       <Text fontSize="sm" color="gray.500" mb={1}>Step 3 of 3</Text>
-      <Heading size="xl" mb={1}>{text.feedback_title}</Heading>
-      <Text color="gray.600" mb={5}>{text.feedback_subtitle}</Text>
+      <Heading size="lg" mb={1}>{text.feedback_title}</Heading>
+      <Text color="gray.600" mb={3}>{text.feedback_subtitle}</Text>
       {(patientName || testDate) ? (
         <Text mb={4} color="gray.700">
           {patientName ? `Patient: ${patientName}` : ""}{patientName && testDate ? " • " : ""}{testDate ? `Test Date: ${testDate}` : ""}
@@ -586,7 +878,7 @@ export default function ReportDispatchKioskPage() {
       </Alert>
 
       <form onSubmit={handleFeedbackSubmit}>
-        <FormControl mb={3}>
+        <FormControl mb={2}>
           <FormLabel fontWeight="bold">Rating</FormLabel>
           <Flex gap={2} wrap="wrap">
             {[1, 2, 3, 4, 5].map((value) => (
@@ -600,9 +892,9 @@ export default function ReportDispatchKioskPage() {
                   <Button
                     key={value}
                     type="button"
-                    h="68px"
-                    minW="68px"
-                    fontSize="3xl"
+                    h="58px"
+                    minW="58px"
+                    fontSize="2xl"
                     colorScheme={active ? scheme : "gray"}
                     variant={active ? "solid" : "outline"}
                     onClick={() => {
@@ -619,7 +911,7 @@ export default function ReportDispatchKioskPage() {
             ))}
           </Flex>
         </FormControl>
-        <FormControl mb={4}>
+        <FormControl mb={3}>
           <FormLabel fontWeight="bold">Feedback</FormLabel>
           <Textarea
             value={feedback}
@@ -627,18 +919,18 @@ export default function ReportDispatchKioskPage() {
               setFeedback(e.target.value);
               markFeedbackInteraction();
             }}
-            minH="180px"
-            fontSize="lg"
+            minH="110px"
+            fontSize="md"
             placeholder="Tell us your experience"
             inputMode="text"
             onFocus={markFeedbackInteraction}
           />
         </FormControl>
         <Flex gap={3} direction={{ base: "column", md: "row" }}>
-          <Button type="submit" size="lg" h="62px" flex={1} colorScheme="purple" isLoading={loading} isDisabled={rating < 1 || rating > 5}>
+          <Button type="submit" size="lg" h="54px" flex={1} colorScheme="purple" isLoading={loading} isDisabled={rating < 1 || rating > 5}>
             {text.save_feedback}
           </Button>
-          <Button size="lg" h="62px" flex={1} variant="outline" onClick={resetSession}>
+          <Button size="lg" h="54px" flex={1} variant="outline" onClick={resetSession}>
             {text.next_patient}
           </Button>
         </Flex>
@@ -647,44 +939,58 @@ export default function ReportDispatchKioskPage() {
   );
 
   return (
-    <Box minH="100vh" bgGradient="linear(to-b, #eaf5ff 0%, #f8fbff 45%, #ffffff 100%)" p={{ base: 4, md: 8 }}>
-      <Box maxW="1280px" mx="auto">
-        <Flex align="center" justify="space-between" mb={6}>
+    <Box
+      h="100dvh"
+      overflow="hidden"
+      p={{ base: 2, md: 3 }}
+      position="relative"
+      fontFamily='-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif'
+      bgImage='linear-gradient(125deg, rgba(6, 9, 18, 0.72), rgba(10, 14, 24, 0.62)), url("/assets/whatsapp/sdrc_banner.png")'
+      bgSize="cover"
+      bgPosition="center"
+      bgRepeat="no-repeat"
+    >
+      <Box
+        position="absolute"
+        inset="0"
+        pointerEvents="none"
+        bg='radial-gradient(circle at 18% 14%, rgba(255,190,90,0.16), transparent 48%), radial-gradient(circle at 82% 78%, rgba(255,140,48,0.12), transparent 44%), radial-gradient(circle at 52% 52%, rgba(0,0,0,0.28), transparent 66%)'
+      />
+      <Box maxW="1280px" mx="auto" h="100%" display="flex" flexDirection="column" position="relative" zIndex={1}>
+        <Flex
+          align="center"
+          justify="space-between"
+          mb={3}
+          bg="rgba(255,255,255,0.9)"
+          border="1px solid rgba(15,23,42,0.12)"
+          borderRadius="16px"
+          p={{ base: 2, md: 2.5 }}
+          boxShadow="0 10px 28px rgba(2, 8, 23, 0.18)"
+        >
           <Flex align="center" gap={3}>
             <Image
-              src={labMeta.logo_url}
-              alt={`${labMeta.name || "Lab"} logo`}
-              boxSize={{ base: "64px", md: "84px" }}
+              src="/logo.png"
+              alt="Labit logo"
+              boxSize={{ base: "48px", md: "56px" }}
               borderRadius="md"
               objectFit="contain"
-              bg="white"
-              p={1}
-              borderWidth="1px"
-              borderColor="blue.100"
             />
             <Box>
-              <Heading size="lg" color="blue.700">Report Dispatch Kiosk</Heading>
-              <Text color="gray.600" fontSize="sm">{labMeta.name || "Lab"}</Text>
+              <Heading size="md" color="#0f172a" letterSpacing="-0.02em">Report Dispatch Kiosk</Heading>
+              <Text color="gray.700" fontSize="sm">{labMeta.name || "Lab"}</Text>
             </Box>
           </Flex>
           <Flex align="center" gap={3}>
-            <Button
-              as="a"
-              href="/kiosk/display"
-              variant="outline"
-              colorScheme="teal"
-              h="44px"
-            >
-              Queue Display
-            </Button>
             {authenticated ? (
               <Button
                 type="button"
                 variant="solid"
-                colorScheme="blue"
+                bg="white"
+                color="#0b1e3d"
+                _hover={{ bg: "whiteAlpha.900" }}
                 fontSize="md"
-                h="48px"
-                minW="120px"
+                h="42px"
+                minW="104px"
                 onClick={resetSession}
                 title="Home"
               >
@@ -692,24 +998,24 @@ export default function ReportDispatchKioskPage() {
               </Button>
             ) : null}
             {authenticated && phase === "feedback" ? (
-              <Badge colorScheme="orange" px={3} py={2} borderRadius="full" fontSize="sm">
+              <Badge bg="orange.300" color="black" px={3} py={2} borderRadius="full" fontSize="sm">
                 Returning Home in {feedbackCountdown}s
               </Badge>
             ) : null}
-            <Badge colorScheme={authenticated ? "green" : "orange"} px={3} py={1} borderRadius="full" fontSize="sm">
-              {authenticated ? "Authenticated" : "Login Required"}
+            <Badge bg={authenticated ? "green.300" : "orange.300"} color="black" px={3} py={1} borderRadius="full" fontSize="sm">
+              {authenticated ? "🔒" : "🔓"}
             </Badge>
           </Flex>
         </Flex>
 
         {notice && phase !== "feedback" ? (
-          <Alert status="info" borderRadius="lg" mb={5}>
+          <Alert status="info" borderRadius="lg" mb={5} bg="rgba(255,255,255,0.9)">
             <AlertIcon />
             {notice}
           </Alert>
         ) : null}
 
-        <Flex justify="center" align="flex-start" minH="72vh">
+        <Flex justify="center" align="flex-start" flex="1" minH={0}>
           {phase === "scan" && authenticated ? renderStepScan() : null}
           {phase === "dispatch" && authenticated ? renderStepDispatch() : null}
           {phase === "feedback" && authenticated ? renderStepFeedback() : null}
@@ -718,10 +1024,32 @@ export default function ReportDispatchKioskPage() {
 
       <Modal isOpen={!authenticated} onClose={() => {}} isCentered closeOnEsc={false} closeOnOverlayClick={false}>
         <ModalOverlay backdropFilter="blur(2px)" />
-        <ModalContent borderRadius="2xl" mx={4}>
+        <ModalContent borderRadius="2xl" mx={4} bg="rgba(255,255,255,0.92)" backdropFilter="blur(18px) saturate(160%)" border="1px solid rgba(255,255,255,0.75)">
           <ModalBody p={6}>
+            <Flex justify="center" mb={3}>
+              <Image
+                src="/SDRC_logo.png"
+                alt="SDRC logo"
+                boxSize="84px"
+                objectFit="contain"
+              />
+            </Flex>
             <Heading size="md" mb={4}>Kiosk Login</Heading>
             <form onSubmit={handleAuth}>
+              <FormControl mb={3}>
+                <FormLabel>Staff Login Barcode</FormLabel>
+                <Input
+                  ref={loginScanInputRef}
+                  value={loginScanValue}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setLoginScanValue(nextValue);
+                    loginScanBufferRef.current = nextValue;
+                  }}
+                  placeholder="Scan Staff Login Barcode"
+                  h="54px"
+                />
+              </FormControl>
               <FormControl mb={3}>
                 <FormLabel>Username</FormLabel>
                 <Input value={username} onChange={(e) => setUsername(e.target.value)} h="54px" />

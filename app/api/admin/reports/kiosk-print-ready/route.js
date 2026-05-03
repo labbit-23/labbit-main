@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { kioskIronOptions } from "@/lib/kioskSession";
-import { getReportsUrl } from "@/lib/neosoft/client";
+import { getReportUrl, getReportsUrl, getRadiologyReportUrl } from "@/lib/neosoft/client";
 import { logReportDispatch } from "@/lib/reportDispatchLogs";
 import { cookies } from "next/headers";
 
@@ -68,6 +68,7 @@ export async function POST(request) {
     const labId = String(body?.lab_id || "").trim() || null;
     const phone = String(body?.phone || "").trim() || null;
     const readyLabTestKeys = Array.isArray(body?.ready_lab_test_keys) ? body.ready_lab_test_keys : [];
+    const reportScope = String(body?.report_scope || "lab").trim().toLowerCase();
 
     const actorId = user?.id || null;
     const actorName = user?.name || kioskUser?.username || "Kiosk Dispatcher";
@@ -83,12 +84,18 @@ export async function POST(request) {
       return new Response("Missing reqid", { status: 400 });
     }
 
-    const reportUrl = getReportsUrl(reqid, reqno, {
-      printtype: 1,
+    const commonFlags = {
       chkrephead: toHeaderFlag(headerMode),
       header_mode: "plain",
       without_header_background: "true"
-    });
+    };
+    const reportUrl =
+      reportScope === "radiology"
+        ? getRadiologyReportUrl(reqid, commonFlags)
+        : reportScope === "all"
+          ? getReportUrl(reqid, { reqno, printtype: 1, ...commonFlags })
+          : getReportsUrl(reqid, reqno, { printtype: 1, ...commonFlags });
+    const reportType = reportScope === "radiology" ? "radiology" : reportScope === "all" ? "combined" : "lab";
 
     let fetchResult;
     try {
@@ -105,13 +112,14 @@ export async function POST(request) {
         reqid,
         reqno,
         phone,
-        reportType: "lab",
+        reportType,
         headerMode,
         status: "failed",
         resultCode: "KIOSK_READY_PRINT_FETCH_FAILED",
         resultMessage: fetchError?.message || "Ready print fetch failed",
         requestPayload: {
           mode: "ready_print",
+          report_scope: reportScope,
           printtype: 1,
           chkrephead: toHeaderFlag(headerMode),
           header_mode: "plain",
@@ -139,13 +147,14 @@ export async function POST(request) {
         reqid,
         reqno,
         phone,
-        reportType: "lab",
+        reportType,
         headerMode,
         status: "failed",
         resultCode: "KIOSK_READY_PRINT_NON_PDF",
         resultMessage: `Upstream returned ${upstream.status} with content-type ${contentType || "unknown"}`,
         requestPayload: {
           mode: "ready_print",
+          report_scope: reportScope,
           printtype: 1,
           chkrephead: toHeaderFlag(headerMode),
           header_mode: "plain",
@@ -183,16 +192,17 @@ export async function POST(request) {
       reqid,
       reqno,
       phone,
-      reportType: "lab",
+        reportType,
       headerMode,
       status: "success",
-      resultCode: "KIOSK_READY_PRINT_OK",
-      resultMessage: "Ready report printed from kiosk flow",
-      requestPayload: {
-        mode: "ready_print",
-        printtype: 1,
-        chkrephead: toHeaderFlag(headerMode),
-        header_mode: "plain",
+        resultCode: "KIOSK_READY_PRINT_OK",
+        resultMessage: `Ready ${reportScope} report printed from kiosk flow`,
+        requestPayload: {
+          mode: "ready_print",
+          report_scope: reportScope,
+          printtype: 1,
+          chkrephead: toHeaderFlag(headerMode),
+          header_mode: "plain",
         without_header_background: "true",
         report_url: reportUrl,
         ready_lab_test_keys: readyLabTestKeys
@@ -210,7 +220,7 @@ export async function POST(request) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${reqid}_ready_dispatch.pdf"`,
+        "Content-Disposition": `inline; filename="${reqid}_${reportScope}_dispatch.pdf"`,
         "Cache-Control": "no-store"
       }
     });

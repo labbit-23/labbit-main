@@ -181,6 +181,13 @@ function parseSnapshot(snapshot) {
   return null;
 }
 
+function reqDateFromReqno(reqno) {
+  const raw = String(reqno || "").trim();
+  const m = raw.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (!m) return "";
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 function queuedBlockers(job) {
   const snap = parseSnapshot(job?.last_status_snapshot);
   const tests = Array.isArray(snap?.tests) ? snap.tests : [];
@@ -1232,7 +1239,8 @@ export default function ReportDispatchWorkspace({
               <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={2} mb={3}>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Date</Text><Text fontWeight="bold">{selectedDate}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Total Jobs</Text><Text fontWeight="bold">{autoSummary?.total_jobs ?? monitorDateStats.total}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{(autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying)}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{(autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying)}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.800" : "yellow.100"}><Text fontSize="xs" opacity={0.7}>Cooling Off</Text><Text fontWeight="bold">{autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Lab Pending Approval (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_pending_approval_tests ?? 0}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.900" : "yellow.50"}><Text fontSize="xs" opacity={0.7}>Lab Waiting Report (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_waiting_tests ?? 0}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Lab Ready (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_ready_tests ?? 0}</Text></Box>
@@ -1443,21 +1451,32 @@ export default function ReportDispatchWorkspace({
                       <Thead>
                         <Tr>
                           <Th>Req No</Th>
+                          <Th>Req Date</Th>
                           <Th>Patient</Th>
                           <Th>Phone</Th>
                           <Th>Status Sent</Th>
+                          <Th>Backlog</Th>
                           <Th>Sent (IST)</Th>
                           <Th>Delivery</Th>
                           <Th>Receipt Time (IST)</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {sentDispatchRows.slice(0, 100).map((row) => (
-                          <Tr key={`sent_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
+                        {sentDispatchRows.slice(0, 100).map((row, idx) => {
+                          const reqDate = reqDateFromReqno(row?.reqno);
+                          const isBacklog = Boolean(reqDate) && reqDate !== selectedDate;
+                          return (
+                          <Tr key={`sent_${row?.id || row?.reqno || row?.phone || idx}`}>
                             <Td fontWeight="bold">{displayValue(row?.reqno)}</Td>
+                            <Td>{displayValue(reqDate)}</Td>
                             <Td>{displayValue(row?.patient_name)}</Td>
                             <Td>{displayValue(row?.phone)}</Td>
                             <Td>{displayValue(row?.report_label)}</Td>
+                            <Td>
+                              <Badge colorScheme={isBacklog ? "orange" : "green"}>
+                                {isBacklog ? "Older cleared" : "Today"}
+                              </Badge>
+                            </Td>
                             <Td>{formatIstDateTime(row?.sent_at)}</Td>
                             <Td>
                               <Badge colorScheme={deriveDeliveryStatus(row) === "read" ? "green" : deriveDeliveryStatus(row) === "delivered" ? "blue" : "gray"}>
@@ -1466,7 +1485,7 @@ export default function ReportDispatchWorkspace({
                             </Td>
                             <Td>{formatIstDateTime(row?.delivery_status_at)}</Td>
                           </Tr>
-                        ))}
+                        )})}
                       </Tbody>
                     </Table>
                   </Box>

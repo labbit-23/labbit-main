@@ -219,6 +219,22 @@ function extractTestDate(reportStatus) {
   return null;
 }
 
+function extractReqTime(reportStatus) {
+  const topLevel = String(
+    rowValue(reportStatus, "REQTM", "reqtm", "TEST_TIME", "test_time", "REQTIME", "reqtime") || ""
+  ).trim();
+  if (topLevel) return topLevel;
+
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  for (const row of tests) {
+    const timeValue = String(
+      rowValue(row, "REQTM", "reqtm", "TEST_TIME", "test_time", "REQTIME", "reqtime") || ""
+    ).trim();
+    if (timeValue) return timeValue;
+  }
+  return null;
+}
+
 function extractMrno(reportStatus) {
   const topLevelMrno = String(rowValue(reportStatus, "MRNO", "mrno", "CREGNO", "cregno", "UHID", "uhid") || "").trim();
   if (topLevelMrno) return topLevelMrno;
@@ -227,6 +243,38 @@ function extractMrno(reportStatus) {
   for (const row of tests) {
     const mrno = String(rowValue(row, "MRNO", "mrno", "CREGNO", "cregno", "UHID", "uhid") || "").trim();
     if (mrno) return mrno;
+  }
+  return null;
+}
+
+function extractReqPassword(reportStatus) {
+  const topLevel = String(
+    rowValueLoose(
+      reportStatus,
+      "REQ_PASSWORD",
+      "req_password",
+      "REQPASSWORD",
+      "reqpassword",
+      "PASSWORD",
+      "password"
+    ) || ""
+  ).trim();
+  if (topLevel) return topLevel;
+
+  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
+  for (const row of tests) {
+    const candidate = String(
+      rowValueLoose(
+        row,
+        "REQ_PASSWORD",
+        "req_password",
+        "REQPASSWORD",
+        "reqpassword",
+        "PASSWORD",
+        "password"
+      ) || ""
+    ).trim();
+    if (candidate) return candidate;
   }
   return null;
 }
@@ -536,6 +584,11 @@ export async function GET(request) {
     const url = new URL(request.url);
     const reqid = String(url.searchParams.get("reqid") || "").trim();
     const reqno = String(url.searchParams.get("reqno") || "").trim();
+    const reqPassword = String(
+      url.searchParams.get("password") ||
+      url.searchParams.get("req_password") ||
+      ""
+    ).trim();
     const scopedOrgHint = normalizeOrgHint(url.searchParams.get("org_id") || "");
     const source = String(
       url.searchParams.get("source") ||
@@ -549,8 +602,7 @@ export async function GET(request) {
     if (!reqid && !reqno) {
       return new Response("Missing reqid or reqno", { status: 400 });
     }
-
-    let reportStatus = reqno ? await getReportStatus(reqno) : await getReportStatusByReqid(reqid);
+    let reportStatus = reqno ? await getReportStatus(reqno) : await getReportStatusByReqid(reqid, reqPassword);
     let normalizedReqno = normalizeReqno(reportStatus);
     let normalizedReqid = normalizeReqid(reportStatus, reqid || null);
 
@@ -603,6 +655,7 @@ export async function GET(request) {
     const patientPhone = extractPatientPhone(reportStatus);
     const patientName = extractPatientName(reportStatus);
     const testDate = extractTestDate(reportStatus);
+    const testTime = extractReqTime(reportStatus);
     const mrno = extractMrno(reportStatus);
     const sourceLabel = extractSource(reportStatus);
 
@@ -652,6 +705,7 @@ export async function GET(request) {
           patient_name: patientName,
           patient_phone: patientPhone,
           test_date: testDate,
+          test_time: testTime,
           mrno,
           source: sourceLabel,
           ready_lab_tests: readyLabTests,
