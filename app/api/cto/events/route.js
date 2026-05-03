@@ -21,13 +21,25 @@ function normalizeMessage(value) {
   return normalizeText(value).toLowerCase().replace(/\s+/g, " ").slice(0, 400);
 }
 
-function buildFingerprint({ labId, source, serviceKey, eventType, message }) {
+function buildFingerprint({ labId, source, serviceKey, eventType, message, payload = {} }) {
+  let messageSeed = normalizeMessage(message);
+  const typeKey = normalizeText(eventType).toLowerCase();
+  // PM2 restart storm messages include rolling count ("...24h: N"), which causes
+  // new fingerprints every poll. Keep one stable incident per service+event type.
+  if (typeKey === "pm2_restart_storm_24h") {
+    messageSeed = "pm2_restart_storm_24h";
+  }
+  const payloadKey =
+    typeKey === "pm2_restart_storm_24h"
+      ? normalizeText(payload?.process_name || payload?.service_name || payload?.pm2_name || "").toLowerCase()
+      : "";
   const seed = [
     normalizeText(labId),
     normalizeText(source).toLowerCase(),
     normalizeText(serviceKey).toLowerCase(),
-    normalizeText(eventType).toLowerCase(),
-    normalizeMessage(message),
+    typeKey,
+    messageSeed,
+    payloadKey,
   ].join("|");
   return createHash("sha1").update(seed).digest("hex");
 }
@@ -167,6 +179,7 @@ export async function POST(request) {
         serviceKey: event.service_key,
         eventType: event.event_type,
         message: event.message,
+        payload: event.payload,
       });
 
       return {
