@@ -263,6 +263,7 @@ export default function ReportDispatchWorkspace({
   const [dailyLoading, setDailyLoading] = useState(false);
   const [autoLoading, setAutoLoading] = useState(false);
   const [autoActionLoading, setAutoActionLoading] = useState(false);
+  const [autoActionState, setAutoActionState] = useState({ jobId: "", action: "" });
   const [error, setError] = useState("");
 
   const [headerRequired, setHeaderRequired] = useState(false);
@@ -742,6 +743,7 @@ export default function ReportDispatchWorkspace({
   async function openAutoEvents(job) {
     const jobId = String(job?.id || "").trim();
     if (!jobId) return;
+    setAutoActionState({ jobId, action: "events" });
     setAutoActionLoading(true);
     try {
       const query = new URLSearchParams({ job_id: jobId, limit: "200" });
@@ -755,6 +757,7 @@ export default function ReportDispatchWorkspace({
       setError(err?.message || "Failed to load events");
     } finally {
       setAutoActionLoading(false);
+      setAutoActionState({ jobId: "", action: "" });
     }
   }
 
@@ -762,6 +765,7 @@ export default function ReportDispatchWorkspace({
     const jobId = String(jobIdValue || "").trim();
     if (!action) return;
     if (!jobId && action !== "pause_all" && action !== "resume_all") return;
+    setAutoActionState({ jobId, action: String(action || "").trim().toLowerCase() });
     setAutoActionLoading(true);
     try {
       const body = { action };
@@ -794,7 +798,18 @@ export default function ReportDispatchWorkspace({
       setError(err?.message || "Failed to update job");
     } finally {
       setAutoActionLoading(false);
+      setAutoActionState({ jobId: "", action: "" });
     }
+  }
+
+  function isRowActionLoading(jobIdValue, action) {
+    if (!autoActionLoading) return false;
+    const activeJobId = String(autoActionState?.jobId || "").trim();
+    const activeAction = String(autoActionState?.action || "").trim().toLowerCase();
+    const jobId = String(jobIdValue || "").trim();
+    const normalized = String(action || "").trim().toLowerCase();
+    if (!jobId || !normalized) return false;
+    return activeJobId === jobId && activeAction === normalized;
   }
 
   function confirmAndPushJob(job) {
@@ -1512,16 +1527,16 @@ export default function ReportDispatchWorkspace({
                         </Tooltip>
                         <HStack spacing={1.5} mt={2} wrap="nowrap">
                           <Tooltip label="Events" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={autoActionLoading} />
+                            <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} />
                           </Tooltip>
                           <Tooltip label="Push now" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="Push now" colorScheme="blue" icon={<FiSend />} onClick={() => confirmAndPushJob(job)} isDisabled={!canPushRow} isLoading={autoActionLoading} />
+                            <IconButton size="xs" type="button" aria-label="Push now" colorScheme="blue" icon={<FiSend />} onClick={() => confirmAndPushJob(job)} isDisabled={!canPushRow} isLoading={isRowActionLoading(jobId, "push_now")} />
                           </Tooltip>
                           <Tooltip label="Push to" hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<FiUploadCloud />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
                           </Tooltip>
                           <Tooltip label={pauseLabel} hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label={pauseLabel} colorScheme={pauseColor} variant={canTogglePause ? "solid" : "outline"} icon={pauseIcon} onClick={() => runAutoJobAction(jobId, pauseAction)} isDisabled={!canTogglePause} isLoading={autoActionLoading} />
+                            <IconButton size="xs" type="button" aria-label={pauseLabel} colorScheme={pauseColor} variant={canTogglePause ? "solid" : "outline"} icon={pauseIcon} onClick={() => runAutoJobAction(jobId, pauseAction)} isDisabled={!canTogglePause} isLoading={isRowActionLoading(jobId, pauseAction)} />
                           </Tooltip>
                         </HStack>
                       </Box>
@@ -1665,7 +1680,7 @@ export default function ReportDispatchWorkspace({
                                   variant="outline"
                                   icon={<FiActivity />}
                                   onClick={() => openAutoEvents(job)}
-                                  isLoading={autoActionLoading}
+                                  isLoading={isRowActionLoading(jobId, "events")}
                                   _hover={{ bg: "gray.100" }}
                                 />
                               </Tooltip>
@@ -1678,7 +1693,7 @@ export default function ReportDispatchWorkspace({
                                   icon={<FiSend />}
                                   onClick={() => confirmAndPushJob(job)}
                                   isDisabled={!canPushRow}
-                                  isLoading={autoActionLoading}
+                                  isLoading={isRowActionLoading(jobId, "push_now")}
                                   _hover={{ transform: "translateY(-1px)" }}
                                 />
                               </Tooltip>
@@ -1704,7 +1719,7 @@ export default function ReportDispatchWorkspace({
                                   icon={pauseIcon}
                                   onClick={() => runAutoJobAction(jobId, pauseAction)}
                                   isDisabled={!canTogglePause}
-                                  isLoading={autoActionLoading}
+                                  isLoading={isRowActionLoading(jobId, pauseAction)}
                                   _hover={{ transform: "translateY(-1px)" }}
                                 />
                               </Tooltip>

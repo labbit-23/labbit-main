@@ -30,11 +30,14 @@ import {
   Wrap,
   WrapItem
 } from "@chakra-ui/react";
-import { LinkIcon } from "@chakra-ui/icons";
 import { FiNavigation } from "react-icons/fi";
 import { FiHome } from "react-icons/fi";
 import { FiMapPin } from "react-icons/fi";
 import { FiEye } from "react-icons/fi";
+import { FiShare2 } from "react-icons/fi";
+import { FiCalendar } from "react-icons/fi";
+import { FiLink2 } from "react-icons/fi";
+import { FiEdit3 } from "react-icons/fi";
 import { HiOutlineOfficeBuilding } from "react-icons/hi";
 import PatientsTab from "@/app/components/PatientsTab";
 
@@ -171,6 +174,22 @@ function getRequestDisplayText(qb, { multiline = false, fallbackDash = false } =
   const fallback = String(qb?.package_name || "").trim();
   if (fallback) return fallback;
   return fallbackDash ? "-" : "No package/tests provided";
+}
+
+function buildBookingFollowupShareText(qb) {
+  const lines = [
+    `Booking: ${qb?.patient_name || "-"}`,
+    `Phone: ${qb?.phone || "-"}`,
+    `Date: ${formatDateShort(qb?.date)}`,
+    `Slot: ${qb?.time_slot?.slot_name || "Slot pending"}`,
+    `Status: ${String(qb?.followup_status || "-").toUpperCase()}`,
+    `Outcome: ${qb?.followup_outcome ? String(qb.followup_outcome).replaceAll("_", " ") : "-"}`,
+    `Channel: ${qb?.followup_channel ? String(qb.followup_channel).toUpperCase() : "-"}`,
+    `Next follow-up: ${qb?.next_followup_at ? new Date(qb.next_followup_at).toLocaleString("en-IN") : "-"}`,
+    `Patient said: ${qb?.patient_response || "-"}`,
+    `Agent note: ${qb?.last_followup_note || "-"}`
+  ];
+  return lines.join("\n");
 }
 
 export default function QuickBookTab({
@@ -405,6 +424,11 @@ export default function QuickBookTab({
     await updateBooking(qb.id, {
       visit_id: visitId,
       status: "booked",
+      followup_status: "CLOSED",
+      followup_outcome: "OTHER",
+      followup_channel: "MANUAL",
+      next_followup_at: null,
+      last_followup_note: `Linked to visit ${visitId} and auto-closed.`,
       rejection_code: null,
       rejection_reason: null
     });
@@ -550,7 +574,6 @@ export default function QuickBookTab({
               <Th>Request</Th>
               <Th>Schedule</Th>
               <Th>Area / Location</Th>
-              <Th display={{ base: "none", lg: "table-cell" }}>Link</Th>
               <Th>Actions</Th>
             </Tr>
           </Thead>
@@ -603,70 +626,18 @@ export default function QuickBookTab({
                       </Text>
                     )}
                   </Td>
-                  <Td minW={{ base: "110px", md: "170px" }} display={{ base: "none", lg: "table-cell" }}>
-                    {isCentreVisit ? (
-                      <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
-                        Not required for Centre Visit
-                      </Text>
-                    ) : visitValue && linkingVisitId !== qb.id ? (
-                      <Badge colorScheme="green" fontSize="10px">Linked</Badge>
-                    ) : (
-                      <VStack align="stretch" spacing={2}>
-                        <Button
-                          size="xs"
-                          leftIcon={<LinkIcon />}
-                          onClick={() => {
-                            if (qbDate) fetchVisitsForDate(qbDate);
-                            setLinkingVisitId((prev) => (prev === qb.id ? null : qb.id));
-                          }}
-                          px={2}
-                          minW="88px"
-                        >
-                          {linkingVisitId === qb.id ? "Hide" : "Link"}
-                        </Button>
-                        {linkingVisitId === qb.id && (
-                          <>
-                            <Select
-                              size="xs"
-                              value={visitValue}
-                              placeholder="Select visit"
-                              onChange={(e) => {
-                                const next = e.target.value || "";
-                                setEditing((prev) => ({
-                                  ...prev,
-                                  [qb.id]: { ...(prev[qb.id] || {}), visit_id: next }
-                                }));
-                              }}
-                            >
-                              {visitsForDate.map((v) => (
-                                <option key={v.id} value={v.id}>
-                                  {(v.visit_code || v.id) + " - " + (v.patient?.name || "Unknown")}
-                                </option>
-                              ))}
-                            </Select>
-                            <Button
-                              size="xs"
-                              colorScheme="blue"
-                              onClick={() => handleSaveVisitLink(qb)}
-                              isLoading={savingId === qb.id}
-                              px={2}
-                            >
-                              Save
-                            </Button>
-                          </>
-                        )}
-                      </VStack>
-                    )}
-                  </Td>
                   <Td minW="210px" onClick={(e) => e.stopPropagation()}>
-                    <Wrap spacing={2}>
+                    <VStack align="stretch" spacing={2}>
+                      <Wrap spacing={2}>
                       {qb?.home_visit_required !== false && (
                         <WrapItem>
-                          <Button
+                          <IconButton
                             size="xs"
-                            leftIcon={<FiMapPin />}
                             colorScheme="red"
                             variant="outline"
+                            icon={<FiMapPin />}
+                            aria-label="Add or update location"
+                            title="Add or update location"
                             onClick={async () => {
                               const current = qb.location_lat && qb.location_lng
                                 ? `${qb.location_lat},${qb.location_lng}`
@@ -693,9 +664,7 @@ export default function QuickBookTab({
                                   };
                               await updateBooking(qb.id, payload);
                             }}
-                          >
-                            Location +
-                          </Button>
+                          />
                         </WrapItem>
                       )}
                       {qb?.home_visit_required === false && (
@@ -725,26 +694,75 @@ export default function QuickBookTab({
                         />
                       </WrapItem>
                       <WrapItem>
-                        <Button
+                        <IconButton
                           size="xs"
-                          colorScheme="green"
-                          isDisabled={Boolean(qb.visit_id)}
-                          onClick={() => setProcessingQuickBook(qb)}
-                        >
-                          Schedule Visit
-                        </Button>
+                          variant="outline"
+                          icon={<FiLink2 />}
+                          aria-label={linkingVisitId === qb.id ? "Hide attach visit" : "Attach to visit"}
+                          title={linkingVisitId === qb.id ? "Hide attach visit" : "Attach to visit"}
+                          isDisabled={isCentreVisit}
+                          onClick={() => {
+                            if (isCentreVisit) return;
+                            if (qbDate) fetchVisitsForDate(qbDate);
+                            setLinkingVisitId((prev) => (prev === qb.id ? null : qb.id));
+                          }}
+                        />
                       </WrapItem>
                       <WrapItem>
-                        <Button
+                        <IconButton
+                          size="xs"
+                          variant="solid"
+                          colorScheme="green"
+                          icon={<FiCalendar />}
+                          aria-label="Create visit"
+                          title="Create visit"
+                          isDisabled={Boolean(qb.visit_id)}
+                          onClick={() => setProcessingQuickBook(qb)}
+                        />
+                      </WrapItem>
+                      <WrapItem>
+                        <IconButton
                           size="xs"
                           variant="outline"
                           colorScheme="blue"
+                          icon={<FiEdit3 />}
+                          aria-label="Process request / follow-up"
+                          title="Process request / follow-up"
                           onClick={() => openFollowupModal(qb)}
-                        >
-                          Process Request
-                        </Button>
+                        />
                       </WrapItem>
-                    </Wrap>
+                      </Wrap>
+                      {linkingVisitId === qb.id && !isCentreVisit && (
+                        <HStack spacing={2} align="stretch">
+                          <Select
+                            size="xs"
+                            value={visitValue}
+                            placeholder="Select visit"
+                            onChange={(e) => {
+                              const next = e.target.value || "";
+                              setEditing((prev) => ({
+                                ...prev,
+                                [qb.id]: { ...(prev[qb.id] || {}), visit_id: next }
+                              }));
+                            }}
+                          >
+                            {visitsForDate.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {(v.visit_code || v.id) + " - " + (v.patient?.name || "Unknown")}
+                              </option>
+                            ))}
+                          </Select>
+                          <Button
+                            size="xs"
+                            colorScheme="blue"
+                            onClick={() => handleSaveVisitLink(qb)}
+                            isLoading={savingId === qb.id}
+                          >
+                            Attach
+                          </Button>
+                        </HStack>
+                      )}
+                    </VStack>
                   </Td>
                 </Tr>
               );
@@ -768,7 +786,6 @@ export default function QuickBookTab({
                 <Th>Request</Th>
                 <Th>Schedule</Th>
                 <Th>Area / Location</Th>
-                <Th display={{ base: "none", lg: "table-cell" }}>Link</Th>
                 <Th>Actions</Th>
               </Tr>
             </Thead>
@@ -804,63 +821,9 @@ export default function QuickBookTab({
                     <Td minW="220px" maxW="300px">
                       <Text fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word">{getAreaLabel(qb)}</Text>
                     </Td>
-                    <Td minW={{ base: "110px", md: "170px" }} display={{ base: "none", lg: "table-cell" }}>
-                      {isCentreVisit ? (
-                        <Text fontSize="xs" color={isDark ? "whiteAlpha.700" : "gray.600"}>
-                          Not required for Centre Visit
-                        </Text>
-                      ) : visitValue && linkingVisitId !== qb.id ? (
-                        <Badge colorScheme="green" fontSize="10px">Linked</Badge>
-                      ) : (
-                        <VStack align="stretch" spacing={2}>
-                          <Button
-                            size="xs"
-                            leftIcon={<LinkIcon />}
-                            onClick={() => {
-                              if (qbDate) fetchVisitsForDate(qbDate);
-                              setLinkingVisitId((prev) => (prev === qb.id ? null : qb.id));
-                            }}
-                            px={2}
-                            minW="88px"
-                          >
-                            {linkingVisitId === qb.id ? "Hide" : "Link"}
-                          </Button>
-                          {linkingVisitId === qb.id && (
-                            <>
-                              <Select
-                                size="xs"
-                                value={visitValue}
-                                placeholder="Select visit"
-                                onChange={(e) => {
-                                  const next = e.target.value || "";
-                                  setEditing((prev) => ({
-                                    ...prev,
-                                    [qb.id]: { ...(prev[qb.id] || {}), visit_id: next }
-                                  }));
-                                }}
-                              >
-                                {visitsForDate.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {(v.visit_code || v.id) + " - " + (v.patient?.name || "Unknown")}
-                                  </option>
-                                ))}
-                              </Select>
-                              <Button
-                                size="xs"
-                                colorScheme="blue"
-                                onClick={() => handleSaveVisitLink(qb)}
-                                isLoading={savingId === qb.id}
-                                px={2}
-                              >
-                                Save
-                              </Button>
-                            </>
-                          )}
-                        </VStack>
-                      )}
-                    </Td>
-                    <Td minW="210px">
-                      <Wrap spacing={2}>
+                    <Td minW="210px" onClick={(e) => e.stopPropagation()}>
+                      <VStack align="stretch" spacing={2}>
+                        <Wrap spacing={2}>
                         <WrapItem>
                           <IconButton
                             size="xs"
@@ -872,26 +835,75 @@ export default function QuickBookTab({
                           />
                         </WrapItem>
                         <WrapItem>
-                          <Button
+                          <IconButton
                             size="xs"
-                            colorScheme="green"
-                            isDisabled={Boolean(qb.visit_id)}
-                            onClick={() => setProcessingQuickBook(qb)}
-                          >
-                            Schedule Visit
-                          </Button>
+                            variant="outline"
+                            icon={<FiLink2 />}
+                            aria-label={linkingVisitId === qb.id ? "Hide attach visit" : "Attach to visit"}
+                            title={linkingVisitId === qb.id ? "Hide attach visit" : "Attach to visit"}
+                            isDisabled={isCentreVisit}
+                            onClick={() => {
+                              if (isCentreVisit) return;
+                              if (qbDate) fetchVisitsForDate(qbDate);
+                              setLinkingVisitId((prev) => (prev === qb.id ? null : qb.id));
+                            }}
+                          />
                         </WrapItem>
                         <WrapItem>
-                          <Button
+                          <IconButton
+                            size="xs"
+                            variant="solid"
+                            colorScheme="green"
+                            icon={<FiCalendar />}
+                            aria-label="Create visit"
+                            title="Create visit"
+                            isDisabled={Boolean(qb.visit_id)}
+                            onClick={() => setProcessingQuickBook(qb)}
+                          />
+                        </WrapItem>
+                        <WrapItem>
+                          <IconButton
                             size="xs"
                             variant="outline"
                             colorScheme="blue"
+                            icon={<FiEdit3 />}
+                            aria-label="Process request / follow-up"
+                            title="Process request / follow-up"
                             onClick={() => openFollowupModal(qb)}
-                          >
-                            Process Request
-                          </Button>
+                          />
                         </WrapItem>
-                      </Wrap>
+                        </Wrap>
+                        {linkingVisitId === qb.id && !isCentreVisit && (
+                          <HStack spacing={2} align="stretch">
+                            <Select
+                              size="xs"
+                              value={visitValue}
+                              placeholder="Select visit"
+                              onChange={(e) => {
+                                const next = e.target.value || "";
+                                setEditing((prev) => ({
+                                  ...prev,
+                                  [qb.id]: { ...(prev[qb.id] || {}), visit_id: next }
+                                }));
+                              }}
+                            >
+                              {visitsForDate.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                  {(v.visit_code || v.id) + " - " + (v.patient?.name || "Unknown")}
+                                </option>
+                              ))}
+                            </Select>
+                            <Button
+                              size="xs"
+                              colorScheme="blue"
+                              onClick={() => handleSaveVisitLink(qb)}
+                              isLoading={savingId === qb.id}
+                            >
+                              Attach
+                            </Button>
+                          </HStack>
+                        )}
+                      </VStack>
                     </Td>
                   </Tr>
                 );
@@ -1195,6 +1207,8 @@ export default function QuickBookTab({
               </Box>
               <Box>
                 <Text fontWeight="700" mb={1}>Follow-up Snapshot</Text>
+                <Text fontSize="sm">Booking date: {formatDateShort(detailsBooking?.date)}</Text>
+                <Text fontSize="sm">Booking slot: {detailsBooking?.time_slot?.slot_name || "-"}</Text>
                 <Text fontSize="sm">Status: {String(detailsBooking?.followup_status || "-").toUpperCase()}</Text>
                 <Text fontSize="sm">
                   Outcome: {detailsBooking?.followup_outcome ? String(detailsBooking.followup_outcome).replaceAll("_", " ") : "-"}
@@ -1215,6 +1229,24 @@ export default function QuickBookTab({
             </VStack>
           </ModalBody>
           <ModalFooter>
+            <Button
+              mr={3}
+              variant="outline"
+              leftIcon={<FiShare2 />}
+              onClick={async () => {
+                const text = buildBookingFollowupShareText(detailsBooking || {});
+                try {
+                  if (navigator?.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(text);
+                    alert("Follow-up summary copied.");
+                    return;
+                  }
+                } catch {}
+                window.prompt("Copy follow-up summary:", text);
+              }}
+            >
+              Share
+            </Button>
             <Button
               mr={3}
               variant="outline"
