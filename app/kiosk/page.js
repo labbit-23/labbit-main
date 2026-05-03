@@ -177,7 +177,6 @@ export default function ReportDispatchKioskPage() {
   const [feedbackCountdown, setFeedbackCountdown] = useState(0);
   const [isPrinting, setIsPrinting] = useState(false);
   const [lastPrintInstruction, setLastPrintInstruction] = useState("");
-  const [loginScanValue, setLoginScanValue] = useState("");
   const [labMeta, setLabMeta] = useState({
     name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
     logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
@@ -287,7 +286,6 @@ export default function ReportDispatchKioskPage() {
         setPassword("");
         setAuthenticated(true);
         setNotice("");
-        setLoginScanValue("");
         loginScanBufferRef.current = "";
         await fetchLabMeta();
       } else {
@@ -315,7 +313,6 @@ export default function ReportDispatchKioskPage() {
         setPassword("");
         setAuthenticated(true);
         setNotice("");
-        setLoginScanValue("");
         loginScanBufferRef.current = "";
         await fetchLabMeta();
       } else {
@@ -534,7 +531,11 @@ export default function ReportDispatchKioskPage() {
 
   useEffect(() => {
     if (authenticated) return;
-    setTimeout(() => loginScanInputRef.current?.focus(), 120);
+    setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.focus();
+      }
+    }, 120);
   }, [authenticated]);
 
   useEffect(() => {
@@ -598,15 +599,12 @@ export default function ReportDispatchKioskPage() {
       const key = String(event.key || "");
 
       if (key === "Enter") {
-        const scanned = String(loginScanBufferRef.current || loginScanValue || "").trim();
+        const scanned = String(loginScanBufferRef.current || "").trim();
         if (!scanned) return;
         event.preventDefault();
         const parsed = parseKioskLoginScan(scanned);
-        setLoginScanValue(scanned);
         loginScanBufferRef.current = "";
         if (parsed.valid) {
-          setUsername(parsed.username);
-          setPassword(parsed.password);
           authenticateKioskByBarcode(scanned);
         } else {
           setNotice("Invalid login barcode.");
@@ -621,13 +619,12 @@ export default function ReportDispatchKioskPage() {
 
       if (key.length === 1) {
         loginScanBufferRef.current += key;
-        setLoginScanValue(loginScanBufferRef.current);
       }
     };
 
     window.addEventListener("keydown", onLoginScannerKey);
     return () => window.removeEventListener("keydown", onLoginScannerKey);
-  }, [authenticated, loginScanValue]);
+  }, [authenticated]);
 
   const renderStepScan = () => (
     <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 5, md: 6 }} maxW="900px" w="100%">
@@ -717,7 +714,6 @@ export default function ReportDispatchKioskPage() {
           REQID: <Text as="span" color="blue.700">{reqid}</Text>
         </Text>
       ) : null}
-      {scanSecret ? <Text mt={1} color="gray.500">Scanned Password Part: {scanSecret}</Text> : null}
     </Box>
   );
 
@@ -1036,20 +1032,6 @@ export default function ReportDispatchKioskPage() {
             </Flex>
             <Heading size="md" mb={4}>Kiosk Login</Heading>
             <form onSubmit={handleAuth}>
-              <FormControl mb={3}>
-                <FormLabel>Staff Login Barcode</FormLabel>
-                <Input
-                  ref={loginScanInputRef}
-                  value={loginScanValue}
-                  onChange={(e) => {
-                    const nextValue = e.target.value;
-                    setLoginScanValue(nextValue);
-                    loginScanBufferRef.current = nextValue;
-                  }}
-                  placeholder="Scan Staff Login Barcode"
-                  h="54px"
-                />
-              </FormControl>
               <FormControl mb={3}>
                 <FormLabel>Username</FormLabel>
                 <Input value={username} onChange={(e) => setUsername(e.target.value)} h="54px" />
