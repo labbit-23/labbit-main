@@ -2217,6 +2217,246 @@ function CtoDashboardPage() {
         </Text>
 
         <Box
+          ref={trendsSectionRef}
+          p={{ base: 5, md: 6 }}
+          borderRadius="28px"
+          bg="rgba(255,255,255,0.05)"
+          border="1px solid rgba(255,255,255,0.08)"
+          mb={5}
+        >
+          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
+            <Box>
+              <Heading size="md" mb={1}>Service Trends</Heading>
+              <Text color="whiteAlpha.700">Compact reliability trend over time.</Text>
+            </Box>
+            <HStack spacing={2}>
+              <Select
+                size="sm"
+                value={trendRange}
+                onChange={(e) => setTrendRange(e.target.value)}
+                maxW="170px"
+                bg="rgba(11, 19, 32, 0.72)"
+                borderColor="rgba(255,255,255,0.18)"
+              >
+                {TREND_RANGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </HStack>
+          </Flex>
+
+          {trendError && (
+            <Box mb={4} p={3} borderRadius="14px" bg="rgba(248,113,113,0.12)" border="1px solid rgba(248,113,113,0.28)">
+              <Text color="red.200" fontSize="sm">{trendError}</Text>
+            </Box>
+          )}
+
+          <SimpleGrid columns={{ base: 2, md: 3, xl: 6 }} spacing={3} mb={4}>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total checks</Text>
+              <Text fontWeight="700">{trendData?.summary?.total_checks ?? 0}</Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy rate</Text>
+              <Text fontWeight="700">
+                {typeof trendData?.summary?.healthy_rate === "number" ? `${Math.round(trendData.summary.healthy_rate * 100)}%` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Down rate</Text>
+              <Text fontWeight="700">
+                {typeof trendData?.summary?.down_rate === "number" ? `${Math.round(trendData.summary.down_rate * 100)}%` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Avg latency</Text>
+              <Text fontWeight="700">
+                {typeof trendData?.summary?.avg_latency_ms === "number" ? `${Math.round(trendData.summary.avg_latency_ms)} ms` : "n/a"}
+              </Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Digest rows</Text>
+              <Text fontWeight="700">{Number(trendSource?.digest_rows || 0)}</Text>
+            </Box>
+            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
+              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Raw rows</Text>
+              <Text fontWeight="700">{Number(trendSource?.raw_rows || 0)}</Text>
+            </Box>
+          </SimpleGrid>
+
+          <HStack spacing={2} mb={4} flexWrap="wrap">
+            <Badge
+              borderRadius="full"
+              px={3}
+              py={1}
+              bg="rgba(16,185,129,0.18)"
+              color="green.200"
+            >
+              WoW Healthy: {trendWow.hasData && trendWow.healthy_delta_pct_points != null ? `${trendWow.healthy_delta_pct_points >= 0 ? "+" : ""}${trendWow.healthy_delta_pct_points} pp` : "n/a"}
+            </Badge>
+            <Badge
+              borderRadius="full"
+              px={3}
+              py={1}
+              bg="rgba(248,113,113,0.18)"
+              color="red.200"
+            >
+              WoW Down: {trendWow.hasData && trendWow.down_delta_pct_points != null ? `${trendWow.down_delta_pct_points >= 0 ? "+" : ""}${trendWow.down_delta_pct_points} pp` : "n/a"}
+            </Badge>
+            <Badge
+              borderRadius="full"
+              px={3}
+              py={1}
+              bg="rgba(56,189,248,0.18)"
+              color="blue.200"
+            >
+              WoW Latency: {trendWow.hasData && trendWow.latency_delta_ms != null ? `${trendWow.latency_delta_ms >= 0 ? "+" : ""}${trendWow.latency_delta_ms} ms` : "n/a"}
+            </Badge>
+          </HStack>
+          {!trendWow.hasData && trendWow.reason && (
+            <Text fontSize="xs" color="whiteAlpha.700" mb={4}>
+              WoW unavailable: {trendWow.reason}
+            </Text>
+          )}
+          {!trendIsHourlyBucket && Number(trendSource?.digest_rows || 0) === 0 && (
+            <Box mb={4} p={3} borderRadius="12px" bg="rgba(250,204,21,0.12)" border="1px solid rgba(250,204,21,0.28)">
+              <Text fontSize="xs" color="yellow.200">
+                Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.800" mt={1}>
+                Raw rows in this range: {Number(trendSource?.raw_rows || 0)}. This usually means CTO compaction has not run yet for selected days.
+              </Text>
+              <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                Expected pipeline: collector ingest → `/api/cto/compact` daily compaction (token-auth) → digest-backed trends.
+              </Text>
+            </Box>
+          )}
+
+          {trendLoading && (
+            <Text fontSize="sm" color="whiteAlpha.700">Loading trends...</Text>
+          )}
+
+          {!trendLoading && trendPoints.length === 0 && trendComparePoints.length === 0 && (
+            <Text fontSize="sm" color="whiteAlpha.700">No historical points yet. Run digest once data is ingested.</Text>
+          )}
+
+          {!trendLoading && (trendPoints.length > 0 || trendComparePoints.length > 0) && (
+            <SimpleGrid columns={{ base: 1, xl: 2 }} spacing={3}>
+              {[
+                {
+                  key: trendVpsServiceKey || "all_vps",
+                  label: trendVpsServiceKey || `All ${selectedVpsNode.toUpperCase()}`,
+                  model: trendChartModel,
+                  selectedServiceKey: trendVpsServiceKey,
+                  options: trendVpsServiceOptions,
+                  allLabel: `All ${selectedVpsNode.toUpperCase()}`,
+                  onChange: (value) => setTrendVpsServiceKey(value),
+                },
+                {
+                  key: trendLocalServiceKey || "all_local",
+                  label: trendLocalServiceKey || "All Local",
+                  model: trendCompareChartModel,
+                  selectedServiceKey: trendLocalServiceKey,
+                  options: trendLocalServiceOptions,
+                  allLabel: "All Local",
+                  onChange: (value) => setTrendLocalServiceKey(value),
+                }
+              ]
+                .map((item) => (
+                  <Box key={item.key} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+                    {(() => {
+                      const uptime = computeChartUptimeDowntime(item.model?.points || [], !item.selectedServiceKey);
+                      return (
+                        <HStack spacing={2} mb={2} flexWrap="wrap">
+                          <Badge borderRadius="full" px={2} py={0.5} bg="rgba(74,222,128,0.14)" color="green.200">
+                            Uptime: {uptime.uptimeLabel}
+                          </Badge>
+                          <Badge borderRadius="full" px={2} py={0.5} bg="rgba(248,113,113,0.14)" color="red.200">
+                            Downtime: {uptime.downtimeLabel}
+                          </Badge>
+                        </HStack>
+                      );
+                    })()}
+                    <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
+                      <HStack spacing={2}>
+                        <Box w={3} h={3} borderRadius="full" bg="#34d399" />
+                        <Text fontSize="xs" color="whiteAlpha.900" fontWeight="700">
+                          {item.label}
+                        </Text>
+                      </HStack>
+                      <Select
+                        size="xs"
+                        value={item.selectedServiceKey}
+                        onChange={(e) => item.onChange(e.target.value)}
+                        maxW={{ base: "100%", md: "280px" }}
+                        bg="rgba(11, 19, 32, 0.72)"
+                        borderColor="rgba(255,255,255,0.18)"
+                      >
+                        <option value="">{item.allLabel}</option>
+                        {item.options.map((serviceKey) => (
+                          <option key={serviceKey} value={serviceKey}>
+                            {serviceKey}
+                          </option>
+                        ))}
+                      </Select>
+                    </HStack>
+
+                    <svg
+                      width="100%"
+                      height={item.model.height}
+                      viewBox={`0 0 ${item.model.width} ${item.model.height}`}
+                      role="img"
+                      aria-label={`${item.label} historical trend chart`}
+                    >
+                      {[0, 25, 50, 75, 100].map((level) => {
+                        const y = toChartY(level, item.model.height, item.model.padding);
+                        return (
+                          <g key={level}>
+                            <line
+                              x1={item.model.padding}
+                              x2={item.model.width - item.model.padding}
+                              y1={y}
+                              y2={y}
+                              stroke="rgba(255,255,255,0.14)"
+                              strokeWidth="1"
+                              strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
+                            />
+                            <text
+                              x={6}
+                              y={y + 4}
+                              fill="rgba(255,255,255,0.58)"
+                              fontSize="10"
+                            >
+                              {level}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      <path d={item.model.healthyPath} stroke="#34d399" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                    </svg>
+
+                    {!item.model.hasPath && (
+                      <Text mt={2} fontSize="xs" color="whiteAlpha.700">
+                        Trend line unavailable for this selection and range.
+                      </Text>
+                    )}
+
+                    <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
+                      <Text noOfLines={1} maxW="32%">{item.model.xLabels.start}</Text>
+                      <Text noOfLines={1} maxW="32%" textAlign="center">{item.model.xLabels.mid}</Text>
+                      <Text noOfLines={1} maxW="32%" textAlign="right">{item.model.xLabels.end}</Text>
+                    </HStack>
+                  </Box>
+                ))}
+            </SimpleGrid>
+          )}
+
+        </Box>
+
+        <Box
           ref={vpsSectionRef}
           mb={8}
           p={{ base: 5, md: 6 }}
@@ -2955,246 +3195,6 @@ function CtoDashboardPage() {
             </Box>
           </GridItem>
         </Grid>
-
-        <Box
-          ref={trendsSectionRef}
-          p={{ base: 5, md: 6 }}
-          borderRadius="28px"
-          bg="rgba(255,255,255,0.05)"
-          border="1px solid rgba(255,255,255,0.08)"
-          mb={5}
-        >
-          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
-            <Box>
-              <Heading size="md" mb={1}>Historical Trends</Heading>
-              <Text color="whiteAlpha.700">Compact reliability trend over time.</Text>
-            </Box>
-            <HStack spacing={2}>
-              <Select
-                size="sm"
-                value={trendRange}
-                onChange={(e) => setTrendRange(e.target.value)}
-                maxW="170px"
-                bg="rgba(11, 19, 32, 0.72)"
-                borderColor="rgba(255,255,255,0.18)"
-              >
-                {TREND_RANGE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </HStack>
-          </Flex>
-
-          {trendError && (
-            <Box mb={4} p={3} borderRadius="14px" bg="rgba(248,113,113,0.12)" border="1px solid rgba(248,113,113,0.28)">
-              <Text color="red.200" fontSize="sm">{trendError}</Text>
-            </Box>
-          )}
-
-          <SimpleGrid columns={{ base: 2, md: 3, xl: 6 }} spacing={3} mb={4}>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total checks</Text>
-              <Text fontWeight="700">{trendData?.summary?.total_checks ?? 0}</Text>
-            </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy rate</Text>
-              <Text fontWeight="700">
-                {typeof trendData?.summary?.healthy_rate === "number" ? `${Math.round(trendData.summary.healthy_rate * 100)}%` : "n/a"}
-              </Text>
-            </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Down rate</Text>
-              <Text fontWeight="700">
-                {typeof trendData?.summary?.down_rate === "number" ? `${Math.round(trendData.summary.down_rate * 100)}%` : "n/a"}
-              </Text>
-            </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Avg latency</Text>
-              <Text fontWeight="700">
-                {typeof trendData?.summary?.avg_latency_ms === "number" ? `${Math.round(trendData.summary.avg_latency_ms)} ms` : "n/a"}
-              </Text>
-            </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Digest rows</Text>
-              <Text fontWeight="700">{Number(trendSource?.digest_rows || 0)}</Text>
-            </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Raw rows</Text>
-              <Text fontWeight="700">{Number(trendSource?.raw_rows || 0)}</Text>
-            </Box>
-          </SimpleGrid>
-
-          <HStack spacing={2} mb={4} flexWrap="wrap">
-            <Badge
-              borderRadius="full"
-              px={3}
-              py={1}
-              bg="rgba(16,185,129,0.18)"
-              color="green.200"
-            >
-              WoW Healthy: {trendWow.hasData && trendWow.healthy_delta_pct_points != null ? `${trendWow.healthy_delta_pct_points >= 0 ? "+" : ""}${trendWow.healthy_delta_pct_points} pp` : "n/a"}
-            </Badge>
-            <Badge
-              borderRadius="full"
-              px={3}
-              py={1}
-              bg="rgba(248,113,113,0.18)"
-              color="red.200"
-            >
-              WoW Down: {trendWow.hasData && trendWow.down_delta_pct_points != null ? `${trendWow.down_delta_pct_points >= 0 ? "+" : ""}${trendWow.down_delta_pct_points} pp` : "n/a"}
-            </Badge>
-            <Badge
-              borderRadius="full"
-              px={3}
-              py={1}
-              bg="rgba(56,189,248,0.18)"
-              color="blue.200"
-            >
-              WoW Latency: {trendWow.hasData && trendWow.latency_delta_ms != null ? `${trendWow.latency_delta_ms >= 0 ? "+" : ""}${trendWow.latency_delta_ms} ms` : "n/a"}
-            </Badge>
-          </HStack>
-          {!trendWow.hasData && trendWow.reason && (
-            <Text fontSize="xs" color="whiteAlpha.700" mb={4}>
-              WoW unavailable: {trendWow.reason}
-            </Text>
-          )}
-          {!trendIsHourlyBucket && Number(trendSource?.digest_rows || 0) === 0 && (
-            <Box mb={4} p={3} borderRadius="12px" bg="rgba(250,204,21,0.12)" border="1px solid rgba(250,204,21,0.28)">
-              <Text fontSize="xs" color="yellow.200">
-                Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
-              </Text>
-              <Text fontSize="xs" color="whiteAlpha.800" mt={1}>
-                Raw rows in this range: {Number(trendSource?.raw_rows || 0)}. This usually means CTO compaction has not run yet for selected days.
-              </Text>
-              <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
-                Expected pipeline: collector ingest → `/api/cto/compact` daily compaction (token-auth) → digest-backed trends.
-              </Text>
-            </Box>
-          )}
-
-          {trendLoading && (
-            <Text fontSize="sm" color="whiteAlpha.700">Loading trends...</Text>
-          )}
-
-          {!trendLoading && trendPoints.length === 0 && trendComparePoints.length === 0 && (
-            <Text fontSize="sm" color="whiteAlpha.700">No historical points yet. Run digest once data is ingested.</Text>
-          )}
-
-          {!trendLoading && (trendPoints.length > 0 || trendComparePoints.length > 0) && (
-            <SimpleGrid columns={{ base: 1, xl: 2 }} spacing={3}>
-              {[
-                {
-                  key: trendVpsServiceKey || "all_vps",
-                  label: trendVpsServiceKey || `All ${selectedVpsNode.toUpperCase()}`,
-                  model: trendChartModel,
-                  selectedServiceKey: trendVpsServiceKey,
-                  options: trendVpsServiceOptions,
-                  allLabel: `All ${selectedVpsNode.toUpperCase()}`,
-                  onChange: (value) => setTrendVpsServiceKey(value),
-                },
-                {
-                  key: trendLocalServiceKey || "all_local",
-                  label: trendLocalServiceKey || "All Local",
-                  model: trendCompareChartModel,
-                  selectedServiceKey: trendLocalServiceKey,
-                  options: trendLocalServiceOptions,
-                  allLabel: "All Local",
-                  onChange: (value) => setTrendLocalServiceKey(value),
-                }
-              ]
-                .map((item) => (
-                  <Box key={item.key} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
-                    {(() => {
-                      const uptime = computeChartUptimeDowntime(item.model?.points || [], !item.selectedServiceKey);
-                      return (
-                        <HStack spacing={2} mb={2} flexWrap="wrap">
-                          <Badge borderRadius="full" px={2} py={0.5} bg="rgba(74,222,128,0.14)" color="green.200">
-                            Uptime: {uptime.uptimeLabel}
-                          </Badge>
-                          <Badge borderRadius="full" px={2} py={0.5} bg="rgba(248,113,113,0.14)" color="red.200">
-                            Downtime: {uptime.downtimeLabel}
-                          </Badge>
-                        </HStack>
-                      );
-                    })()}
-                    <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
-                      <HStack spacing={2}>
-                        <Box w={3} h={3} borderRadius="full" bg="#34d399" />
-                        <Text fontSize="xs" color="whiteAlpha.900" fontWeight="700">
-                          {item.label}
-                        </Text>
-                      </HStack>
-                      <Select
-                        size="xs"
-                        value={item.selectedServiceKey}
-                        onChange={(e) => item.onChange(e.target.value)}
-                        maxW={{ base: "100%", md: "280px" }}
-                        bg="rgba(11, 19, 32, 0.72)"
-                        borderColor="rgba(255,255,255,0.18)"
-                      >
-                        <option value="">{item.allLabel}</option>
-                        {item.options.map((serviceKey) => (
-                          <option key={serviceKey} value={serviceKey}>
-                            {serviceKey}
-                          </option>
-                        ))}
-                      </Select>
-                    </HStack>
-
-                    <svg
-                      width="100%"
-                      height={item.model.height}
-                      viewBox={`0 0 ${item.model.width} ${item.model.height}`}
-                      role="img"
-                      aria-label={`${item.label} historical trend chart`}
-                    >
-                      {[0, 25, 50, 75, 100].map((level) => {
-                        const y = toChartY(level, item.model.height, item.model.padding);
-                        return (
-                          <g key={level}>
-                            <line
-                              x1={item.model.padding}
-                              x2={item.model.width - item.model.padding}
-                              y1={y}
-                              y2={y}
-                              stroke="rgba(255,255,255,0.14)"
-                              strokeWidth="1"
-                              strokeDasharray={level === 0 || level === 100 ? "0" : "4 4"}
-                            />
-                            <text
-                              x={6}
-                              y={y + 4}
-                              fill="rgba(255,255,255,0.58)"
-                              fontSize="10"
-                            >
-                              {level}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      <path d={item.model.healthyPath} stroke="#34d399" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-                    </svg>
-
-                    {!item.model.hasPath && (
-                      <Text mt={2} fontSize="xs" color="whiteAlpha.700">
-                        Trend line unavailable for this selection and range.
-                      </Text>
-                    )}
-
-                    <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
-                      <Text noOfLines={1} maxW="32%">{item.model.xLabels.start}</Text>
-                      <Text noOfLines={1} maxW="32%" textAlign="center">{item.model.xLabels.mid}</Text>
-                      <Text noOfLines={1} maxW="32%" textAlign="right">{item.model.xLabels.end}</Text>
-                    </HStack>
-                  </Box>
-                ))}
-            </SimpleGrid>
-          )}
-
-        </Box>
 
         <Box
           ref={feedbackSectionRef}
