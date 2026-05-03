@@ -297,7 +297,7 @@ export default function ReportDispatchWorkspace({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const media = window.matchMedia("(max-width: 767px)");
+    const media = window.matchMedia("(max-width: 1100px)");
     const apply = () => {
       setIsMobileViewport(media.matches);
       setViewportResolved(true);
@@ -699,6 +699,20 @@ export default function ReportDispatchWorkspace({
       preferredPhone: String(row?.phoneno || row?.phone || "").trim(),
       preferredOrgId: String(row?.org_id || "").trim()
     });
+  }
+
+  async function handleUseAutoJob(job) {
+    if (!job) return;
+    const mapped = {
+      reqno: String(job?.reqno || "").trim(),
+      reqid: String(job?.reqid || "").trim(),
+      patient_name: String(job?.patient_name || "").trim(),
+      phone: String(job?.phone || "").trim(),
+      phoneno: String(job?.phone || "").trim(),
+      org_id: String(job?.org_id || "").trim()
+    };
+    if (!mapped.reqno) return;
+    await handleUseRow(mapped);
   }
 
   async function loadAutoDispatchJobs(options = {}) {
@@ -1473,7 +1487,22 @@ export default function ReportDispatchWorkspace({
                           </Badge>
                           <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Active")}</Badge>
                         </Flex>
-                        <Text fontSize="xs" fontWeight="semibold">{displayValue(job?.reqno)} • {displayValue(job?.patient_name)}</Text>
+                        <Text fontSize="xs" fontWeight="semibold">
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="link"
+                            minW="unset"
+                            h="auto"
+                            p={0}
+                            fontWeight="bold"
+                            onClick={() => handleUseAutoJob(job)}
+                          >
+                            {displayValue(job?.reqno)}
+                          </Button>
+                          {" • "}
+                          {displayValue(job?.patient_name)}
+                        </Text>
                         <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)} • {Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Text>
                         <Tooltip label={whyText} hasArrow openDelay={250}>
                           <Text fontSize="xs" mt={1} noOfLines={2}>Why: {whyText}</Text>
@@ -1500,13 +1529,14 @@ export default function ReportDispatchWorkspace({
                   })}
                 </Box>
               ) : (
-                <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflow="visible">
+                <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflowX="auto" overflowY="visible">
                   <Table
                     size="sm"
                     variant="simple"
                     sx={{
                       tableLayout: "fixed",
-                      "th, td": { fontSize: "xs", py: 2, verticalAlign: "top" },
+                      minWidth: "1080px",
+                      "th, td": { fontSize: "xs", py: 2, verticalAlign: "top", whiteSpace: "normal", wordBreak: "break-word" },
                       th: {
                         bg: themeMode === "dark" ? "gray.800" : "gray.50",
                         letterSpacing: "0.08em"
@@ -1560,7 +1590,20 @@ export default function ReportDispatchWorkspace({
                               {displayValue(statusValue)}
                             </Badge>
                           </Td>
-                          <Td w="10%" fontWeight="bold">{displayValue(job?.reqno)}</Td>
+                          <Td w="10%" fontWeight="bold">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="link"
+                              minW="unset"
+                              h="auto"
+                              p={0}
+                              fontWeight="bold"
+                              onClick={() => handleUseAutoJob(job)}
+                            >
+                              {displayValue(job?.reqno)}
+                            </Button>
+                          </Td>
                           <Td w="13%">{displayValue(job?.patient_name)}</Td>
                           <Td w="10%">{displayValue(job?.phone)}</Td>
                           <Td>{Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Td>
