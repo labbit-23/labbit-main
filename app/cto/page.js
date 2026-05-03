@@ -1236,50 +1236,40 @@ function CtoDashboardPage() {
     return trendData?.source || {};
   }, [trendData]);
   const trendIsHourlyBucket = String(trendData?.bucket || "").toLowerCase() === "hour";
-  const trendUptimeDowntime = useMemo(() => {
+  const trendBucketMinutes = useMemo(() => {
     const bucket = String(trendData?.bucket || "").toLowerCase();
-    const toMinutesPerBucket = () => {
-      if (bucket === "hour") return 60;
-      if (bucket === "day") return 24 * 60;
-      if (bucket === "week") return 7 * 24 * 60;
-      if (bucket === "month") return 30 * 24 * 60;
-      return 60;
-    };
-    const minsPerBucket = toMinutesPerBucket();
+    if (bucket === "hour") return 60;
+    if (bucket === "day") return 24 * 60;
+    if (bucket === "week") return 7 * 24 * 60;
+    if (bucket === "month") return 30 * 24 * 60;
+    return 60;
+  }, [trendData?.bucket]);
+
+  const computeChartUptimeDowntime = useCallback((points = [], includePct = false) => {
+    const list = Array.isArray(points) ? points : [];
     const formatMinutes = (mins) => {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       return `${h}h ${String(m).padStart(2, "0")}m`;
     };
-
-    // Merge visible VPS+Local buckets and treat any non-100% healthy bucket as downtime.
-    const byBucket = new Map();
-    for (const point of [...trendPoints, ...trendComparePoints]) {
-      const key = String(point?.bucket_key || "");
-      if (!key) continue;
-      const healthyRate = Number(point?.healthy_rate);
-      if (!Number.isFinite(healthyRate)) continue;
-      const current = byBucket.get(key);
-      if (current == null) byBucket.set(key, healthyRate);
-      else byBucket.set(key, Math.min(current, healthyRate));
+    const valid = list.filter((point) => Number.isFinite(Number(point?.healthy_rate)));
+    if (valid.length === 0) {
+      return { uptimeLabel: "n/a", downtimeLabel: "n/a", uptimePct: null, downtimePct: null };
     }
-
-    const bucketCount = byBucket.size;
-    if (bucketCount === 0) return { uptimeLabel: "n/a", downtimeLabel: "n/a" };
-
-    let downtimeBuckets = 0;
-    for (const rate of byBucket.values()) {
-      if (rate < 0.999) downtimeBuckets += 1;
-    }
-
-    const totalMinutes = bucketCount * minsPerBucket;
-    const downMinutes = downtimeBuckets * minsPerBucket;
-    const upMinutes = Math.max(0, totalMinutes - downMinutes);
+    const downBuckets = valid.filter((point) => Number(point?.healthy_rate) < 0.999).length;
+    const totalBuckets = valid.length;
+    const upBuckets = Math.max(0, totalBuckets - downBuckets);
+    const downMinutes = downBuckets * trendBucketMinutes;
+    const upMinutes = upBuckets * trendBucketMinutes;
+    const downPct = Math.round((downBuckets / totalBuckets) * 100);
+    const upPct = Math.max(0, 100 - downPct);
     return {
-      uptimeLabel: formatMinutes(upMinutes),
-      downtimeLabel: formatMinutes(downMinutes)
+      uptimeLabel: includePct ? `${formatMinutes(upMinutes)} (${upPct}%)` : formatMinutes(upMinutes),
+      downtimeLabel: includePct ? `${formatMinutes(downMinutes)} (${downPct}%)` : formatMinutes(downMinutes),
+      uptimePct: upPct,
+      downtimePct: downPct
     };
-  }, [trendData?.bucket, trendPoints, trendComparePoints]);
+  }, [trendBucketMinutes]);
 
   const trendChartModel = useMemo(() => buildTrendChartModel(trendPoints, trendRange), [trendPoints, trendRange]);
   const trendCompareChartModel = useMemo(() => buildTrendChartModel(trendComparePoints, trendRange), [trendComparePoints, trendRange]);
@@ -3064,12 +3054,6 @@ function CtoDashboardPage() {
             >
               WoW Latency: {trendWow.hasData && trendWow.latency_delta_ms != null ? `${trendWow.latency_delta_ms >= 0 ? "+" : ""}${trendWow.latency_delta_ms} ms` : "n/a"}
             </Badge>
-            <Badge borderRadius="full" px={3} py={1} bg="rgba(74,222,128,0.14)" color="green.200">
-              Uptime: {trendUptimeDowntime.uptimeLabel}
-            </Badge>
-            <Badge borderRadius="full" px={3} py={1} bg="rgba(248,113,113,0.14)" color="red.200">
-              Downtime: {trendUptimeDowntime.downtimeLabel}
-            </Badge>
           </HStack>
           {!trendWow.hasData && trendWow.reason && (
             <Text fontSize="xs" color="whiteAlpha.700" mb={4}>
@@ -3122,6 +3106,19 @@ function CtoDashboardPage() {
               ]
                 .map((item) => (
                   <Box key={item.key} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+                    {(() => {
+                      const uptime = computeChartUptimeDowntime(item.model?.points || [], !item.selectedServiceKey);
+                      return (
+                        <HStack spacing={2} mb={2} flexWrap="wrap">
+                          <Badge borderRadius="full" px={2} py={0.5} bg="rgba(74,222,128,0.14)" color="green.200">
+                            Uptime: {uptime.uptimeLabel}
+                          </Badge>
+                          <Badge borderRadius="full" px={2} py={0.5} bg="rgba(248,113,113,0.14)" color="red.200">
+                            Downtime: {uptime.downtimeLabel}
+                          </Badge>
+                        </HStack>
+                      );
+                    })()}
                     <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
                       <HStack spacing={2}>
                         <Box w={3} h={3} borderRadius="full" bg="#34d399" />
