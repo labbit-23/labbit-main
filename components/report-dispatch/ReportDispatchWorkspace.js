@@ -725,6 +725,12 @@ export default function ReportDispatchWorkspace({
     await handleUseRow(mapped, { fromMonitor: true });
   }
 
+  function handleReqnoClick(job) {
+    const selected = typeof window !== "undefined" ? String(window.getSelection?.()?.toString?.() || "").trim() : "";
+    if (selected) return;
+    handleUseAutoJob(job);
+  }
+
   async function loadAutoDispatchJobs(options = {}) {
     setAutoLoading(true);
     try {
@@ -1524,18 +1530,15 @@ export default function ReportDispatchWorkspace({
                           <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Active")}</Badge>
                         </Flex>
                         <Text fontSize="xs" fontWeight="semibold">
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="link"
-                            minW="unset"
-                            h="auto"
-                            p={0}
+                          <Text
+                            as="span"
                             fontWeight="bold"
-                            onClick={() => handleUseAutoJob(job)}
+                            cursor="pointer"
+                            userSelect="text"
+                            onClick={() => handleReqnoClick(job)}
                           >
                             {displayValue(job?.reqno)}
-                          </Button>
+                          </Text>
                           {" • "}
                           {displayValue(job?.patient_name)}
                         </Text>
@@ -1627,18 +1630,15 @@ export default function ReportDispatchWorkspace({
                             </Badge>
                           </Td>
                           <Td w="10%" fontWeight="bold">
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="link"
-                              minW="unset"
-                              h="auto"
-                              p={0}
+                            <Text
+                              as="span"
                               fontWeight="bold"
-                              onClick={() => handleUseAutoJob(job)}
+                              cursor="pointer"
+                              userSelect="text"
+                              onClick={() => handleReqnoClick(job)}
                             >
                               {displayValue(job?.reqno)}
-                            </Button>
+                            </Text>
                           </Td>
                           <Td w="13%">{displayValue(job?.patient_name)}</Td>
                           <Td w="10%">{displayValue(job?.phone)}</Td>
