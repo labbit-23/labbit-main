@@ -286,7 +286,15 @@ export async function POST(request) {
       documentUrl
     });
 
-    return NextResponse.json({ ok: true, phone: phoneCheck.canonical }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        phone: phoneCheck.canonical,
+        provider_message_id: extractProviderMessageId(templateSendResult),
+        provider_response: templateSendResult
+      },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("[internal/whatsapp/report-template-send] error", err);
     return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });

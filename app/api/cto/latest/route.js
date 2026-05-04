@@ -729,6 +729,248 @@ function getIstDayKey(value) {
   return IST_DAY_FORMATTER.format(parsed);
 }
 
+function hoursAgoIso(hours) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+function isLikelyDispatchErrorText(text = "") {
+  const value = String(text || "").toLowerCase();
+  return (
+    value.includes("jsondecodeerror") ||
+    value.includes("traceback") ||
+    value.includes("httperror") ||
+    value.includes("error:") ||
+    value.includes("exception")
+  );
+}
+
+async function loadAutoDispatchMetrics(labId) {
+  const checkedAt = new Date().toISOString();
+  const queueLagMinutes = 30;
+  const waitHours = 6;
+  const cooloffHours = 2;
+  const failSpikeThreshold = 10;
+  const missingProviderIdThreshold = 5;
+
+  let jobsQuery = supabase
+    .from("report_auto_dispatch_jobs")
+    .select("id,lab_id,reqno,status,is_paused,next_attempt_at,scheduled_at,sent_at,updated_at,provider_response")
+    .in("status", ["queued", "cooling_off", "sent"])
+    .order("updated_at", { ascending: false })
+    .limit(1200);
+
+  let eventsQuery = supabase
+    .from("report_auto_dispatch_events")
+    .select("id,job_id,reqno,event_type,message,created_at")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  let dispatchLogsQuery = supabase
+    .from("report_dispatch_logs")
+    .select("id,status,result_code,provider_message_id,created_at")
+    .gte("created_at", hoursAgoIso(1))
+    .order("created_at", { ascending: false })
+    .limit(3000);
+
+  let ctoLogsQuery = supabase
+    .from("cto_service_logs")
+    .select("service_key,status,message,created_at,payload")
+    .in("service_key", ["report-sender", "report-enqueue-watch"])
+    .gte("created_at", hoursAgoIso(2))
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (labId) {
+    jobsQuery = jobsQuery.eq("lab_id", labId);
+    eventsQuery = eventsQuery.eq("lab_id", labId);
+    dispatchLogsQuery = dispatchLogsQuery.eq("lab_id", labId);
+    ctoLogsQuery = ctoLogsQuery.eq("lab_id", labId);
+  }
+
+  const [{ data: jobs, error: jobsError }, { data: events, error: eventsError }, { data: dispatchLogs, error: dispatchError }, { data: ctoLogs, error: ctoLogsError }] =
+    await Promise.all([jobsQuery, eventsQuery, dispatchLogsQuery, ctoLogsQuery]);
+
+  if (jobsError) throw jobsError;
+  if (eventsError) throw eventsError;
+  if (dispatchError) throw dispatchError;
+  if (ctoLogsError) throw ctoLogsError;
+
+  const jobsList = Array.isArray(jobs) ? jobs : [];
+  const eventsList = Array.isArray(events) ? events : [];
+  const logsList = Array.isArray(dispatchLogs) ? dispatchLogs : [];
+  const ctoLogList = Array.isArray(ctoLogs) ? ctoLogs : [];
+
+  const latestEventByJobId = new Map();
+  for (const ev of eventsList) {
+    if (!ev?.job_id || latestEventByJobId.has(ev.job_id)) continue;
+    latestEventByJobId.set(ev.job_id, ev);
+  }
+
+  const nowMs = Date.now();
+  const dueLagMs = queueLagMinutes * 60 * 1000;
+  const overdueQueued = jobsList.filter((job) => {
+    if (job?.status !== "queued" || job?.is_paused) return false;
+    const nextAt = parseIsoDate(job?.next_attempt_at);
+    return nextAt ? nowMs - nextAt.getTime() > dueLagMs : false;
+  });
+
+  const staleWait = jobsList.filter((job) => {
+    if (job?.sent_at || job?.is_paused) return false;
+    const latest = latestEventByJobId.get(job?.id);
+    if (!latest) return false;
+    const eventType = String(latest?.event_type || "").toLowerCase();
+    const createdAt = parseIsoDate(latest?.created_at);
+    if (!createdAt) return false;
+    const ageHours = (nowMs - createdAt.getTime()) / (60 * 60 * 1000);
+    if (eventType === "queued_wait") return ageHours >= waitHours;
+    if (eventType === "cooling_off") return ageHours >= cooloffHours;
+    return false;
+  });
+
+  const sentStatusDrift = jobsList.filter((job) => {
+    const latest = latestEventByJobId.get(job?.id);
+    if (!latest) return false;
+    const eventType = String(latest?.event_type || "").toLowerCase();
+    return eventType === "sent" && String(job?.status || "").toLowerCase() !== "sent";
+  });
+
+  const failed15m = logsList.filter((row) => {
+    if (String(row?.status || "").toLowerCase() !== "failed") return false;
+    const createdAt = parseIsoDate(row?.created_at);
+    return createdAt ? nowMs - createdAt.getTime() <= 15 * 60 * 1000 : false;
+  });
+  const missingProvider15m = logsList.filter((row) => {
+    const createdAt = parseIsoDate(row?.created_at);
+    if (!(createdAt && nowMs - createdAt.getTime() <= 15 * 60 * 1000)) return false;
+    return !String(row?.provider_message_id || "").trim();
+  });
+
+  const hardWorkerErrors = ctoLogList.filter((row) => {
+    const status = String(row?.status || "").toLowerCase();
+    const message = String(row?.message || "");
+    return status === "down" || status === "degraded" || isLikelyDispatchErrorText(message);
+  });
+
+  const rows = [];
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_queue_stall",
+      label: "Auto Dispatch Queue Stall",
+      status: overdueQueued.length > 0 ? "down" : "healthy",
+      message:
+        overdueQueued.length > 0
+          ? `${overdueQueued.length} queued jobs are overdue by > ${queueLagMinutes}m`
+          : `No queued jobs overdue by > ${queueLagMinutes}m`,
+      payload: {
+        overdue_count: overdueQueued.length,
+        threshold_minutes: queueLagMinutes,
+        samples: overdueQueued.slice(0, 20).map((j) => ({ id: j.id, reqno: j.reqno, next_attempt_at: j.next_attempt_at }))
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_wait_state_stuck",
+      label: "Auto Dispatch Wait-State Stuck",
+      status: staleWait.length > 0 ? "down" : "healthy",
+      message:
+        staleWait.length > 0
+          ? `${staleWait.length} jobs stuck in queued_wait/cooling_off beyond threshold`
+          : "No stale wait-state jobs",
+      payload: {
+        stuck_count: staleWait.length,
+        stuck_queued_wait_hours: waitHours,
+        stuck_cooling_off_hours: cooloffHours,
+        samples: staleWait.slice(0, 20).map((j) => {
+          const ev = latestEventByJobId.get(j.id);
+          return { id: j.id, reqno: j.reqno, status: j.status, latest_event: ev?.event_type || null, latest_event_at: ev?.created_at || null };
+        })
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_state_drift",
+      label: "Auto Dispatch State Drift",
+      status: sentStatusDrift.length > 0 ? "degraded" : "healthy",
+      message:
+        sentStatusDrift.length > 0
+          ? `${sentStatusDrift.length} jobs have latest event=sent but status != sent`
+          : "No sent-state drift detected",
+      payload: {
+        drift_count: sentStatusDrift.length,
+        samples: sentStatusDrift.slice(0, 20).map((j) => ({ id: j.id, reqno: j.reqno, status: j.status }))
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_failures_15m",
+      label: "Auto Dispatch Failures (15m)",
+      status: failed15m.length >= failSpikeThreshold ? "down" : failed15m.length > 0 ? "degraded" : "healthy",
+      message: `${failed15m.length} failed dispatch logs in last 15m`,
+      payload: {
+        failed_15m: failed15m.length,
+        threshold: failSpikeThreshold
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_missing_provider_id_15m",
+      label: "Missing Provider Message ID (15m)",
+      status:
+        missingProvider15m.length >= missingProviderIdThreshold
+          ? "degraded"
+          : "healthy",
+      message: `${missingProvider15m.length} dispatch logs missing provider_message_id in last 15m`,
+      payload: {
+        missing_provider_id_15m: missingProvider15m.length,
+        threshold: missingProviderIdThreshold
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_worker_health",
+      label: "Auto Dispatch Worker Health",
+      status: hardWorkerErrors.length > 0 ? "down" : "healthy",
+      message:
+        hardWorkerErrors.length > 0
+          ? `${hardWorkerErrors.length} worker hard-error log(s) in last 2h`
+          : "No hard worker errors in last 2h",
+      payload: {
+        error_count: hardWorkerErrors.length,
+        samples: hardWorkerErrors.slice(0, 15).map((r) => ({
+          service_key: r.service_key,
+          status: r.status,
+          created_at: r.created_at,
+          message: String(r.message || "").slice(0, 220)
+        }))
+      }
+    })
+  );
+
+  return rows;
+}
+
 async function loadWebsiteAnalytics(labId) {
   if (!supabase) return null;
   const now = Date.now();
@@ -868,12 +1110,18 @@ export async function GET(request) {
 
     const rows = data || [];
     let whatsappMetrics = [];
+    let autoDispatchMetrics = [];
     let websiteAnalytics = null;
 
     try {
       whatsappMetrics = await loadWhatsappBotMetrics(labId);
     } catch (metricError) {
       console.error("[cto/latest] whatsapp metrics error", metricError);
+    }
+    try {
+      autoDispatchMetrics = await loadAutoDispatchMetrics(labId);
+    } catch (dispatchMetricError) {
+      console.error("[cto/latest] auto dispatch metrics error", dispatchMetricError);
     }
 
     try {
@@ -883,7 +1131,7 @@ export async function GET(request) {
     }
 
     const nowMs = Date.now();
-    const combinedRows = [...rows, ...whatsappMetrics].map((row) => normalizeServiceStatus(row, nowMs));
+    const combinedRows = [...rows, ...whatsappMetrics, ...autoDispatchMetrics].map((row) => normalizeServiceStatus(row, nowMs));
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;
