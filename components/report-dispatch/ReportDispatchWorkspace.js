@@ -63,6 +63,30 @@ function displayValue(value) {
   return text || "-";
 }
 
+function parseTimestamp(value, options = {}) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const naiveTz = String(options?.naiveTz || "ist").toLowerCase();
+  // Normalize common SQL timestamp shapes to strict ISO before Date parsing.
+  // Examples:
+  // - 2026-05-05 15:31:00+00
+  // - 2026-05-05 15:31:00+00:00
+  // - 2026-05-05 15:31:00Z
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?([zZ]|[+-]\d{2}(:?\d{2})?)$/.test(raw)) {
+    let iso = raw.replace(" ", "T");
+    iso = iso.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"); // +0000 => +00:00
+    const dt = new Date(iso);
+    if (!Number.isNaN(dt.getTime())) return dt;
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+    if (naiveTz === "utc") return new Date(`${raw.replace(" ", "T")}Z`);
+    return new Date(`${raw.replace(" ", "T")}+05:30`);
+  }
+  return new Date(raw);
+}
+
 function byReqnoDesc(a, b) {
   const ra = String(a?.reqno || "").trim();
   const rb = String(b?.reqno || "").trim();
@@ -72,9 +96,9 @@ function byReqnoDesc(a, b) {
   return rb.localeCompare(ra);
 }
 
-function formatIstDateTime(value) {
+function formatIstDateTime(value, options = {}) {
   if (!value) return "-";
-  const dt = new Date(value);
+  const dt = parseTimestamp(value, options);
   if (Number.isNaN(dt.getTime())) return displayValue(value);
   return dt.toLocaleString("en-IN", {
     timeZone: IST_TIMEZONE,
@@ -86,9 +110,9 @@ function formatIstDateTime(value) {
   });
 }
 
-function formatIstDateAndTimeLines(value) {
+function formatIstDateAndTimeLines(value, options = {}) {
   if (!value) return { date: "-", time: "-" };
-  const dt = new Date(value);
+  const dt = parseTimestamp(value, options);
   if (Number.isNaN(dt.getTime())) return { date: displayValue(value), time: "-" };
   const date = dt.toLocaleDateString("en-IN", {
     timeZone: IST_TIMEZONE,
@@ -113,17 +137,47 @@ function deriveDeliveryStatus(job) {
   const pr = job?.provider_response;
   const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
   const explicit = String(job?.delivery_status || "").trim().toLowerCase();
-  if (explicit) return explicit;
   const direct = String(
-    payload?.delivery_status || payload?.message_status || payload?.status || payload?.deliveryState || ""
+    payload?.delivery_status ||
+      payload?.message_status ||
+      payload?.status ||
+      payload?.deliveryState ||
+      payload?.provider_response?.status ||
+      ""
   ).trim().toLowerCase();
-  const nested = String(payload?.statuses?.[0]?.status || payload?.messages?.[0]?.status || "").trim().toLowerCase();
-  const state = nested || direct;
-  if (["read", "delivered", "sent", "failed", "queued", "accepted"].includes(state)) return state;
-  return "sent";
+  const nested = String(
+    payload?.statuses?.[0]?.status ||
+      payload?.messages?.[0]?.status ||
+      payload?.provider_response?.statuses?.[0]?.status ||
+      payload?.provider_response?.messages?.[0]?.status ||
+      ""
+  ).trim().toLowerCase();
+  const baseStatus = String(job?.status || "").trim().toLowerCase();
+  const candidates = [explicit, nested, direct].filter(Boolean);
+  if (candidates.includes("read")) return "read";
+  if (candidates.includes("delivered")) return "delivered";
+  if (candidates.includes("sent")) return "sent";
+  if (candidates.includes("failed")) return "failed";
+  if (["queued", "retrying", "cooling_off"].includes(baseStatus)) return baseStatus;
+  if (baseStatus === "sent") return "sent";
+  return "queued";
+}
+
+function extractProviderMessageId(job) {
+  const pr = job?.provider_response;
+  const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
+  const direct = String(payload?.provider_message_id || "").trim();
+  if (direct) return direct;
+  const nested = String(payload?.provider_response?.messages?.[0]?.id || "").trim();
+  if (nested) return nested;
+  const fallback = String(payload?.messages?.[0]?.id || payload?.message_id || payload?.id || "").trim();
+  return fallback || null;
 }
 
 function stateHint(job) {
+  if (job?.is_paused) {
+    return `Paused manually${job?.updated_at ? ` at ${formatIstDateTime(job?.updated_at)}` : ""}`;
+  }
   const status = String(job?.status || "").trim().toLowerCase();
   if (status === "cooling_off") {
     return `Cooling until ${formatIstDateTime(queueTimeForDisplay(job))}`;
@@ -147,6 +201,7 @@ function stateHint(job) {
 }
 
 function smartTimestamp(job) {
+  if (job?.is_paused) return `PAUSED: ${formatIstDateTime(job?.updated_at || queueTimeForDisplay(job))}`;
   const status = String(job?.status || "").trim().toLowerCase();
   if (status === "cooling_off") return `COOLING_OFF: ${formatIstDateTime(queueTimeForDisplay(job))}`;
   if (status === "queued") return `QUEUED: ${formatIstDateTime(queueTimeForDisplay(job))}`;
@@ -159,6 +214,7 @@ function smartTimestamp(job) {
 }
 
 function timelineParts(job) {
+  if (job?.is_paused) return { label: "PAUSED", ...formatIstDateAndTimeLines(job?.updated_at || queueTimeForDisplay(job)) };
   const status = String(job?.status || "").trim().toLowerCase();
   if (status === "cooling_off") return { label: "COOLING_OFF", ...formatIstDateAndTimeLines(queueTimeForDisplay(job)) };
   if (status === "queued") return { label: "QUEUED", ...formatIstDateAndTimeLines(queueTimeForDisplay(job)) };
@@ -205,6 +261,80 @@ function queuedBlockers(job) {
   if (!pending.length) return "";
   const short = pending.slice(0, 2).join(", ");
   return pending.length > 2 ? `${short} +${pending.length - 2} more` : short;
+}
+
+function buildWhyText(job) {
+  if (job?.is_paused) {
+    const snap = parseSnapshot(job?.last_status_snapshot) || {};
+    const labReady = Number(snap?.lab_ready ?? 0);
+    const labTotal = Number(snap?.lab_total ?? 0);
+    const radReady = Number(snap?.radiology_ready ?? 0);
+    const radTotal = Number(snap?.radiology_total ?? 0);
+    const blockers = queuedBlockers(job);
+    const decision = snap?.decision && typeof snap.decision === "object" ? snap.decision : {};
+    const decisionReason = String(decision?.reason || "").trim();
+    const readyText =
+      Number.isFinite(labTotal + radTotal) && (labTotal > 0 || radTotal > 0)
+        ? `Ready Lab ${labReady}/${labTotal}, Scan ${radReady}/${radTotal}`
+        : "";
+    const parts = [];
+    if (readyText) parts.push(readyText);
+    if (blockers) parts.push(`Pending tests: ${blockers}`);
+    if (decisionReason) parts.push(decisionReason);
+    return parts.join(" • ") || "-";
+  }
+  const status = String(job?.status || "").trim().toLowerCase();
+  const snap = parseSnapshot(job?.last_status_snapshot) || {};
+  const decision = snap?.decision && typeof snap.decision === "object" ? snap.decision : {};
+  const labReady = Number(snap?.lab_ready ?? 0);
+  const labTotal = Number(snap?.lab_total ?? 0);
+  const radReady = Number(snap?.radiology_ready ?? 0);
+  const radTotal = Number(snap?.radiology_total ?? 0);
+  const readyText =
+    Number.isFinite(labTotal + radTotal) && (labTotal > 0 || radTotal > 0)
+      ? `Ready Lab ${labReady}/${labTotal}, Scan ${radReady}/${radTotal}`
+      : "";
+
+  const decisionReason = String(decision?.reason || "").trim();
+  const decisionMode = String(decision?.mode || "").trim().toLowerCase();
+  const blockers = queuedBlockers(job);
+  const reportLabel = String(job?.report_label || "").trim().toLowerCase();
+  const isPartial = reportLabel.includes("partial");
+
+  if (displayValue(job?.last_error) !== "-") return displayValue(job?.last_error);
+
+  if (status === "cooling_off") {
+    const parts = [];
+    if (readyText) parts.push(readyText);
+    if (isPartial) parts.push("Partial dispatch path");
+    if (decisionMode === "allow_full") parts.push("Full dispatch eligible");
+    else if (decisionMode === "try_pending_print_once") parts.push("Trying pending-print-once");
+    else if (decisionMode === "manual_review") parts.push("Manual review advised");
+    if (decisionReason) parts.push(decisionReason);
+    parts.push(`Cooling until ${formatIstDateTime(queueTimeForDisplay(job))}`);
+    return parts.join(" • ");
+  }
+
+  if (status === "queued") {
+    const parts = [];
+    if (readyText) parts.push(readyText);
+    if (blockers) parts.push(`Pending tests: ${blockers}`);
+    if (decisionReason) parts.push(decisionReason);
+    parts.push(`Next check ${formatIstDateTime(queueTimeForDisplay(job))}`);
+    return parts.join(" • ");
+  }
+
+  if (status === "sent" && readyText) {
+    const parts = [readyText];
+    if (isPartial) parts.push("Sent as partial report");
+    if (decisionReason) parts.push(decisionReason);
+    return parts.join(" • ");
+  }
+
+  if (decisionReason && readyText) return `${readyText} • ${decisionReason}`;
+  if (decisionReason) return decisionReason;
+  if (readyText) return readyText;
+  return stateHint(job);
 }
 
 function fallbackAutoPermissions(role) {
@@ -418,6 +548,7 @@ export default function ReportDispatchWorkspace({
         row?.patient_name,
         row?.phone,
         row?.status,
+        extractProviderMessageId(row),
         row?.is_paused ? "paused" : "active",
         row?.report_label,
         row?.last_error
@@ -457,7 +588,7 @@ export default function ReportDispatchWorkspace({
         const d = deriveDeliveryStatus(row);
         if (d === "read") stats.read += 1;
         else if (d === "delivered") stats.delivered += 1;
-        else stats.sent_only += 1;
+        else if (d === "sent" && extractProviderMessageId(row)) stats.sent_only += 1;
       }
     }
     return stats;
@@ -1117,6 +1248,11 @@ export default function ReportDispatchWorkspace({
   const statusPhone = displayValue(status?.live_status?.patient_phone || activeMeta?.phoneno);
   const statusMrno = displayValue(status?.live_status?.mrno || activeMeta?.mrno);
   const statusSource = displayValue(status?.live_status?.source || activeMeta?.source);
+  const activeAutoJob = useMemo(() => {
+    const reqno = String(status?.reqno || reqnoInput || activeMeta?.reqno || "").trim();
+    if (!reqno) return null;
+    return (Array.isArray(autoJobs) ? autoJobs : []).find((row) => String(row?.reqno || "").trim() === reqno) || null;
+  }, [autoJobs, status?.reqno, reqnoInput, activeMeta?.reqno]);
   const outputPrimaryIcon =
     actionMode === "download" ? <DownloadIcon /> : isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />;
 
@@ -1544,7 +1680,7 @@ export default function ReportDispatchWorkspace({
                           <Text fontSize="xs">Sent: {formatIstDateTime(row?.sent_at)}</Text>
                           <HStack spacing={2} mt={1}>
                             <Badge colorScheme={color}>{delivery}</Badge>
-                            <Text fontSize="10px">{formatIstDateTime(row?.delivery_status_at)}</Text>
+                            <Text fontSize="10px">{formatIstDateTime(row?.delivery_status_at, { naiveTz: "utc" })}</Text>
                           </HStack>
                         </Box>
                       );
@@ -1588,7 +1724,7 @@ export default function ReportDispatchWorkspace({
                                 {deriveDeliveryStatus(row)}
                               </Badge>
                             </Td>
-                            <Td>{formatIstDateTime(row?.delivery_status_at)}</Td>
+                            <Td>{formatIstDateTime(row?.delivery_status_at, { naiveTz: "utc" })}</Td>
                           </Tr>
                         )})}
                       </Tbody>
@@ -1614,12 +1750,7 @@ export default function ReportDispatchWorkspace({
                     const pauseLabel = job?.is_paused ? "Resume" : "Pause";
                     const pauseIcon = job?.is_paused ? <FiPlay /> : <FiPause />;
                     const pauseColor = job?.is_paused ? "green" : "orange";
-                    const whyText =
-                      displayValue(job?.last_error) !== "-"
-                        ? displayValue(job?.last_error)
-                        : String(job?.status || "").toLowerCase() === "queued" && queuedBlockers(job)
-                          ? `Pending tests: ${queuedBlockers(job)}`
-                          : stateHint(job);
+                    const whyText = buildWhyText(job);
                     return (
                       <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
                         <Flex justify="space-between" align="center" mb={1.5}>
@@ -1745,21 +1876,13 @@ export default function ReportDispatchWorkspace({
                           <Td w="20%">
                             <Tooltip
                               label={
-                                displayValue(job?.last_error) !== "-"
-                                  ? displayValue(job?.last_error)
-                                  : String(job?.status || "").toLowerCase() === "queued" && queuedBlockers(job)
-                                    ? `Pending tests: ${queuedBlockers(job)}`
-                                    : stateHint(job)
+                                buildWhyText(job)
                               }
                               hasArrow
                               openDelay={250}
                             >
                               <Text noOfLines={2}>
-                                {displayValue(job?.last_error) !== "-"
-                                  ? displayValue(job?.last_error)
-                                  : String(job?.status || "").toLowerCase() === "queued" && queuedBlockers(job)
-                                    ? `Pending tests: ${queuedBlockers(job)}`
-                                    : stateHint(job)}
+                                {buildWhyText(job)}
                               </Text>
                             </Tooltip>
                           </Td>
@@ -1782,12 +1905,12 @@ export default function ReportDispatchWorkspace({
                             ) : String(job?.status || "").toLowerCase() === "sent" ? (
                               <Box>
                                 <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "green" : deriveDeliveryStatus(job) === "delivered" ? "blue" : deriveDeliveryStatus(job) === "failed" ? "red" : "gray"}>
-                                  Delivery: {deriveDeliveryStatus(job)}
+                                  {deriveDeliveryStatus(job)}
                                 </Badge>
-                                <Text fontSize="10px" mt={0.5}>{formatIstDateTime(job?.delivery_status_at)}</Text>
+                                <Text fontSize="10px" mt={0.5}>{formatIstDateTime(job?.delivery_status_at, { naiveTz: "utc" })}</Text>
                               </Box>
                             ) : (
-                              <Badge colorScheme="green">Active</Badge>
+                              <Badge colorScheme="yellow">Active</Badge>
                             )}
                           </Td>
                           <Td w="24%">

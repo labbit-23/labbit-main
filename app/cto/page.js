@@ -1243,6 +1243,20 @@ function CtoDashboardPage() {
       .slice(0, 5);
   }, [realServices]);
 
+  const topDownServices = useMemo(() => {
+    return realServices
+      .filter((service) => service.status === "down")
+      .map((service) => service.label || service.service_key || "service")
+      .slice(0, 3);
+  }, [realServices]);
+
+  const topDegradedServices = useMemo(() => {
+    return realServices
+      .filter((service) => service.status === "degraded")
+      .map((service) => service.label || service.service_key || "service")
+      .slice(0, 3);
+  }, [realServices]);
+
   const selectedService = useMemo(() => {
     const pool = filteredServices.length > 0 ? filteredServices : realServices;
     if (!selectedServiceKey) return incidentFeed[0] || topLatency[0] || pool[0] || null;
@@ -2151,7 +2165,28 @@ function CtoDashboardPage() {
                   {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
                 </Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+              <Box
+                p={4}
+                borderRadius="16px"
+                bg="rgba(255,255,255,0.04)"
+                border="1px solid rgba(255,255,255,0.08)"
+                cursor="pointer"
+                onClick={() => {
+                  const firstDown = realServices.find((service) => service.status === "down");
+                  if (firstDown) {
+                    setActiveStatusFilter("");
+                    openServiceRca(firstDown.service_key);
+                    return;
+                  }
+                  const firstDegraded = realServices.find((service) => service.status === "degraded");
+                  if (firstDegraded) {
+                    setActiveStatusFilter("");
+                    openServiceRca(firstDegraded.service_key);
+                    return;
+                  }
+                  drillToSection(detailSectionRef);
+                }}
+              >
                 <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Website Active Sessions (15m)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="cyan.200">
                   {managementMetrics.websiteActiveSessions15m != null ? String(managementMetrics.websiteActiveSessions15m) : "n/a"}
@@ -2290,11 +2325,20 @@ function CtoDashboardPage() {
                 <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
                   {heroStats[3].value} down • {heroStats[2].value} degraded
                 </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={1}>
+                  Down: {topDownServices.length ? topDownServices.join(", ") : "none"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={1}>
+                  Degraded: {topDegradedServices.length ? topDegradedServices.join(", ") : "none"}
+                </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
                 <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy Services</Text>
                 <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1].value}/{heroStats[0].value}</Text>
                 <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Open service domains</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={1}>
+                  Down: {topDownServices.length ? topDownServices.join(", ") : "none"}
+                </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
                 <Text fontSize="xs" color="whiteAlpha.700" mb={1}>VPS Pressure</Text>

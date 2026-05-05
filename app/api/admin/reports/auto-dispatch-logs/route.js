@@ -56,6 +56,7 @@ function extractProviderMessageIdFromJob(job) {
   const payload = parseMaybeJson(job?.provider_response);
   const id = String(
     payload?.provider_message_id ||
+      payload?.provider_response?.messages?.[0]?.id ||
       payload?.id ||
       payload?.message_id ||
       payload?.messages?.[0]?.id ||
@@ -69,6 +70,7 @@ function extractProviderMessageIdFromAny(value) {
   if (!payload || typeof payload !== "object") return null;
   const direct = String(
     payload?.provider_message_id ||
+      payload?.provider_response?.messages?.[0]?.id ||
       payload?.message_id ||
       payload?.id ||
       payload?.messages?.[0]?.id ||
@@ -90,6 +92,10 @@ function deliveryRank(status) {
   return -1;
 }
 
+function normalizeMessageId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function normalizeDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }
@@ -98,6 +104,61 @@ function phoneLast10(value) {
   const digits = normalizeDigits(value);
   if (!digits) return "";
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function parseUtcishDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  // Supabase often returns `YYYY-MM-DD HH:mm:ss(.sss)` for naive timestamp output.
+  // Treat such strings as UTC for server-side chronology checks.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+    const dt = new Date(`${raw.replace(" ", "T")}Z`);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  const dt = new Date(raw);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function deriveStatusEventAtUtc(row) {
+  const payload = parseMaybeJson(row?.payload);
+  const candidates = [
+    payload?.timestamp, // ISO from webhook parser
+    payload?.raw_status?.timestamp, // epoch seconds (Meta)
+    payload?.statuses?.[0]?.timestamp, // epoch seconds fallback
+    row?.created_at, // last resort
+  ];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    // Meta raw timestamps are epoch seconds.
+    if (typeof c === "number" || /^\d{10,13}$/.test(String(c))) {
+      const n = Number(c);
+      const ms = String(c).length >= 13 ? n : n * 1000;
+      const dt = new Date(ms);
+      if (!Number.isNaN(dt.getTime())) return dt.toISOString();
+      continue;
+    }
+    const dt = parseUtcishDate(c);
+    if (dt) return dt.toISOString();
+  }
+  return null;
+}
+
+function deriveStatusMessageId(row) {
+  const payload = parseMaybeJson(row?.payload);
+  const fromPayload = String(
+    row?.message_id ||
+    payload?.provider_message_id ||
+    payload?.raw_status?.id ||
+    payload?.statuses?.[0]?.id ||
+    payload?.raw_status?.biz_opaque_callback_data ||
+    payload?.statuses?.[0]?.biz_opaque_callback_data ||
+    ""
+  ).trim();
+  if (fromPayload) return fromPayload;
+  const text = String(row?.message || "").trim();
+  const m = text.match(/\(([A-Za-z0-9._:-]+)\)\s*$/);
+  if (m?.[1]) return m[1];
+  return null;
 }
 
 function ymdKeyFromIsoDate(value) {
@@ -283,7 +344,7 @@ export async function GET(request) {
       }
     }
 
-    const providerIds = Array.from(new Set(Array.from(providerIdByJobId.values()).filter(Boolean)));
+    const providerIds = Array.from(new Set(Array.from(providerIdByJobId.values()).map((id) => String(id || "").trim()).filter(Boolean)));
 
     // Pull recent status rows once; use message_id-first matching, then phone+time fallback.
     let statusRows = [];
@@ -300,7 +361,7 @@ export async function GET(request) {
       if (providerIds.length > 0) {
         const { data } = await supabase
           .from("whatsapp_messages")
-          .select("message_id,phone,status,payload,created_at")
+          .select("message_id,phone,payload,created_at")
           .eq("direction", "status")
           .gte("created_at", statusWindowStartIso)
           .in("message_id", providerIds)
@@ -312,7 +373,7 @@ export async function GET(request) {
         const indiaPhones = statusPhones.map((p) => `91${p}`);
         const { data } = await supabase
           .from("whatsapp_messages")
-          .select("message_id,phone,status,payload,created_at")
+          .select("message_id,phone,payload,created_at")
           .eq("direction", "status")
           .gte("created_at", statusWindowStartIso)
           .in("phone", indiaPhones)
@@ -322,39 +383,66 @@ export async function GET(request) {
       }
       const dedup = new Map();
       for (const row of rows) {
-        const k = `${String(row?.message_id || "")}|${String(row?.phone || "")}|${String(row?.created_at || "")}|${String(row?.status || "")}`;
+        const payload = parseMaybeJson(row?.payload);
+        const statusMarker = String(
+          payload?.status ||
+          payload?.raw_status?.status ||
+          payload?.statuses?.[0]?.status ||
+          ""
+        ).trim().toLowerCase();
+        const k = `${String(row?.message_id || "")}|${String(row?.phone || "")}|${String(row?.created_at || "")}|${statusMarker}`;
         if (!dedup.has(k)) dedup.set(k, row);
       }
       statusRows = Array.from(dedup.values());
     }
+
+    // Always expose derived provider message id for UI/debug even when status rows are absent.
+    enrichedJobs = enrichedJobs.map((row) => ({
+      ...row,
+      provider_message_id: providerIdByJobId.get(Number(row?.id)) || extractProviderMessageIdFromJob(row) || null
+    }));
 
     if (statusRows.length > 0) {
       const byMessageId = new Map();
       const byPhone = new Map();
       for (const row of statusRows || []) {
         const payload = parseMaybeJson(row?.payload);
-        const statusKey = String(row?.status || payload?.status || "").trim().toLowerCase();
+        const eventAtIso = deriveStatusEventAtUtc(row);
+        const statusKey = String(
+          payload?.status ||
+          payload?.raw_status?.status ||
+          payload?.statuses?.[0]?.status ||
+          ""
+        ).trim().toLowerCase();
         if (!statusKey) continue;
 
-        const messageId = String(row?.message_id || "").trim();
+        const messageId = normalizeMessageId(
+          deriveStatusMessageId(row) ||
+          payload?.provider_response?.messages?.[0]?.id
+        );
         if (messageId) {
           const prev = byMessageId.get(messageId);
-          if (!prev || deliveryRank(statusKey) >= deliveryRank(prev.status)) {
-            byMessageId.set(messageId, { status: statusKey, at: row?.created_at || null });
+          const prevRank = prev ? deliveryRank(prev.status) : -1;
+          const currRank = deliveryRank(statusKey);
+          const prevAt = parseUtcishDate(prev?.at)?.getTime() || 0;
+          const currAt = parseUtcishDate(eventAtIso || row?.created_at)?.getTime() || 0;
+          if (!prev || currRank > prevRank || (currRank === prevRank && currAt >= prevAt)) {
+            byMessageId.set(messageId, { status: statusKey, at: eventAtIso || row?.created_at || null });
           }
         }
 
         const p10 = phoneLast10(row?.phone || payload?.recipient_id);
         if (p10) {
           if (!byPhone.has(p10)) byPhone.set(p10, []);
-          byPhone.get(p10).push({ status: statusKey, at: row?.created_at || null });
+          byPhone.get(p10).push({ status: statusKey, at: eventAtIso || row?.created_at || null });
         }
       }
 
       enrichedJobs = enrichedJobs.map((row) => {
         const providerMessageId = providerIdByJobId.get(Number(row?.id)) || extractProviderMessageIdFromJob(row);
-        let delivery = providerMessageId ? byMessageId.get(providerMessageId) : null;
-        if (!delivery) {
+        const providerMessageIdKey = normalizeMessageId(providerMessageId);
+        let delivery = providerMessageIdKey ? byMessageId.get(providerMessageIdKey) : null;
+        if (!delivery && !providerMessageIdKey) {
           // Fallback correlation: same phone, first statuses after sent_at (or created_at).
           const p10 = phoneLast10(row?.phone);
           const candidates = p10 ? (byPhone.get(p10) || []) : [];
@@ -368,6 +456,19 @@ export async function GET(request) {
               if (!best || deliveryRank(c.status) >= deliveryRank(best.status)) best = c;
             }
             delivery = best;
+          }
+        }
+        // Guard against impossible chronology: delivery/read cannot predate sent timestamp.
+        // If it does, drop delivery attribution and keep status as sent-only.
+        if (delivery?.at) {
+          const sentAt = parseUtcishDate(row?.sent_at || row?.updated_at || row?.created_at);
+          const deliveryAt = parseUtcishDate(delivery?.at);
+          if (
+            sentAt &&
+            deliveryAt &&
+            deliveryAt.getTime() < sentAt.getTime() - 60_000
+          ) {
+            delivery = null;
           }
         }
         return {
@@ -436,7 +537,7 @@ export async function GET(request) {
         const d = String(row?.delivery_status || "").trim().toLowerCase();
         if (d === "read") summary.delivery_read_jobs += 1;
         else if (d === "delivered") summary.delivery_delivered_jobs += 1;
-        else summary.delivery_sent_only_jobs += 1;
+        else if (d === "sent" && String(row?.provider_message_id || "").trim()) summary.delivery_sent_only_jobs += 1;
       }
       const b = summarizeSnapshotBuckets(row);
       summary.tests_total += b.tests_total;
@@ -706,9 +807,9 @@ export async function POST(request) {
       patch.force_send_now = true;
       patch.is_paused = false;
       patch.next_attempt_at = nowIso;
-      if (ELIGIBLE_STATUSES.includes(String(job.status || ""))) {
-        patch.status = "eligible";
-      }
+      // Always force non-terminal jobs into eligible so worker picks them immediately.
+      // Earlier logic only switched a subset of states and could leave jobs in "processing".
+      patch.status = "eligible";
     }
     if (action === "cancel") {
       patch.status = "cancelled";

@@ -79,6 +79,19 @@ function formatMessageTime(value) {
   });
 }
 
+function normalizeDeliveryStatus(value) {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "queued";
+  if (key === "read") return "read";
+  if (key === "delivered") return "delivered";
+  if (key === "sent") return "sent";
+  if (key === "failed") return "failed";
+  if (key === "cooling_off") return "cooling_off";
+  if (key === "retrying") return "retrying";
+  if (key === "queued") return "queued";
+  return key;
+}
+
 function istTodayYmd() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: IST_TIMEZONE,
@@ -2054,6 +2067,8 @@ export default function WhatsAppDashboard() {
         row?.phone,
         row?.report_label,
         row?.status,
+        row?.delivery_status,
+        row?.provider_message_id,
         reasonText
       ].map((value) => String(value || "").toLowerCase()).join(" ");
       return hay.includes(q);
@@ -2074,7 +2089,12 @@ export default function WhatsAppDashboard() {
 
     const canonicalTargetPhone = canonicalIndiaPhone(phoneRaw);
     const selectedCanonicalPhone = canonicalIndiaPhone(selectedSession?.phone || "");
-    if (selectedSessionWithin24 && canonicalTargetPhone && canonicalTargetPhone === selectedCanonicalPhone) {
+    if (
+      reportTemplateSource !== "outsourced_report" &&
+      selectedSessionWithin24 &&
+      canonicalTargetPhone &&
+      canonicalTargetPhone === selectedCanonicalPhone
+    ) {
       setReportModalError("This chat is already in 24-hour live window. Send free text here instead of template.");
       return;
     }
@@ -3751,7 +3771,7 @@ export default function WhatsAppDashboard() {
 
       {showSentReportsModal && (
         <div className="wa-modalBackdrop" role="presentation" onClick={() => !isLoadingSentReports && setShowSentReportsModal(false)}>
-          <div className="wa-modalCard" role="dialog" aria-modal="true" aria-label="Sent reports list" onClick={(event) => event.stopPropagation()}>
+          <div className="wa-modalCard wa-modalCard--wide" role="dialog" aria-modal="true" aria-label="Sent reports list" onClick={(event) => event.stopPropagation()}>
             <div className="wa-modalHeader">
               <strong>Sent Reports</strong>
               <button
@@ -3800,10 +3820,15 @@ export default function WhatsAppDashboard() {
                   <thead>
                     <tr>
                       <th>Req No</th>
+                      <th>Req Date</th>
                       <th>Patient</th>
                       <th>Phone</th>
-                      <th>Status Sent</th>
+                      <th>Report Type</th>
+                      <th>Job Status</th>
+                      <th>Delivery</th>
                       <th>Sent (IST)</th>
+                      <th>Delivery At (IST)</th>
+                      <th>Message ID</th>
                       <th>Reason / Comment</th>
                     </tr>
                   </thead>
@@ -3811,10 +3836,17 @@ export default function WhatsAppDashboard() {
                     {filteredSentReportsRows.map((row) => (
                       <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
                         <td><strong>{String(row?.reqno || "-")}</strong></td>
+                        <td>{String(row?.reqno || "").slice(0, 8) || "-"}</td>
                         <td>{String(row?.patient_name || "-")}</td>
                         <td>{String(row?.phone || "-")}</td>
                         <td>{String(row?.report_label || "-")}</td>
+                        <td>{String(row?.status || "-")}</td>
+                        <td>{normalizeDeliveryStatus(row?.delivery_status)}</td>
                         <td>{formatMessageTime(row?.sent_at || row?.updated_at)}</td>
+                        <td>{formatMessageTime(row?.delivery_status_at)}</td>
+                        <td title={String(row?.provider_message_id || "")}>
+                          {String(row?.provider_message_id || "-")}
+                        </td>
                         <td>
                           {String(
                             row?.last_error ||
@@ -5515,6 +5547,10 @@ export default function WhatsAppDashboard() {
           gap: 10px;
           max-height: calc(100vh - 32px);
           overflow-y: auto;
+        }
+
+        .wa-modalCard--wide {
+          width: min(1200px, 96vw);
         }
 
         .wa-modalHeader {
