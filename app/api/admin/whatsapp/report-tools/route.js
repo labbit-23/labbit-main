@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseServer";
 import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
 import {
   getLatestReportUrl,
+  getOutsourcedReportUrl,
   getReportStatus,
   getReportStatusByReqid,
   getReportUrl,
@@ -278,6 +279,24 @@ async function isReachablePdfDocument(url) {
   }
 }
 
+async function probePdfDocument(url) {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      cache: "no-store"
+    });
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    const contentDisposition = String(response.headers.get("content-disposition") || "").toLowerCase();
+    const bodyText = await response.text().catch(() => "");
+    const isPdf = contentType.includes("application/pdf") || contentDisposition.includes(".pdf");
+    const denied = response.status === 403 && String(bodyText || "").includes("SOURCE_CONFIDENTIAL_DO_NOT_SEND");
+    return { ok: response.ok && isPdf, status: response.status, denied, message: bodyText };
+  } catch (error) {
+    return { ok: false, status: 0, denied: false, message: error?.message || "Unknown probe error" };
+  }
+}
+
 export async function GET(request) {
   try {
     const cookieStore = await cookies();
@@ -312,7 +331,7 @@ export async function POST(request) {
     const reqid = String(body?.reqid || "").trim();
     const reqno = String(body?.reqno || "").trim();
 
-    if (!phone || !["send_report", "send_status", "send_report_and_status", "preview_status", "send_latest_report", "send_latest_trend_report", "send_report_template"].includes(action)) {
+    if (!phone || !["send_report", "send_status", "send_report_and_status", "preview_status", "send_latest_report", "send_latest_trend_report", "send_report_template", "send_outsourced_report"].includes(action)) {
       return new Response("Invalid request", { status: 400 });
     }
 
@@ -350,6 +369,7 @@ export async function POST(request) {
       const reportLabel = String(body?.report_label || "").trim();
       const reportSource = String(body?.report_source || "latest_report").trim().toLowerCase();
       const registeredPhoneRaw = String(body?.registered_phone || "").trim();
+      const outsourcedTestid = String(body?.testid || "").trim();
       const authorizationConfirmed = Boolean(body?.authorization_confirmed);
       const authorizationType = String(body?.authorization_type || "").trim();
       const authorizationEvidence = String(body?.authorization_evidence || "").trim();
@@ -399,6 +419,7 @@ export async function POST(request) {
       let resolvedReqid = null;
       let resolvedReqno = null;
       let resolvedMrno = null;
+      let resolvedTestid = null;
       let resolvedPatientName = patientName;
       let authorizationRequired = false;
 
@@ -454,6 +475,36 @@ export async function POST(request) {
           return new Response(`Trend report PDF was not found for MRNO ${rawMrno}.`, { status: 400 });
         }
         resolvedMrno = rawMrno;
+      } else if (reportSource === "outsourced_report") {
+        const rawReqno = String(body?.reqno || "").trim();
+        if (!rawReqno) return new Response("Requisition No is required.", { status: 400 });
+        if (!outsourcedTestid) return new Response("Test ID is required.", { status: 400 });
+        let statusByReqno;
+        try {
+          statusByReqno = await getReportStatus(rawReqno);
+        } catch (statusErr) {
+          return new Response(`Status lookup failed for requisition ${rawReqno}: ${statusErr?.message || "Unknown NeoSoft error"}`, { status: 400 });
+        }
+        const reqid = extractReqidFromStatus(statusByReqno);
+        if (!reqid) {
+          return new Response(`Could not find report mapping for requisition no ${rawReqno}.`, { status: 400 });
+        }
+        const registeredCheck = validatePhoneForTemplate(registeredPhoneRaw || phoneCheck.canonical);
+        if (!registeredCheck.ok) {
+          return new Response("Registered phone must be 10 digits or 12 digits.", { status: 400 });
+        }
+        authorizationRequired = phoneCheck.canonical !== registeredCheck.canonical;
+        documentUrl = getOutsourcedReportUrl(reqid, outsourcedTestid);
+        const outsourcedProbe = await probePdfDocument(documentUrl);
+        if (outsourcedProbe.denied) {
+          return new Response("SOURCE_CONFIDENTIAL_DO_NOT_SEND", { status: 403 });
+        }
+        if (!outsourcedProbe.ok) {
+          return new Response(`Outsourced report PDF was not found for requisition ${rawReqno}, test ${outsourcedTestid}.`, { status: 400 });
+        }
+        resolvedReqid = reqid;
+        resolvedReqno = rawReqno;
+        resolvedTestid = outsourcedTestid;
       } else {
         return new Response("Invalid report source selected.", { status: 400 });
       }
@@ -472,6 +523,8 @@ export async function POST(request) {
 
       if (reportSource === "trend_report") {
         filename = `SDRC_Trend_Report_${resolvedMrno || "Patient"}.pdf`;
+      } else if (reportSource === "outsourced_report") {
+        filename = `SDRC_Outsourced_${resolvedReqno || resolvedReqid || "REQ"}_${resolvedTestid || "TEST"}.pdf`;
       } else {
         filename = buildReportFilename({
           reqid: resolvedReqid || null,
@@ -490,6 +543,7 @@ export async function POST(request) {
               reqid: resolvedReqid,
               reqno: resolvedReqno,
               mrno: resolvedMrno,
+              testid: resolvedTestid,
               patient_name: resolvedPatientName || null,
               filename,
               phone: phoneCheck.canonical
@@ -517,6 +571,8 @@ export async function POST(request) {
       const reportTypeForLog =
         reportSource === "trend_report"
           ? "trend"
+          : reportSource === "outsourced_report"
+            ? "outsourced_report"
           : "combined";
 
       try {
@@ -557,6 +613,7 @@ export async function POST(request) {
             document_url: documentUrl,
             registered_phone: registeredPhoneRaw || null,
             mrno: resolvedMrno,
+            testid: resolvedTestid,
             template_name: templateName,
             template_language: languageCode,
             authorization: privacyPayload
@@ -590,6 +647,7 @@ export async function POST(request) {
             document_url: documentUrl,
             registered_phone: registeredPhoneRaw || null,
             mrno: resolvedMrno,
+            testid: resolvedTestid,
             template_name: templateName,
             template_language: languageCode,
             authorization: privacyPayload
@@ -966,6 +1024,102 @@ export async function POST(request) {
           },
           durationMs: Date.now() - reportDispatchStartedAt,
           documentUrl: reportUrl
+        });
+        throw sendError;
+      }
+    }
+
+    if (action === "send_outsourced_report") {
+      const cleanReqid = String(body?.reqid || "").trim();
+      const cleanReqno = String(body?.reqno || "").trim();
+      const cleanTestid = String(body?.testid || "").trim();
+      if (!cleanReqid || !cleanTestid) {
+        return new Response("Missing reqid/testid", { status: 400 });
+      }
+
+      const outsourcedUrl = getOutsourcedReportUrl(cleanReqid, cleanTestid);
+      const probe = await probePdfDocument(outsourcedUrl);
+      if (probe.denied) {
+        return new Response("SOURCE_CONFIDENTIAL_DO_NOT_SEND", { status: 403 });
+      }
+      if (!probe.ok) {
+        return new Response(`Outsourced report PDF was not found for reqid ${cleanReqid}, testid ${cleanTestid}.`, { status: 400 });
+      }
+
+      const startedAt = Date.now();
+      const filename = `SDRC_Outsourced_${cleanReqno || cleanReqid}_${cleanTestid}.pdf`;
+      try {
+        const sendResult = await sendDocumentMessage({
+          labId: chatSession.lab_id,
+          phone: chatSession.phone,
+          documentUrl: outsourcedUrl,
+          filename,
+          caption: "Please find your outsourced report attached.",
+          sender: {
+            id: user.id || null,
+            name: user.name || "Agent",
+            role: getRoleKey(user) || null,
+            userType: user.userType || null
+          }
+        });
+
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: cleanReqid,
+          reqno: cleanReqno || null,
+          phone: chatSession.phone,
+          reportType: "outsourced_report",
+          headerMode: "default",
+          status: "success",
+          resultCode: "AGENT_OUTSOURCED_SEND_OK",
+          resultMessage: "Outsourced report sent from report dispatch",
+          providerMessageId: extractProviderMessageId(sendResult),
+          requestPayload: {
+            action,
+            report_source: "outsourced_report",
+            reqid: cleanReqid,
+            reqno: cleanReqno || null,
+            testid: cleanTestid,
+            document_url: outsourcedUrl
+          },
+          responsePayload: sendResult,
+          durationMs: Date.now() - startedAt,
+          documentUrl: outsourcedUrl
+        });
+        return NextResponse.json({ ok: true, provider_message_id: extractProviderMessageId(sendResult) }, { status: 200 });
+      } catch (sendError) {
+        await logReportDispatch({
+          labId: chatSession.lab_id,
+          actorUserId: user.id || null,
+          actorName: user.name || "Agent",
+          actorRole: getRoleKey(user) || null,
+          sourcePage: "report_dispatch",
+          action: "send_whatsapp",
+          targetMode: "single",
+          reqid: cleanReqid,
+          reqno: cleanReqno || null,
+          phone: chatSession.phone,
+          reportType: "outsourced_report",
+          headerMode: "default",
+          status: "failed",
+          resultCode: "AGENT_OUTSOURCED_SEND_FAILED",
+          resultMessage: sendError?.message || "Unknown outsourced send error",
+          requestPayload: {
+            action,
+            report_source: "outsourced_report",
+            reqid: cleanReqid,
+            reqno: cleanReqno || null,
+            testid: cleanTestid,
+            document_url: outsourcedUrl
+          },
+          durationMs: Date.now() - startedAt,
+          documentUrl: outsourcedUrl
         });
         throw sendError;
       }

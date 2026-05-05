@@ -782,7 +782,6 @@ async function loadAutoDispatchMetrics(labId) {
 
   if (labId) {
     jobsQuery = jobsQuery.eq("lab_id", labId);
-    eventsQuery = eventsQuery.eq("lab_id", labId);
     dispatchLogsQuery = dispatchLogsQuery.eq("lab_id", labId);
     ctoLogsQuery = ctoLogsQuery.eq("lab_id", labId);
   }
@@ -796,7 +795,11 @@ async function loadAutoDispatchMetrics(labId) {
   if (ctoLogsError) throw ctoLogsError;
 
   const jobsList = Array.isArray(jobs) ? jobs : [];
-  const eventsList = Array.isArray(events) ? events : [];
+  const jobIds = new Set(jobsList.map((row) => row?.id).filter(Boolean));
+  const eventsList = (Array.isArray(events) ? events : []).filter((row) => {
+    if (!labId) return true;
+    return jobIds.has(row?.job_id);
+  });
   const logsList = Array.isArray(dispatchLogs) ? dispatchLogs : [];
   const ctoLogList = Array.isArray(ctoLogs) ? ctoLogs : [];
 

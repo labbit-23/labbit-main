@@ -632,14 +632,14 @@
       ]
     },
     {
-      "name": "Wellness Special Health Checkup",
+      "name": "Advanced Preventive Health Panel",
       "display_order": 6,
-      "description": "Specially curated for those looking for wellness oriented packages for inflammation, cardiac and lifestyle risks",
+      "description": "Comprehensive screening for inflammation, cardiac risk, metabolic health and hormonal balance.",
       "variants": [
         {
-          "name": "Wellness Male",
-          "parameters": 84,
-          "price": 6499,
+          "name": "Advanced Preventive Male",
+          "parameters": 86,
+          "price": 7499,
           "tests": [
             "CBC (Complete Blood Count)",
             "ESR",
@@ -656,7 +656,8 @@
             "Magnesium",
             "Phosphorous",
             "High Sensitive CRP",
-            "Thyroid Stimulating Hormone (TSH)",
+            "Thyroid Function Tests (Advanced)*",
+            "Insulin Resistance - Fasting (HOMA)",
             "G6PD",
             "Urinalysis"
           ],
@@ -664,14 +665,14 @@
           "key_inclusions": [
             "Apolipoproteins A1 & Apo B",
             "High Sensitive CRP",
-            "Prostate Specific Antigen - PSA",
-            "Vitamin D (25-OH)"
+            "Insulin Resistance - Fasting (HOMA)",
+            "Prostate Specific Antigen - PSA"
           ]
         },
         {
-          "name": "Wellness Female",
-          "parameters": 84,
-          "price": 6499,
+          "name": "Advanced Preventive Female",
+          "parameters": 86,
+          "price": 7499,
           "tests": [
             "CBC (Complete Blood Count)",
             "ESR",
@@ -688,7 +689,8 @@
             "Magnesium",
             "Phosphorous",
             "High Sensitive CRP",
-            "Thyroid Stimulating Hormone (TSH)",
+            "Thyroid Function Tests (Advanced)*",
+            "Insulin Resistance - Fasting (HOMA)",
             "G6PD",
             "Urinalysis"
           ],
@@ -696,8 +698,8 @@
           "key_inclusions": [
             "Apolipoproteins A1 & Apo B",
             "High Sensitive CRP",
-            "CA-125",
-            "Vitamin D (25-OH)"
+            "Insulin Resistance - Fasting (HOMA)",
+            "CA-125"
           ]
         }
       ]
@@ -754,11 +756,13 @@
     "*Lipid Profile: Cholesterol Total - Serum, Triglycerides, HDL Cholesterol, LDL Cholesterol, VLDL Cholesterol, CHOL / HDL Ratio, HDL/LDL Cholesterol Ratio",
     "*Liver Function Tests (LFT): Total Bilirubin, Direct Bilirubin, Indirect Bilirubin, Aspartate Aminotransferase (AST)(SGOT), Alanine Transaminase (ALT)(SGPT), Alkaline Phosphatase (ALP), GGT, Total Protein, Albumin, Globuline, A/G Ratio",
     "*Electrolytes: Sodium - Serum, Potassium - Serum, Chloride - Serum",
-    "*Renal Function Tests: Serum Creatinine, eGFR, Serum Urea, BUN, Serum Electrolytes (Sodium, Potassium, Chlorides), Serum Uric Acid"
+    "*Thyroid Function Tests (Advanced): Free T3, Free T4, Serum TSH",
+    "*Renal Function Tests: Serum Creatinine, eGFR, Serum Urea, BUN, Seru Albumin, Serum Electrolytes (Sodium, Potassium, Chlorides), Serum Uric Acid"
   ],
   "testCategoryMap": {
     "Thyroid Stimulating Hormone (TSH)": "Thyroid",
     "Thyroid Function Tests (T3 T4 TSH)": "Thyroid",
+    "Thyroid Function Tests (Advanced)*": "Thyroid",
     "Fasting Blood Sugar": "Diabetes",
     "Fasting Blood Glucose": "Diabetes",
     "Random Blood Sugar": "Diabetes",

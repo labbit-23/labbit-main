@@ -127,6 +127,29 @@ function isMissingRelationError(error) {
   return String(error?.code || "") === "42P01" || message.includes("does not exist");
 }
 
+function isTransientFetchError(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  return (
+    msg.includes("fetch failed") ||
+    msg.includes("etimedout") ||
+    msg.includes("econnreset") ||
+    msg.includes("enotfound") ||
+    details.includes("fetch failed")
+  );
+}
+
+async function runQueryWithRetry(queryFactory, retries = 1) {
+  let lastResult = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const result = await queryFactory();
+    lastResult = result;
+    if (!result?.error) return result;
+    if (!isTransientFetchError(result.error) || attempt === retries) return result;
+  }
+  return lastResult || { data: null, error: new Error("unknown query error") };
+}
+
 function initializeBucket() {
   return {
     total_checks: 0,
@@ -614,6 +637,7 @@ export async function GET(request) {
 
     let digestRows = [];
     let digestAvailable = useDigest;
+    const rawErrors = [];
 
     if (useDigest) {
       let digestQuery = supabase
@@ -686,14 +710,21 @@ export async function GET(request) {
 
         if (labId) hourQuery = hourQuery.eq("lab_id", labId);
 
-        const { data: hourData, error: hourError } = await hourQuery;
+        const { data: hourData, error: hourError } = await runQueryWithRetry(() => hourQuery, 1);
         if (hourError) {
-          console.error("[cto/trends] hourly raw fallback query failed", {
+          console.warn("[cto/trends] hourly raw fallback query failed; skipping slice", {
             from: cursor.toISOString(),
             to: nextHour.toISOString(),
             error: hourError
           });
-          return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+          rawErrors.push({
+            scope: "hourly_raw_fallback",
+            from: cursor.toISOString(),
+            to: nextHour.toISOString(),
+            message: String(hourError?.message || "query error")
+          });
+          cursor = nextHour;
+          continue;
         }
 
         if (Array.isArray(hourData) && hourData.length > 0) sampledRows.push(...hourData);
@@ -721,13 +752,19 @@ export async function GET(request) {
 
         if (labId) dayQuery = dayQuery.eq("lab_id", labId);
 
-        const { data: dayData, error: dayError } = await dayQuery;
+        const { data: dayData, error: dayError } = await runQueryWithRetry(() => dayQuery, 1);
         if (dayError) {
-          console.error("[cto/trends] daily raw fallback query failed", {
+          console.warn("[cto/trends] daily raw fallback query failed; skipping day", {
             day: formatDayKey(cursor),
             error: dayError
           });
-          return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+          rawErrors.push({
+            scope: "daily_raw_fallback",
+            day: formatDayKey(cursor),
+            message: String(dayError?.message || "query error")
+          });
+          cursor = nextDay;
+          continue;
         }
 
         if (Array.isArray(dayData) && dayData.length > 0) {
@@ -748,14 +785,18 @@ export async function GET(request) {
 
       if (labId) rawQuery = rawQuery.eq("lab_id", labId);
 
-      const { data: rawData, error: rawError } = await rawQuery;
+      const { data: rawData, error: rawError } = await runQueryWithRetry(() => rawQuery, 1);
 
       if (rawError) {
-        console.error("[cto/trends] raw query failed", rawError);
-        return NextResponse.json({ error: "Failed to load trend logs" }, { status: 500 });
+        console.warn("[cto/trends] raw query failed; continuing with digest-only points", rawError);
+        rawErrors.push({
+          scope: "raw_overlay",
+          message: String(rawError?.message || "query error")
+        });
+        rawRows = [];
+      } else {
+        rawRows = Array.isArray(rawData) ? rawData : [];
       }
-
-      rawRows = Array.isArray(rawData) ? rawData : [];
     }
     const digestServiceDay = useDigest
       ? aggregateDigestRowsToServiceDay(digestRows, serviceKey, nodeRoleFilter, nodeSuffixFilter)
@@ -916,7 +957,8 @@ export async function GET(request) {
           raw_window_start: effectiveRawStart.toISOString(),
           raw_window_days: Math.round((endExclusive.getTime() - effectiveRawStart.getTime()) / (24 * 60 * 60 * 1000)),
           raw_window_hours: Math.round((endExclusive.getTime() - effectiveRawStart.getTime()) / (60 * 60 * 1000)),
-          raw_truncated: rawRows.length >= MAX_RAW_ROWS
+          raw_truncated: rawRows.length >= MAX_RAW_ROWS,
+          partial_raw_errors: rawErrors.slice(0, 20)
         }
       },
       {

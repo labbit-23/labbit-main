@@ -42,6 +42,8 @@ export default function SendReportTemplateModal({
   defaultPatientName = "",
   defaultReqno = "",
   defaultMrno = "",
+  defaultTestid = "",
+  defaultReportSource = "",
   registeredPhone = "",
   onSent = null
 }) {
@@ -51,6 +53,7 @@ export default function SendReportTemplateModal({
   const [registeredPhoneInput, setRegisteredPhoneInput] = useState("");
   const [reqno, setReqno] = useState("");
   const [mrno, setMrno] = useState("");
+  const [testid, setTestid] = useState("");
   const [reportLabel, setReportLabel] = useState("Test");
 
   const [lookupResolvedKey, setLookupResolvedKey] = useState("");
@@ -68,14 +71,25 @@ export default function SendReportTemplateModal({
     const rawPhone = String(defaultPhone || "").trim();
     const rawReqno = String(defaultReqno || "").trim();
     const rawMrno = String(defaultMrno || "").trim();
-    const source = rawReqno ? "requisition_report" : rawMrno ? "trend_report" : "latest_report";
+    const source =
+      String(defaultReportSource || "").trim() ||
+      (rawReqno ? "requisition_report" : rawMrno ? "trend_report" : "latest_report");
     setPhone(rawPhone);
     setPatientName(String(defaultPatientName || "").trim());
     setRegisteredPhoneInput(String(registeredPhone || rawPhone || "").trim());
     setReqno(rawReqno);
     setMrno(rawMrno);
+    setTestid(String(defaultTestid || "").trim());
     setReportSource(source);
-    setReportLabel(source === "trend_report" ? "Trend" : source === "requisition_report" ? "Test" : "Latest");
+    setReportLabel(
+      source === "trend_report"
+        ? "Trend"
+        : source === "requisition_report"
+          ? "Test"
+          : source === "outsourced_report"
+            ? "Outsourced"
+            : "Latest"
+    );
 
     setLookupResolvedKey("");
     setLookupSummary("");
@@ -83,17 +97,18 @@ export default function SendReportTemplateModal({
     setAuthConfirmed(false);
     setAuthType("");
     setAuthEvidence("");
-  }, [isOpen, defaultPhone, defaultPatientName, defaultReqno, defaultMrno, registeredPhone]);
+  }, [isOpen, defaultPhone, defaultPatientName, defaultReqno, defaultMrno, defaultTestid, defaultReportSource, registeredPhone]);
 
   const sourceKey = useMemo(() => {
     if (reportSource === "latest_report") return canonicalIndiaPhone(registeredPhoneInput);
     if (reportSource === "requisition_report") return `REQNO:${String(reqno || "").trim()}`;
+    if (reportSource === "outsourced_report") return `OUTSOURCED:${String(reqno || "").trim()}:${String(testid || "").trim()}`;
     return `MRNO:${String(mrno || "").trim()}`;
-  }, [reportSource, registeredPhoneInput, reqno, mrno]);
+  }, [reportSource, registeredPhoneInput, reqno, mrno, testid]);
 
   const sourceLookupOk = Boolean(lookupResolvedKey && sourceKey && lookupResolvedKey === sourceKey);
   const authorizationRequired =
-    reportSource === "latest_report" &&
+    (reportSource === "latest_report" || reportSource === "outsourced_report") &&
     Boolean(canonicalIndiaPhone(phone)) &&
     Boolean(canonicalIndiaPhone(registeredPhoneInput)) &&
     canonicalIndiaPhone(phone) !== canonicalIndiaPhone(registeredPhoneInput);
@@ -119,7 +134,7 @@ export default function SendReportTemplateModal({
       setError("Enter a valid destination WhatsApp number first.");
       return;
     }
-    if (reportSource === "latest_report") {
+    if (reportSource === "latest_report" || reportSource === "outsourced_report") {
       const regDigits = digitsOnly(registeredPhoneInput);
       if (!(regDigits.length === 10 || regDigits.length === 12)) {
         setError("Registered phone must be 10 digits or 12 digits.");
@@ -138,6 +153,16 @@ export default function SendReportTemplateModal({
       setError("Enter MRNO first.");
       return;
     }
+    if (reportSource === "outsourced_report") {
+      if (!String(reqno || "").trim()) {
+        setError("Enter requisition number first.");
+        return;
+      }
+      if (!String(testid || "").trim()) {
+        setError("Enter test id first.");
+        return;
+      }
+    }
 
     setIsLookingUp(true);
     try {
@@ -152,7 +177,8 @@ export default function SendReportTemplateModal({
           report_source: reportSource,
           registered_phone: registeredPhoneInput,
           reqno,
-          mrno
+          mrno,
+          testid
         })
       });
       if (!res.ok) throw new Error(await res.text());
@@ -161,15 +187,19 @@ export default function SendReportTemplateModal({
       const lookedPatientName = String(resolved?.patient_name || "").trim();
       const lookedReqno = String(resolved?.reqno || reqno || "").trim();
       const lookedMrno = String(resolved?.mrno || mrno || "").trim();
+      const lookedTestid = String(resolved?.testid || testid || "").trim();
       if (lookedPatientName) setPatientName(lookedPatientName);
       if (lookedReqno) setReqno(lookedReqno);
       if (lookedMrno) setMrno(lookedMrno);
+      if (lookedTestid) setTestid(lookedTestid);
 
       const lookupKey =
         reportSource === "latest_report"
           ? canonicalIndiaPhone(registeredPhoneInput)
           : reportSource === "requisition_report"
             ? `REQNO:${lookedReqno || reqno}`
+            : reportSource === "outsourced_report"
+              ? `OUTSOURCED:${lookedReqno || reqno}:${lookedTestid || testid}`
             : `MRNO:${lookedMrno || mrno}`;
       setLookupResolvedKey(lookupKey);
       setLookupSummary(
@@ -177,6 +207,7 @@ export default function SendReportTemplateModal({
           lookedPatientName || String(patientName || "").trim() || "Patient",
           lookedReqno ? `Req ${lookedReqno}` : "",
           lookedMrno ? `MRNO ${lookedMrno}` : "",
+          lookedTestid ? `Test ${lookedTestid}` : "",
           reportSource === "trend_report" ? "Trend validated" : "Report validated"
         ]
           .filter(Boolean)
@@ -210,13 +241,14 @@ export default function SendReportTemplateModal({
           registered_phone: registeredPhoneInput,
           reqno,
           mrno,
+          testid,
           authorization_confirmed: authConfirmed,
           authorization_type: authType,
           authorization_evidence: authEvidence
         })
       });
       if (!res.ok) throw new Error(await res.text());
-      if (typeof onSent === "function") onSent({ phone, reportSource, reqno, mrno });
+      if (typeof onSent === "function") onSent({ phone, reportSource, reqno, mrno, testid });
       onClose();
     } catch (err) {
       setError(err?.message || "Failed to send report template.");
@@ -253,16 +285,27 @@ export default function SendReportTemplateModal({
                 setLookupResolvedKey("");
                 setLookupSummary("");
                 setError("");
-                setReportLabel(next === "trend_report" ? "Trend" : next === "requisition_report" ? "Test" : "Latest");
+                setReportLabel(
+                  next === "trend_report"
+                    ? "Trend"
+                    : next === "requisition_report"
+                      ? "Test"
+                      : next === "outsourced_report"
+                        ? "Outsourced"
+                        : "Latest"
+                );
               }}
               isDisabled={isSending}
             >
               <option value="latest_report">Latest Report (by Registered Phone)</option>
               <option value="requisition_report">Report by Requisition No</option>
               <option value="trend_report">Trend Report by MRNO</option>
+              {(String(defaultReportSource || "").trim() === "outsourced_report" || reportSource === "outsourced_report") ? (
+                <option value="outsourced_report">Outsourced Report by Req/Test</option>
+              ) : null}
             </Select>
 
-            {reportSource === "latest_report" ? (
+            {reportSource === "latest_report" || reportSource === "outsourced_report" ? (
               <Input
                 size="sm"
                 value={registeredPhoneInput}
@@ -293,6 +336,35 @@ export default function SendReportTemplateModal({
                 placeholder="Requisition No"
                 isDisabled={isSending}
               />
+            ) : null}
+
+            {reportSource === "outsourced_report" ? (
+              <>
+                <Input
+                  size="sm"
+                  value={reqno}
+                  onChange={(e) => {
+                    setReqno(e.target.value);
+                    setLookupResolvedKey("");
+                    setLookupSummary("");
+                    setError("");
+                  }}
+                  placeholder="Requisition No"
+                  isDisabled={isSending}
+                />
+                <Input
+                  size="sm"
+                  value={testid}
+                  onChange={(e) => {
+                    setTestid(e.target.value);
+                    setLookupResolvedKey("");
+                    setLookupSummary("");
+                    setError("");
+                  }}
+                  placeholder="Test ID"
+                  isDisabled={isSending}
+                />
+              </>
             ) : null}
 
             {reportSource === "trend_report" ? (

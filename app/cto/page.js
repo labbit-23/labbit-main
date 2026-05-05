@@ -289,6 +289,43 @@ function domainTitleForService(service) {
   return "Other";
 }
 
+function iconForSystemLabel(label) {
+  const iconByLabel = {
+    Labit: "🧠",
+    "WhatsApp Bot": "💬",
+    Supabase: "🗄️",
+    "Oracle DB": "🏛️",
+    Mirth: "🔗",
+    Tomcat: "🖥️",
+    Orthanc: "🩻"
+  };
+  return iconByLabel[label] || "📦";
+}
+
+function iconForDomainTitle(title) {
+  const iconByDomain = {
+    "WhatsApp Chatbot": "💬",
+    Database: "🗄️",
+    "Machine Interfacing": "🔗",
+    "App Servers": "🖥️",
+    "Core Platform": "🧠",
+    Other: "📦"
+  };
+  return iconByDomain[title] || "📦";
+}
+
+function iconForService(service) {
+  const key = parseServiceKey(service?.service_key).baseKey;
+  if (key === "labbit_health") return iconForSystemLabel("Labit");
+  if (key === "supabase_main") return iconForSystemLabel("Supabase");
+  if (key === "oracle_db") return iconForSystemLabel("Oracle DB");
+  if (key === "orthanc_main") return iconForSystemLabel("Orthanc");
+  if (key.startsWith("mirth_") || key === "tailscale_mirth") return iconForSystemLabel("Mirth");
+  if (key.startsWith("tomcat_")) return iconForSystemLabel("Tomcat");
+  if (key.startsWith("whatsapp_bot_")) return iconForSystemLabel("WhatsApp Bot");
+  return iconForDomainTitle(domainTitleForService(service));
+}
+
 function isWhatsappMetric(service) {
   const baseKey = parseServiceKey(service?.service_key).baseKey;
   return service?.category === "whatsapp" || String(baseKey || "").startsWith("whatsapp_bot_");
@@ -616,6 +653,7 @@ function CtoDashboardPage() {
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const [showVpsRunbook, setShowVpsRunbook] = useState(false);
   const [dashboardTab, setDashboardTab] = useState("cto");
+  const [dashboardViewMode, setDashboardViewMode] = useState("simplified");
   const refreshRef = useRef(null);
   const vpsSectionRef = useRef(null);
   const operationalSectionRef = useRef(null);
@@ -635,6 +673,12 @@ function CtoDashboardPage() {
     if (!serviceKey) return;
     setSelectedServiceKey(serviceKey);
     drillToSection(detailSectionRef);
+  }
+
+  function focusServiceInList(serviceKey) {
+    if (!serviceKey) return;
+    setSelectedServiceKey(serviceKey);
+    drillToSection(operationalSectionRef);
   }
 
   useEffect(() => {
@@ -1499,6 +1543,24 @@ function CtoDashboardPage() {
     };
   }, [eventsRows, feedbackData?.summary?.positive_rate, latest?.website_analytics, serviceByBaseKey]);
 
+  const simplifiedSystemTiles = useMemo(() => {
+    return keySystemStatuses.map((system) => {
+      const statusText =
+        system.status === "healthy"
+          ? "Healthy"
+          : system.status === "degraded"
+            ? "Needs Attention"
+            : system.status === "down"
+              ? "Down"
+              : "Unknown";
+      return {
+        ...system,
+        icon: iconForSystemLabel(system.label),
+        statusText
+      };
+    });
+  }, [keySystemStatuses]);
+
   const vpsHealth = useMemo(() => {
     const vpsServices = realServices.filter((service) => {
       if (!isVpsService(service)) return false;
@@ -1991,6 +2053,49 @@ function CtoDashboardPage() {
           >
             Management Metrics
           </Button>
+          {dashboardTab === "cto" && (
+            <HStack
+              spacing={2}
+              ml={{ base: 0, md: 2 }}
+              px={2}
+              py={1.5}
+              borderRadius="full"
+              bg="rgba(255,255,255,0.06)"
+              border="1px solid rgba(255,255,255,0.12)"
+              cursor="pointer"
+              userSelect="none"
+              onClick={() =>
+                setDashboardViewMode((prev) => (prev === "simplified" ? "advanced" : "simplified"))
+              }
+              role="button"
+              aria-label="Toggle simplified and advanced CTO dashboard view"
+            >
+              <Text fontSize="xs" color={dashboardViewMode === "simplified" ? "teal.200" : "whiteAlpha.700"}>
+                Simplified
+              </Text>
+              <Box
+                w="42px"
+                h="22px"
+                borderRadius="full"
+                bg={dashboardViewMode === "advanced" ? "teal.400" : "whiteAlpha.400"}
+                border="1px solid rgba(255,255,255,0.28)"
+                p="2px"
+                transition="all 0.2s ease"
+              >
+                <Box
+                  w="16px"
+                  h="16px"
+                  borderRadius="full"
+                  bg="white"
+                  transform={dashboardViewMode === "advanced" ? "translateX(20px)" : "translateX(0px)"}
+                  transition="transform 0.2s ease"
+                />
+              </Box>
+              <Text fontSize="xs" color={dashboardViewMode === "advanced" ? "teal.200" : "whiteAlpha.700"}>
+                Advanced
+              </Text>
+            </HStack>
+          )}
         </HStack>
 
         {dashboardTab === "management" && (
@@ -2166,7 +2271,74 @@ function CtoDashboardPage() {
           </Box>
         )}
 
-        {dashboardTab === "cto" && (
+        {dashboardTab === "cto" && dashboardViewMode === "simplified" && (
+          <Box
+            mb={6}
+            p={{ base: 5, md: 6 }}
+            borderRadius="26px"
+            bg="rgba(255,255,255,0.05)"
+            border="1px solid rgba(255,255,255,0.10)"
+          >
+            <Heading size="md" mb={1}>Simplified CTO View</Heading>
+            <Text color="whiteAlpha.700" mb={4}>Clear health-first view for non-technical operators. Click any card for detail.</Text>
+            <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3} mb={3}>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Overall Health</Text>
+                <Text fontSize="2xl" fontWeight="800" color={heroStats[3].value !== "0" ? "red.300" : heroStats[2].value !== "0" ? "yellow.300" : "green.300"}>
+                  {heroStats[3].value !== "0" ? "Action Needed" : heroStats[2].value !== "0" ? "Watch Closely" : "Healthy"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                  {heroStats[3].value} down • {heroStats[2].value} degraded
+                </Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy Services</Text>
+                <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1].value}/{heroStats[0].value}</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Open service domains</Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>VPS Pressure</Text>
+                <Text fontSize="2xl" fontWeight="800" color={pressureTone(vpsHealth.hostMemoryPct) === "red" ? "red.300" : pressureTone(vpsHealth.hostMemoryPct) === "yellow" ? "yellow.300" : "cyan.200"}>
+                  {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
+                </Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Host memory usage</Text>
+              </Box>
+              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
+                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Open Events</Text>
+                <Text fontSize="2xl" fontWeight="800" color={managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>{managementMetrics.openEvents}</Text>
+                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Incident queue</Text>
+              </Box>
+            </SimpleGrid>
+            <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
+              {simplifiedSystemTiles.map((system) => (
+                <Box
+                  key={system.label}
+                  p={4}
+                  borderRadius="16px"
+                  bg="rgba(255,255,255,0.04)"
+                  border="1px solid rgba(255,255,255,0.08)"
+                  cursor={system.primaryServiceKey ? "pointer" : "default"}
+                  onClick={() => {
+                    if (!system.primaryServiceKey) return;
+                    setDashboardViewMode("advanced");
+                    focusServiceInList(system.primaryServiceKey);
+                  }}
+                >
+                  <HStack justify="space-between" mb={2}>
+                    <Text fontSize="2xl" lineHeight="1">{system.icon}</Text>
+                    <StatusChip status={system.statusText} color={statusColor(system.status)} />
+                  </HStack>
+                  <Text fontWeight="700">{system.label}</Text>
+                  <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={2}>
+                    {system.message || "No message"}
+                  </Text>
+                </Box>
+              ))}
+            </SimpleGrid>
+          </Box>
+        )}
+
+        {dashboardTab === "cto" && dashboardViewMode === "advanced" && (
         <>
         <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4} mb={8}>
           {heroStats.map((stat) => (
@@ -2909,7 +3081,10 @@ function CtoDashboardPage() {
                       return (
                         <>
                           <HStack justify="space-between" mb={1}>
-                            <Heading size="sm">{domain.title}</Heading>
+                            <HStack spacing={2}>
+                              <Text aria-hidden fontSize="lg" lineHeight="1">{iconForDomainTitle(domain.title)}</Text>
+                              <Heading size="sm">{domain.title}</Heading>
+                            </HStack>
                             <StatusChip status={summary.text} color={summary.color} />
                           </HStack>
                           <Text fontSize="xs" color="whiteAlpha.600" mb={3}>
@@ -2974,11 +3149,11 @@ function CtoDashboardPage() {
                                   ? "rgba(250,204,21,0.18)"
                                   : "rgba(255,255,255,0.08)"
                             }}
-                            onClick={() => openServiceRca(service.service_key)}
+                            onClick={() => setSelectedServiceKey(service.service_key)}
                           >
                             <Flex justify="space-between" align="center" gap={3} w="full" minW={0}>
                               <Text fontSize="sm" flex="1" minW={0} noOfLines={1}>
-                                {service.label || service.service_key}
+                                {iconForService(service)} {service.label || service.service_key}
                               </Text>
                               {isWhatsappMetric(service) ? (
                                 <Box flexShrink={0} minW={0} maxW="54%">
@@ -2999,6 +3174,19 @@ function CtoDashboardPage() {
                                   {typeof service.latency_ms === "number" ? `${service.latency_ms} ms` : "n/a"}
                                 </Text>
                               )}
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                borderColor="rgba(255,255,255,0.24)"
+                                color="whiteAlpha.900"
+                                _hover={{ bg: "whiteAlpha.120" }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openServiceRca(service.service_key);
+                                }}
+                              >
+                                Details
+                              </Button>
                             </Flex>
                           </Box>
                         </Tooltip>

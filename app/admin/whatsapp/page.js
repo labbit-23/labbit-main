@@ -805,6 +805,7 @@ export default function WhatsAppDashboard() {
   const [reportTemplateRegisteredPhone, setReportTemplateRegisteredPhone] = useState("");
   const [reportTemplateReqno, setReportTemplateReqno] = useState("");
   const [reportTemplateMrno, setReportTemplateMrno] = useState("");
+  const [reportTemplateTestid, setReportTemplateTestid] = useState("");
   const [reportAuthConfirmed, setReportAuthConfirmed] = useState(false);
   const [reportAuthType, setReportAuthType] = useState("");
   const [reportAuthEvidence, setReportAuthEvidence] = useState("");
@@ -815,6 +816,7 @@ export default function WhatsAppDashboard() {
   const [showSentReportsModal, setShowSentReportsModal] = useState(false);
   const [sentReportsDate, setSentReportsDate] = useState(istTodayYmd());
   const [sentReportsRows, setSentReportsRows] = useState([]);
+  const [sentReportsSearch, setSentReportsSearch] = useState("");
   const [isLoadingSentReports, setIsLoadingSentReports] = useState(false);
   const [sentReportsError, setSentReportsError] = useState("");
   const webhookWhatsappNumber = useMemo(() => {
@@ -1961,6 +1963,37 @@ export default function WhatsAppDashboard() {
     setReportTemplateRegisteredPhone(normalizedPhone);
     setReportTemplateReqno("");
     setReportTemplateMrno("");
+    setReportTemplateTestid("");
+    setReportAuthConfirmed(false);
+    setReportAuthType("");
+    setReportAuthEvidence("");
+    setRegisteredLookupResolvedPhone("");
+    setRegisteredLookupSummary("");
+    setReportModalError("");
+    setShowReportTemplateModal(true);
+  };
+
+  const openOutsourcedTemplateModal = () => {
+    if (!selectedSession?.phone) {
+      setError("Select a conversation first.");
+      return;
+    }
+    setError("");
+    setHint("");
+    const normalizedPhone = String(selectedSession.phone || "").trim();
+    setReportTemplatePhone(normalizedPhone);
+    const defaultName =
+      String(selectedSession?.patient_name || "").trim() &&
+      String(selectedSession?.patient_name || "").trim() !== normalizedPhone
+        ? String(selectedSession?.patient_name || "").trim()
+        : "";
+    setReportTemplatePatientName(defaultName);
+    setReportTemplateLabel("Outsourced");
+    setReportTemplateSource("outsourced_report");
+    setReportTemplateRegisteredPhone(normalizedPhone);
+    setReportTemplateReqno("");
+    setReportTemplateMrno("");
+    setReportTemplateTestid("");
     setReportAuthConfirmed(false);
     setReportAuthType("");
     setReportAuthEvidence("");
@@ -2002,6 +2035,31 @@ export default function WhatsAppDashboard() {
     await loadSentReports(sentReportsDate);
   };
 
+  const filteredSentReportsRows = useMemo(() => {
+    const q = String(sentReportsSearch || "").trim().toLowerCase();
+    if (!q) return sentReportsRows;
+    return (Array.isArray(sentReportsRows) ? sentReportsRows : []).filter((row) => {
+      const reasonText = String(
+        row?.last_error ||
+        row?.state_hint ||
+        row?.last_event_message ||
+        row?.result_message ||
+        row?.comment ||
+        row?.remarks ||
+        ""
+      ).toLowerCase();
+      const hay = [
+        row?.reqno,
+        row?.patient_name,
+        row?.phone,
+        row?.report_label,
+        row?.status,
+        reasonText
+      ].map((value) => String(value || "").toLowerCase()).join(" ");
+      return hay.includes(q);
+    });
+  }, [sentReportsRows, sentReportsSearch]);
+
   const handleSendReportTemplate = async () => {
     const phoneRaw = String(reportTemplatePhone || "").trim();
     const phoneDigits = digitsOnly(phoneRaw);
@@ -2032,10 +2090,13 @@ export default function WhatsAppDashboard() {
         ? "Trend"
         : source === "requisition_report"
           ? "Test"
+          : source === "outsourced_report"
+            ? "Outsourced"
           : "Latest";
     const registeredPhone = String(reportTemplateRegisteredPhone || "").trim();
     const reqno = String(reportTemplateReqno || "").trim();
     const mrno = String(reportTemplateMrno || "").trim();
+    const testid = String(reportTemplateTestid || "").trim();
     if (source === "latest_report") {
       const regDigits = digitsOnly(registeredPhone);
       if (!(regDigits.length === 10 || regDigits.length === 12)) {
@@ -2054,6 +2115,14 @@ export default function WhatsAppDashboard() {
     }
     if (source === "trend_report" && !mrno) {
       setReportModalError("MRNO is required for trend report PDF.");
+      return;
+    }
+    if (source === "outsourced_report" && !reqno) {
+      setReportModalError("Requisition No is required for outsourced report.");
+      return;
+    }
+    if (source === "outsourced_report" && !testid) {
+      setReportModalError("Test ID is required for outsourced report.");
       return;
     }
     if (reportAuthorizationRequired) {
@@ -2093,6 +2162,7 @@ export default function WhatsAppDashboard() {
           registered_phone: registeredPhone,
           reqno,
           mrno,
+          testid,
           authorization_confirmed: reportAuthConfirmed,
           authorization_type: reportAuthType,
           authorization_evidence: reportAuthEvidence
@@ -2125,13 +2195,14 @@ export default function WhatsAppDashboard() {
     const registeredPhone = String(reportTemplateRegisteredPhone || "").trim();
     const reqno = String(reportTemplateReqno || "").trim();
     const mrno = String(reportTemplateMrno || "").trim();
+    const testid = String(reportTemplateTestid || "").trim();
     const destinationDigits = digitsOnly(targetPhone);
     if (!(destinationDigits.length === 10 || destinationDigits.length === 12)) {
       setReportModalError("Enter a valid destination WhatsApp number first.");
       return;
     }
 
-    if (source === "latest_report") {
+    if (source === "latest_report" || source === "outsourced_report") {
       const regDigits = digitsOnly(registeredPhone);
       if (!(regDigits.length === 10 || regDigits.length === 12)) {
         setReportModalError("Registered phone must be 10 digits or 12 digits.");
@@ -2148,6 +2219,14 @@ export default function WhatsAppDashboard() {
     }
     if (source === "trend_report" && !mrno) {
       setReportModalError("Enter MRNO first.");
+      return;
+    }
+    if (source === "outsourced_report" && !reqno) {
+      setReportModalError("Enter requisition number first.");
+      return;
+    }
+    if (source === "outsourced_report" && !testid) {
+      setReportModalError("Enter test id first.");
       return;
     }
 
@@ -2168,7 +2247,8 @@ export default function WhatsAppDashboard() {
           report_source: source,
           registered_phone: registeredPhone,
           reqno,
-          mrno
+          mrno,
+          testid
         })
       });
       if (!response.ok) {
@@ -2180,6 +2260,7 @@ export default function WhatsAppDashboard() {
       const lookedPatientName = String(resolved?.patient_name || "").trim();
       const lookedReqno = String(resolved?.reqno || reqno || "").trim();
       const lookedMrno = String(resolved?.mrno || mrno || "").trim();
+      const lookedTestid = String(resolved?.testid || testid || "").trim();
       if (lookedPatientName) {
         setReportTemplatePatientName(lookedPatientName);
       }
@@ -2189,11 +2270,16 @@ export default function WhatsAppDashboard() {
       if (lookedMrno) {
         setReportTemplateMrno(lookedMrno);
       }
+      if (lookedTestid) {
+        setReportTemplateTestid(lookedTestid);
+      }
       const canonicalKey =
         source === "latest_report"
           ? canonicalIndiaPhone(registeredPhone)
           : source === "requisition_report"
             ? `REQNO:${lookedReqno || reqno}`
+            : source === "outsourced_report"
+              ? `OUTSOURCED:${lookedReqno || reqno}:${lookedTestid || testid}`
             : `MRNO:${lookedMrno || mrno}`;
       setRegisteredLookupResolvedPhone(canonicalKey);
       setRegisteredLookupSummary(
@@ -2201,6 +2287,7 @@ export default function WhatsAppDashboard() {
           lookedPatientName || String(reportTemplatePatientName || "").trim() || "Patient",
           lookedReqno ? `Req ${lookedReqno}` : "",
           lookedMrno ? `MRNO ${lookedMrno}` : "",
+          lookedTestid ? `Test ${lookedTestid}` : "",
           source === "trend_report" ? "Trend validated" : "Report validated"
         ]
           .filter(Boolean)
@@ -2672,6 +2759,8 @@ export default function WhatsAppDashboard() {
       ? canonicalIndiaPhone(reportTemplateRegisteredPhone)
       : reportTemplateSource === "requisition_report"
         ? `REQNO:${String(reportTemplateReqno || "").trim()}`
+        : reportTemplateSource === "outsourced_report"
+          ? `OUTSOURCED:${String(reportTemplateReqno || "").trim()}:${String(reportTemplateTestid || "").trim()}`
         : `MRNO:${String(reportTemplateMrno || "").trim()}`;
   const reportSourceLookupOk = Boolean(
     registeredLookupResolvedPhone &&
@@ -2679,7 +2768,7 @@ export default function WhatsAppDashboard() {
     registeredLookupResolvedPhone === reportSourceKey
   );
   const reportAuthorizationRequired =
-    reportTemplateSource === "latest_report" &&
+    (reportTemplateSource === "latest_report" || reportTemplateSource === "outsourced_report") &&
     Boolean(canonicalIndiaPhone(reportTemplatePhone || "")) &&
     Boolean(canonicalIndiaPhone(reportTemplateRegisteredPhone || "")) &&
     canonicalIndiaPhone(reportTemplatePhone || "") !== canonicalIndiaPhone(reportTemplateRegisteredPhone || "");
@@ -3692,9 +3781,19 @@ export default function WhatsAppDashboard() {
                 {isLoadingSentReports ? "Loading..." : "Load"}
               </button>
             </div>
+            <div className="wa-modalLookupRow">
+              <input
+                className="wa-modalInput"
+                type="search"
+                placeholder="Search req no / patient / phone / reason"
+                value={sentReportsSearch}
+                onChange={(e) => setSentReportsSearch(e.target.value)}
+                disabled={isLoadingSentReports}
+              />
+            </div>
             {sentReportsError ? <div className="wa-modalError">{sentReportsError}</div> : null}
             <div className="wa-sentReportsTableWrap">
-              {sentReportsRows.length === 0 && !isLoadingSentReports ? (
+              {filteredSentReportsRows.length === 0 && !isLoadingSentReports ? (
                 <div className="wa-empty">No sent reports for this date.</div>
               ) : (
                 <table className="wa-sentReportsTable">
@@ -3705,16 +3804,28 @@ export default function WhatsAppDashboard() {
                       <th>Phone</th>
                       <th>Status Sent</th>
                       <th>Sent (IST)</th>
+                      <th>Reason / Comment</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sentReportsRows.map((row) => (
+                    {filteredSentReportsRows.map((row) => (
                       <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
                         <td><strong>{String(row?.reqno || "-")}</strong></td>
                         <td>{String(row?.patient_name || "-")}</td>
                         <td>{String(row?.phone || "-")}</td>
                         <td>{String(row?.report_label || "-")}</td>
                         <td>{formatMessageTime(row?.sent_at || row?.updated_at)}</td>
+                        <td>
+                          {String(
+                            row?.last_error ||
+                            row?.state_hint ||
+                            row?.last_event_message ||
+                            row?.result_message ||
+                            row?.comment ||
+                            row?.remarks ||
+                            "-"
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

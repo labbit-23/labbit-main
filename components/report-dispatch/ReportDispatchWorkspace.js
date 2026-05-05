@@ -49,6 +49,8 @@ const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
 const DAILY_PAGE_SIZE = 10;
 const AUTO_JOBS_PAGE_SIZE = 12;
 const IST_TIMEZONE = "Asia/Kolkata";
+const ENABLE_OUTSOURCED_MANUAL_DISPATCH =
+  String(process.env.NEXT_PUBLIC_ENABLE_OUTSOURCED_MANUAL_DISPATCH || "").trim() === "1";
 
 function toneByMode(mode) {
   if (mode === "allow_full" || mode === "try_pending_print_once") return "green";
@@ -248,6 +250,7 @@ export default function ReportDispatchWorkspace({
   });
   const [dailyPage, setDailyPage] = useState(1);
   const [autoStatusFilter, setAutoStatusFilter] = useState("");
+  const [autoViewFilter, setAutoViewFilter] = useState("pending");
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
   const [showSentInline, setShowSentInline] = useState(false);
@@ -261,6 +264,7 @@ export default function ReportDispatchWorkspace({
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [grantedPermissions, setGrantedPermissions] = useState([]);
   const [pushTemplateJob, setPushTemplateJob] = useState(null);
+  const [outsourcedTemplateContext, setOutsourcedTemplateContext] = useState(null);
   const [detailLoadedFromMonitor, setDetailLoadedFromMonitor] = useState(false);
 
   const [status, setStatus] = useState(null);
@@ -281,6 +285,7 @@ export default function ReportDispatchWorkspace({
   const dateModal = useDisclosure();
   const autoEventsModal = useDisclosure();
   const pushTemplateModal = useDisclosure();
+  const outsourcedModal = useDisclosure();
   const bulkConfirmDialog = useDisclosure();
 
   const phoneCacheRef = useRef(new Map());
@@ -290,6 +295,9 @@ export default function ReportDispatchWorkspace({
   const [bulkActionState, setBulkActionState] = useState({ action: "", jobIds: [] });
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [viewportResolved, setViewportResolved] = useState(false);
+  const [outsourcedRows, setOutsourcedRows] = useState([]);
+  const [outsourcedLoading, setOutsourcedLoading] = useState(false);
+  const [outsourcedError, setOutsourcedError] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -395,8 +403,12 @@ export default function ReportDispatchWorkspace({
 
   const autoFilteredJobs = useMemo(() => {
     const rows = [...(Array.isArray(autoJobs) ? autoJobs : [])].sort(byReqnoDesc);
+    const viewFilter = String(autoViewFilter || "pending").trim().toLowerCase();
+    const byView = viewFilter === "all"
+      ? rows
+      : rows.filter((row) => !["sent", "cancelled"].includes(String(row?.status || "").trim().toLowerCase()));
     const status = String(autoStatusFilter || "").trim().toLowerCase();
-    const byStatus = !status ? rows : rows.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
+    const byStatus = !status ? byView : byView.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
     const q = String(autoSearch || "").trim().toLowerCase();
     if (!q) return byStatus;
     return byStatus.filter((row) => {
@@ -412,7 +424,7 @@ export default function ReportDispatchWorkspace({
       ].map((v) => String(v || "").toLowerCase()).join(" ");
       return hay.includes(q);
     });
-  }, [autoJobs, autoStatusFilter, autoSearch]);
+  }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter]);
 
   const sentDispatchRows = useMemo(() => {
     return [...(Array.isArray(autoJobs) ? autoJobs : [])]
@@ -841,6 +853,63 @@ export default function ReportDispatchWorkspace({
     pushTemplateModal.onOpen();
   }
 
+  async function openOutsourcedModal() {
+    const reqno = String(currentReqno() || "").trim();
+    if (!reqno) {
+      toast({
+        title: "Missing requisition",
+        description: "Load requisition status first.",
+        status: "warning",
+        duration: 2200,
+        isClosable: true
+      });
+      return;
+    }
+    outsourcedModal.onOpen();
+    setOutsourcedError("");
+    setOutsourcedRows([]);
+    setOutsourcedLoading(true);
+    try {
+      const res = await fetch(`/api/admin/reports/outsourced-dispatch-context?reqno=${encodeURIComponent(reqno)}`, {
+        cache: "no-store"
+      });
+      if (!res.ok) {
+        const message = await res.text().catch(() => "");
+        throw new Error(message || `Failed to load outsourced context (${res.status})`);
+      }
+      const json = await res.json();
+      setOutsourcedRows(Array.isArray(json?.rows) ? json.rows : []);
+    } catch (error) {
+      setOutsourcedError(error?.message || "Failed to load outsourced context");
+    } finally {
+      setOutsourcedLoading(false);
+    }
+  }
+
+  function openOutsourcedSendToModal(row) {
+    const reqno = String(currentReqno() || row?.reqno || "").trim();
+    const testid = String(row?.testid || "").trim();
+    const phone = String(status?.live_status?.patient_phone || selectedReportMeta?.phoneno || "").trim();
+    if (!reqno || !testid || !phone) {
+      toast({
+        title: "Missing send context",
+        description: "Req no, test id, and phone are required.",
+        status: "error",
+        duration: 2400,
+        isClosable: true
+      });
+      return;
+    }
+    setOutsourcedTemplateContext({
+      phone,
+      patient_name: String(status?.live_status?.patient_name || selectedReportMeta?.patient_name || "").trim(),
+      reqno,
+      testid
+    });
+    outsourcedModal.onClose();
+    pushTemplateModal.onOpen();
+  }
+
   function openBulkConfirm(action, jobIds) {
     const ids = Array.isArray(jobIds) ? jobIds.filter((id) => Number.isFinite(Number(id))) : [];
     if (!ids.length) return;
@@ -1228,6 +1297,18 @@ export default function ReportDispatchWorkspace({
                 >
                   Pending
                 </Button>
+                {ENABLE_OUTSOURCED_MANUAL_DISPATCH ? (
+                  <Button
+                    size="sm"
+                    w="full"
+                    leftIcon={<FiList />}
+                    colorScheme="orange"
+                    onClick={openOutsourcedModal}
+                    isDisabled={!hasStatus || !currentReqno()}
+                  >
+                    Outsourced Reports
+                  </Button>
+                ) : null}
               </SimpleGrid>
             </Box>
           </Flex>
@@ -1264,6 +1345,24 @@ export default function ReportDispatchWorkspace({
                   <Badge px={2} py={1} borderRadius="md">{autoScopedLabIds.length} Lab(s)</Badge>
                 </HStack>
                 <HStack spacing={2}>
+                  <ButtonGroup isAttached size="sm" variant="outline">
+                    <Button
+                      type="button"
+                      colorScheme={autoViewFilter === "pending" ? "orange" : undefined}
+                      variant={autoViewFilter === "pending" ? "solid" : "outline"}
+                      onClick={() => setAutoViewFilter("pending")}
+                    >
+                      Pending
+                    </Button>
+                    <Button
+                      type="button"
+                      colorScheme={autoViewFilter === "all" ? "blue" : undefined}
+                      variant={autoViewFilter === "all" ? "solid" : "outline"}
+                      onClick={() => setAutoViewFilter("all")}
+                    >
+                      All
+                    </Button>
+                  </ButtonGroup>
                   <Button
                     type="button"
                     size="sm"
@@ -2008,15 +2107,111 @@ export default function ReportDispatchWorkspace({
         </ModalContent>
       </Modal>
 
+      <Modal isOpen={outsourcedModal.isOpen} onClose={outsourcedModal.onClose} size="5xl" isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Outsourced Reports: {statusReqno}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {outsourcedError ? (
+              <Text color="red.400" mb={2}>{outsourcedError}</Text>
+            ) : null}
+            <Box overflow="auto" maxH="60vh" borderWidth="1px" borderColor="gray.200" borderRadius="md">
+              <Table size="sm" variant="simple">
+                <Thead>
+                  <Tr>
+                    <Th>Test</Th>
+                    <Th>Approved</Th>
+                    <Th>Mode</Th>
+                    <Th>Resolver</Th>
+                    <Th>Route</Th>
+                    <Th>Action</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {outsourcedLoading ? (
+                    <Tr>
+                      <Td colSpan={6}>Loading...</Td>
+                    </Tr>
+                  ) : null}
+                  {!outsourcedLoading && outsourcedRows.length === 0 ? (
+                    <Tr>
+                      <Td colSpan={6}>No outsourced approved tests found.</Td>
+                    </Tr>
+                  ) : null}
+                  {outsourcedRows.map((row) => {
+                    const mode = String(row?.outsourced_mode || "unavailable").trim().toLowerCase();
+                    const canSend = mode === "attached_base" || mode === "attached_qr";
+                    const denied = Boolean(row?.denied) || String(row?.resolver_error || "").includes("SOURCE_CONFIDENTIAL_DO_NOT_SEND");
+                    const rowKey = `${String(row?.reqid || "").trim()}_${String(row?.testid || "").trim()}`;
+                    return (
+                      <Tr key={rowKey}>
+                        <Td>
+                          <Text fontWeight="semibold">{displayValue(row?.testid)}</Text>
+                          <Text fontSize="xs" color="gray.600">{displayValue(row?.test_name)}</Text>
+                        </Td>
+                        <Td>{displayValue(row?.approved_flg)}</Td>
+                        <Td>{displayValue(row?.outsourced_mode)}</Td>
+                        <Td>
+                          <Text>{displayValue(row?.resolver_status)}</Text>
+                          {row?.resolver_error ? (
+                            <Text fontSize="xs" color={denied ? "orange.500" : "red.400"}>{String(row.resolver_error)}</Text>
+                          ) : null}
+                        </Td>
+                        <Td>{displayValue(row?.route_hint)}</Td>
+                        <Td>
+                          {canSend ? (
+                            <Button
+                              size="xs"
+                              colorScheme="blue"
+                              onClick={() => openOutsourcedSendToModal(row)}
+                              isDisabled={denied}
+                            >
+                              Send To
+                            </Button>
+                          ) : (
+                            <Text fontSize="xs" color="gray.500">Not required</Text>
+                          )}
+                          {row?.send_result === "sent" ? (
+                            <Text fontSize="10px" color="green.600" mt={1}>Sent</Text>
+                          ) : null}
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+            </Box>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={outsourcedModal.onClose}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
       <SendReportTemplateModal
         isOpen={pushTemplateModal.isOpen}
-        onClose={pushTemplateModal.onClose}
-        defaultPhone={String(pushTemplateJob?.phone || "")}
-        registeredPhone={String(pushTemplateJob?.phone || "")}
-        defaultPatientName={String(pushTemplateJob?.patient_name || "")}
-        defaultReqno={String(pushTemplateJob?.reqno || "")}
+        onClose={() => {
+          setOutsourcedTemplateContext(null);
+          pushTemplateModal.onClose();
+        }}
+        defaultPhone={String(outsourcedTemplateContext?.phone || pushTemplateJob?.phone || "")}
+        registeredPhone={String(outsourcedTemplateContext?.phone || pushTemplateJob?.phone || "")}
+        defaultPatientName={String(outsourcedTemplateContext?.patient_name || pushTemplateJob?.patient_name || "")}
+        defaultReqno={String(outsourcedTemplateContext?.reqno || pushTemplateJob?.reqno || "")}
         defaultMrno={String(pushTemplateJob?.mrno || "")}
-        onSent={({ phone }) => {
+        defaultTestid={String(outsourcedTemplateContext?.testid || "")}
+        defaultReportSource={outsourcedTemplateContext ? "outsourced_report" : ""}
+        onSent={({ phone, reportSource, testid }) => {
+          if (reportSource === "outsourced_report" && testid) {
+            setOutsourcedRows((prev) =>
+              (Array.isArray(prev) ? prev : []).map((row) =>
+                String(row?.testid || "").trim() === String(testid || "").trim()
+                  ? { ...row, send_result: "sent" }
+                  : row
+              )
+            );
+          }
           toast({
             title: "Template sent",
             description: `Report template queued for ${phone}`,
