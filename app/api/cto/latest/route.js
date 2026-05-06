@@ -128,6 +128,11 @@ function isWithinBotActiveWindow(date = new Date()) {
   return minutes >= 7 * 60 && minutes <= 23 * 60;
 }
 
+function isWithinDispatchActiveWindow(date = new Date()) {
+  const minutes = getIstMinutes(date);
+  return minutes >= 7 * 60 + 30 && minutes <= 21 * 60 + 30;
+}
+
 function computeBotResponseSla({ rows = [], nowMs }) {
   const thresholdMs = 60 * 1000;
   const responseWindowMs = 10 * 60 * 1000;
@@ -660,6 +665,8 @@ function normalizeServiceStatus(row, nowMs = Date.now()) {
   const restartedRecently = Number.isFinite(restartAgeMs) && restartAgeMs <= 15 * 60 * 1000;
   const onlineNow = isOnlineLike(row);
   const isPm2 = isPm2ManagedService(row);
+  const sampleError = String(payload?.sample_error || "").trim().toLowerCase();
+  const recentErrorTotal = Number(payload?.recent_error_total || 0);
 
   // Realtime is optional in many deployments; do not raise scary degradation unless explicitly required.
   if (key.includes("supabase_realtime")) {
@@ -735,9 +742,15 @@ function hoursAgoIso(hours) {
 
 function isLikelyDispatchErrorText(text = "") {
   const value = String(text || "").toLowerCase();
+  if (!value) return false;
+  if (value.includes("keyboardinterrupt")) return false;
+  // Bare traceback header without exception body is often a truncated sample, not actionable by itself.
+  if (value.trim() === "traceback (most recent call last):") return false;
   return (
     value.includes("jsondecodeerror") ||
-    value.includes("traceback") ||
+    value.includes("traceback (most recent call last):") ||
+    value.includes("exception:") ||
+    value.includes("error ") ||
     value.includes("httperror") ||
     value.includes("error:") ||
     value.includes("exception")
@@ -811,13 +824,13 @@ async function loadAutoDispatchMetrics(labId) {
 
   const nowMs = Date.now();
   const dueLagMs = queueLagMinutes * 60 * 1000;
-  const overdueQueued = jobsList.filter((job) => {
+  const overdueQueuedRaw = jobsList.filter((job) => {
     if (job?.status !== "queued" || job?.is_paused) return false;
     const nextAt = parseIsoDate(job?.next_attempt_at);
     return nextAt ? nowMs - nextAt.getTime() > dueLagMs : false;
   });
 
-  const staleWait = jobsList.filter((job) => {
+  const staleWaitRaw = jobsList.filter((job) => {
     if (job?.sent_at || job?.is_paused) return false;
     const latest = latestEventByJobId.get(job?.id);
     if (!latest) return false;
@@ -829,6 +842,9 @@ async function loadAutoDispatchMetrics(labId) {
     if (eventType === "cooling_off") return ageHours >= cooloffHours;
     return false;
   });
+
+  const overdueQueued = overdueQueuedRaw;
+  const staleWait = staleWaitRaw;
 
   const sentStatusDrift = jobsList.filter((job) => {
     const latest = latestEventByJobId.get(job?.id);
@@ -851,7 +867,12 @@ async function loadAutoDispatchMetrics(labId) {
   const hardWorkerErrors = ctoLogList.filter((row) => {
     const status = String(row?.status || "").toLowerCase();
     const message = String(row?.message || "");
-    return status === "down" || status === "degraded" || isLikelyDispatchErrorText(message);
+    const serviceKey = String(row?.service_key || "").toLowerCase();
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    const recentErrorTotal = Number(payload?.recent_error_total || 0);
+    const sampleError = String(payload?.sample_error || "").trim();
+
+    return status === "down" || status === "degraded" || isLikelyDispatchErrorText(message) || isLikelyDispatchErrorText(sampleError);
   });
 
   const rows = [];
@@ -868,6 +889,7 @@ async function loadAutoDispatchMetrics(labId) {
           : `No queued jobs overdue by > ${queueLagMinutes}m`,
       payload: {
         overdue_count: overdueQueued.length,
+        overdue_raw_count: overdueQueuedRaw.length,
         threshold_minutes: queueLagMinutes,
         samples: overdueQueued.slice(0, 20).map((j) => ({ id: j.id, reqno: j.reqno, next_attempt_at: j.next_attempt_at }))
       }
@@ -887,6 +909,7 @@ async function loadAutoDispatchMetrics(labId) {
           : "No stale wait-state jobs",
       payload: {
         stuck_count: staleWait.length,
+        stuck_raw_count: staleWaitRaw.length,
         stuck_queued_wait_hours: waitHours,
         stuck_cooling_off_hours: cooloffHours,
         samples: staleWait.slice(0, 20).map((j) => {
