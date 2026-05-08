@@ -324,6 +324,7 @@ function extractLft(text) {
     bilIndirect: fld(page, /^Indirect Bilirubin\b/i),
     sgot: fld(page, /AST.*GOT|Aspartate/i),
     sgpt: fld(page, /ALT.*GPT|Alanine/i),
+    totalProteins: fld(page, /^Total Proteins\b/i),
     albumin:     fld(page, /^Albumin\b/i),
     globulin:    fld(page, /^Globulin\b/i),
     agRatio:     fld(page, /^A\/G Ratio\b/i),
@@ -375,9 +376,36 @@ function extractVitaminB12(text) {
 
 // ─── Hormonal ────────────────────────────────────────────────────────────────
 
-function extractPsa(text) {
-  const page = findPage(text, /Prostatic Specific Antigen/i);
-  return fld(page, /^Total Prostatic Specific Antigen\b/i);
+function extractHormonal(text) {
+  const page = findPage(text, /Serum FSH|Hormonal|Prostatic Specific Antigen|FSH|LH|Prolactin/i);
+  const full = String(text || "");
+  const fshRegexMatches = {
+    serumFshClia: matchOne(full, /Serum FSH[\s\S]{0,1600}?([0-9]+(?:\.[0-9]+)?)\s+CLIA\s+mIU\/mL/i),
+    serumFshUnit: matchOne(full, /Serum FSH[\s\S]{0,1600}?([0-9]+(?:\.[0-9]+)?)\s+mIU\/mL/i),
+    follicleStimulating: matchOne(full, /Follicle-?stimulating hormone\s*\(FSH\)\s*([0-9]+(?:\.[0-9]+)?)\s*mIU\/mL/i),
+    genericFsh: matchOne(full, /\bFSH\b[\s\S]{0,120}?([0-9]+(?:\.[0-9]+)?)\s+(?:mIU\/mL|IU\/L)/i),
+  };
+  const fshFull =
+    fshRegexMatches.serumFshClia ||
+    fshRegexMatches.serumFshUnit ||
+    fshRegexMatches.follicleStimulating ||
+    fshRegexMatches.genericFsh;
+  const lhFull =
+    matchOne(full, /\bLH\b[\s\S]{0,120}?([0-9]+(?:\.[0-9]+)?)\s+(?:mIU\/mL|IU\/L)/i);
+  const prolactinFull =
+    matchOne(full, /\bProlactin\b[\s\S]{0,120}?([0-9]+(?:\.[0-9]+)?)\s+(?:ng\/mL|mIU\/L)/i);
+  const psaFull =
+    matchOne(full, /Total Prostatic Specific Antigen[\s\S]{0,120}?([0-9]+(?:\.[0-9]+)?)\s+ng\/mL/i);
+  return {
+    fsh: fshFull ? { value: fshFull, flag: "" } : fld(page, /^Serum FSH\b|^FSH\b/i),
+    lh: lhFull ? { value: lhFull, flag: "" } : fld(page, /^Serum LH\b|^LH\b/i),
+    prolactin: prolactinFull ? { value: prolactinFull, flag: "" } : fld(page, /^Serum Prolactin\b|^Prolactin\b/i),
+    psa: psaFull ? { value: psaFull, flag: "" } : fld(page, /^Total Prostatic Specific Antigen\b/i),
+    __debug: {
+      pageSnippet: String(page || "").slice(0, 3500),
+      fshRegexMatches,
+    },
+  };
 }
 
 // ─── Blood Group ─────────────────────────────────────────────────────────────
@@ -397,10 +425,27 @@ function extractBloodGroup(text) {
 function extractViralMarkers(text) {
   const page = findPage(text, /Viral Markers Screen/i);
   if (!page) return {};
+  const cleanPage = String(page || "");
+  const resultOnly = cleanPage.split(/\bInterpretation\s*:/i)[0] || cleanPage;
+  const pickStatus = (line) => {
+    const s = String(line || "");
+    if (/\bNon-?Reactive\b/i.test(s)) return "Non-Reactive";
+    if (/\bNegative\b/i.test(s)) return "Negative";
+    if (/\bReactive\b/i.test(s)) return "Reactive";
+    if (/\bPositive\b/i.test(s)) return "Positive";
+    return "";
+  };
+  const lineFor = (labelRx) => {
+    const lines = resultOnly.split("\n");
+    return lines.find((l) => labelRx.test(l)) || "";
+  };
+  const hivLine = lineFor(/Antibodies to HIV|HIV-I|HIV-II/i);
+  const hbsagLine = lineFor(/Hepatitis B surface Antigen|HbsAg/i);
+  const hcvLine = lineFor(/Hepatitis C Virus Antibodies|HCV/i);
   return {
-    hiv:   matchOne(page, /Antibodies to HIV[^\n]+(Non-Reactive|Reactive|Positive|Negative)\b/i),
-    hbsag: matchOne(page, /Hepatitis B surface Antigen[^\n]+(Negative|Positive|Reactive|Non-Reactive)\b/i),
-    hcv:   matchOne(page, /Hepatitis C Virus Antibodies[^\n]+(Non-Reactive|Reactive|Positive|Negative)\b/i),
+    hiv: pickStatus(hivLine) || matchOne(resultOnly, /Antibodies to HIV[^\n]+(Non-Reactive|Negative|Reactive|Positive)\b/i),
+    hbsag: pickStatus(hbsagLine) || matchOne(resultOnly, /Hepatitis B surface Antigen[^\n]+(Non-Reactive|Negative|Reactive|Positive)\b/i),
+    hcv: pickStatus(hcvLine) || matchOne(resultOnly, /Hepatitis C Virus Antibodies[^\n]+(Non-Reactive|Negative|Reactive|Positive)\b/i),
   };
 }
 
@@ -412,6 +457,7 @@ function extractRadiology(text) {
   const usg   = findPage(text, /ULTRASOUND SCANNING|USG ABDOMEN/i);
   const xray  = findPage(text, /X-?\s*RAY CHEST|CHEST X-RAY/i);
   const mammo = findPage(text, /MAMMOGRAM|MAMMOGRAPHY|BIRADS/i);
+  const pap = findPage(text, /PAP SMEAR|PAPSMEAR|PAPS SMEAR|CERVICAL SMEAR/i);
 
   const echoEf  = matchOne(echo, /E\.?F\.?\s*:?\s*([\d.]+\s*%?)/i);
   const echoImp = matchOne(echo, /IMPRESSION\s+([\s\S]*?)(?:Dr\.|Page\s+\d+\s+of\s+\d+|Note:|$)/i)
@@ -437,16 +483,40 @@ function extractRadiology(text) {
   const xrayImp = matchOne(xray, /IMPRESSION:?\s*([^\n]+)/i) ||
     (/NORMAL\s+STUDY/i.test(xray) ? "NORMAL STUDY" : "");
 
-  const mammoImp = matchOne(mammo, /IMPRESSION\s+([\s\S]*?)(?:BIRADS|Dr\.|Page|Note:|$)/i)
+  let mammoImp = matchOne(mammo, /IMPRESSION\s+([\s\S]*?)(?:BIRADS|SCREENING|Dr\.|Page|Note:|$)/i)
     .replace(/\s+/g, " ").trim();
+  if (!mammoImp && mammo) {
+    mammoImp = matchOne(mammo, /MAMMOGRAM\s+([\s\S]*?)(?:BIRADS|SCREENING|Dr\.|Page|Note:|$)/i)
+      .replace(/\s+/g, " ")
+      .replace(/^(?:NRSA\s*\([^)]*\)\s*)?/i, "")
+      .trim();
+  }
+  if (!mammoImp && mammo) {
+    const sentences = String(mammo)
+      .replace(/\s+/g, " ")
+      .split(/\.\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => /no evidence|appear normal|homogenous|calcification|lymphadenopathy/i.test(s))
+      .slice(0, 4);
+    mammoImp = sentences.join(". ");
+  }
   const birads = matchOne(mammo, /BIRADS?\s*(?:Score|Category)?:?\s*([0-9]+)/i);
+  const papRaw =
+    matchOne(pap, /IMPRESSION\s*[:\-]?\s*([\s\S]*?)(?:Method\s*:|The Bethesda|Slide\(s\)|Advised to preserve|End of Report|Checked by:|Dr\.|Page|Note:|$)/i) ||
+    matchOne(pap, /PAP SMEAR[\s\S]{0,300}?((?:Negative|NILM|ASCUS|LSIL|HSIL)[\s\S]{0,220})/i);
+  const papImp = String(papRaw || "")
+    .replace(/\s+/g, " ")
+    .replace(/(?:Method\s*:|The Bethesda|Slide\(s\)|Advised to preserve|End of Report|Checked by:).*/i, "")
+    .trim();
 
   return {
     echo: echo ? [echoEf ? `EF ${echoEf}` : "", echoImp].filter(Boolean).join("; ") : "",
     tmt:  tmt ? {exerciseTime: tmtExercise, workload: tmtWorkload, maxHr: tmtMaxHr, maxBp: tmtMaxBp,  impression: rawTmtImp } : null,
     usg:  usgImp,
     xray: xrayImp,
-    mammogram: [mammoImp, birads ? `BIRADS ${birads}` : ""].filter(Boolean).join("; "),
+    mammogram: birads ? `BIRADS ${birads}` : "",
+    papImpression: papImp,
   };
 }
 
@@ -457,6 +527,18 @@ function buildSummary(rawText) {
 
   // Patient extraction needs raw text (spaces not yet collapsed) for name regex
   const patient = extractPatient(rawText);
+
+  const hormonal = extractHormonal(text);
+  const viral = extractViralMarkers(text);
+  const others = [
+    hormonal.fsh.value && `FSH ${hormonal.fsh.value}${hormonal.fsh.flag ? ` (${hormonal.fsh.flag})` : ""}`,
+    hormonal.lh.value && `LH ${hormonal.lh.value}${hormonal.lh.flag ? ` (${hormonal.lh.flag})` : ""}`,
+    hormonal.prolactin.value && `Prolactin ${hormonal.prolactin.value}${hormonal.prolactin.flag ? ` (${hormonal.prolactin.flag})` : ""}`,
+    hormonal.psa.value && `PSA ${hormonal.psa.value}${hormonal.psa.flag ? ` (${hormonal.psa.flag})` : ""}`,
+    viral.hiv && `HIV ${viral.hiv}`,
+    viral.hbsag && `HBsAg ${viral.hbsag}`,
+    viral.hcv && `HCV ${viral.hcv}`,
+  ].filter(Boolean).join(" | ");
 
   return {
     patient,
@@ -472,9 +554,10 @@ function buildSummary(rawText) {
       radio:      extractRadiology(text),
       vitD:       extractVitaminD(text),
       vitB12:     extractVitaminB12(text),
-      psa:        extractPsa(text),
+      hormonal,
       bloodGroup: extractBloodGroup(text),
-      viral:      extractViralMarkers(text),
+      viral,
+      others,
     },
   };
 }
@@ -517,7 +600,7 @@ function pipe(...parts) {
 function renderHtml(summary) {
   const p  = summary.patient;
   const iv = summary.investigations;
-  const { cbc, cue, glucose, hba1c, thyroid, lft, rft, lipid, radio, vitD, vitB12, psa, bloodGroup, viral } = iv;
+  const { cbc, cue, glucose, hba1c, thyroid, lft, rft, lipid, radio, vitD, vitB12, hormonal, bloodGroup, viral, others } = iv;
   const isFemale = /female/i.test(String(p.ageSex || ""));
 
   // ── CBP
@@ -545,6 +628,7 @@ function renderHtml(summary) {
     lft.bilIndirect.value && `I.Bil ${rf(lft.bilIndirect)}`,
     lft.sgot.value        && `SGOT ${rf(lft.sgot)}`,
     lft.sgpt.value        && `SGPT ${rf(lft.sgpt)}`,
+    lft.totalProteins.value && `T.Protein ${rf(lft.totalProteins)}`,
     lft.albumin.value     && `Alb ${rf(lft.albumin)}`,
     lft.globulin.value    && `Glob ${rf(lft.globulin)}`,
     lft.agRatio.value     && `A/G ${rf(lft.agRatio)}`,
@@ -637,12 +721,11 @@ function renderHtml(summary) {
   .advice-box { border: 1px solid #ccc; border-radius: 3px;
                 padding: 10px 14px; margin-top: 6px;
                 min-height: 70px; color: #888; font-style: italic; }
-  .sig {
-    text-align: left;
-    font-size: 12px;
-    line-height: 2;
-  }  
-    .page-break {
+  .page2-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .mini h2 { margin-top: 6px; }
+  .mini table td.lbl{ width: 145px; }
+  .doc-header { text-align: right; font-size: 12px; line-height: 1.6; margin-bottom: 8px; }
+  .page-break {
   page-break-before: always;
   break-before: page;
 }
@@ -662,7 +745,7 @@ function renderHtml(summary) {
 </style>
 </head>
 <body>
-
+<p><p><p><p>
 <h1>Health Checkup Summary</h1>
 <div class="meta">
   <b>Patient:</b> ${esc(p.name || "—")} &nbsp;&nbsp;
@@ -687,8 +770,13 @@ ${row("CUE", cueStr)}
 ${row("Fasting Blood Glucose", fbgStr)}
 ${row("Post Prandial Glucose", ppbgStr)}
 ${row("HbA1c", hba1cStr)}
-${row("Hormonal", psa.value ? `PSA ${rf(psa)}&nbsp;ng/mL` : "")}
-${row("Blood Group", rs(bloodGroup))}
+${row("Hormonal Investigations", pipe(
+  hormonal.fsh.value && `FSH ${rf(hormonal.fsh)}`,
+  hormonal.lh.value && `LH ${rf(hormonal.lh)}`,
+  hormonal.prolactin.value && `Prolactin ${rf(hormonal.prolactin)}`,
+  hormonal.psa.value && `PSA ${rf(hormonal.psa)}`
+))}
+${row("Others", rs(others))}
 </table>
 
 <h2>Radiology / Cardiology</h2>
@@ -698,15 +786,51 @@ ${row("2D Echo (with EF)", rs(radio.echo))}
 ${row("USG Abdomen", rs(radio.usg))}
 ${radio.tmt ? row("TMT", tmtContent) : ""}
 ${isFemale && radio.mammogram ? row("Mammogram", rs(radio.mammogram)) : ""}
+${isFemale && radio.papImpression ? row("PAP Smear Impression", rs(radio.papImpression)) : ""}
 </table>
 
 <div class="page-break"></div>
-<div class="sig">
+<div class="doc-header">
   Dr SAKETA TENNETI, MBBS<br>
   Reg. No.: 133913 (APMC)<br>
   Duty Medical Officer<br>
   Ph: 9652642952
 </div>
+<div class="page2-grid">
+  <div class="mini">
+    <h2>Demographics & Clinical Context</h2>
+    <table>
+    ${row("Date", rs(p.date))}
+    ${row("MR No", rs(p.mrNo))}
+    ${row("Patient Name", rs(p.name))}
+    ${row("Age / Sex", rs(p.ageSex))}
+    ${row("Blood Group", rs(bloodGroup))}
+    ${row("Occupation", "........................................")}
+    ${row("Activity", "........................................")}
+    </table>
+  </div>
+  <div class="mini">
+    <h2>Vital Data</h2>
+    <table>
+    ${row("BP", "........................................")}
+    ${row("PR", "........................................")}
+    ${row("SpO2", "........................................")}
+    ${row("Height", "........................................")}
+    ${row("Weight", "........................................")}
+    ${row("BMI", "........................................")}
+    </table>
+  </div>
+</div>
+
+<h2>History</h2>
+<table>
+${row("Pre-existing conditions / co-morbidities", "........................................")}
+${row("Surgical history", "........................................")}
+${row("Family history", "........................................")}
+${row("Personal history", "........................................")}
+${row("Drug / Food allergy", "........................................")}
+${row("Current medication", "........................................")}
+</table>
 
 <h2>Advice</h2>
 <!--
@@ -716,6 +840,15 @@ ${isFemale && radio.mammogram ? row("Mammogram", rs(radio.mammogram)) : ""}
   <b>Follow Up (if required):</b>
 </div>
 -->
+
+<div class="page-break"></div>
+<div class="doc-header">
+  Dr SAKETA TENNETI, MBBS<br>
+  Reg. No.: 133913 (APMC)<br>
+  Duty Medical Officer<br>
+  Ph: 9652642952
+</div>
+<h2>Clinical Notes</h2>
 
 </body>
 </html>`;
@@ -762,7 +895,7 @@ async function loadPdfBuffersFromReport(reqid, reqno) {
 
 // ─── Processing ───────────────────────────────────────────────────────────────
 
-async function processText(rawText, output = "json") {
+async function processText(rawText, output = "json", debug = false) {
   const text = cleanText(rawText);
 
   if (looksGibberish(text)) {
@@ -779,7 +912,16 @@ async function processText(rawText, output = "json") {
     return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
 
-  return NextResponse.json({ ok: true, summary, html, rawTextPreview: text.slice(0, 3000) });
+  const payload = { ok: true, summary, html, rawTextPreview: text.slice(0, 3000) };
+  if (debug) {
+    payload.debug = {
+      hormonalPageText: summary?.investigations?.hormonal?.__debug?.pageSnippet || "",
+      fshRegexMatches: summary?.investigations?.hormonal?.__debug?.fshRegexMatches || {},
+      hormonal: summary?.investigations?.hormonal || {},
+      others: summary?.investigations?.others || "",
+    };
+  }
+  return NextResponse.json(payload);
 }
 
 // ─── Route Handlers ───────────────────────────────────────────────────────────
@@ -790,12 +932,13 @@ export async function GET(req) {
     const reqid  = String(url.searchParams.get("reqid")  || "").trim();
     const reqno  = String(url.searchParams.get("reqno")  || "").trim();
     const output = String(url.searchParams.get("output") || url.searchParams.get("format") || "html").trim();
+    const debug  = String(url.searchParams.get("debug") || "").trim() === "1";
 
     const buffers = await loadPdfBuffersFromReport(reqid, reqno);
     const texts   = [];
     for (const b of buffers) texts.push(await extractTextFromBuffer(b));
 
-    return await processText(texts.join("\n\n"), output);
+    return await processText(texts.join("\n\n"), output, debug);
   } catch (err) {
     return NextResponse.json({ error: err?.message || "Failed to process /report PDF" }, { status: 500 });
   }
@@ -806,6 +949,7 @@ export async function POST(req) {
     const formData = await req.formData();
     const file     = formData.get("file");
     const output   = formData.get("output") || "json";
+    const debug    = String(formData.get("debug") || "").trim() === "1";
 
     if (!file) {
       return NextResponse.json({ error: "Missing PDF file field: file" }, { status: 400 });
@@ -813,7 +957,7 @@ export async function POST(req) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const raw    = await extractTextFromBuffer(buffer);
-    return await processText(raw, output);
+    return await processText(raw, output, debug);
   } catch (err) {
     return NextResponse.json({ error: err?.message || "Failed to process PDF" }, { status: 500 });
   }
