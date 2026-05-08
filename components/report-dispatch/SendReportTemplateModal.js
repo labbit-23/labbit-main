@@ -87,7 +87,7 @@ export default function SendReportTemplateModal({
         : source === "requisition_report"
           ? "Test"
           : source === "outsourced_report"
-            ? "Outsourced"
+            ? "Special"
             : "Latest"
     );
 
@@ -291,7 +291,7 @@ export default function SendReportTemplateModal({
                     : next === "requisition_report"
                       ? "Test"
                       : next === "outsourced_report"
-                        ? "Outsourced"
+                        ? "Special"
                         : "Latest"
                 );
               }}
@@ -301,7 +301,7 @@ export default function SendReportTemplateModal({
               <option value="requisition_report">Report by Requisition No</option>
               <option value="trend_report">Trend Report by MRNO</option>
               {(String(defaultReportSource || "").trim() === "outsourced_report" || reportSource === "outsourced_report") ? (
-                <option value="outsourced_report">Outsourced Report by Req/Test</option>
+                <option value="outsourced_report">Special Report by Req/Test</option>
               ) : null}
             </Select>
 

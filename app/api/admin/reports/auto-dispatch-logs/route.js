@@ -188,6 +188,37 @@ function parseSnapshotTests(job) {
   return Array.isArray(snap?.tests) ? snap.tests : [];
 }
 
+function summarizeReqnoHistory(rows) {
+  const byReqno = new Map();
+  for (const row of rows || []) {
+    const reqno = String(row?.reqno || "").trim();
+    if (!reqno) continue;
+    if (!byReqno.has(reqno)) {
+      byReqno.set(reqno, {
+        total_rows: 0,
+        status_counts: {},
+        last_sent_at: null,
+        latest_row_at: null
+      });
+    }
+    const bucket = byReqno.get(reqno);
+    bucket.total_rows += 1;
+    const st = String(row?.status || "").trim().toLowerCase() || "unknown";
+    bucket.status_counts[st] = Number(bucket.status_counts[st] || 0) + 1;
+    const sentAt = parseUtcishDate(row?.sent_at);
+    const prevSentAt = parseUtcishDate(bucket.last_sent_at);
+    if (sentAt && (!prevSentAt || sentAt.getTime() > prevSentAt.getTime())) {
+      bucket.last_sent_at = sentAt.toISOString();
+    }
+    const latestAt = parseUtcishDate(row?.updated_at || row?.created_at);
+    const prevLatestAt = parseUtcishDate(bucket.latest_row_at);
+    if (latestAt && (!prevLatestAt || latestAt.getTime() > prevLatestAt.getTime())) {
+      bucket.latest_row_at = latestAt.toISOString();
+    }
+  }
+  return byReqno;
+}
+
 function summarizeSnapshotBuckets(job) {
   const snap = parseMaybeJson(job?.last_status_snapshot) || {};
   const tests = Array.isArray(snap?.tests) ? snap.tests : [];
@@ -319,6 +350,24 @@ export async function GET(request) {
     }
 
     let enrichedJobs = Array.isArray(jobs) ? [...jobs] : [];
+
+    // For every visible reqno, attach all-time job history summary (same lab scope),
+    // so operators can understand repeated rows/retries/sent vs stuck context.
+    const reqnosForHistory = Array.from(
+      new Set(enrichedJobs.map((row) => String(row?.reqno || "").trim()).filter(Boolean))
+    );
+    let reqnoHistoryMap = new Map();
+    if (reqnosForHistory.length > 0) {
+      let historyQuery = supabase
+        .from(JOBS_TABLE)
+        .select("reqno,status,sent_at,created_at,updated_at")
+        .in("reqno", reqnosForHistory)
+        .order("updated_at", { ascending: false })
+        .limit(5000);
+      historyQuery = applyLabScope(historyQuery, labIds);
+      const { data: historyRows } = await historyQuery;
+      reqnoHistoryMap = summarizeReqnoHistory(historyRows || []);
+    }
     const providerIdByJobId = new Map();
     for (const row of enrichedJobs) {
       const id = extractProviderMessageIdFromJob(row);
@@ -397,10 +446,15 @@ export async function GET(request) {
     }
 
     // Always expose derived provider message id for UI/debug even when status rows are absent.
-    enrichedJobs = enrichedJobs.map((row) => ({
-      ...row,
-      provider_message_id: providerIdByJobId.get(Number(row?.id)) || extractProviderMessageIdFromJob(row) || null
-    }));
+    enrichedJobs = enrichedJobs.map((row) => {
+      const reqno = String(row?.reqno || "").trim();
+      const history = reqno ? (reqnoHistoryMap.get(reqno) || null) : null;
+      return {
+        ...row,
+        provider_message_id: providerIdByJobId.get(Number(row?.id)) || extractProviderMessageIdFromJob(row) || null,
+        reqno_history: history
+      };
+    });
 
     if (statusRows.length > 0) {
       const byMessageId = new Map();

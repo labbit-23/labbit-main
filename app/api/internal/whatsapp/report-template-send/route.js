@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabaseServer";
 import { digitsOnly, toCanonicalIndiaPhone } from "@/lib/phone";
 import {
   getLatestReportUrl,
+  getOutsourcedReportUrl,
   getReportStatus,
   getReportUrl,
   getTrendReportUrl
@@ -194,6 +195,19 @@ export async function POST(request) {
         return new Response(`Trend report PDF was not found for MRNO ${rawMrno}.`, { status: 400 });
       }
       resolvedMrno = rawMrno;
+    } else if (reportSource === "outsourced_report") {
+      const rawReqid = String(body?.reqid || "").trim();
+      const rawTestid = String(body?.testid || "").trim();
+      const rawReqno = String(body?.reqno || "").trim();
+      if (!rawReqid || !rawTestid) {
+        return new Response("ReqID and TestID are required for outsourced report.", { status: 400 });
+      }
+      documentUrl = getOutsourcedReportUrl(rawReqid, rawTestid);
+      if (!(await isReachablePdfDocument(documentUrl))) {
+        return new Response(`Outsourced report PDF was not found for requisition ${rawReqno || rawReqid}.`, { status: 400 });
+      }
+      resolvedReqid = rawReqid;
+      resolvedReqno = rawReqno || null;
     } else {
       return new Response("Invalid report source selected.", { status: 400 });
     }
@@ -266,7 +280,7 @@ export async function POST(request) {
       reqid: resolvedReqid,
       reqno: resolvedReqno,
       phone: phoneCheck.canonical,
-      reportType: reportSource === "trend_report" ? "trend" : "combined",
+      reportType: reportSource === "trend_report" ? "trend" : (reportSource === "outsourced_report" ? "outsourced" : "combined"),
       headerMode: "default",
       status: "success",
       resultCode: "INTERNAL_PRIVACY_SEND_OK",
@@ -278,6 +292,9 @@ export async function POST(request) {
         document_url: documentUrl,
         registered_phone: registeredPhoneRaw || null,
         mrno: resolvedMrno,
+        reqid: resolvedReqid,
+        reqno: resolvedReqno,
+        testid: reportSource === "outsourced_report" ? String(body?.testid || "").trim() : null,
         template_name: templateName,
         template_language: languageCode
       },

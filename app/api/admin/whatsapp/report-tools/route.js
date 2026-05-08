@@ -378,14 +378,6 @@ export async function POST(request) {
         if (!reportLabel) return new Response("Report/tests label is required", { status: 400 });
       }
 
-      const within24 = isWithin24Hours(chatSession?.last_user_message_at);
-      if (!dryRun && within24) {
-        return new Response(
-          "This patient is already in 24-hour window. Send free text in the existing chat instead of template.",
-          { status: 409 }
-        );
-      }
-
       const targetLabId = String(chatSession?.lab_id || labIds[0] || user?.lab_id || user?.labId || "").trim();
       if (!targetLabId) {
         return new Response("Lab scope not found for this user", { status: 400 });

@@ -2089,16 +2089,6 @@ export default function WhatsAppDashboard() {
 
     const canonicalTargetPhone = canonicalIndiaPhone(phoneRaw);
     const selectedCanonicalPhone = canonicalIndiaPhone(selectedSession?.phone || "");
-    if (
-      reportTemplateSource !== "outsourced_report" &&
-      selectedSessionWithin24 &&
-      canonicalTargetPhone &&
-      canonicalTargetPhone === selectedCanonicalPhone
-    ) {
-      setReportModalError("This chat is already in 24-hour live window. Send free text here instead of template.");
-      return;
-    }
-
     const patientName = String(reportTemplatePatientName || "").trim();
     if (!patientName) {
       setReportModalError("Patient name is required.");
@@ -2111,7 +2101,7 @@ export default function WhatsAppDashboard() {
         : source === "requisition_report"
           ? "Test"
           : source === "outsourced_report"
-            ? "Outsourced"
+            ? "Special"
           : "Latest";
     const registeredPhone = String(reportTemplateRegisteredPhone || "").trim();
     const reqno = String(reportTemplateReqno || "").trim();

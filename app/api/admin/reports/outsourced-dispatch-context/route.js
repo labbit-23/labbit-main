@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { cookies } from "next/headers";
-import { getOutsourcedReportMeta, getReportStatus } from "@/lib/neosoft/client";
+import { getOutsourcedReportMeta, getOutsourcedReportUrl, getReportStatus } from "@/lib/neosoft/client";
 import {
   canUseReportDispatch,
   getAllowedDispatchOrgIds,
@@ -82,6 +82,7 @@ export async function GET(request) {
           return {
             ...row,
             outsourced_mode: mode || "unavailable",
+            download_url: getOutsourcedReportUrl(row.reqid, row.testid),
             resolver_status: "ok",
             resolver_error: null,
             denied: false,
@@ -94,6 +95,7 @@ export async function GET(request) {
           return {
             ...row,
             outsourced_mode: "unavailable",
+            download_url: getOutsourcedReportUrl(row.reqid, row.testid),
             resolver_status: denied ? "denied" : "error",
             resolver_error: message || `Meta lookup failed (${status || "unknown"})`,
             denied,
@@ -115,4 +117,3 @@ export async function GET(request) {
     return new Response(error?.message || "Failed to resolve outsourced dispatch context", { status: 500 });
   }
 }
-

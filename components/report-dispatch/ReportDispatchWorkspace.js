@@ -12,6 +12,7 @@ import {
   Box,
   Button,
   ButtonGroup,
+  Checkbox,
   Flex,
   Heading,
   HStack,
@@ -40,7 +41,8 @@ import {
   useToast
 } from "@chakra-ui/react";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
-import { FiActivity, FiList, FiMessageCircle, FiPause, FiPlay, FiPrinter, FiSend, FiShare2, FiUploadCloud } from "react-icons/fi";
+import { FiActivity, FiList, FiPause, FiPlay, FiPrinter, FiShare2, FiUploadCloud } from "react-icons/fi";
+import { FaWhatsapp } from "react-icons/fa";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
@@ -60,6 +62,37 @@ function toneByMode(mode) {
 
 function displayValue(value) {
   const text = String(value || "").trim();
+  return text || "-";
+}
+
+function yesNo(value) {
+  const text = String(value || "").trim();
+  if (text === "1" || /^y(es)?$/i.test(text) || /^true$/i.test(text)) return "Yes";
+  if (!text) return "-";
+  return "No";
+}
+
+function friendlyOutsourcedMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "attached_base" || mode === "attached_qr") return "PDF Attachment";
+  if (mode === "transcribed") return "In Main Report";
+  if (!mode || mode === "unavailable") return "Unavailable";
+  return mode;
+}
+
+function friendlyResolver(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "ok") return "PDF Found";
+  if (text === "denied") return "Not Allowed";
+  if (!text) return "-";
+  return text;
+}
+
+function friendlyRoute(value) {
+  const text = String(value || "").trim();
+  if (text.includes("Send separately")) return "Send as separate PDF";
+  if (text.includes("Included in /report")) return "Already in main report";
+  if (text.includes("SOURCE_CONFIDENTIAL_DO_NOT_SEND")) return "Do not send";
   return text || "-";
 }
 
@@ -246,6 +279,26 @@ function reqDateFromReqno(reqno) {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+function pickNewestJob(a, b) {
+  const ta = parseTimestamp(a?.updated_at || a?.created_at)?.getTime() || 0;
+  const tb = parseTimestamp(b?.updated_at || b?.created_at)?.getTime() || 0;
+  if (tb !== ta) return tb > ta ? b : a;
+  const ia = Number(a?.id || 0);
+  const ib = Number(b?.id || 0);
+  return ib >= ia ? b : a;
+}
+
+function collapseByReqno(rows) {
+  const map = new Map();
+  for (const row of rows || []) {
+    const reqno = String(row?.reqno || "").trim();
+    if (!reqno) continue;
+    const prev = map.get(reqno);
+    map.set(reqno, prev ? pickNewestJob(prev, row) : row);
+  }
+  return Array.from(map.values());
+}
+
 function queuedBlockers(job) {
   const snap = parseSnapshot(job?.last_status_snapshot);
   const tests = Array.isArray(snap?.tests) ? snap.tests : [];
@@ -264,6 +317,18 @@ function queuedBlockers(job) {
 }
 
 function buildWhyText(job) {
+  const history = job?.reqno_history && typeof job.reqno_history === "object" ? job.reqno_history : null;
+  const historyTotal = Number(history?.total_rows || 0);
+  const historyCounts = history?.status_counts && typeof history.status_counts === "object" ? history.status_counts : {};
+  const historyText =
+    historyTotal > 1
+      ? `History: ${historyTotal} rows (${Object.entries(historyCounts)
+          .filter(([, count]) => Number(count) > 0)
+          .sort((a, b) => Number(b[1]) - Number(a[1]))
+          .map(([st, count]) => `${count} ${String(st).toUpperCase()}`)
+          .join(", ")})`
+      : "";
+
   if (job?.is_paused) {
     const snap = parseSnapshot(job?.last_status_snapshot) || {};
     const labReady = Number(snap?.lab_ready ?? 0);
@@ -281,6 +346,7 @@ function buildWhyText(job) {
     if (readyText) parts.push(readyText);
     if (blockers) parts.push(`Pending tests: ${blockers}`);
     if (decisionReason) parts.push(decisionReason);
+    if (historyText) parts.push(historyText);
     return parts.join(" • ") || "-";
   }
   const status = String(job?.status || "").trim().toLowerCase();
@@ -312,6 +378,7 @@ function buildWhyText(job) {
     else if (decisionMode === "manual_review") parts.push("Manual review advised");
     if (decisionReason) parts.push(decisionReason);
     parts.push(`Cooling until ${formatIstDateTime(queueTimeForDisplay(job))}`);
+    if (historyText) parts.push(historyText);
     return parts.join(" • ");
   }
 
@@ -321,6 +388,7 @@ function buildWhyText(job) {
     if (blockers) parts.push(`Pending tests: ${blockers}`);
     if (decisionReason) parts.push(decisionReason);
     parts.push(`Next check ${formatIstDateTime(queueTimeForDisplay(job))}`);
+    if (historyText) parts.push(historyText);
     return parts.join(" • ");
   }
 
@@ -328,13 +396,15 @@ function buildWhyText(job) {
     const parts = [readyText];
     if (isPartial) parts.push("Sent as partial report");
     if (decisionReason) parts.push(decisionReason);
+    if (historyText) parts.push(historyText);
     return parts.join(" • ");
   }
 
-  if (decisionReason && readyText) return `${readyText} • ${decisionReason}`;
-  if (decisionReason) return decisionReason;
-  if (readyText) return readyText;
-  return stateHint(job);
+  if (decisionReason && readyText) return `${readyText} • ${decisionReason}${historyText ? ` • ${historyText}` : ""}`;
+  if (decisionReason) return `${decisionReason}${historyText ? ` • ${historyText}` : ""}`;
+  if (readyText) return `${readyText}${historyText ? ` • ${historyText}` : ""}`;
+  const fallback = stateHint(job);
+  return historyText ? `${fallback} • ${historyText}` : fallback;
 }
 
 function fallbackAutoPermissions(role) {
@@ -384,6 +454,8 @@ export default function ReportDispatchWorkspace({
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
   const [showSentInline, setShowSentInline] = useState(false);
+  const [sentInlineRows, setSentInlineRows] = useState([]);
+  const [sentInlineLoading, setSentInlineLoading] = useState(false);
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -428,6 +500,7 @@ export default function ReportDispatchWorkspace({
   const [outsourcedRows, setOutsourcedRows] = useState([]);
   const [outsourcedLoading, setOutsourcedLoading] = useState(false);
   const [outsourcedError, setOutsourcedError] = useState("");
+  const [outsourcedIncludeHeader, setOutsourcedIncludeHeader] = useState(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -483,6 +556,12 @@ export default function ReportDispatchWorkspace({
   }, [selectedDate]);
 
   useEffect(() => {
+    if (!monitorOpen || !showSentInline) return;
+    loadSentInlineRows({ limit: 1000 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, showSentInline, monitorOpen]);
+
+  useEffect(() => {
     let active = true;
     async function loadPermissions() {
       try {
@@ -533,15 +612,40 @@ export default function ReportDispatchWorkspace({
 
   const autoFilteredJobs = useMemo(() => {
     const rows = [...(Array.isArray(autoJobs) ? autoJobs : [])].sort(byReqnoDesc);
+    const q = String(autoSearch || "").trim().toLowerCase();
+    // Search overrides status/view filters so operators can quickly find any row
+    // (sent/pending/cancelled) from one input.
+    if (q) {
+      const searched = rows.filter((row) => {
+        const historyCounts = row?.reqno_history?.status_counts && typeof row.reqno_history.status_counts === "object"
+          ? Object.entries(row.reqno_history.status_counts).map(([k, v]) => `${k}:${v}`).join(" ")
+          : "";
+        const historyText = row?.reqno_history?.total_rows ? `history ${row.reqno_history.total_rows}` : "";
+        const hay = [
+          row?.reqno,
+          row?.reqid,
+          row?.patient_name,
+          row?.phone,
+          row?.status,
+          extractProviderMessageId(row),
+          row?.is_paused ? "paused" : "active",
+          row?.report_label,
+          row?.last_error,
+          historyText,
+          historyCounts
+        ].map((v) => String(v || "").toLowerCase()).join(" ");
+        return hay.includes(q);
+      });
+      return collapseByReqno(searched).sort(byReqnoDesc);
+    }
+
     const viewFilter = String(autoViewFilter || "pending").trim().toLowerCase();
     const byView = viewFilter === "all"
       ? rows
       : rows.filter((row) => !["sent", "cancelled"].includes(String(row?.status || "").trim().toLowerCase()));
     const status = String(autoStatusFilter || "").trim().toLowerCase();
     const byStatus = !status ? byView : byView.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
-    const q = String(autoSearch || "").trim().toLowerCase();
-    if (!q) return byStatus;
-    return byStatus.filter((row) => {
+    const filtered = byStatus.filter((row) => {
       const hay = [
         row?.reqno,
         row?.reqid,
@@ -555,13 +659,12 @@ export default function ReportDispatchWorkspace({
       ].map((v) => String(v || "").toLowerCase()).join(" ");
       return hay.includes(q);
     });
+    return collapseByReqno(filtered).sort(byReqnoDesc);
   }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter]);
 
   const sentDispatchRows = useMemo(() => {
-    return [...(Array.isArray(autoJobs) ? autoJobs : [])]
-      .filter((row) => String(row?.status || "").toLowerCase() === "sent")
-      .sort(byReqnoDesc);
-  }, [autoJobs]);
+    return [...(Array.isArray(sentInlineRows) ? sentInlineRows : [])].sort(byReqnoDesc);
+  }, [sentInlineRows]);
 
   const monitorDateStats = useMemo(() => {
     const key = String(selectedDate || "").replace(/-/g, "");
@@ -721,6 +824,12 @@ export default function ReportDispatchWorkspace({
 
   async function handleLookup(e) {
     e.preventDefault();
+    if (isScopedMode) return;
+    setSelectedReportMeta(null);
+    await lookupByReqno(reqnoInput, { preferredPhone: "" });
+  }
+
+  async function handleReqnoQuickLookup() {
     if (isScopedMode) return;
     setSelectedReportMeta(null);
     await lookupByReqno(reqnoInput, { preferredPhone: "" });
@@ -898,6 +1007,26 @@ export default function ReportDispatchWorkspace({
     }
   }
 
+  async function loadSentInlineRows(options = {}) {
+    setSentInlineLoading(true);
+    try {
+      const limit = Number(options?.limit || 1000);
+      const query = new URLSearchParams({ limit: String(limit), status: "sent" });
+      if (selectedDate) query.set("selected_date", selectedDate);
+      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setSentInlineRows(Array.isArray(json?.jobs) ? json.jobs : []);
+      return true;
+    } catch (err) {
+      setSentInlineRows([]);
+      setError(err?.message || "Failed to load sent reports");
+      return false;
+    } finally {
+      setSentInlineLoading(false);
+    }
+  }
+
   async function openAutoEvents(job) {
     const jobId = String(job?.id || "").trim();
     if (!jobId) return;
@@ -1037,8 +1166,34 @@ export default function ReportDispatchWorkspace({
       reqno,
       testid
     });
-    outsourcedModal.onClose();
     pushTemplateModal.onOpen();
+  }
+
+  function openOutsourcedDownload(row) {
+    const downloadUrl = String(row?.download_url || "").trim();
+    if (!downloadUrl) {
+      toast({
+        title: "Missing download context",
+        description: "Download URL is not available for this row.",
+        status: "error",
+        duration: 2200,
+        isClosable: true
+      });
+      return;
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const url = new URL(downloadUrl);
+        if (outsourcedIncludeHeader) {
+          url.searchParams.delete("chkrephead");
+        } else {
+          url.searchParams.set("chkrephead", "0");
+        }
+        window.open(url.toString(), "_blank", "noopener,noreferrer");
+      } catch {
+        window.open(downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    }
   }
 
   function openBulkConfirm(action, jobIds) {
@@ -1234,6 +1389,33 @@ export default function ReportDispatchWorkspace({
     window.open(`/api/smart-reports/trend-data?${openQuery.toString()}`, "_blank", "noopener,noreferrer");
   }
 
+  function openSmartSummary() {
+    const mrno = currentMrno();
+    if (!mrno) return;
+
+    const baseParams = {
+      mrno,
+      reqid: currentReqid(),
+      reqno: currentReqno()
+    };
+
+    if (actionMode === "download") {
+      const pdfQuery = new URLSearchParams({
+        ...baseParams,
+        format: "pdf",
+        download: "1"
+      });
+      window.open(`/api/report-summary?${pdfQuery.toString()}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const openQuery = new URLSearchParams({
+      ...baseParams,
+      format: "html"
+    });
+    window.open(`/api/report-summary?${openQuery.toString()}`, "_blank", "noopener,noreferrer");
+  }
+
   const decision = status?.decision || null;
   const tone = toneByMode(decision?.mode);
   const activeMeta =
@@ -1300,7 +1482,7 @@ export default function ReportDispatchWorkspace({
                   setMonitorOpen(next);
                   if (next) await loadAutoDispatchJobs({ limit: 120, resetPage: true });
                 }}
-                leftIcon={monitorOpen ? <FiPrinter /> : <FiMessageCircle />}
+                leftIcon={monitorOpen ? <FiPrinter /> : <FaWhatsapp />}
               >
                 {monitorOpen ? "Report Dispatch" : "Dispatch Monitor"}
               </Button>
@@ -1319,32 +1501,16 @@ export default function ReportDispatchWorkspace({
                 <Flex direction={{ base: "column", xl: "row" }} gap={2} align={{ base: "stretch", xl: "center" }} justify="space-between">
                   <form onSubmit={handleLookup} style={{ width: "100%", minWidth: 0 }}>
                     <Flex direction="column" gap={2} maxW={{ base: "full", xl: "700px" }}>
-                      {!isScopedMode && (
-                        <Flex gap={2} wrap="nowrap" align="center">
-                          <Input
-                            size="sm"
-                            flex="1"
-                            minW={0}
-                            maxW={{ base: "none", xl: "240px" }}
-                            value={reqnoInput}
-                            onChange={(e) => setReqnoInput(e.target.value)}
-                            placeholder="REQNO"
-                          />
-                          <Button type="submit" leftIcon={<SearchIcon />} size="sm" colorScheme="blue" isLoading={loadingStatus} flexShrink={0}>
-                            Check Status
-                          </Button>
-                        </Flex>
-                      )}
                       <Button
                         size="sm"
-                        leftIcon={<SearchIcon />}
+                        leftIcon={<FiList />}
                         colorScheme="blue"
                         onClick={handleOpenDateModal}
                         isLoading={dailyLoading}
                         flexShrink={0}
                         w={{ base: "full", sm: "auto" }}
                       >
-                        Requisitions of {selectedDate}
+                        List Requisitions
                       </Button>
                       <Text
                         fontSize="xs"
@@ -1397,11 +1563,28 @@ export default function ReportDispatchWorkspace({
                 <Text fontWeight="semibold" mb={2}>Search by Mobile No</Text>
                 <Flex gap={2} wrap="nowrap" align="center">
                   <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} maxW={{ base: "none", md: "220px" }} />
-                  <Button size="sm" leftIcon={<SearchIcon />} colorScheme="blue" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
+                  <Button size="sm" leftIcon={<SearchIcon />} colorScheme="teal" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
                 </Flex>
+                {!isScopedMode ? (
+                  <Flex gap={2} wrap="nowrap" align="center" mt={2}>
+                    <Input
+                      size="sm"
+                      value={reqnoInput}
+                      onChange={(e) => setReqnoInput(e.target.value)}
+                      placeholder="REQNO"
+                      flex="1"
+                      minW={0}
+                      maxW={{ base: "none", md: "220px" }}
+                    />
+                    <Button size="sm" leftIcon={<SearchIcon />} colorScheme="blue" onClick={handleReqnoQuickLookup} isLoading={loadingStatus} flexShrink={0}>
+                      Check Status
+                    </Button>
+                  </Flex>
+                ) : null}
                 <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
-                  Cached: {(Array.isArray(phoneReports) ? phoneReports.length : 0)}
+                  Auto-dispatch: {activeAutoJob ? `${String(activeAutoJob?.status || "-").toUpperCase()}${activeAutoJob?.sent_at ? ` • ${formatIstDateTime(activeAutoJob.sent_at)}` : ""}` : "No dispatch record yet"}
                 </Text>
+                <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Cached: {(Array.isArray(phoneReports) ? phoneReports.length : 0)}</Text>
               </Box>
             )}
 
@@ -1422,6 +1605,9 @@ export default function ReportDispatchWorkspace({
                 </Button>
                 <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="purple" onClick={openSmartTrends} isDisabled={!hasStatus || !canSmartTrends}>
                   Trends v2.0
+                </Button>
+                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="cyan" onClick={openSmartSummary} isDisabled={!hasStatus || !canSmartTrends}>
+                  Summary
                 </Button>
                 <Button
                   size="sm"
@@ -1505,8 +1691,10 @@ export default function ReportDispatchWorkspace({
                     leftIcon={<FiList />}
                     variant="outline"
                     minW="120px"
-                    onClick={() => {
-                      setShowSentInline((v) => !v);
+                    onClick={async () => {
+                      const next = !showSentInline;
+                      setShowSentInline(next);
+                      if (next) await loadSentInlineRows({ limit: 1000 });
                     }}
                   >
                     {showSentInline ? "Hide Sent" : "View Sent"}
@@ -1664,7 +1852,9 @@ export default function ReportDispatchWorkspace({
                   <Text fontWeight="semibold" fontSize="sm">Sent Reports</Text>
                   <Badge colorScheme="green">{sentDispatchRows.length}</Badge>
                 </Flex>
-                {sentDispatchRows.length === 0 ? (
+                {sentInlineLoading ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading sent reports...</Text>
+                ) : sentDispatchRows.length === 0 ? (
                   <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
                 ) : (
                   isMobileViewport ? (
@@ -1783,8 +1973,8 @@ export default function ReportDispatchWorkspace({
                           <Tooltip label="Events" hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} />
                           </Tooltip>
-                          <Tooltip label="Push now" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="Push now" colorScheme="blue" icon={<FiSend />} onClick={() => confirmAndPushJob(job)} isDisabled={!canPushRow} isLoading={isRowActionLoading(jobId, "push_now")} />
+                          <Tooltip label="WhatsApp dispatch now" hasArrow openDelay={250}>
+                            <IconButton size="xs" type="button" aria-label="WhatsApp dispatch now" colorScheme="whatsapp" icon={<FaWhatsapp />} onClick={() => confirmAndPushJob(job)} isDisabled={!canPushRow} isLoading={isRowActionLoading(jobId, "push_now")} />
                           </Tooltip>
                           <Tooltip label="Push to" hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<FiUploadCloud />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
@@ -1927,13 +2117,13 @@ export default function ReportDispatchWorkspace({
                                   _hover={{ bg: "gray.100" }}
                                 />
                               </Tooltip>
-                              <Tooltip label="Push now" hasArrow openDelay={250}>
+                              <Tooltip label="WhatsApp dispatch now" hasArrow openDelay={250}>
                                 <IconButton
                                   size="xs"
                                   type="button"
-                                  aria-label="Push now"
-                                  colorScheme="blue"
-                                  icon={<FiSend />}
+                                  aria-label="WhatsApp dispatch now"
+                                  colorScheme="whatsapp"
+                                  icon={<FaWhatsapp />}
                                   onClick={() => confirmAndPushJob(job)}
                                   isDisabled={!canPushRow}
                                   isLoading={isRowActionLoading(jobId, "push_now")}
@@ -2239,15 +2429,24 @@ export default function ReportDispatchWorkspace({
             {outsourcedError ? (
               <Text color="red.400" mb={2}>{outsourcedError}</Text>
             ) : null}
+            <HStack mb={2} justify="flex-end">
+              <Checkbox
+                size="sm"
+                isChecked={outsourcedIncludeHeader}
+                onChange={(e) => setOutsourcedIncludeHeader(Boolean(e.target.checked))}
+              >
+                Include Header
+              </Checkbox>
+            </HStack>
             <Box overflow="auto" maxH="60vh" borderWidth="1px" borderColor="gray.200" borderRadius="md">
               <Table size="sm" variant="simple">
                 <Thead>
                   <Tr>
                     <Th>Test</Th>
                     <Th>Approved</Th>
-                    <Th>Mode</Th>
-                    <Th>Resolver</Th>
-                    <Th>Route</Th>
+                    <Th>Type</Th>
+                    <Th>PDF Status</Th>
+                    <Th>Send Method</Th>
                     <Th>Action</Th>
                   </Tr>
                 </Thead>
@@ -2270,28 +2469,39 @@ export default function ReportDispatchWorkspace({
                     return (
                       <Tr key={rowKey}>
                         <Td>
-                          <Text fontWeight="semibold">{displayValue(row?.testid)}</Text>
-                          <Text fontSize="xs" color="gray.600">{displayValue(row?.test_name)}</Text>
+                          <Text fontWeight="semibold">{displayValue(row?.test_name)}</Text>
                         </Td>
-                        <Td>{displayValue(row?.approved_flg)}</Td>
-                        <Td>{displayValue(row?.outsourced_mode)}</Td>
+                        <Td>{yesNo(row?.approved_flg)}</Td>
+                        <Td>{friendlyOutsourcedMode(row?.outsourced_mode)}</Td>
                         <Td>
-                          <Text>{displayValue(row?.resolver_status)}</Text>
+                          <Text>{friendlyResolver(row?.resolver_status)}</Text>
                           {row?.resolver_error ? (
                             <Text fontSize="xs" color={denied ? "orange.500" : "red.400"}>{String(row.resolver_error)}</Text>
                           ) : null}
                         </Td>
-                        <Td>{displayValue(row?.route_hint)}</Td>
+                        <Td>{friendlyRoute(row?.route_hint)}</Td>
                         <Td>
                           {canSend ? (
-                            <Button
-                              size="xs"
-                              colorScheme="blue"
-                              onClick={() => openOutsourcedSendToModal(row)}
-                              isDisabled={denied}
-                            >
-                              Send To
-                            </Button>
+                            <HStack spacing={1}>
+                              <IconButton
+                                size="xs"
+                                aria-label="Download outsourced report"
+                                icon={<DownloadIcon />}
+                                variant="outline"
+                                onClick={() => openOutsourcedDownload(row)}
+                              />
+                              <IconButton
+                                size="xs"
+                                aria-label="Send outsourced report on WhatsApp"
+                                icon={<FaWhatsapp />}
+                                bg="#25D366"
+                                color="white"
+                                _hover={{ bg: "#1ebe5d" }}
+                                _active={{ bg: "#179f4c" }}
+                                onClick={() => openOutsourcedSendToModal(row)}
+                                isDisabled={denied}
+                              />
+                            </HStack>
                           ) : (
                             <Text fontSize="xs" color="gray.500">Not required</Text>
                           )}
