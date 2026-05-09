@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 const execFileAsync = promisify(execFile);
 const NEOSOFT_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
-const FETCH_TIMEOUT_MS = Number(process.env.NEOSOFT_TIMEOUT_MS || 20000);
+const FETCH_TIMEOUT_MS = Number(process.env.NEOSOFT_TIMEOUT_MS || 60000);
 
 // ─── Text Cleaning ────────────────────────────────────────────────────────────
 
@@ -38,6 +38,11 @@ async function fetchWithTimeout(url, options = {}) {
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     return await fetch(url, { ...options, signal: controller.signal, cache: "no-store" });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`NeoSoft /report timed out after ${FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -117,12 +122,13 @@ function extractField(page, labelRegex, opts = {}) {
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
-    if (!labelRegex.test(line)) continue;
+    const lineTrim = String(line || "").trimStart();
+    if (!labelRegex.test(lineTrim)) continue;
 
     // Optionally include the next line for wrap cases
     const combined = opts.combined
-      ? line + " " + (lines[idx + 1] || "")
-      : line;
+      ? lineTrim + " " + String(lines[idx + 1] || "").trimStart()
+      : lineTrim;
 
     // Strip the matched label from the front
     const afterLabel = combined.replace(labelRegex, "");
@@ -503,8 +509,8 @@ function extractRadiology(text) {
   }
   const birads = matchOne(mammo, /BIRADS?\s*(?:Score|Category)?:?\s*([0-9]+)/i);
   const papRaw =
-    matchOne(pap, /IMPRESSION\s*[:\-]?\s*([\s\S]*?)(?:Method\s*:|The Bethesda|Slide\(s\)|Advised to preserve|End of Report|Checked by:|Dr\.|Page|Note:|$)/i) ||
-    matchOne(pap, /PAP SMEAR[\s\S]{0,300}?((?:Negative|NILM|ASCUS|LSIL|HSIL)[\s\S]{0,220})/i);
+    matchOne(pap, /Interpretation\s*\/\s*Result\s*[:\-]?\s*([\s\S]*?)(?:Method\s*:|The Bethesda|Slide\(s\)|Advised to preserve|End of Report|Checked by:|Dr\.|Page|Note:|$)/i) ||
+    matchOne(pap, /IMPRESSION\s*[:\-]?\s*([\s\S]*?)(?:Method\s*:|The Bethesda|Slide\(s\)|Advised to preserve|End of Report|Checked by:|Dr\.|Page|Note:|$)/i);
   const papImp = String(papRaw || "")
     .replace(/\s+/g, " ")
     .replace(/(?:Method\s*:|The Bethesda|Slide\(s\)|Advised to preserve|End of Report|Checked by:).*/i, "")
@@ -781,12 +787,12 @@ ${row("Others", rs(others))}
 
 <h2>Radiology / Cardiology</h2>
 <table>
-${row("Chest X-Ray", rs(radio.xray))}
-${row("2D Echo (with EF)", rs(radio.echo))}
-${row("USG Abdomen", rs(radio.usg))}
-${radio.tmt ? row("TMT", tmtContent) : ""}
-${isFemale && radio.mammogram ? row("Mammogram", rs(radio.mammogram)) : ""}
-${isFemale && radio.papImpression ? row("PAP Smear Impression", rs(radio.papImpression)) : ""}
+${row("Chest X-Ray", rs(radio.xray) || "........................................")}
+${row("2D Echo (with EF)", rs(radio.echo) || "........................................")}
+${row("USG Abdomen", rs(radio.usg) || "........................................")}
+${row("TMT", tmtContent || "........................................")}
+${isFemale ? row("Mammogram", rs(radio.mammogram) || "........................................") : ""}
+${isFemale ? row("PAP Smear Impression", rs(radio.papImpression) || "........................................") : ""}
 </table>
 
 <div class="page-break"></div>
@@ -868,29 +874,15 @@ async function loadPdfBuffersFromReport(reqid, reqno) {
   common.set("without_header_background", "true");
 
   const reqidEnc = encodeURIComponent(reqid);
-  const sources = [
-    `${NEOSOFT_BASE_URL}/report/${reqidEnc}?${common.toString()}`,
-    `${NEOSOFT_BASE_URL}/reports/${reqidEnc}?${common.toString()}`,
-    `${NEOSOFT_BASE_URL}/radiologyreport/${reqidEnc}?chkrephead=0&header_mode=plain&without_header_background=true`,
-  ];
-
-  const buffers = [];
-  let primaryError = "";
-  for (let i = 0; i < sources.length; i++) {
-    const res = await fetchWithTimeout(sources[i], { headers: { Accept: "application/pdf,*/*" } }).catch(() => null);
-    if (!res || !res.ok) {
-      if (i === 0) {
-        const detail = res ? await res.text().catch(() => "") : "";
-        primaryError = `Primary /report failed${res ? ` (${res.status})` : ""}${detail ? ` ${detail.slice(0, 120)}` : ""}`;
-      }
-      continue;
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length) buffers.push(buf);
+  const url = `${NEOSOFT_BASE_URL}/report/${reqidEnc}?${common.toString()}`;
+  const res = await fetchWithTimeout(url, { headers: { Accept: "application/pdf,*/*" } });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Primary /report failed (${res.status})${detail ? ` ${detail.slice(0, 120)}` : ""}`);
   }
-
-  if (!buffers.length) throw new Error(primaryError || "No report PDF source available");
-  return buffers;
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length) throw new Error("Empty /report PDF response");
+  return [buf];
 }
 
 // ─── Processing ───────────────────────────────────────────────────────────────
