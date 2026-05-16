@@ -650,6 +650,12 @@ function CtoDashboardPage() {
   const [feedbackDetailsLoading, setFeedbackDetailsLoading] = useState(false);
   const [feedbackDetailsError, setFeedbackDetailsError] = useState("");
   const [feedbackDetailsTitle, setFeedbackDetailsTitle] = useState("");
+  const [pm2Apps, setPm2Apps] = useState([]);
+  const [pm2SelectedApp, setPm2SelectedApp] = useState("report-sender");
+  const [pm2LogText, setPm2LogText] = useState("");
+  const [pm2Loading, setPm2Loading] = useState(false);
+  const [pm2Error, setPm2Error] = useState("");
+  const [pm2ReloadTick, setPm2ReloadTick] = useState(0);
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const [showVpsRunbook, setShowVpsRunbook] = useState(false);
   const [dashboardTab, setDashboardTab] = useState("cto");
@@ -756,6 +762,68 @@ function CtoDashboardPage() {
       refreshRef.current = null;
     };
   }, [selectedLabId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPm2Apps() {
+      try {
+        const res = await fetch("/api/cto/pm2-logs?mode=list", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        const apps = Array.isArray(body?.apps) ? body.apps : [];
+        setPm2Apps(apps);
+        if (apps.length > 0 && !apps.includes(pm2SelectedApp)) {
+          setPm2SelectedApp(apps[0]);
+        }
+      } catch {
+        if (!cancelled) setPm2Apps([]);
+      }
+    }
+    loadPm2Apps();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPm2Tail() {
+      if (!pm2SelectedApp) {
+        setPm2LogText("");
+        return;
+      }
+      setPm2Loading(true);
+      setPm2Error("");
+      try {
+        const params = new URLSearchParams({
+          mode: "tail",
+          app: pm2SelectedApp,
+          lines: "120",
+        });
+        const res = await fetch(`/api/cto/pm2-logs?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body?.error || "Failed to load PM2 logs");
+        if (!cancelled) setPm2LogText(String(body?.output || ""));
+      } catch (error) {
+        if (!cancelled) {
+          setPm2Error(error?.message || "Failed to load PM2 logs");
+          setPm2LogText("");
+        }
+      } finally {
+        if (!cancelled) setPm2Loading(false);
+      }
+    }
+    loadPm2Tail();
+    return () => {
+      cancelled = true;
+    };
+  }, [pm2SelectedApp, pm2ReloadTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1106,6 +1174,7 @@ function CtoDashboardPage() {
         !isFreshService(service)
     );
   }, [latest.services]);
+  const staleServiceCount = staleServices.length;
 
   const groupConfig = useMemo(() => {
     return (latest.services || [])
@@ -1164,7 +1233,7 @@ function CtoDashboardPage() {
     );
 
     return [
-      { label: "Services", value: String(summary.total || 0), tone: "cyan.300", note: "All monitored services", filter: "" },
+      { label: "Services", value: String(summary.total || 0), tone: "cyan.300", note: "Fresh services (last 10 min)", filter: "" },
       { label: "Healthy", value: String(summary.healthy || 0), tone: "green.400", note: "Operating normally", filter: "healthy" },
       { label: "Degraded", value: String(summary.degraded || 0), tone: "yellow.300", note: "Slow or partially impaired", filter: "degraded" },
       { label: "Down", value: String(summary.down || 0), tone: "red.400", note: "Immediate attention required", filter: "down" },
@@ -2428,6 +2497,22 @@ function CtoDashboardPage() {
             </Tooltip>
           ))}
         </SimpleGrid>
+        {staleServiceCount > 0 && (
+          <Box
+            mb={6}
+            p={4}
+            borderRadius="16px"
+            bg="rgba(251, 191, 36, 0.12)"
+            border="1px solid rgba(251, 191, 36, 0.45)"
+          >
+            <Text fontSize="sm" color="yellow.200" fontWeight="700">
+              {staleServiceCount} stale service{staleServiceCount > 1 ? "s are" : " is"} excluded from the tiles (older than 10 minutes).
+            </Text>
+            <Text fontSize="xs" color="whiteAlpha.800" mt={1}>
+              If this spikes, check collector ingest/network path. Fresh tiles can look healthy while stale services are hidden.
+            </Text>
+          </Box>
+        )}
         <Text fontSize="xs" color="whiteAlpha.600" mb={6}>
           Note: PM2 restart-based degrade/down uses rolling 24h restart counts. For one-shot scheduled jobs, stopped state is treated healthy if last successful run was within 24h.
         </Text>
@@ -3063,6 +3148,59 @@ function CtoDashboardPage() {
           </GridItem>
 
           <GridItem order={2}>
+            <Box
+              p={{ base: 4, md: 5 }}
+              borderRadius="24px"
+              bg="rgba(255,255,255,0.04)"
+              border="1px solid rgba(255,255,255,0.08)"
+              mb={4}
+            >
+              <HStack justify="space-between" mb={3} flexWrap="wrap">
+                <Heading size="sm">PM2 Live Logs</Heading>
+                <HStack spacing={2}>
+                  <Select
+                    size="sm"
+                    value={pm2SelectedApp}
+                    onChange={(event) => setPm2SelectedApp(event.target.value)}
+                    maxW="240px"
+                    bg="rgba(255,255,255,0.06)"
+                    borderColor="whiteAlpha.300"
+                  >
+                    {pm2Apps.map((app) => (
+                      <option key={app} value={app}>{app}</option>
+                    ))}
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPm2ReloadTick((v) => v + 1)}
+                    isLoading={pm2Loading}
+                  >
+                    Refresh
+                  </Button>
+                </HStack>
+              </HStack>
+              {pm2Error && <Text fontSize="sm" color="red.200" mb={2}>{pm2Error}</Text>}
+              <Box
+                p={3}
+                borderRadius="12px"
+                bg="rgba(5,10,20,0.9)"
+                border="1px solid rgba(255,255,255,0.08)"
+                maxH="280px"
+                overflowY="auto"
+              >
+                <Text
+                  as="pre"
+                  m={0}
+                  fontSize="11px"
+                  lineHeight="1.45"
+                  whiteSpace="pre-wrap"
+                  color="whiteAlpha.900"
+                >
+                  {pm2Loading ? "Loading logs..." : (pm2LogText || "No log output.")}
+                </Text>
+              </Box>
+            </Box>
             <Box
               ref={operationalSectionRef}
               p={{ base: 5, md: 6 }}

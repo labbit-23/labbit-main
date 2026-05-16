@@ -767,7 +767,7 @@ async function loadAutoDispatchMetrics(labId) {
 
   let jobsQuery = supabase
     .from("report_auto_dispatch_jobs")
-    .select("id,lab_id,reqno,status,is_paused,next_attempt_at,scheduled_at,sent_at,updated_at,provider_response")
+    .select("id,lab_id,reqno,status,is_paused,next_attempt_at,scheduled_at,sent_at,updated_at,provider_response,last_error")
     .in("status", ["queued", "cooling_off", "sent"])
     .order("updated_at", { ascending: false })
     .limit(1200);
@@ -874,6 +874,14 @@ async function loadAutoDispatchMetrics(labId) {
 
     return status === "down" || status === "degraded" || isLikelyDispatchErrorText(message) || isLikelyDispatchErrorText(sampleError);
   });
+
+  const failedJobs = jobsList.filter((job) => String(job?.status || "").toLowerCase() === "failed");
+  const invalidPhoneFailedJobs = failedJobs.filter(
+    (job) => String(job?.last_error || "").trim().toUpperCase() === "INVALID_PHONE"
+  );
+  const pdfNotFoundFailedJobs = failedJobs.filter((job) =>
+    /report pdf was not found/i.test(String(job?.last_error || ""))
+  );
 
   const rows = [];
   rows.push(
@@ -989,6 +997,44 @@ async function loadAutoDispatchMetrics(labId) {
           status: r.status,
           created_at: r.created_at,
           message: String(r.message || "").slice(0, 220)
+        }))
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_invalid_phone_jobs",
+      label: "Invalid Phone Jobs",
+      status: invalidPhoneFailedJobs.length > 0 ? "down" : "healthy",
+      message: `${invalidPhoneFailedJobs.length} failed jobs due to invalid phone`,
+      payload: {
+        invalid_phone_failed_count: invalidPhoneFailedJobs.length,
+        samples: invalidPhoneFailedJobs.slice(0, 20).map((j) => ({
+          id: j.id,
+          reqno: j.reqno,
+          updated_at: j.updated_at,
+        }))
+      }
+    })
+  );
+
+  rows.push(
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_pdf_not_found_jobs",
+      label: "PDF Not Found Jobs",
+      status: pdfNotFoundFailedJobs.length > 0 ? "degraded" : "healthy",
+      message: `${pdfNotFoundFailedJobs.length} failed jobs with PDF-not-found`,
+      payload: {
+        pdf_not_found_failed_count: pdfNotFoundFailedJobs.length,
+        samples: pdfNotFoundFailedJobs.slice(0, 20).map((j) => ({
+          id: j.id,
+          reqno: j.reqno,
+          updated_at: j.updated_at,
         }))
       }
     })

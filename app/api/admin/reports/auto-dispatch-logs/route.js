@@ -564,6 +564,7 @@ export async function GET(request) {
       delivery_read_jobs: 0,
       delivery_delivered_jobs: 0,
       delivery_sent_only_jobs: 0,
+      delivery_unknown_jobs: 0,
       tests_total: 0,
       sameday_tests_total: 0,
       lab_total: 0,
@@ -592,6 +593,7 @@ export async function GET(request) {
         if (d === "read") summary.delivery_read_jobs += 1;
         else if (d === "delivered") summary.delivery_delivered_jobs += 1;
         else if (d === "sent" && String(row?.provider_message_id || "").trim()) summary.delivery_sent_only_jobs += 1;
+        else summary.delivery_unknown_jobs += 1;
       }
       const b = summarizeSnapshotBuckets(row);
       summary.tests_total += b.tests_total;

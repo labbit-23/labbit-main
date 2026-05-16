@@ -224,6 +224,12 @@ function stateHint(job) {
   if (status === "eligible") {
     return "Ready to send on next worker cycle";
   }
+  if (status === "processing") {
+    return "Worker is evaluating readiness and dispatch rules";
+  }
+  if (status === "skipped") {
+    return "Skipped in this cycle based on readiness/dispatch rules";
+  }
   if (status === "sent") {
     return `Sent at ${formatIstDateTime(job?.sent_at)}`;
   }
@@ -388,6 +394,16 @@ function buildWhyText(job) {
     if (blockers) parts.push(`Pending tests: ${blockers}`);
     if (decisionReason) parts.push(decisionReason);
     parts.push(`Next check ${formatIstDateTime(queueTimeForDisplay(job))}`);
+    if (historyText) parts.push(historyText);
+    return parts.join(" • ");
+  }
+
+  if (status === "skipped") {
+    const parts = [];
+    if (readyText) parts.push(readyText);
+    if (blockers) parts.push(`Pending tests: ${blockers}`);
+    if (decisionReason) parts.push(decisionReason);
+    if (!decisionReason && !blockers) parts.push("Skipped by dispatch rules for this cycle");
     if (historyText) parts.push(historyText);
     return parts.join(" • ");
   }
@@ -681,7 +697,8 @@ export default function ReportDispatchWorkspace({
       paused: 0,
       read: 0,
       delivered: 0,
-      sent_only: 0
+      sent_only: 0,
+      unknown: 0
     };
     for (const row of dateJobs) {
       const status = String(row?.status || "").trim().toLowerCase();
@@ -692,6 +709,7 @@ export default function ReportDispatchWorkspace({
         if (d === "read") stats.read += 1;
         else if (d === "delivered") stats.delivered += 1;
         else if (d === "sent" && extractProviderMessageId(row)) stats.sent_only += 1;
+        else stats.unknown += 1;
       }
     }
     return stats;
@@ -1657,7 +1675,7 @@ export default function ReportDispatchWorkspace({
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.900" : "yellow.50"}><Text fontSize="xs" opacity={0.7}>Scans Waiting Report (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_waiting_tests ?? 0}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Scans Ready (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_ready_tests ?? 0}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Read / Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read} / {autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Sent Only / Paused</Text><Text fontWeight="bold">{autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only} / {autoSummary?.paused_jobs ?? monitorDateStats.paused}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Sent Only / Unknown</Text><Text fontWeight="bold">{autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only} / {autoSummary?.delivery_unknown_jobs ?? monitorDateStats.unknown}</Text></Box>
               </SimpleGrid>
 
               <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={3}>

@@ -337,6 +337,47 @@
             "Ferritin",
             "Thyroid Stimulating Hormone (TSH)"
           ]
+        },
+        {
+          "name": "Fitness & Body Composition Profile",
+          "parameters": 33,
+          "price": 5999,
+          "description": "Add-on variant combining Fitness package (Male/Female) with Full Body DEXA for body composition and BMD assessment.",
+          "addon_for": [
+            "Fitness (Male)",
+            "Fitness (Female)"
+          ],
+          "tests": [
+            "CBC (Complete Blood Count)",
+            "Fasting Blood Sugar",
+            "HbA1c",
+            "Lipid Profile*",
+            "Liver Function Tests*",
+            "Creatinine",
+            "Urea",
+            "Electrolytes",
+            "Iron, Total Iron Binding Capacity",
+            "Calcium",
+            "Magnesium",
+            "Urine Protein Creatinine Ratio",
+            "Cortisol - Stress Hormone",
+            "Insulin Resistance - Fasting (HOMA)",
+            "CPK - Creatinine Kinase",
+            "Vitamin D (25-OH)",
+            "Vitamin B12",
+            "Urinalysis",
+            "Serum Uric Acid",
+            "Serum Phosphorous",
+            "Whole Body DEXA Scan"
+          ],
+          "home_collection": false,
+          "sample_report_url": "/assets/reports/sample-fitness-body-composition-report.pdf",
+          "key_inclusions": [
+            "Insulin Resistance - Fasting (HOMA)",
+            "Vitamin D (25-OH)",
+            "Vitamin B12",
+            "Full Body DEXA Scan"
+          ]
         }
       ]
     },
@@ -815,6 +856,8 @@
     "Ultrasound Scan of Breasts": "Imaging",
     "Ultrasound Scan of Abdomen (& Pelvis)": "Imaging",
     "DEXA Bone Densitometry OR Mammography": "Imaging",
+    "Whole Body DEXA Scan": "Body Composition",
+    "Whole Body DEXA Scan (Body Composition + BMD)": "Body Composition",
     "Mammography": "Imaging",
     "RA Factor": "Autoimmune",
     "Ferritin": "Iron Studies",
@@ -844,6 +887,7 @@
     "Hormones": "/assets/ads/icons/hormones.png",
     "General Health": "/assets/ads/icons/cbc.png",
     "Imaging": "/assets/ads/icons/imaging.png",
+    "Body Composition": "/assets/ads/icons/imaging.png",
     "STD": "/assets/ads/icons/std.png",
     "Minerals": "/assets/ads/icons/minerals.png"
   }
