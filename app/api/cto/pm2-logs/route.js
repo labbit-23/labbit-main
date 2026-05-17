@@ -38,6 +38,45 @@ async function tailPm2Logs(app, lines) {
   return merged.slice(-200000);
 }
 
+function parsePm2LogOutput(output = "") {
+  const rows = [];
+  const lines = String(output || "").split(/\r?\n/);
+  const pattern = /^\s*\d+\|([^\s|]+)\s*\|\s*(.*)$/;
+  const tsPattern = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{3})?)\s+([A-Z]+)\s+(.*)$/;
+
+  for (const lineRaw of lines) {
+    const line = String(lineRaw || "");
+    if (!line.trim()) continue;
+    const match = line.match(pattern);
+    if (!match) continue;
+    const app = String(match[1] || "").trim();
+    const body = String(match[2] || "").trim();
+    if (!body) continue;
+
+    const tsMatch = body.match(tsPattern);
+    if (tsMatch) {
+      rows.push({
+        app,
+        timestamp: tsMatch[1],
+        level: tsMatch[2],
+        message: tsMatch[3],
+        raw: line
+      });
+      continue;
+    }
+
+    rows.push({
+      app,
+      timestamp: null,
+      level: null,
+      message: body,
+      raw: line
+    });
+  }
+
+  return rows;
+}
+
 export async function GET(request) {
   const response = NextResponse.next();
   try {
@@ -67,7 +106,8 @@ export async function GET(request) {
       }
 
       const output = await tailPm2Logs(app, lines);
-      return NextResponse.json({ app, lines, output });
+      const entries = parsePm2LogOutput(output);
+      return NextResponse.json({ app, lines, output, entries });
     }
 
     return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
@@ -76,4 +116,3 @@ export async function GET(request) {
     return NextResponse.json({ error: "Failed to load PM2 logs" }, { status: 500 });
   }
 }
-

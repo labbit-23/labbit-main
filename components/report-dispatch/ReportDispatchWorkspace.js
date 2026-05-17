@@ -278,6 +278,29 @@ function parseSnapshot(snapshot) {
   return null;
 }
 
+function parseMetadata(metadata) {
+  if (!metadata) return {};
+  if (typeof metadata === "object") return metadata;
+  if (typeof metadata === "string") {
+    try {
+      const parsed = JSON.parse(metadata);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function humanizeSkipReason(reason) {
+  const key = String(reason || "").trim().toLowerCase();
+  if (!key) return "";
+  if (key === "no_lab_or_radiology_tests") return "No reportable lab/radiology tests";
+  if (key === "non_reportable_by_policy") return "Non-reportable by policy";
+  if (key === "reactivate_from_skipped_reportable") return "Reactivated when reportable tests appeared";
+  return key.replaceAll("_", " ");
+}
+
 function reqDateFromReqno(reqno) {
   const raw = String(reqno || "").trim();
   const m = raw.match(/^(\d{4})(\d{2})(\d{2})/);
@@ -357,6 +380,7 @@ function buildWhyText(job) {
   }
   const status = String(job?.status || "").trim().toLowerCase();
   const snap = parseSnapshot(job?.last_status_snapshot) || {};
+  const meta = parseMetadata(job?.metadata);
   const decision = snap?.decision && typeof snap.decision === "object" ? snap.decision : {};
   const labReady = Number(snap?.lab_ready ?? 0);
   const labTotal = Number(snap?.lab_total ?? 0);
@@ -368,6 +392,9 @@ function buildWhyText(job) {
       : "";
 
   const decisionReason = String(decision?.reason || "").trim();
+  const skipReason = humanizeSkipReason(meta?.skip_reason);
+  const skipEvent = job?.skip_event && typeof job.skip_event === "object" ? job.skip_event : null;
+  const skipEventReason = String(skipEvent?.reason || "").trim();
   const decisionMode = String(decision?.mode || "").trim().toLowerCase();
   const blockers = queuedBlockers(job);
   const reportLabel = String(job?.report_label || "").trim().toLowerCase();
@@ -403,7 +430,9 @@ function buildWhyText(job) {
     if (readyText) parts.push(readyText);
     if (blockers) parts.push(`Pending tests: ${blockers}`);
     if (decisionReason) parts.push(decisionReason);
-    if (!decisionReason && !blockers) parts.push("Skipped by dispatch rules for this cycle");
+    if (skipReason) parts.push(`Skip reason: ${skipReason}`);
+    if (!skipReason && skipEventReason) parts.push(`Skip reason: ${skipEventReason}`);
+    if (!decisionReason && !skipReason && !skipEventReason && !blockers) parts.push("Skipped by dispatch rules for this cycle");
     if (historyText) parts.push(historyText);
     return parts.join(" • ");
   }
@@ -479,7 +508,10 @@ export default function ReportDispatchWorkspace({
   const [autoScopedLabIds, setAutoScopedLabIds] = useState([]);
   const [autoPage, setAutoPage] = useState(1);
   const [selectedJob, setSelectedJob] = useState(null);
-  const [monitorOpen, setMonitorOpen] = useState(false);
+  const roleKey = String(userRole || "").trim().toLowerCase();
+  const defaultMonitorOpen = roleKey === "admin" || roleKey === "director" || roleKey === "cto";
+  const [monitorOpen, setMonitorOpen] = useState(defaultMonitorOpen);
+  const [monitorMode, setMonitorMode] = useState("ops");
   const [grantedPermissions, setGrantedPermissions] = useState([]);
   const [pushTemplateJob, setPushTemplateJob] = useState(null);
   const [outsourcedTemplateContext, setOutsourcedTemplateContext] = useState(null);
@@ -714,6 +746,92 @@ export default function ReportDispatchWorkspace({
     }
     return stats;
   }, [autoJobs, selectedDate]);
+
+  const monitorTopStats = useMemo(() => {
+    const totalJobs = autoSummary?.total_jobs ?? monitorDateStats.total;
+    const pendingQueue = (autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying);
+    const coolingOff = autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off;
+    const failedUnpaused = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
+      const st = String(row?.status || "").trim().toLowerCase();
+      return st === "failed" && !row?.is_paused;
+    }).length;
+    const sentToday = autoSummary?.sent_jobs ?? monitorDateStats.sent;
+    return { totalJobs, pendingQueue, coolingOff, failedUnpaused, sentToday };
+  }, [autoJobs, autoSummary, monitorDateStats]);
+
+  const sentTodaySplit = useMemo(() => {
+    const rows = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
+      const st = String(row?.status || "").trim().toLowerCase();
+      if (st !== "sent") return false;
+      const req = String(row?.reqno || "").trim();
+      return req.startsWith(String(selectedDate || "").replace(/-/g, ""));
+    });
+    const out = { lab: 0, radiology: 0, hybrid: 0, other: 0 };
+    for (const row of rows) {
+      const label = String(row?.report_label || "").trim().toLowerCase();
+      const hasLab = label.includes("lab");
+      const hasRad = label.includes("radiology");
+      if (hasLab && hasRad) out.hybrid += 1;
+      else if (hasLab) out.lab += 1;
+      else if (hasRad) out.radiology += 1;
+      else out.other += 1;
+    }
+    return out;
+  }, [autoJobs, selectedDate]);
+
+  const monitorPipeline = useMemo(() => {
+    const labPendingApproval = Number(autoSummary?.lab_pending_approval_tests ?? 0);
+    const labWaiting = Number(autoSummary?.lab_waiting_tests ?? 0);
+    const labReady = Number(autoSummary?.lab_ready_tests ?? 0);
+    const scanPendingApproval = Number(autoSummary?.radiology_pending_approval_tests ?? 0);
+    const scanWaiting = Number(autoSummary?.radiology_waiting_tests ?? 0);
+    const scanReady = Number(autoSummary?.radiology_ready_tests ?? 0);
+    return {
+      ready: labReady + scanReady,
+      waiting: labWaiting + scanWaiting,
+      pendingApproval: labPendingApproval + scanPendingApproval,
+      labReady,
+      scanReady,
+      labWaiting,
+      scanWaiting,
+      labPendingApproval,
+      scanPendingApproval
+    };
+  }, [autoSummary]);
+
+  const monitorRisk = useMemo(() => {
+    if (autoSummary && (
+      Number(autoSummary?.risk_invalid_phone_events || 0) > 0 ||
+      Number(autoSummary?.risk_pdf_missing_events || 0) > 0 ||
+      Number(autoSummary?.risk_timeout_5xx_events || 0) > 0
+    )) {
+      return {
+        invalidPhone: Number(autoSummary?.risk_invalid_phone_events || 0),
+        pdfMissing: Number(autoSummary?.risk_pdf_missing_events || 0),
+        timeout5xx: Number(autoSummary?.risk_timeout_5xx_events || 0)
+      };
+    }
+    const rows = Array.isArray(autoJobs) ? autoJobs : [];
+    let invalidPhone = 0;
+    let pdfMissing = 0;
+    let timeout5xx = 0;
+    for (const row of rows) {
+      const err = String(row?.last_error || "").toLowerCase();
+      if (!err || err === "-") continue;
+      if (err.includes("invalid_phone")) invalidPhone += 1;
+      if (err.includes("pdf was not found")) pdfMissing += 1;
+      if (err.includes("timed out") || err.includes("timeout") || err.includes("503") || err.includes("502") || err.includes("service unavailable") || err.includes("bad gateway")) timeout5xx += 1;
+    }
+    return { invalidPhone, pdfMissing, timeout5xx };
+  }, [autoJobs, autoSummary]);
+
+  const diagnosticAlertCount = useMemo(() => {
+    const failedActive = Number(monitorTopStats.failedUnpaused || 0);
+    const invalid = Number(monitorRisk.invalidPhone || 0);
+    const pdfMissing = Number(monitorRisk.pdfMissing || 0);
+    const timeout5xx = Number(monitorRisk.timeout5xx || 0);
+    return failedActive + invalid + pdfMissing + timeout5xx;
+  }, [monitorRisk, monitorTopStats.failedUnpaused]);
 
   const totalAutoPages = Math.max(1, Math.ceil(autoFilteredJobs.length / AUTO_JOBS_PAGE_SIZE));
   const safeAutoPage = Math.min(autoPage, totalAutoPages);
@@ -1663,26 +1781,63 @@ export default function ReportDispatchWorkspace({
               bg={themeMode === "dark" ? "rgba(255,255,255,0.03)" : "white"}
               boxShadow={themeMode === "dark" ? "none" : "sm"}
             >
-              <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={2} mb={3}>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Date</Text><Text fontWeight="bold">{selectedDate}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Total Jobs</Text><Text fontWeight="bold">{autoSummary?.total_jobs ?? monitorDateStats.total}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{(autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying)}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.800" : "yellow.100"}><Text fontSize="xs" opacity={0.7}>Cooling Off</Text><Text fontWeight="bold">{autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Lab Pending Approval (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_pending_approval_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.900" : "yellow.50"}><Text fontSize="xs" opacity={0.7}>Lab Waiting Report (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_waiting_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Lab Ready (tests)</Text><Text fontWeight="bold">{autoSummary?.lab_ready_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Scans Pending Approval (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_pending_approval_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.900" : "yellow.50"}><Text fontSize="xs" opacity={0.7}>Scans Waiting Report (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_waiting_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Scans Ready (tests)</Text><Text fontWeight="bold">{autoSummary?.radiology_ready_tests ?? 0}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Read / Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read} / {autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Sent Only / Unknown</Text><Text fontWeight="bold">{autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only} / {autoSummary?.delivery_unknown_jobs ?? monitorDateStats.unknown}</Text></Box>
-              </SimpleGrid>
-
-              <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={3}>
+              <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={2}>
                 <HStack spacing={2} align="center">
                   <Text fontWeight="bold" fontSize="lg">Auto Dispatch Monitor</Text>
                   <Badge colorScheme="blue" px={2} py={1} borderRadius="md">{autoJobsCount} Total</Badge>
                   <Badge px={2} py={1} borderRadius="md">{autoScopedLabIds.length} Lab(s)</Badge>
+                </HStack>
+                <ButtonGroup isAttached size="xs" variant="outline">
+                  <Button
+                    type="button"
+                    colorScheme={monitorMode === "ops" ? "blue" : undefined}
+                    variant={monitorMode === "ops" ? "solid" : "outline"}
+                    onClick={() => setMonitorMode("ops")}
+                  >
+                    Ops
+                  </Button>
+                  <Button
+                    type="button"
+                    colorScheme={monitorMode === "diagnostic" ? "orange" : undefined}
+                    variant={monitorMode === "diagnostic" ? "solid" : "outline"}
+                    onClick={() => setMonitorMode("diagnostic")}
+                  >
+                    Diagnostic ({diagnosticAlertCount})
+                  </Button>
+                </ButtonGroup>
+              </Flex>
+
+              <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={2} mb={2}>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{monitorTopStats.pendingQueue}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.800" : "yellow.100"}><Text fontSize="xs" opacity={0.7}>Cooling Off</Text><Text fontWeight="bold">{monitorTopStats.coolingOff}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Failed (Active)</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}>
+                  <Text fontSize="xs" opacity={0.7}>Sent Today</Text>
+                  <Text fontWeight="bold">{monitorTopStats.sentToday}</Text>
+                  <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
+                    L {sentTodaySplit.lab} • R {sentTodaySplit.radiology} • H {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • O ${sentTodaySplit.other}` : ""}
+                  </Text>
+                </Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Read</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
+              </SimpleGrid>
+
+              <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"} mb={3}>
+                <Text fontSize="xs" opacity={0.7} mb={1}>Pipeline (tests)</Text>
+                <HStack spacing={2} mb={1}>
+                  <Badge colorScheme="green">Ready {monitorPipeline.ready}</Badge>
+                  <Badge colorScheme="yellow">Waiting {monitorPipeline.waiting}</Badge>
+                  <Badge colorScheme="red">Pending Approval {monitorPipeline.pendingApproval}</Badge>
+                </HStack>
+                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
+                  Lab: ready {monitorPipeline.labReady}, waiting {monitorPipeline.labWaiting}, approval {monitorPipeline.labPendingApproval} •
+                  Scans: ready {monitorPipeline.scanReady}, waiting {monitorPipeline.scanWaiting}, approval {monitorPipeline.scanPendingApproval}
+                </Text>
+              </Box>
+
+              <Flex align="center" justify="space-between" wrap="wrap" gap={2} mb={3}>
+                <HStack spacing={2} align="center">
+                  <Text fontWeight="bold" fontSize="lg">Auto Dispatch Monitor</Text>
                 </HStack>
                 <HStack spacing={2}>
                   <ButtonGroup isAttached size="sm" variant="outline">
@@ -1771,6 +1926,30 @@ export default function ReportDispatchWorkspace({
                   ) : null}
                 </HStack>
               </Flex>
+
+              {monitorMode === "diagnostic" ? (
+                <SimpleGrid columns={{ base: 2, md: 4, lg: 5 }} spacing={2} mb={3}>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Total Jobs</Text><Text fontWeight="bold">{monitorTopStats.totalJobs}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Lab Ready (tests)</Text><Text fontWeight="bold">{monitorPipeline.labReady}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Scans Ready (tests)</Text><Text fontWeight="bold">{monitorPipeline.scanReady}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Invalid Phone (day)</Text><Text fontWeight="bold">{monitorRisk.invalidPhone}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>PDF Missing (day)</Text><Text fontWeight="bold">{monitorRisk.pdfMissing}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Timeout / 5xx (day)</Text><Text fontWeight="bold">{monitorRisk.timeout5xx}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}>
+                    <Tooltip
+                      label="Sent jobs without final delivery/read callback mapping. Includes sent-only and no-callback cases."
+                      hasArrow
+                      openDelay={250}
+                    >
+                      <Text fontSize="xs" opacity={0.7}>Sent Only / No Callback</Text>
+                    </Tooltip>
+                    <Text fontWeight="bold">{autoSummary?.sent_only_no_callback_jobs ?? ((autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only) + (autoSummary?.delivery_unknown_jobs ?? monitorDateStats.unknown))}</Text>
+                  </Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Previous Days Sent</Text><Text fontWeight="bold">{autoSummary?.previous_days_sent_jobs ?? 0}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Outsourced Sent</Text><Text fontWeight="bold">{autoSummary?.outsourced_sent_jobs ?? 0}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Paused</Text><Text fontWeight="bold">{monitorDateStats.paused}</Text></Box>
+                </SimpleGrid>
+              ) : null}
               <HStack spacing={2} mb={3}>
                 <Input
                   size="sm"
@@ -1824,6 +2003,7 @@ export default function ReportDispatchWorkspace({
                   </AlertDialogContent>
                 </AlertDialogOverlay>
               </AlertDialog>
+              {!showSentInline ? (
               <Flex mb={3} align="center" justify="space-between" wrap="wrap" gap={2}>
                 <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
                 <HStack spacing={2}>
@@ -1864,6 +2044,7 @@ export default function ReportDispatchWorkspace({
                   />
                 </HStack>
               </Flex>
+              ) : null}
               {showSentInline ? (
               <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
                 <Flex align="center" justify="space-between" mb={2}>
@@ -1942,6 +2123,48 @@ export default function ReportDispatchWorkspace({
                 )}
               </Box>
               ) : null}
+              {showSentInline ? (
+              <Flex mb={3} align="center" justify="space-between" wrap="wrap" gap={2}>
+                <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
+                <HStack spacing={2}>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="First page"
+                    icon={<ChevronLeftIcon />}
+                    onClick={() => setAutoPage(1)}
+                    isDisabled={safeAutoPage <= 1}
+                    variant="outline"
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Previous page"
+                    icon={<ChevronLeftIcon />}
+                    onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
+                    isDisabled={safeAutoPage <= 1}
+                  />
+                  <Text fontSize="xs">Page {safeAutoPage} / {totalAutoPages}</Text>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Next page"
+                    icon={<ChevronRightIcon />}
+                    onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Last page"
+                    icon={<ChevronRightIcon />}
+                    onClick={() => setAutoPage(totalAutoPages)}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                    variant="outline"
+                  />
+                </HStack>
+              </Flex>
+              ) : null}
 
               {isMobileViewport ? (
                 <Box>
@@ -1992,7 +2215,21 @@ export default function ReportDispatchWorkspace({
                             <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} />
                           </Tooltip>
                           <Tooltip label="WhatsApp dispatch now" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="WhatsApp dispatch now" colorScheme="whatsapp" icon={<FaWhatsapp />} onClick={() => confirmAndPushJob(job)} isDisabled={!canPushRow} isLoading={isRowActionLoading(jobId, "push_now")} />
+                            <IconButton
+                              size="xs"
+                              type="button"
+                              aria-label="WhatsApp dispatch now"
+                              colorScheme="green"
+                              variant="solid"
+                              bg="green.500"
+                              color="white"
+                              icon={<FaWhatsapp />}
+                              onClick={() => confirmAndPushJob(job)}
+                              isDisabled={!canPushRow}
+                              isLoading={isRowActionLoading(jobId, "push_now")}
+                              _hover={{ bg: "green.600", transform: "translateY(-1px)" }}
+                              _disabled={{ bg: "gray.200", color: "gray.500", opacity: 1, cursor: "not-allowed" }}
+                            />
                           </Tooltip>
                           <Tooltip label="Push to" hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<FiUploadCloud />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
@@ -2140,12 +2377,16 @@ export default function ReportDispatchWorkspace({
                                   size="xs"
                                   type="button"
                                   aria-label="WhatsApp dispatch now"
-                                  colorScheme="whatsapp"
+                                  colorScheme="green"
+                                  variant="solid"
+                                  bg="green.500"
+                                  color="white"
                                   icon={<FaWhatsapp />}
                                   onClick={() => confirmAndPushJob(job)}
                                   isDisabled={!canPushRow}
                                   isLoading={isRowActionLoading(jobId, "push_now")}
-                                  _hover={{ transform: "translateY(-1px)" }}
+                                  _hover={{ bg: "green.600", transform: "translateY(-1px)" }}
+                                  _disabled={{ bg: "gray.200", color: "gray.500", opacity: 1, cursor: "not-allowed" }}
                                 />
                               </Tooltip>
                               <Tooltip label="Push to" hasArrow openDelay={250}>

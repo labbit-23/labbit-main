@@ -316,7 +316,7 @@ export async function GET(request) {
 
     let jobsQuery = supabase
       .from(JOBS_TABLE)
-      .select("id,lab_id,reqno,reqid,mrno,phone,patient_name,report_label,status,is_paused,force_send_now,cooloff_minutes,scheduled_at,next_attempt_at,sent_at,attempt_count,max_attempts,last_attempt_at,last_error,last_status_snapshot,provider_response,created_at,updated_at", { count: "exact" })
+      .select("id,lab_id,reqno,reqid,mrno,phone,patient_name,report_label,status,is_paused,force_send_now,cooloff_minutes,scheduled_at,next_attempt_at,sent_at,attempt_count,max_attempts,last_attempt_at,last_error,last_status_snapshot,provider_response,metadata,created_at,updated_at", { count: "exact" })
       .order("updated_at", { ascending: false })
       .limit(limit);
 
@@ -456,6 +456,39 @@ export async function GET(request) {
       };
     });
 
+    // Attach latest skip event reason per job for UI fallback on legacy rows
+    // where metadata.skip_reason was not persisted.
+    const latestSkipByJobId = new Map();
+    const jobIdsForSkip = enrichedJobs
+      .map((row) => Number(row?.id))
+      .filter((id) => Number.isFinite(id));
+    if (jobIdsForSkip.length > 0) {
+      const { data: skipRows } = await supabase
+        .from(EVENTS_TABLE)
+        .select("job_id,event_type,message,payload,created_at")
+        .in("job_id", jobIdsForSkip)
+        .ilike("event_type", "skipped%")
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      for (const ev of skipRows || []) {
+        const jobNum = Number(ev?.job_id);
+        if (!Number.isFinite(jobNum) || latestSkipByJobId.has(jobNum)) continue;
+        const payload = parseMaybeJson(ev?.payload) || {};
+        const reason = String(payload?.reason || payload?.skip_reason || ev?.message || "").trim();
+        latestSkipByJobId.set(jobNum, {
+          event_type: String(ev?.event_type || "").trim(),
+          reason,
+          at: ev?.created_at || null
+        });
+      }
+      if (latestSkipByJobId.size > 0) {
+        enrichedJobs = enrichedJobs.map((row) => ({
+          ...row,
+          skip_event: latestSkipByJobId.get(Number(row?.id)) || null
+        }));
+      }
+    }
+
     if (statusRows.length > 0) {
       const byMessageId = new Map();
       const byPhone = new Map();
@@ -578,7 +611,13 @@ export async function GET(request) {
       radiology_approved_tests: 0,
       radiology_pending_approval_tests: 0,
       radiology_ready_tests: 0,
-      radiology_waiting_tests: 0
+      radiology_waiting_tests: 0,
+      risk_invalid_phone_events: 0,
+      risk_pdf_missing_events: 0,
+      risk_timeout_5xx_events: 0,
+      sent_only_no_callback_jobs: 0,
+      previous_days_sent_jobs: 0,
+      outsourced_sent_jobs: 0
     };
     for (const row of dateJobs) {
       const st = String(row?.status || "").trim().toLowerCase();
@@ -610,6 +649,77 @@ export async function GET(request) {
       summary.radiology_pending_approval_tests += b.radiology.pending_approval;
       summary.radiology_ready_tests += b.radiology.ready;
       summary.radiology_waiting_tests += b.radiology.waiting;
+    }
+    summary.sent_only_no_callback_jobs = summary.delivery_sent_only_jobs + summary.delivery_unknown_jobs;
+
+    // Day-sent diagnostics: how many sends happened today for older reqnos,
+    // and how many were outsourced sends.
+    try {
+      const sentDayRange = istDayRange(summary.selected_date);
+      if (sentDayRange) {
+        let sentDayQuery = supabase
+          .from(JOBS_TABLE)
+          .select("reqno,metadata")
+          .eq("status", "sent")
+          .gte("sent_at", sentDayRange.startIso)
+          .lt("sent_at", sentDayRange.endIso)
+          .limit(5000);
+        sentDayQuery = applyLabScope(sentDayQuery, labIds);
+        const { data: sentDayRows, error: sentDayError } = await sentDayQuery;
+        if (!sentDayError && Array.isArray(sentDayRows)) {
+          const dayKey = summaryDateKey;
+          for (const row of sentDayRows) {
+            const reqno = String(row?.reqno || "").trim();
+            if (dayKey && reqno && !reqno.startsWith(dayKey)) {
+              summary.previous_days_sent_jobs += 1;
+            }
+            const meta = parseMaybeJson(row?.metadata) || {};
+            const src = String(meta?.report_source || "").trim().toLowerCase();
+            if (src === "outsourced_report") {
+              summary.outsourced_sent_jobs += 1;
+            }
+          }
+        }
+      }
+    } catch (sentDiagErr) {
+      console.warn("[auto-dispatch-logs] sent-day diagnostics skipped", sentDiagErr?.message || String(sentDiagErr));
+    }
+
+    // Day-level risk counters from event history (not current row state),
+    // so transient/overwritten job states don't hide incident volume.
+    try {
+      const dayRange = istDayRange(summary.selected_date);
+      if (dayRange) {
+        let riskQuery = supabase
+          .from(EVENTS_TABLE)
+          .select("event_type,message,created_at,reqno")
+          .gte("created_at", dayRange.startIso)
+          .lt("created_at", dayRange.endIso)
+          .order("created_at", { ascending: false })
+          .limit(8000);
+        riskQuery = applyLabScope(riskQuery, labIds);
+        const { data: riskRows, error: riskError } = await riskQuery;
+        if (!riskError && Array.isArray(riskRows)) {
+          for (const row of riskRows) {
+            const eventType = String(row?.event_type || "").trim().toLowerCase();
+            const msg = String(row?.message || "").toLowerCase();
+            if (eventType === "failed_invalid_phone") summary.risk_invalid_phone_events += 1;
+            if (msg.includes("pdf was not found")) summary.risk_pdf_missing_events += 1;
+            if (
+              msg.includes("timed out") ||
+              msg.includes("timeout") ||
+              msg.includes("503") ||
+              msg.includes("502") ||
+              msg.includes("service unavailable") ||
+              msg.includes("bad gateway")
+            ) {
+              summary.risk_timeout_5xx_events += 1;
+            }
+          }
+        }
+      }
+    } catch (riskErr) {
+      console.warn("[auto-dispatch-logs] risk summary skipped", riskErr?.message || String(riskErr));
     }
 
     // Best-effort persistence for CEO metrics; non-blocking if table missing.

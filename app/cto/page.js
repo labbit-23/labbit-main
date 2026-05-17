@@ -653,6 +653,7 @@ function CtoDashboardPage() {
   const [pm2Apps, setPm2Apps] = useState([]);
   const [pm2SelectedApp, setPm2SelectedApp] = useState("report-sender");
   const [pm2LogText, setPm2LogText] = useState("");
+  const [pm2LogEntries, setPm2LogEntries] = useState([]);
   const [pm2Loading, setPm2Loading] = useState(false);
   const [pm2Error, setPm2Error] = useState("");
   const [pm2ReloadTick, setPm2ReloadTick] = useState(0);
@@ -809,11 +810,15 @@ function CtoDashboardPage() {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body?.error || "Failed to load PM2 logs");
-        if (!cancelled) setPm2LogText(String(body?.output || ""));
+        if (!cancelled) {
+          setPm2LogText(String(body?.output || ""));
+          setPm2LogEntries(Array.isArray(body?.entries) ? body.entries : []);
+        }
       } catch (error) {
         if (!cancelled) {
           setPm2Error(error?.message || "Failed to load PM2 logs");
           setPm2LogText("");
+          setPm2LogEntries([]);
         }
       } finally {
         if (!cancelled) setPm2Loading(false);
@@ -2052,7 +2057,7 @@ function CtoDashboardPage() {
                 ))}
               </SimpleGrid>
             </Flex>
-            <SimpleGrid columns={{ base: 2, md: 3, xl: 5 }} spacing={2} minW={{ base: "100%", xl: "700px" }}>
+            <SimpleGrid columns={{ base: 2, md: 3, xl: 6 }} spacing={2} minW={{ base: "100%", xl: "840px" }}>
               <Button
                 size="sm"
                 bg="white"
@@ -2087,6 +2092,18 @@ function CtoDashboardPage() {
                 leftIcon={<ExternalLinkIcon />}
               >
                 Inbox
+              </Button>
+              <Button
+                size="sm"
+                as={Link}
+                href="/admin/report-dispatch"
+                bg="rgba(250, 204, 21, 0.16)"
+                color="white"
+                _hover={{ bg: "rgba(250, 204, 21, 0.24)" }}
+                borderRadius="full"
+                leftIcon={<ExternalLinkIcon />}
+              >
+                Report Dispatch
               </Button>
               <Button
                 size="sm"
@@ -3189,16 +3206,38 @@ function CtoDashboardPage() {
                 maxH="280px"
                 overflowY="auto"
               >
-                <Text
-                  as="pre"
-                  m={0}
-                  fontSize="11px"
-                  lineHeight="1.45"
-                  whiteSpace="pre-wrap"
-                  color="whiteAlpha.900"
-                >
-                  {pm2Loading ? "Loading logs..." : (pm2LogText || "No log output.")}
-                </Text>
+                {pm2Loading && (
+                  <Text fontSize="11px" color="whiteAlpha.800">Loading logs...</Text>
+                )}
+                {!pm2Loading && pm2LogEntries.length > 0 && (
+                  <VStack align="stretch" spacing={1}>
+                    {pm2LogEntries.map((entry, index) => (
+                      <HStack key={`${entry?.raw || entry?.message || "line"}-${index}`} align="start" spacing={2}>
+                        <Text fontSize="10px" color="cyan.200" minW="170px">
+                          {entry?.timestamp || "no-ts"}
+                        </Text>
+                        <Text fontSize="10px" color={String(entry?.level || "").toUpperCase() === "ERROR" ? "red.300" : String(entry?.level || "").toUpperCase() === "WARNING" ? "yellow.300" : "whiteAlpha.600"} minW="56px">
+                          {String(entry?.level || "INFO").toUpperCase()}
+                        </Text>
+                        <Text fontSize="11px" color="whiteAlpha.900" whiteSpace="pre-wrap" flex="1">
+                          {entry?.message || ""}
+                        </Text>
+                      </HStack>
+                    ))}
+                  </VStack>
+                )}
+                {!pm2Loading && pm2LogEntries.length === 0 && (
+                  <Text
+                    as="pre"
+                    m={0}
+                    fontSize="11px"
+                    lineHeight="1.45"
+                    whiteSpace="pre-wrap"
+                    color="whiteAlpha.900"
+                  >
+                    {pm2LogText || "No log output."}
+                  </Text>
+                )}
               </Box>
             </Box>
             <Box
