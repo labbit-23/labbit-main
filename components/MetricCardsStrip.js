@@ -69,14 +69,12 @@ export default function MetricCardsStrip({
               onClick={clickable ? () => onItemClick(item) : undefined}
             >
               <StatLabel
-                fontSize={{ base: fitMobile ? "12px" : "sm", md: "md" }}
+                fontSize={{ base: fitMobile ? "11px" : "sm", md: "md" }}
                 color={style.label}
-                whiteSpace={fitMobile ? "nowrap" : "nowrap"}
-                lineHeight={fitMobile ? "1.2" : "1.2"}
+                whiteSpace="normal"
+                lineHeight="1.2"
                 textAlign="center"
                 minH={{ base: fitMobile ? "24px" : "auto", md: "auto" }}
-                overflow="hidden"
-                textOverflow="ellipsis"
               >
                 {labelText}
               </StatLabel>

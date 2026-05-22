@@ -43,8 +43,10 @@ export default function TestPackageSelector({
         // Fetch all active lab tests
         const { data: allTests, error: tErr } = await supabase
           .from("lab_tests")
-          .select("id, lab_test_name")
-          .eq("is_active", true);
+          .select("id, lab_test_name, price, internal_code, is_most_common, display_order")
+          .eq("is_active", true)
+          .order("display_order", { ascending: true, nullsFirst: false })
+          .order("lab_test_name", { ascending: true });
         if (tErr) throw tErr;
 
         // Fetch all active packages with their items (test IDs)
@@ -166,13 +168,20 @@ export default function TestPackageSelector({
         {tests
           .filter(t => !packages.some(p => p.testIds.includes(t.id)))
           .map(t => (
-            <Checkbox
-              key={t.id}
-              isChecked={selectedTests.has(t.id)}
-              onChange={() => toggleTest(t.id)}
-            >
-              {t.lab_test_name}
-            </Checkbox>
+            <HStack key={t.id} justify="space-between">
+              <Checkbox
+                isChecked={selectedTests.has(t.id)}
+                onChange={() => toggleTest(t.id)}
+                flex="1"
+              >
+                <Text fontSize="sm">{t.lab_test_name}</Text>
+              </Checkbox>
+              {t.price != null && (
+                <Text fontSize="sm" color="gray.600" flexShrink={0}>
+                  ₹{Number(t.price).toLocaleString()}
+                </Text>
+              )}
+            </HStack>
           ))}
       </Stack>
     </VStack>

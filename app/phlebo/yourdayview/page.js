@@ -94,7 +94,7 @@ function YourDayViewContent({ userRole = "executive" }) {
         themeMode={themeMode}
         onToggleTheme={toggleThemeMode}
       />
-      <YourDayView executiveId={selectedExecutiveId} themeMode={themeMode} />
+      <YourDayView executiveId={selectedExecutiveId} themeMode={themeMode} selectedDate={selectedDate} />
     </Box>
   );
 }

@@ -4,12 +4,14 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader,
-  ModalBody, ModalFooter, ModalCloseButton, Button,
+  ModalBody, ModalFooter, ModalCloseButton, Button, IconButton,
   VStack, FormControl, FormLabel, Select, Input,
-  Text, Spinner, Box, Flex, useToast, Textarea, Image, Badge
+  Text, Spinner, Box, Flex, useToast, Textarea, Image, Badge, Tooltip
 } from "@chakra-ui/react";
+import { Receipt } from "lucide-react";
 import { useUser } from "../context/UserContext";
 import { getModalFieldSettings } from "../../lib/modalFieldSettings";
+import VisitBillingPanel from "../../components/VisitBillingPanel";
 
 const formatDate = (date) =>
   date ? new Date(date).toISOString().slice(0, 10) : "";
@@ -143,6 +145,7 @@ export default function VisitModal({
   const [visitActivity, setVisitActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const initFormKeyRef = useRef("");
+  const billingRef = useRef(null);
 
   const handlePrescriptionFile = async (e) => {
     const file = e.target.files[0];
@@ -619,14 +622,32 @@ export default function VisitModal({
                 ), false)}
 
                 {/* Test List */}
-                {renderRow("Test List", (
-                  <Textarea
-                    value={formData.notes}
-                    onChange={handleChange("notes")}
-                    placeholder="Enter test names..."
-                    isDisabled={viewOnly}
-                  />
-                ), false)}
+                <FormControl>
+                  <Flex align="flex-start" gap={3}>
+                    <Box flex="0 0 140px">
+                      <FormLabel m="0" mb={2}>Test List</FormLabel>
+                      {formData.id && !viewOnly && (
+                        <Tooltip label="Convert to estimate" placement="right">
+                          <IconButton
+                            size="sm"
+                            variant="outline"
+                            colorScheme="purple"
+                            icon={<Receipt size={16} />}
+                            aria-label="Convert to estimate"
+                            onClick={() => billingRef.current?.openWithNotes(formData.notes)}
+                          />
+                        </Tooltip>
+                      )}
+                    </Box>
+                    <Textarea
+                      flex="1"
+                      value={formData.notes}
+                      onChange={handleChange("notes")}
+                      placeholder="Enter test names..."
+                      isDisabled={viewOnly}
+                    />
+                  </Flex>
+                </FormControl>
 
                 {/* Prescription Upload */}
                 {renderRow("Prescription", (
@@ -683,6 +704,18 @@ export default function VisitModal({
                         ))}
                       </VStack>
                     )}
+                  </Box>
+                )}
+
+                {/* Tests & Billing */}
+                {formData.id && !viewOnly && (
+                  <Box w="100%" borderWidth="1px" borderColor="gray.200" rounded="md" p={4}>
+                    <Text fontWeight="semibold" mb={3}>Tests &amp; Billing</Text>
+                    <VisitBillingPanel
+                      ref={billingRef}
+                      visitId={formData.id}
+                      patientId={formData.patient_id}
+                    />
                   </Box>
                 )}
               </VStack>

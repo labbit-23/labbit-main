@@ -63,7 +63,7 @@ export async function GET(request) {
 
     let query = supabase
       .from("labs")
-      .select("id, name")
+      .select("id, name, logo_url")
       .order("name", { ascending: true });
 
     if ((myLabsParam || ctoParam) && labFilterIds) {

@@ -744,11 +744,15 @@ export default function LoginPage() {
                         {errorMsg}
                       </Alert>
                     )}
-                    <Button type="submit" colorScheme="blue" size="lg" isLoading={loading} w="100%">
+                    <Button type="submit" size="lg" isLoading={loading} w="100%"
+                      bg="var(--employee)" color="var(--employee-ink)"
+                      _hover={{ bg: "var(--employee-dark)" }}
+                      _active={{ bg: "var(--employee-dark)" }}>
                       Sign In
                     </Button>
                     <Text fontSize="sm" color="gray.600" textAlign="right" mt={2}>
-                      <Link color="blue.500" onClick={handleForgotPassword} cursor="pointer">
+                      <Link color="var(--employee)" onClick={handleForgotPassword} cursor="pointer"
+                        _hover={{ color: "var(--employee-dark)" }}>
                         Forgot Password?
                       </Link>
                     </Text>

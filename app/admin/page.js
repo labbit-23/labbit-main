@@ -244,20 +244,29 @@ export default function AdminDashboard() {
 const exportVisitsImage = async () => {
   if (!visitsTableRef.current) return;
 
-  // Hide all elements with .no-export class
-  const hiddenEls = visitsTableRef.current.querySelectorAll(".no-export");
-  hiddenEls.forEach(el => (el.style.visibility = "hidden"));
-  const previousTheme = themeMode;
+  const el = visitsTableRef.current;
+  const hiddenEls = el.querySelectorAll(".no-export");
+  hiddenEls.forEach(e => (e.style.visibility = "hidden"));
 
+  // Temporarily clamp to portrait-tablet width so media queries fire at base breakpoint
+  const EXPORT_W = 720;
+  const prevStyle = { width: el.style.width, maxWidth: el.style.maxWidth, borderRadius: el.style.borderRadius };
+  el.style.width       = `${EXPORT_W}px`;
+  el.style.maxWidth    = `${EXPORT_W}px`;
+  el.style.borderRadius = "0";
+
+  const previousTheme = themeMode;
   try {
     if (previousTheme === "dark") {
       setThemeMode("light");
-      await waitForPaint();
     }
+    await waitForPaint();
 
-    const canvas = await html2canvas(visitsTableRef.current, {
+    const canvas = await html2canvas(el, {
       backgroundColor: "#fff",
       scale: 2,
+      windowWidth: EXPORT_W,
+      width: EXPORT_W,
     });
     const link = document.createElement("a");
     link.download = `Labit-visits-${selectedDate}.jpg`;
@@ -266,11 +275,11 @@ const exportVisitsImage = async () => {
   } catch (err) {
     toast({ title: "Error generating image", description: err.message, status: "error" });
   } finally {
-    if (previousTheme === "dark") {
-      setThemeMode("dark");
-    }
-    // Restore visibility after capture
-    hiddenEls.forEach(el => (el.style.visibility = "visible"));
+    if (previousTheme === "dark") setThemeMode("dark");
+    el.style.width        = prevStyle.width;
+    el.style.maxWidth     = prevStyle.maxWidth;
+    el.style.borderRadius = prevStyle.borderRadius;
+    hiddenEls.forEach(e => (e.style.visibility = "visible"));
   }
 };
 
@@ -1237,15 +1246,15 @@ const exportVisitsImage = async () => {
           onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
         />
 
-        <Flex align="flex-start" justify="center" minH="100vh" py={8} pt="64px">
+        <Flex align="flex-start" justify="center" minH="100vh" pt="64px">
           <Box
             w="full"
             maxW="7xl"
             mx="auto"
             className="dashboard-theme-card"
-            borderRadius="xl"
-            px={[4, 8]}
-            py={[8, 14]}
+            borderRadius={{ base: "none", md: "xl" }}
+            px={{ base: 3, md: 8 }}
+            py={{ base: 4, md: 10 }}
             ref={visitsTableRef}
           >
             <Flex
@@ -1254,7 +1263,7 @@ const exportVisitsImage = async () => {
               mb={8}
               gap={3}
             >
-              <Heading className="dashboard-theme-heading" size="xl" flex="1 1 auto">
+              <Heading className="dashboard-theme-heading" size={{ base: "md", md: "xl" }} flex="1 1 auto">
                 Labit Admin Dashboard
               </Heading>
             </Flex>
@@ -1334,7 +1343,7 @@ const exportVisitsImage = async () => {
                 <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   {/* Per-executive visit chips for selected date */}
                   <Flex mb={4} align="center" justify="space-between" gap={3} wrap="wrap">
-                    <Flex wrap="wrap" gap={2}>
+                    <Flex wrap="wrap" gap={2} flex="1" minW={0}>
                       {executives
                         .filter((exec) => perExecVisitCounts[exec.id])
                         .map((exec) => (
@@ -1356,25 +1365,25 @@ const exportVisitsImage = async () => {
                           </Flex>
                         ))}
                     </Flex>
-                    <Button
-                      className="no-export"
-                      leftIcon={<Link size={14} />}
-                      colorScheme="blue"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPatientSearchOpen(true)}
-                    >
-                      Patient Search
-                    </Button>
-                    <Button
-                      className="no-export"
-                      leftIcon={<Plus size={14} />}
-                      colorScheme="teal"
-                      size="sm"
-                      onClick={() => handleSectionChange("patients")}
-                    >
-                      Book Patient
-                    </Button>
+                    <Flex className="no-export" gap={2} flexShrink={0}>
+                      <Button
+                        leftIcon={<Link size={14} />}
+                        colorScheme="blue"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPatientSearchOpen(true)}
+                      >
+                        Patient Search
+                      </Button>
+                      <Button
+                        leftIcon={<Plus size={14} />}
+                        colorScheme="teal"
+                        size="sm"
+                        onClick={() => handleSectionChange("patients")}
+                      >
+                        Book Patient
+                      </Button>
+                    </Flex>
                   </Flex>
 
                   <VisitsTable

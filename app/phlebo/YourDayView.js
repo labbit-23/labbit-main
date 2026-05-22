@@ -7,13 +7,15 @@ import {
   Box, Button, Flex, IconButton, Modal, ModalBody, ModalCloseButton,
   ModalContent, ModalHeader, ModalOverlay, Text, useDisclosure, useToast,
 } from "@chakra-ui/react";
-import { Bike, CheckCircle, MapPin, Navigation, Phone, Plus, Search } from "lucide-react";
+import { Bike, CheckCircle, MapPin, Navigation, Phone, Plus, Receipt, Search, TestTubes, UserPlus } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import { supabase } from "../../lib/supabaseClient";
 import { useUser } from "../context/UserContext";
 import PatientsTab from "../components/PatientsTab";
 import TestPackageSelector from "../../components/TestPackageSelector";
 import VisitBillingPanel from "../../components/VisitBillingPanel";
+
+const GPAY_LOGO = "/gpay-logo.jpeg";
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 
@@ -75,8 +77,8 @@ function stripColors(status, isDark) {
 // colorScheme for the big action button
 function actionScheme(s) {
   const n = norm(s);
-  if (n === "sample_dropped") return "purple";
-  return "teal";
+  if (n === "sample_dropped") return "teal";
+  return "green";
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -143,7 +145,7 @@ function displayAddress(visit) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function YourDayView({ executiveId, themeMode = "light" }) {
+export default function YourDayView({ executiveId, themeMode = "light", selectedDate }) {
   const { user } = useUser();
   const toast = useToast();
   const isDark = themeMode === "dark";
@@ -157,6 +159,10 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
   const detailModal     = useDisclosure();
   const addVisitModal   = useDisclosure();
   const testModal       = useDisclosure();
+  const drawModal       = useDisclosure();
+  const estimateModal   = useDisclosure();
+  const gpayModal       = useDisclosure();
+  const estimateBillingRef = useRef(null);
   const [contactVisit, setContactVisit]     = useState(null);
   const [pendingAssign, setPendingAssign]   = useState(null);
   const [detailVisit, setDetailVisit]       = useState(null);
@@ -168,6 +174,8 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
 
 
   const today    = localYmd();
+  const viewDate = selectedDate || today;
+  const isToday  = viewDate === today;
   const tomorrow = addDays(today, 1);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
@@ -175,8 +183,7 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
   const fetchVisits = useCallback(async () => {
     if (!executiveId) return;
     try {
-      const toDate = tomorrow;
-      const { data, error } = await supabase
+      let query = supabase
         .from("visits")
         .select(`
           id, status, visit_date, address, notes, executive_id,
@@ -188,10 +195,14 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
             )
           )
         `)
-        .gte("visit_date", today)
-        .lte("visit_date", toDate)
-        .or(`executive_id.eq.${executiveId},executive_id.is.null`);
+        .gte("visit_date", viewDate)
+        .lte("visit_date", isToday ? tomorrow : viewDate);
 
+      query = isToday
+        ? query.or(`executive_id.eq.${executiveId},executive_id.is.null`)
+        : query.eq("executive_id", executiveId);
+
+      const { data, error } = await query;
       if (error) throw error;
       setVisits(data || []);
     } catch (err) {
@@ -199,7 +210,7 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
     } finally {
       setLoading(false);
     }
-  }, [executiveId, today, tomorrow, toast]);
+  }, [executiveId, viewDate, isToday, tomorrow, toast]);
 
   useEffect(() => {
     fetchVisits();
@@ -209,17 +220,19 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const mine      = visits.filter(v => v.executive_id === executiveId && v.visit_date === today);
+  const mine      = visits.filter(v => v.executive_id === executiveId && v.visit_date === viewDate);
   const active    = mine.filter(v => ACTIVE_STATUSES.includes(norm(v.status)));
   const done      = mine.filter(v => DONE_STATUSES.includes(norm(v.status)));
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-  const unassigned = visits.filter(v =>
+  const unassigned = isToday ? visits.filter(v =>
     !v.executive_id &&
     v.visit_date === today &&
     ACTIVE_STATUSES.includes(norm(v.status)) &&
     slotMinutes(v.time_slot?.slot_name) >= nowMinutes
-  );
-  const tomorrowMine = visits.filter(v => v.executive_id === executiveId && v.visit_date === tomorrow);
+  ) : [];
+  const tomorrowMine = isToday
+    ? visits.filter(v => v.executive_id === executiveId && v.visit_date === tomorrow)
+    : [];
 
   const sorted = [...active].sort((a, b) =>
     visitPriority(a) - visitPriority(b) || slotMinutes(a.time_slot?.slot_name) - slotMinutes(b.time_slot?.slot_name)
@@ -348,12 +361,13 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <Box minH="100vh" bg={bg} pt={{ base: "72px", md: "64px" }} pb="100px" position="relative">
+    <Box minH="100vh" bg={bg} pt={{ base: "72px", md: "64px" }} pb="140px" position="relative">
 
       {/* Day header */}
       <Box px={4} pt={4} pb={2}>
         <Text fontSize="13px" color={muted} fontWeight="500">
-          {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+          {new Date(`${viewDate}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+          {!isToday && <Box as="span" ml={2} fontSize="11px" opacity={0.6}>(past)</Box>}
         </Text>
         <Flex align="center" justify="space-between" mt="3px">
           <Text
@@ -386,6 +400,29 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
 
       <Box px={4} display="flex" flexDirection="column" gap={3}>
 
+        {/* ── Past date: flat historical list ───────────────────────── */}
+        {!isToday ? (
+          mine.length === 0 ? (
+            <Box bg={surface} borderRadius="2xl" border="1px solid" borderColor={borderC}
+              p={8} textAlign="center">
+              <Text fontSize="14px" color={muted}>No visits recorded for this date.</Text>
+            </Box>
+          ) : (
+            <Box bg={surface} borderRadius="xl" border="1px solid" borderColor={borderC} overflow="hidden">
+              {[...mine]
+                .sort((a, b) => slotMinutes(a.time_slot?.slot_name) - slotMinutes(b.time_slot?.slot_name))
+                .map((v, i) => (
+                  <Box key={v.id}>
+                    {i > 0 && <Box h="1px" bg={softDiv} />}
+                    <DoneRow visit={v} text={text} muted={muted}
+                      onTap={() => { setDetailVisit(v); detailModal.onOpen(); }} />
+                  </Box>
+                ))}
+            </Box>
+          )
+        ) : (
+        <>
+
         {/* Current visit card — or tomorrow's first as hero after 5 PM */}
         {current ? (
           <CurrentCard
@@ -400,6 +437,7 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
             }}
             onContact={() => { setContactVisit(current); contactModal.onOpen(); }}
             onAddTests={() => openTestModal(current)}
+            onViewDraw={drawModal.onOpen}
             surface={surface} text={text} muted={muted} borderC={borderC}
           />
         ) : tomorrowHero ? (
@@ -508,22 +546,41 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
           </Box>
         )}
 
+        </>
+        )}
+
       </Box>
 
-      {/* Add visit FAB — extended pill, always labelled for mobile */}
-      <Box position="fixed" bottom="28px" right="20px" zIndex={10}>
-        <Button
-          leftIcon={<Plus size={18} />}
-          onClick={addVisitModal.onOpen}
-          bg="var(--accent)" color="white"
-          borderRadius="full" h="48px" px={5}
-          fontSize="14px" fontWeight="600"
-          border="none"
-          boxShadow="0 4px 16px rgba(138,107,163,0.45)"
-          _hover={{ opacity: 0.88 }}
-        >
-          New visit
-        </Button>
+      {/* Bottom toolbar */}
+      <Box
+        position="fixed" bottom={0} left={0} right={0} zIndex={20}
+        bg={isDark ? "rgba(8,15,28,0.96)" : "rgba(255,255,255,0.97)"}
+        borderTop="1px solid"
+        borderColor={isDark ? "whiteAlpha.150" : "var(--border)"}
+        boxShadow="0 -4px 20px rgba(0,0,0,0.10)"
+        backdropFilter="blur(12px)"
+        px={2} pt={2} pb="env(safe-area-inset-bottom, 8px)"
+        display="flex" justifyContent="space-around" alignItems="flex-start"
+      >
+        <ToolbarBtn icon={<UserPlus size={22} />} label="Add Visit" onClick={addVisitModal.onOpen} isDark={isDark} />
+        <ToolbarBtn
+          icon={<Receipt size={22} />}
+          label="Estimate"
+          onClick={() => {
+            const visit = current || detailVisit;
+            if (visit) { estimateModal.onOpen(); }
+            else { toast({ title: "No visit selected", status: "info", duration: 1500 }); }
+          }}
+          isDark={isDark}
+          accent
+        />
+        <ToolbarBtn icon={<TestTubes size={22} />} label="Draw Order" onClick={drawModal.onOpen} isDark={isDark} />
+        <ToolbarBtn
+          icon={<img src={GPAY_LOGO} style={{ width: "22px", height: "22px", objectFit: "contain" }} alt="GPay" />}
+          label="GPay QR"
+          onClick={gpayModal.onOpen}
+          isDark={isDark}
+        />
       </Box>
 
       {/* Contact modal */}
@@ -608,6 +665,19 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
         </ModalContent>
       </Modal>
 
+      {/* Order of draw */}
+      <Modal isOpen={drawModal.isOpen} onClose={drawModal.onClose} isCentered size="sm">
+        <ModalOverlay />
+        <ModalContent borderRadius="2xl" mx={4}>
+          <ModalHeader fontSize="md" fontWeight="700" pb={1}>Order of Draw</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={5}>
+            <Box as="img" src="/order-of-draw.png" alt="Order of draw"
+              w="100%" borderRadius="xl" display="block" />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
       {/* Visit detail sheet */}
       <Modal isOpen={detailModal.isOpen} onClose={detailModal.onClose} isCentered size="sm">
         <ModalOverlay />
@@ -624,6 +694,43 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
               ? <TomorrowPreviewContent visit={detailVisit} surface={surface} text={text} muted={muted} borderC={borderC} isDark={isDark} />
               : detailVisit && <VisitDetailSheet visit={detailVisit} muted={muted} />
             }
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Estimate modal */}
+      <Modal isOpen={estimateModal.isOpen} onClose={estimateModal.onClose} size="xl" scrollBehavior="inside">
+        <ModalOverlay />
+        <ModalContent borderRadius="2xl" mx={3}>
+          <ModalHeader fontSize="md" fontWeight="700" pb={1}>
+            ₹ Estimate — {(current || detailVisit)?.patient?.name}
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={5}>
+            {(current || detailVisit) && (
+              <VisitBillingPanel
+                ref={estimateBillingRef}
+                visitId={(current || detailVisit).id}
+                patientId={(current || detailVisit).patient?.id}
+                muted={muted}
+              />
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* GPay QR modal */}
+      <Modal isOpen={gpayModal.isOpen} onClose={gpayModal.onClose} isCentered size="xs">
+        <ModalOverlay />
+        <ModalContent borderRadius="2xl" mx={4}>
+          <ModalCloseButton />
+          <ModalBody pt={8} pb={6} textAlign="center">
+            <img src="/sdrc-qr-gpay.png" alt="SDRC GPay QR"
+              style={{ width: "100%", maxWidth: "260px", margin: "0 auto", display: "block",
+                borderRadius: "12px", border: "1px solid var(--border)" }} />
+            <Text fontSize="13px" color={muted} mt={3}>
+              Scan to pay SDRC via Google Pay / UPI
+            </Text>
           </ModalBody>
         </ModalContent>
       </Modal>
@@ -658,9 +765,33 @@ export default function YourDayView({ executiveId, themeMode = "light" }) {
   );
 }
 
+// ── ToolbarBtn ────────────────────────────────────────────────────────────────
+
+function ToolbarBtn({ icon, label, onClick, isDark, accent }) {
+  return (
+    <Box
+      as="button"
+      onClick={onClick}
+      display="flex" flexDirection="column" alignItems="center" justifyContent="center"
+      gap="3px" py={2} px={3} borderRadius="xl" flex="1"
+      color={accent ? "var(--accent)" : isDark ? "rgba(248,250,252,0.75)" : "var(--text-2)"}
+      _hover={{ bg: isDark ? "whiteAlpha.100" : "var(--surface-2)" }}
+      _active={{ bg: isDark ? "whiteAlpha.150" : "var(--surface-3)" }}
+      transition="background 0.1s"
+      minW={0}
+    >
+      {icon}
+      <Text fontSize="10px" fontWeight="600" letterSpacing="0.01em" lineHeight="1"
+        color={accent ? "var(--accent)" : isDark ? "rgba(248,250,252,0.55)" : "var(--text-3)"}>
+        {label}
+      </Text>
+    </Box>
+  );
+}
+
 // ── CurrentCard ───────────────────────────────────────────────────────────────
 
-function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, surface, text, muted, borderC }) {
+function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, onViewDraw, surface, text, muted, borderC }) {
   const status    = norm(visit.status);
   const label     = actionLabel(status);
   const scheme    = actionScheme(status);
@@ -670,6 +801,13 @@ function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContac
   const slot      = visit.time_slot?.slot_name;
   const def       = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
   const hasCoords = !!(def?.lat && def?.lng);
+
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
 
   return (
     <Box
@@ -736,20 +874,20 @@ function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContac
         <Button
           w="100%" h="52px" mb={3}
           borderRadius="var(--r)"
-          bg={hasCoords ? "#1A73E8" : isDark ? "whiteAlpha.50" : "var(--surface)"}
+          bg={hasCoords ? "#16A34A" : isDark ? "whiteAlpha.50" : "var(--surface)"}
           color={hasCoords ? "white" : text}
           border={hasCoords ? "none" : "1px solid"}
           borderColor={isDark ? "whiteAlpha.200" : "var(--border)"}
           fontSize="15px" fontWeight="600"
           leftIcon={hasCoords ? <Navigation size={18} /> : <MapPin size={18} color="var(--accent)" />}
-          boxShadow={hasCoords ? "0 2px 8px rgba(26,115,232,0.35)" : "var(--shadow-sm)"}
+          boxShadow={hasCoords ? "0 2px 8px rgba(22,163,74,0.35)" : "var(--shadow-sm)"}
           onClick={onNavigate}
           _hover={{ opacity: 0.9 }}
         >
           {hasCoords ? "Navigate" : "Open in Maps"}
         </Button>
 
-        {/* Primary action — large, one-tap */}
+        {/* Primary action — arm first, then confirm */}
         {label && (
           <>
             {["booked","assigned","accepted","pending"].includes(status) && (
@@ -760,34 +898,56 @@ function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContac
             <Button
               w="100%" h="68px" mb={3}
               borderRadius="var(--r-lg)"
-              colorScheme={scheme}
+              colorScheme={armed ? "orange" : scheme}
               fontSize="18px" fontWeight="800"
               letterSpacing="-0.01em"
-              leftIcon={["booked","assigned","accepted","pending"].includes(status) ? <Bike size={20} /> : status === "in_progress" ? <MapPin size={20} /> : <CheckCircle size={20} />}
-              boxShadow="0 4px 14px -2px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.10)"
-              onClick={onAdvance}
+              leftIcon={armed ? <CheckCircle size={20} /> : ["booked","assigned","accepted","pending"].includes(status) ? <Bike size={20} /> : status === "in_progress" ? <MapPin size={20} /> : <CheckCircle size={20} />}
+              boxShadow={armed
+                ? "0 4px 14px -2px rgba(221,107,32,0.40), inset 0 -2px 0 rgba(0,0,0,0.10)"
+                : "0 4px 14px -2px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.10)"}
+              onClick={armed ? () => { setArmed(false); onAdvance(); } : () => setArmed(true)}
               isLoading={isLoading}
               loadingText="Updating…"
             >
-              {label}
+              {armed ? `Confirm: ${label}` : label}
             </Button>
+            {armed && (
+              <Text fontSize="11px" color={muted} textAlign="center" mt="-8px" mb="6px">
+                Tap confirm or wait 3 s to cancel
+              </Text>
+            )}
           </>
         )}
-        {/* Tests shortcut — visible when sample collection is in progress */}
+        {/* Sample-collection shortcuts — visible when phlebo is at patient */}
         {["in_progress", "sample_picked"].includes(status) && (
-          <Button
-            w="100%" h="44px" mb={3}
-            borderRadius="var(--r)"
-            variant="outline"
-            borderColor={isDark ? "whiteAlpha.200" : "var(--border)"}
-            color={isDark ? "whiteAlpha.800" : "var(--text-2)"}
-            fontSize="13px" fontWeight="600"
-            leftIcon={<Search size={15} />}
-            onClick={onAddTests}
-            _hover={{ bg: isDark ? "whiteAlpha.100" : "var(--surface-2)" }}
-          >
-            Add / edit tests
-          </Button>
+          <Flex gap={2} mb={3}>
+            <Button
+              flex={1} h="44px"
+              borderRadius="var(--r)"
+              variant="outline"
+              borderColor={isDark ? "whiteAlpha.200" : "var(--border)"}
+              color={isDark ? "whiteAlpha.800" : "var(--text-2)"}
+              fontSize="13px" fontWeight="600"
+              leftIcon={<TestTubes size={15} />}
+              onClick={onViewDraw}
+              _hover={{ bg: isDark ? "whiteAlpha.100" : "var(--surface-2)" }}
+            >
+              Order of draw
+            </Button>
+            <Button
+              flex={1} h="44px"
+              borderRadius="var(--r)"
+              variant="outline"
+              borderColor={isDark ? "whiteAlpha.200" : "var(--border)"}
+              color={isDark ? "whiteAlpha.800" : "var(--text-2)"}
+              fontSize="13px" fontWeight="600"
+              leftIcon={<Search size={15} />}
+              onClick={onAddTests}
+              _hover={{ bg: isDark ? "whiteAlpha.100" : "var(--surface-2)" }}
+            >
+              Add tests
+            </Button>
+          </Flex>
         )}
       </Box>
 
@@ -912,6 +1072,12 @@ function TomorrowHeroCard({ visit, isDark, surface, text, muted, borderC, onNavi
 function UpcomingRow({ visit, isDark, isLoading, onStart, onTap, text, muted }) {
   const time = slotTime(visit.time_slot?.slot_name);
   const addr = displayAddress(visit);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
 
   return (
     <Flex align="center" gap={3} px={4} py="13px"
@@ -931,15 +1097,19 @@ function UpcomingRow({ visit, isDark, isLoading, onStart, onTap, text, muted }) 
       <Button
         h="32px" px={3} flexShrink={0}
         borderRadius="var(--r-sm)"
-        bg="var(--accent-soft)"
-        color="var(--accent-ink)"
-        border="1px solid var(--accent-line)"
+        bg={armed ? "orange.400" : "var(--accent-soft)"}
+        color={armed ? "white" : "var(--accent-ink)"}
+        border="1px solid"
+        borderColor={armed ? "orange.400" : "var(--accent-line)"}
         fontSize="12px" fontWeight="600"
-        onClick={e => { e.stopPropagation(); onStart(); }}
+        onClick={e => {
+          e.stopPropagation();
+          armed ? (setArmed(false), onStart()) : setArmed(true);
+        }}
         isLoading={isLoading}
-        _hover={{ bg: "var(--accent-line)" }}
+        _hover={{ opacity: 0.85 }}
       >
-        Start visit
+        {armed ? "Confirm?" : "Start"}
       </Button>
     </Flex>
   );
@@ -950,6 +1120,12 @@ function UpcomingRow({ visit, isDark, isLoading, onStart, onTap, text, muted }) 
 function DoneRow({ visit, text, muted, onTap }) {
   const slot = visit.time_slot?.slot_name ? slotDisplay(visit.time_slot.slot_name) : "—";
   const addr = displayAddress(visit);
+  const s = norm(visit.status);
+  const dotColor = s === "completed"                              ? "var(--success)"
+    : ["cancelled", "rejected", "disabled"].includes(s)          ? "#FC8181"
+    : s === "postponed"                                           ? "var(--warn)"
+    : "var(--border-mid)";
+  const statusNote = s !== "completed" ? s.replace(/_/g, " ") : null;
 
   return (
     <Flex
@@ -962,10 +1138,10 @@ function DoneRow({ visit, text, muted, onTap }) {
           {visit.patient?.name}
         </Text>
         <Text fontSize="11px" color={muted} noOfLines={1} mt="1px">
-          {slot}{addr ? ` · ${addr}` : ""}
+          {slot}{addr ? ` · ${addr}` : ""}{statusNote ? ` · ${statusNote}` : ""}
         </Text>
       </Box>
-      <Box w="8px" h="8px" borderRadius="full" bg="var(--success)" flexShrink={0} />
+      <Box w="8px" h="8px" borderRadius="full" bg={dotColor} flexShrink={0} />
     </Flex>
   );
 }
@@ -1106,13 +1282,13 @@ function VisitDetailSheet({ visit, muted }) {
         </Box>
       )}
 
-      {/* Assigned tests — read-only view */}
+      {/* Estimate */}
       <Box>
         <Text fontSize="11px" fontWeight="700" color={muted}
           textTransform="uppercase" letterSpacing="0.06em" mb={2}>
-          Tests
+          ₹ Estimate
         </Text>
-        <VisitBillingPanel visitId={visit.id} readOnly muted={muted} />
+        <VisitBillingPanel visitId={visit.id} patientId={visit.patient?.id} muted={muted} />
       </Box>
     </Box>
   );
@@ -1184,7 +1360,7 @@ function TomorrowPreviewContent({ visit, isDark, surface, text, muted, borderC }
         <Box px={4} pb={4} bg={surface} display="flex" flexDirection="column" gap={2} pt={2}>
           {navUrl && (
             <Button w="100%" h="52px" borderRadius="var(--r)"
-              bg={hasCoords ? "#1A73E8" : isDark ? "whiteAlpha.100" : "var(--surface-2)"}
+              bg={hasCoords ? "#16A34A" : isDark ? "whiteAlpha.100" : "var(--surface-2)"}
               color={hasCoords ? "white" : text}
               border={hasCoords ? "none" : "1px solid"} borderColor={borderC}
               leftIcon={hasCoords ? <Navigation size={16} /> : <MapPin size={16} />}
@@ -1195,7 +1371,7 @@ function TomorrowPreviewContent({ visit, isDark, surface, text, muted, borderC }
             </Button>
           )}
           <Button w="100%" h="68px" borderRadius="var(--r)"
-            bg="var(--accent)" color="white" fontSize="17px" fontWeight="700"
+            colorScheme="green" fontSize="17px" fontWeight="700"
             leftIcon={<Bike size={20} />}
             isDisabled _disabled={{ opacity: 0.7, cursor: "default" }}>
             Going to patient

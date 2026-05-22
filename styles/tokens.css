@@ -39,6 +39,12 @@
   --accent-line:   #D8C9E3;
   --accent-ink:    #4A3358;
 
+  /* Employee / staff actions — neutral slate, distinct from patient plum */
+  --employee:      #5F6368;
+  --employee-dark: #4A4F53;
+  --employee-soft: #F1F3F4;
+  --employee-ink:  #FFFFFF;
+
   /* Semantic */
   --success:       #5BA37A;
   --success-soft:  #ECF5EF;

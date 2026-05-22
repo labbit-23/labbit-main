@@ -18,7 +18,17 @@ import {
   Select,
   IconButton,
   Collapse,
-  Switch
+  Switch,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useDisclosure,
+  Badge,
+  VStack,
 } from "@chakra-ui/react";
 import { ExternalLinkIcon, CheckIcon } from "@chakra-ui/icons";
 import { supabase } from "../../lib/supabaseClient";
@@ -62,6 +72,11 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
   const [statusOptions, setStatusOptions] = useState(FALLBACK_STATUS_OPTIONS);
   const [selectedStatus, setSelectedStatus] = useState(visit.status);
   const [showTestSelection, setShowTestSelection] = useState(false);
+
+  // Make list
+  const { isOpen: isMakeListOpen, onOpen: openMakeList, onClose: closeMakeList } = useDisclosure();
+  const [makeListLoading, setMakeListLoading] = useState(false);
+  const [makeListMatches, setMakeListMatches] = useState([]);
 
   // Prescription preview
   const [prescriptionUrl, setPrescriptionUrl] = useState(null);
@@ -202,6 +217,86 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
       });
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  // Parse notes → matched lab_tests
+  const handleMakeList = async () => {
+    const rawText = [visit.notes, typeof visit.prescription === "string" && !/^https?:\/\//i.test(visit.prescription) ? visit.prescription : ""]
+      .filter(Boolean).join(" ");
+    if (!rawText.trim()) {
+      toast({ title: "No notes to parse", description: "Visit has no text notes to extract test codes from.", status: "warning" });
+      return;
+    }
+
+    setMakeListLoading(true);
+    try {
+      const { data: allTests, error } = await supabase
+        .from("lab_tests")
+        .select("id, internal_code, lab_test_name")
+        .eq("is_active", true);
+      if (error) throw error;
+
+      // Tokenize: split on commas, semicolons, newlines, and multi-spaces; normalize each
+      const tokens = rawText
+        .split(/[,;\n\r\/\|]+/)
+        .map(t => t.trim().replace(/\s+/g, " ").toUpperCase())
+        .filter(t => t.length >= 2);
+
+      const matched = [];
+      const seenIds = new Set();
+
+      for (const test of (allTests || [])) {
+        const code = (test.internal_code || "").toUpperCase();
+        const name = (test.lab_test_name || "").toUpperCase();
+        const hit = tokens.some(tok =>
+          code === tok ||
+          name === tok ||
+          (tok.length >= 4 && name.includes(tok))
+        );
+        if (hit && !seenIds.has(test.id)) {
+          seenIds.add(test.id);
+          matched.push(test);
+        }
+      }
+
+      setMakeListMatches(matched);
+      openMakeList();
+    } catch (err) {
+      toast({ title: "Failed to parse tests", description: err.message, status: "error" });
+    } finally {
+      setMakeListLoading(false);
+    }
+  };
+
+  const confirmMakeList = async () => {
+    if (!makeListMatches.length) { closeMakeList(); return; }
+    setMakeListLoading(true);
+    try {
+      // Load existing to avoid duplicates
+      const { data: existing } = await supabase
+        .from("visit_details")
+        .select("test_id")
+        .eq("visit_id", visit.id);
+      const existingIds = new Set((existing || []).map(r => r.test_id).filter(Boolean));
+
+      const toInsert = makeListMatches
+        .filter(t => !existingIds.has(t.id))
+        .map(t => ({ visit_id: visit.id, test_id: t.id, package_id: null }));
+
+      if (toInsert.length) {
+        const { error } = await supabase.from("visit_details").insert(toInsert);
+        if (error) throw error;
+      }
+
+      toast({ title: `${makeListMatches.length} test(s) added`, status: "success" });
+      closeMakeList();
+      setShowTestSelection(true);
+      fetchVisitSelections();
+    } catch (err) {
+      toast({ title: "Failed to save tests", description: err.message, status: "error" });
+    } finally {
+      setMakeListLoading(false);
     }
   };
 
@@ -532,16 +627,64 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
       )}
 
       {/* Toggle for tests/packages */}
-      <FormControl display="flex" alignItems="center" mb={4}>
-        <FormLabel htmlFor="toggle-tests" mb="0">
-          Show Test / Package Selection
-        </FormLabel>
-        <Switch
-          id="toggle-tests"
-          isChecked={showTestSelection}
-          onChange={(e) => setShowTestSelection(e.target.checked)}
-        />
-      </FormControl>
+      <Flex align="center" justify="space-between" mb={4} gap={3} flexWrap="wrap">
+        <FormControl display="flex" alignItems="center" mb={0} flex="1">
+          <FormLabel htmlFor="toggle-tests" mb="0">
+            Show Test / Package Selection
+          </FormLabel>
+          <Switch
+            id="toggle-tests"
+            isChecked={showTestSelection}
+            onChange={(e) => setShowTestSelection(e.target.checked)}
+          />
+        </FormControl>
+        {(visit.notes || (typeof visit.prescription === "string" && !/^https?:\/\//i.test(visit.prescription || ""))) && (
+          <Button
+            size="sm"
+            variant="outline"
+            colorScheme="purple"
+            isLoading={makeListLoading}
+            onClick={handleMakeList}
+            flexShrink={0}
+          >
+            Make list from notes
+          </Button>
+        )}
+      </Flex>
+
+      {/* Make list confirmation modal */}
+      <Modal isOpen={isMakeListOpen} onClose={closeMakeList} size="sm">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader fontSize="md">Matched Tests</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {makeListMatches.length === 0 ? (
+              <Text fontSize="sm" color="gray.500">No matching tests found in notes.</Text>
+            ) : (
+              <VStack align="start" spacing={2}>
+                <Text fontSize="sm" color="gray.500" mb={1}>
+                  Found {makeListMatches.length} test{makeListMatches.length !== 1 ? "s" : ""} from visit notes:
+                </Text>
+                {makeListMatches.map(t => (
+                  <Badge key={t.id} colorScheme="purple" px={2} py={1} borderRadius="md" fontWeight="600">
+                    {t.lab_test_name}
+                    {t.internal_code ? ` (${t.internal_code})` : ""}
+                  </Badge>
+                ))}
+              </VStack>
+            )}
+          </ModalBody>
+          <ModalFooter gap={2}>
+            <Button variant="ghost" size="sm" onClick={closeMakeList}>Cancel</Button>
+            {makeListMatches.length > 0 && (
+              <Button colorScheme="purple" size="sm" isLoading={makeListLoading} onClick={confirmMakeList}>
+                Add to visit
+              </Button>
+            )}
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       <Collapse in={showTestSelection}>
         <FormControl mb={6}>

@@ -79,6 +79,7 @@ export default function ShortcutBar({
   const [notificationPermission, setNotificationPermission] = React.useState("unknown");
   const [isPasswordModalOpen, setIsPasswordModalOpen] = React.useState(false);
   const [fontScale, setFontScale] = React.useState('100%');
+  const [labLogoUrl, setLabLogoUrl] = React.useState(null);
 
   // Load saved font scale for this user on mount / login change
   React.useEffect(() => {
@@ -250,6 +251,19 @@ export default function ShortcutBar({
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
   const roleMarker = getRoleMarker(user);
   const execType = String(user?.executiveType || user?.roleKey || "").toLowerCase();
+  const isPhlebo = execType === "phlebo";
+
+  React.useEffect(() => {
+    if (!isPhlebo) return;
+    fetch("/api/labs?my_labs=true")
+      .then(r => r.json())
+      .then(data => {
+        const labs = Array.isArray(data) ? data : [];
+        const logo = labs.find(l => l.logo_url)?.logo_url || null;
+        setLabLogoUrl(logo);
+      })
+      .catch(() => {});
+  }, [isPhlebo]);
   const userType = String(user?.userType || "").toLowerCase();
   const isDirector = (userType === "executive" || userType === "director") && execType === "director";
   const canManagePassword = Boolean(user) && (userType === "executive" || Boolean(user?.executiveType));
@@ -395,7 +409,7 @@ export default function ShortcutBar({
         gap={3}
       >
         {/* Left section: logo + name (truncate if needed) */}
-        <Flex align="center" gap={2} flexShrink={1} minW={0}>
+        <Flex align="center" gap={2} flexShrink={1} minW={0} flex={isPhlebo ? "1 1 auto" : undefined}>
           <Box
             cursor="pointer"
             onClick={(e) => {
@@ -408,8 +422,8 @@ export default function ShortcutBar({
             flexShrink={0}
           >
             <Image
-              src="/logo.png"
-              alt="Labit Logo"
+              src={isPhlebo ? (labLogoUrl || "/SDRC_logo.png") : "/logo.png"}
+              alt={isPhlebo ? "Lab Logo" : "Labit Logo"}
               maxH={{ base: "28px", md: "36px" }}
               objectFit="contain"
               draggable={false}
@@ -448,7 +462,7 @@ export default function ShortcutBar({
               fontSize="13px"
               color={themeMode === "dark" ? "whiteAlpha.900" : "var(--text-2)"}
               isTruncated
-              maxW={{ base: "90px", sm: "150px" }}
+              maxW={isPhlebo ? { base: "160px", sm: "260px" } : { base: "90px", sm: "150px" }}
             >
               {user.name}
             </Text>
@@ -470,8 +484,8 @@ export default function ShortcutBar({
               </Box>
             ) : null}
             {selectedDate && setSelectedDate ? (
-              <Box pointerEvents="auto" maxW="320px" width="100%">
-                <DateSelector date={selectedDate} setDate={setSelectedDate} />
+              <Box pointerEvents="auto">
+                <DateSelector date={selectedDate} setDate={setSelectedDate} compact />
               </Box>
             ) : null}
           </Flex>
@@ -479,17 +493,19 @@ export default function ShortcutBar({
 
         {/* Right section: Home + Role badge + Logout */}
         <Flex align="center" gap={{ base: 1, sm: 2 }} flexShrink={0}>
-          <Tooltip label="Dashboard Home">
-            <IconButton
-              icon={<Home size={16} />}
-              onClick={handleHomeDashboard}
-              variant="ghost"
-              size={{ base: "sm", sm: "md" }}
-              color={themeMode === "dark" ? "whiteAlpha.900" : undefined}
-              _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : undefined}
-              aria-label="Go to dashboard home"
-            />
-          </Tooltip>
+          {!isPhlebo && (
+            <Tooltip label="Dashboard Home">
+              <IconButton
+                icon={<Home size={16} />}
+                onClick={handleHomeDashboard}
+                variant="ghost"
+                size={{ base: "sm", sm: "md" }}
+                color={themeMode === "dark" ? "whiteAlpha.900" : undefined}
+                _hover={themeMode === "dark" ? { bg: "whiteAlpha.200" } : undefined}
+                aria-label="Go to dashboard home"
+              />
+            </Tooltip>
+          )}
           <Tooltip label={notificationLabel}>
             <Box position="relative">
               <IconButton
@@ -527,7 +543,7 @@ export default function ShortcutBar({
               />
             </Tooltip>
           )}
-          {!!user && (
+          {!!user && !isPhlebo && (
             <Tooltip label={`Logged in as ${roleMarker.label}`}>
               <Badge
                 colorScheme={roleMarker.color}
