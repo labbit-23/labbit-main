@@ -6525,31 +6525,31 @@ export default function WhatsAppDashboard() {
           }
 
           .wa-root.theme-light .wa-chatTop {
-            background: #f5efe6;
-            border-bottom: 1px solid #ddd1c1;
+            background: #F6F7F8;
+            border-bottom: 1px solid #E6E8EB;
             box-shadow: none;
           }
 
           .wa-root.theme-light .wa-sessionActionInfo,
           .wa-root.theme-light .wa-sessionName {
-            color: #1f3552;
+            color: #15181C;
           }
 
           .wa-root.theme-light .wa-mobileBackBtn {
-            border-color: #ccbca8;
-            background: #fbf6ef;
-            color: #2b4668;
+            border-color: #E6E8EB;
+            background: #F6F7F8;
+            color: #15181C;
             box-shadow: none;
           }
 
           .wa-root.theme-light .wa-sessionPhone {
-            background: #fbf6ef;
-            border-color: #ccbca8;
-            color: #1f3552;
+            background: #F1F3F4;
+            border-color: #E6E8EB;
+            color: #15181C;
           }
 
           .wa-root.theme-light .wa-sessionPhone:hover {
-            background: #f3e9dd;
+            background: #E9ECEE;
           }
 
           .wa-root.theme-light .wa-status.is-live,
@@ -6559,39 +6559,39 @@ export default function WhatsAppDashboard() {
           .wa-root.theme-light .wa-status.is-pending,
           .wa-root.theme-light .wa-status.is-resolved,
           .wa-root.theme-light .wa-status.is-closed {
-            background: #efe6da;
-            color: #2b4668;
-            border: 1px solid #d8c8b5;
+            background: #F1F3F4;
+            color: #525860;
+            border: 1px solid #E6E8EB;
           }
 
           .wa-root.theme-light .wa-messageFilterBar button,
           .wa-root.theme-light .wa-actionBtns button {
-            border-color: #d3c4b1;
-            background: #fbf6ef;
-            color: #2b4668;
+            border-color: #E6E8EB;
+            background: #F6F7F8;
+            color: #15181C;
           }
 
           .wa-root.theme-light .wa-messageFilterBar button.is-active,
           .wa-root.theme-light .wa-actionBtns button.is-active {
-            background: #0f7f85;
-            border-color: #0f7f85;
+            background: #8A6BA3;
+            border-color: #8A6BA3;
             color: #ffffff;
           }
 
           .wa-root.theme-light .wa-customComposer textarea {
             background: #ffffff;
-            color: #1d2b41;
-            border: 1px solid #d5c8b8;
+            color: #15181C;
+            border: 1px solid #E6E8EB;
           }
 
           .wa-root.theme-light .wa-customComposer textarea::placeholder {
-            color: #6a7a90;
+            color: #B2B7BD;
           }
 
           .wa-root.theme-light .wa-sendBtn,
           .wa-root.theme-light .wa-attachBtn {
-            background: #0f7f85;
-            border-color: #0f7f85;
+            background: #8A6BA3;
+            border-color: #8A6BA3;
             color: #ffffff;
           }
 
@@ -6620,15 +6620,15 @@ export default function WhatsAppDashboard() {
 
         @media (prefers-color-scheme: light) {
           .wa-root {
-            background:
-              radial-gradient(circle at top right, rgba(255, 255, 255, 0.55), transparent 32%),
-              #e8ddd0;
+            background: #F6F7F8;
           }
 
           .wa-frame {
-            background: #f5efe6;
-            border: 1px solid #d8cfc3;
-            box-shadow: 0 16px 36px rgba(27, 39, 56, 0.14);
+            background: #ffffff;
+            border: 1px solid #E6E8EB;
+            box-shadow: 0 1px 3px rgba(15, 20, 25, 0.05);
+            border-radius: 10px;
+            max-width: 100%;
           }
 
           .wa-main,
@@ -6638,60 +6638,60 @@ export default function WhatsAppDashboard() {
           .wa-sessionActionBar,
           .wa-leftPanelTools,
           .wa-customComposer {
-            background: #f5efe6;
+            background: #F6F7F8;
           }
 
           .wa-sidebarHeader {
-            border-bottom: 1px solid #ddd1c1;
+            border-bottom: 1px solid #E6E8EB;
           }
 
           .wa-backBtn,
           .wa-sidebarHeader button {
-            border: 1px solid #ccd6e3;
+            border: 1px solid #E6E8EB;
             background: #fff;
-            color: #34465d;
+            color: #525860;
           }
 
           .wa-sidebarHeader h1 {
-            color: #0c3f47;
+            color: #15181C;
           }
 
           .wa-sidebarHeader p,
           .wa-titleSub,
           .wa-ownNumber {
-            color: #607087;
+            color: #525860;
           }
 
           .wa-leftPanelTools {
-            border-bottom: 1px solid #ddd1c1;
+            border-bottom: 1px solid #E6E8EB;
           }
 
           .wa-leftPanelTools input {
-            border: 1px solid #d5c8b8;
-            background: #fbf8f3;
-            color: #0f172a;
+            border: 1px solid #E6E8EB;
+            background: #F6F7F8;
+            color: #15181C;
           }
 
           .wa-resolveMenu {
             background: #fff;
-            border-color: #d3c4b1;
+            border-color: #E6E8EB;
           }
 
           .wa-resolveMenuTitle {
-            color: #2b4668;
+            color: #15181C;
           }
 
           .wa-resolveMenu select,
           .wa-resolveMenu textarea {
             background: #fff;
-            border-color: #d3c4b1;
-            color: #2b4668;
+            border-color: #E6E8EB;
+            color: #15181C;
           }
 
           .wa-resolveMenuActions button {
-            border-color: #d3c4b1;
-            background: #fbf6ef;
-            color: #2b4668;
+            border-color: #E6E8EB;
+            background: #F6F7F8;
+            color: #15181C;
           }
 
           .wa-ownerSearchRow {
@@ -6709,8 +6709,8 @@ export default function WhatsAppDashboard() {
           }
 
           .wa-leftPanelTools input:focus {
-            border-color: #8ea0b7;
-            box-shadow: 0 0 0 3px rgba(142, 160, 183, 0.15);
+            border-color: #8A6BA3;
+            box-shadow: 0 0 0 3px rgba(138, 107, 163, 0.22);
           }
 
           .wa-metaToggle,
@@ -6719,27 +6719,25 @@ export default function WhatsAppDashboard() {
           .wa-actionBtns button,
           .wa-attachBtn,
           .wa-sendBtn {
-            border: 1px solid #d0d9e6;
+            border: 1px solid #E6E8EB;
             background: #fff;
-            color: #42546d;
+            color: #525860;
           }
 
           .wa-tabs button.is-active,
           .wa-messageFilterBar button.is-active,
           .wa-actionBtns button.is-active {
-            background: #0f7f85;
-            border-color: #0f7f85;
+            background: #8A6BA3;
+            border-color: #8A6BA3;
             color: #fff;
           }
 
           .wa-sessionName {
-            color: #162437;
+            color: #15181C;
           }
 
           .wa-messageList {
-            background:
-              radial-gradient(circle at top right, rgba(255, 255, 255, 0.48), transparent 28%),
-              #e8ddd0;
+            background: #F1F3F4;
           }
 
           .wa-msgBubble.is-in {
@@ -6769,16 +6767,16 @@ export default function WhatsAppDashboard() {
           }
 
           .wa-conversation {
-            border-bottom: 1px solid #e3d8ca;
+            border-bottom: 1px solid #E6E8EB;
           }
 
           .wa-conversation:hover {
-            background: #efe6db;
+            background: #F1F3F4;
           }
 
           .wa-conversation.is-active {
-            background: #dff1ea;
-            color: #143428;
+            background: #F1EBF5;
+            color: #4A3358;
           }
 
           .wa-conversationInfoText {
@@ -6786,35 +6784,35 @@ export default function WhatsAppDashboard() {
           }
 
           .wa-sidebar {
-            border-right: 1px solid #ddd1c1;
+            border-right: 1px solid #E6E8EB;
           }
 
           .wa-chatTop,
           .wa-sessionActionBar {
-            border-bottom: 1px solid #ddd1c1;
+            border-bottom: 1px solid #E6E8EB;
           }
 
           .wa-customComposer {
-            border-top: 1px solid #ddd1c1;
+            border-top: 1px solid #E6E8EB;
           }
 
           .wa-customComposer textarea {
-            border: 1px solid #d5c8b8;
-            background: #fbf8f3;
-            color: #0f172a;
+            border: 1px solid #E6E8EB;
+            background: #F6F7F8;
+            color: #15181C;
           }
         }
 
         .wa-root.theme-light {
-          background:
-            radial-gradient(circle at top right, rgba(255, 255, 255, 0.55), transparent 32%),
-            #e8ddd0;
+          background: #F6F7F8;
         }
 
         .wa-root.theme-light .wa-frame {
-          background: #f5efe6;
-          border-color: #d8cfc3;
-          box-shadow: 0 16px 36px rgba(27, 39, 56, 0.14);
+          background: #ffffff;
+          border-color: #E6E8EB;
+          box-shadow: 0 1px 3px rgba(15, 20, 25, 0.05);
+          border-radius: 10px;
+          max-width: 100%;
         }
 
         .wa-root.theme-light .wa-main,
@@ -6824,7 +6822,7 @@ export default function WhatsAppDashboard() {
         .wa-root.theme-light .wa-sessionActionBar,
         .wa-root.theme-light .wa-leftPanelTools,
         .wa-root.theme-light .wa-customComposer {
-          background: #f5efe6;
+          background: #F6F7F8;
         }
 
         .wa-root.theme-light .wa-sidebarHeader,
@@ -6832,17 +6830,15 @@ export default function WhatsAppDashboard() {
         .wa-root.theme-light .wa-sessionActionBar,
         .wa-root.theme-light .wa-leftPanelTools,
         .wa-root.theme-light .wa-customComposer {
-          border-color: #ddd1c1;
+          border-color: #E6E8EB;
         }
 
         .wa-root.theme-light .wa-sidebar {
-          border-right-color: #ddd1c1;
+          border-right-color: #E6E8EB;
         }
 
         .wa-root.theme-light .wa-messageList {
-          background:
-            radial-gradient(circle at top right, rgba(255, 255, 255, 0.48), transparent 28%),
-            #e8ddd0;
+          background: #F1F3F4;
         }
 
         .wa-root.theme-light .wa-msgBubble.is-in {
@@ -6864,57 +6860,57 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-root.theme-light .wa-loadMoreWrap {
-          border-top: 1px solid #ddd1c1;
-          background: #f5efe6;
+          border-top: 1px solid #E6E8EB;
+          background: #F6F7F8;
         }
 
         .wa-root.theme-light .wa-loadMoreSessions {
-          border: 1px solid #d3c4b1;
-          background: #fbf6ef;
-          color: #2b4668;
-          box-shadow: 0 8px 18px rgba(15, 38, 70, 0.08);
+          border: 1px solid #E6E8EB;
+          background: #F6F7F8;
+          color: #15181C;
+          box-shadow: 0 2px 6px rgba(15, 20, 25, 0.06);
         }
 
         .wa-root.theme-light .wa-tabs button {
-          border: 1px solid #d3c4b1;
-          background: #fbf6ef;
-          color: #2b4668;
+          border: 1px solid #E6E8EB;
+          background: #ffffff;
+          color: #525860;
         }
 
         .wa-root.theme-light .wa-tabs button.is-active {
-          background: #0f7f85;
-          border-color: #0f7f85;
+          background: #8A6BA3;
+          border-color: #8A6BA3;
           color: #ffffff;
         }
 
         .wa-root.theme-light .wa-leftTitleMini {
-          color: #1f3552;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-leftNumberMini {
-          color: #5b6f88;
+          color: #878D94;
         }
 
         .wa-root.theme-light .wa-sessionPhone {
-          background: #fbf6ef;
-          border-color: #ccbca8;
-          color: #1f3552;
+          background: #F1F3F4;
+          border-color: #E6E8EB;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-sessionPhone:hover {
-          background: #f3e9dd;
+          background: #E9ECEE;
         }
 
         .wa-root.theme-light .wa-shortBtn {
-          border-color: #d3c4b1;
-          background: #fbf6ef;
-          color: #2b4668;
+          border-color: #E6E8EB;
+          background: #F6F7F8;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-shortBtn.is-reports {
-          border-color: #7ad9c0;
-          background: #dff8ef;
-          color: #145a4f;
+          border-color: #A3D0B5;
+          background: #ECF5EF;
+          color: #2F6B49;
         }
 
         .wa-root.theme-light .wa-ownerSearchAddBtn {
@@ -6937,32 +6933,32 @@ export default function WhatsAppDashboard() {
 
         .wa-root.theme-light .wa-modalCard {
           background: #ffffff;
-          border-color: #d6e2f1;
+          border-color: #E6E8EB;
         }
 
         .wa-root.theme-light .wa-modalHeader {
-          color: #1f3552;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-modalClose {
-          border-color: #d3c4b1;
-          color: #2b4668;
+          border-color: #E6E8EB;
+          color: #525860;
         }
 
         .wa-root.theme-light .wa-modalLabel {
-          color: #2b4668;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-modalInput {
-          border-color: #d3c4b1;
-          background: #fbf6ef;
-          color: #1f3552;
+          border-color: #E6E8EB;
+          background: #F6F7F8;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-modalTemplatePreview {
-          border-color: #d3c4b1;
-          background: #fbf6ef;
-          color: #2b4668;
+          border-color: #E6E8EB;
+          background: #F6F7F8;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-modalWarn {
@@ -6982,29 +6978,77 @@ export default function WhatsAppDashboard() {
         }
 
         .wa-root.theme-light .wa-sentReportsTableWrap {
-          border-color: #d3c4b1;
+          border-color: #E6E8EB;
         }
 
         .wa-root.theme-light .wa-sentReportsTable th,
         .wa-root.theme-light .wa-sentReportsTable td {
-          border-bottom-color: #e5e7eb;
-          color: #1f3552;
+          border-bottom-color: #E6E8EB;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-sentReportsTable th {
-          background: #f8fafc;
+          background: #F6F7F8;
         }
 
         .wa-root.theme-light .wa-iconToolBtn {
-          border-color: #d3c4b1;
-          background: #fbf6ef;
-          color: #2b4668;
+          border-color: #E6E8EB;
+          background: #F6F7F8;
+          color: #15181C;
         }
 
         .wa-root.theme-light .wa-iconToolBtn.is-active {
-          background: #0f7f85;
-          border-color: #0f7f85;
+          background: #8A6BA3;
+          border-color: #8A6BA3;
           color: #ffffff;
+        }
+
+        .wa-root.theme-light .wa-inlineBtn,
+        .wa-root.theme-light .wa-inlineBtn.is-primary {
+          border-color: #8A6BA3;
+          background: #8A6BA3;
+          color: #ffffff;
+        }
+
+        .wa-root.theme-light .wa-botMenuItem.is-secondary {
+          color: #6B4F82;
+          background: #F1EBF5;
+          border-color: #D8C9E3;
+        }
+
+        .wa-root.theme-light .wa-contactIconBadge {
+          background: #8A6BA3;
+        }
+
+        .wa-root.theme-light .wa-botToggle input {
+          accent-color: #8A6BA3;
+        }
+
+        .wa-root.theme-light .wa-msgAttachmentLink {
+          color: #6B4F82;
+        }
+
+        .wa-root.theme-light .wa-messageFilterBar button.is-active,
+        .wa-root.theme-light .wa-actionBtns button.is-active {
+          background: #8A6BA3;
+          border-color: #8A6BA3;
+          color: #ffffff;
+        }
+
+        @media (max-width: 900px) {
+          .wa-root.theme-light {
+            background: #F6F7F8;
+          }
+
+          .wa-root.theme-light .wa-frame {
+            border-radius: 0;
+            box-shadow: none;
+            background: #ffffff;
+          }
+
+          .wa-root.theme-light .wa-chatCol {
+            background: #F1F3F4;
+          }
         }
 
         .wa-root.theme-dark {

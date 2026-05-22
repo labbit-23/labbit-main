@@ -215,7 +215,7 @@ export default function PatientPortalPage() {
   }, [trendHtmlUrl]);
 
   return (
-    <Box minH="100vh" bg="#f4faf8">
+    <Box minH="100vh" bg="var(--bg)">
       <ShortcutBar
         rightContent={
           <TooltipIconButton
@@ -229,9 +229,9 @@ export default function PatientPortalPage() {
         <Flex
           mb={4}
           p={{ base: 4, md: 5 }}
-          bg="linear-gradient(135deg, #e6f6f1 0%, #fff9f1 100%)"
+          bg="teal.50"
           border="1px solid"
-          borderColor="#d7ebe4"
+          borderColor="teal.100"
           borderRadius="2xl"
           align={{ base: "flex-start", md: "center" }}
           justify="space-between"
@@ -239,17 +239,17 @@ export default function PatientPortalPage() {
           gap={3}
         >
           <VStack align="start" spacing={1}>
-            <Heading size={{ base: "md", md: "lg" }} color="#0c6f5e">
+            <Heading size={{ base: "md", md: "lg" }} color="teal.700">
               Health Summary
             </Heading>
-            <Text color="#2f5f57" fontSize={{ base: "sm", md: "md" }}>
+            <Text color="teal.600" fontSize={{ base: "sm", md: "md" }}>
               Reports, trends, reminders, and booking progress in one place.
             </Text>
           </VStack>
           <HStack spacing={2} alignSelf={{ base: "stretch", md: "center" }}>
             <Select
               bg="white"
-              borderColor="#cbe4dc"
+              borderColor="teal.100"
               value={selectedPatientId}
               onChange={(e) => {
                 const nextId = e.target.value;
@@ -266,8 +266,8 @@ export default function PatientPortalPage() {
             </Select>
             <Button
               variant="outline"
-              borderColor="#5ea796"
-              color="#0b6f5f"
+              borderColor="teal.400"
+              color="teal.700"
               onClick={() => loadPortal(selectedPatientId)}
             >
               Refresh
@@ -294,7 +294,7 @@ export default function PatientPortalPage() {
                 <Box>
                   <Flex justify="space-between" align={{ base: "start", md: "center" }} direction={{ base: "column", md: "row" }} gap={2}>
                     <VStack align="start" spacing={0}>
-                      <Heading size="sm" color="#186b5d">Health Trend</Heading>
+                      <Heading size="sm" color="teal.700">Health Trend</Heading>
                       <Text fontSize="sm" color="gray.600">Trend view is the main page section</Text>
                     </VStack>
                     <HStack spacing={2}>
@@ -366,7 +366,7 @@ export default function PatientPortalPage() {
             <Box>
               <VStack spacing={4} align="stretch" position={{ xl: "sticky" }} top={{ xl: "74px" }}>
                 <Box bg="white" borderRadius="xl" border="1px solid" borderColor="gray.200" p={4}>
-                  <Heading size="sm" mb={2} color="#186b5d">Report Dates</Heading>
+                  <Heading size="sm" mb={2} color="teal.700">Report Dates</Heading>
                   <Text fontSize="sm" color="gray.600" mb={3}>
                     Patient-wise report history with direct PDF.
                   </Text>
@@ -408,7 +408,7 @@ export default function PatientPortalPage() {
                 </Box>
 
                 <Box bg="white" borderRadius="xl" border="1px solid" borderColor="gray.200" p={4}>
-                  <Heading size="sm" mb={3} color="#186b5d">Reminders</Heading>
+                  <Heading size="sm" mb={3} color="teal.700">Reminders</Heading>
                   <VStack align="stretch" spacing={3}>
                     <Box>
                       <Text fontSize="xs" color="gray.500">Last package / tests</Text>
@@ -445,7 +445,7 @@ export default function PatientPortalPage() {
                 </Box>
 
                 <Box bg="white" borderRadius="xl" border="1px solid" borderColor="gray.200" p={4}>
-                  <Heading size="sm" mb={3} color="#186b5d">Booking Requests</Heading>
+                  <Heading size="sm" mb={3} color="teal.700">Booking Requests</Heading>
                   <VStack align="stretch" spacing={3} mb={3}>
                     <Button colorScheme="teal" onClick={() => window.open("/?quickbook=true", "_self")}>
                       New Booking Request
@@ -472,7 +472,7 @@ export default function PatientPortalPage() {
                 </Box>
 
                 <Box bg="white" borderRadius="xl" border="1px solid" borderColor="gray.200" p={4}>
-                  <Heading size="sm" mb={3} color="#186b5d">Upcoming Visits</Heading>
+                  <Heading size="sm" mb={3} color="teal.700">Upcoming Visits</Heading>
                   <Stack spacing={2} maxH="320px" overflowY="auto" pr={1}>
                     {visits.length ? (
                       visits.map((v) => {

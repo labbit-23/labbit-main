@@ -55,6 +55,71 @@ function isUuid(value) {
   );
 }
 
+function parseMinutesFromHHMMSS(value) {
+  const text = String(value || "").trim();
+  const m = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return (hh * 60) + mm;
+}
+
+function getIstNowParts() {
+  const now = new Date();
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const timeText = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(now);
+  const [hh, mm] = String(timeText).split(":").map((x) => Number(x));
+  const minutes = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
+  return { date, minutes };
+}
+
+async function assertQuickbookScheduleAllowed({ visitDate, timeSlotId, slotEndTime, slotLabel }) {
+  const targetDate = String(visitDate || "").slice(0, 10);
+  if (!targetDate) return null;
+
+  const nowIst = getIstNowParts();
+  if (targetDate < nowIst.date) {
+    return "Cannot create a visit request in the past.";
+  }
+  if (targetDate > nowIst.date) return null;
+
+  let endTime = String(slotEndTime || "").trim();
+  if (!endTime && timeSlotId && isUuid(timeSlotId)) {
+    const db = getDbClient();
+    if (db) {
+      const { data: slot, error } = await db
+        .from("visit_time_slots")
+        .select("end_time, slot_name")
+        .eq("id", timeSlotId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(error.message || "Failed to validate quickbook slot time.");
+      }
+      endTime = String(slot?.end_time || "").trim();
+      if (!slotLabel && slot?.slot_name) slotLabel = slot.slot_name;
+    }
+  }
+  if (!endTime) return null;
+
+  const endMins = parseMinutesFromHHMMSS(endTime);
+  if (endMins === null) return null;
+  if (nowIst.minutes > endMins) {
+    return `Cannot create request for ${slotLabel || "selected slot"} after its end time (${endTime.slice(0, 5)}).`;
+  }
+  return null;
+}
+
 function parseTemplates(templates) {
   if (!templates) return {};
   if (typeof templates === "string") {
@@ -310,7 +375,7 @@ async function resolveTimeslotDetails(timeslotInput) {
   if (isUuid(raw)) {
     const { data, error } = await db
       .from("visit_time_slots")
-      .select("id, slot_name")
+      .select("id, slot_name, end_time")
       .eq("id", raw)
       .limit(1)
       .maybeSingle();
@@ -320,7 +385,7 @@ async function resolveTimeslotDetails(timeslotInput) {
       return { id: raw, label: raw };
     }
 
-    return { id: raw, label: data?.slot_name || raw };
+    return { id: raw, label: data?.slot_name || raw, end_time: data?.end_time || null };
   }
 
   const { data, error } = await db
@@ -353,13 +418,15 @@ async function resolveTimeslotDetails(timeslotInput) {
   if (matchedSlot?.id) {
     return {
       id: matchedSlot.id,
-      label: matchedSlot.slot_name || lines[0] || raw
+      label: matchedSlot.slot_name || lines[0] || raw,
+      end_time: matchedSlot.end_time || null
     };
   }
 
   return {
     id: raw,
-    label: lines[0] || raw
+    label: lines[0] || raw,
+    end_time: null
   };
 }
 
@@ -405,6 +472,18 @@ export async function POST(req) {
     }
 
     const resolvedTimeslot = await resolveTimeslotDetails(timeslot);
+    const scheduleError = await assertQuickbookScheduleAllowed({
+      visitDate: date,
+      timeSlotId: resolvedTimeslot.id,
+      slotEndTime: resolvedTimeslot.end_time,
+      slotLabel: resolvedTimeslot.label,
+    });
+    if (scheduleError) {
+      return NextResponse.json(
+        { error: scheduleError, code: "VISIT_REQUEST_SCHEDULE_PAST" },
+        { status: 400 }
+      );
+    }
     const resolvedLabId = String(body?.lab_id || body?.labId || process.env.DEFAULT_LAB_ID || "").trim();
 
     // 1️⃣ Insert booking into quickbookings table

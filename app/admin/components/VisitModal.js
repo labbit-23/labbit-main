@@ -18,7 +18,11 @@ import {
   Select,
   Input,
   Textarea,
+  Divider,
+  Text,
+  Box,
 } from "@chakra-ui/react";
+import VisitBillingPanel from "../../../components/VisitBillingPanel";
 
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
@@ -212,6 +216,16 @@ export default function VisitModal({
               </Select>
             </FormControl>
           </VStack>
+
+          {visitInitialData?.id && (
+            <Box mt={6}>
+              <Divider mb={4} />
+              <Text fontWeight="700" fontSize="sm" mb={3} color="gray.600" textTransform="uppercase" letterSpacing="0.05em">
+                Tests &amp; Billing
+              </Text>
+              <VisitBillingPanel visitId={visitInitialData.id} />
+            </Box>
+          )}
         </ModalBody>
 
         <ModalFooter>

@@ -115,6 +115,65 @@ function normalizeStatusCode(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function parseMinutesFromHHMMSS(value) {
+  const text = String(value || "").trim();
+  const m = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return (hh * 60) + mm;
+}
+
+function getIstNowParts() {
+  const now = new Date();
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const timeText = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(now);
+  const [hh, mm] = String(timeText).split(":").map((x) => Number(x));
+  const minutes = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
+  return { date, minutes };
+}
+
+async function assertVisitScheduleAllowed({ visitDate, timeSlotId }) {
+  const targetDate = String(visitDate || "").slice(0, 10);
+  if (!targetDate) return null;
+
+  const nowIst = getIstNowParts();
+  if (targetDate < nowIst.date) {
+    return "Cannot create or update a visit in the past.";
+  }
+  if (targetDate > nowIst.date) return null;
+  if (!timeSlotId) return null;
+
+  const { data: slot, error } = await supabase
+    .from("visit_time_slots")
+    .select("id, slot_name, end_time")
+    .eq("id", timeSlotId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || "Failed to validate visit slot time.");
+  }
+  if (!slot?.end_time) return null;
+
+  const endMins = parseMinutesFromHHMMSS(slot.end_time);
+  if (endMins === null) return null;
+  if (nowIst.minutes > endMins) {
+    return `Cannot book ${slot.slot_name || "selected slot"} after its end time (${slot.end_time.slice(0, 5)}).`;
+  }
+  return null;
+}
+
 function shouldPromoteToBooked({ explicitStatus, statusValue, previousStatus, previousExecutiveId, effectiveExecutiveId }) {
   if (!effectiveExecutiveId) return false;
 
@@ -468,6 +527,16 @@ export async function POST(request) {
     }
 
     const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
+    const scheduleError = await assertVisitScheduleAllowed({
+      visitDate: normalizedVisitData.visit_date,
+      timeSlotId: normalizedVisitData.time_slot,
+    });
+    if (scheduleError) {
+      return NextResponse.json(
+        { error: scheduleError, code: "VISIT_SCHEDULE_PAST" },
+        { status: 400 }
+      );
+    }
 
     const conflicts = await findTimeslotConflicts({
       executiveId: normalizedVisitData.executive_id,
@@ -513,11 +582,13 @@ export async function POST(request) {
     // Insert activity log for creation
     try {
       await supabase.from("visit_activity_log").insert([{
-        visit_id: data.id,
-        previous_status: null,
-        new_status: data.status || null,
-        changed_by: visitData.created_by || user?.id || null,
-        notes: (normalizedVisitData.notes ? normalizedVisitData.notes + " | " : "") + "visit_date=" + String(normalizedVisitData.visit_date || data.visit_date || ""),
+        visit_id:         data.id,
+        activity_type:    "visit_created",
+        old_value:        null,
+        new_value:        { status: data.status || null },
+        changed_by:       visitData.created_by || user?.id || null,
+        changed_by_role:  user?.role || null,
+        remark:           `Visit created with status ${data.status || "booked"}`,
       }]);
     } catch (logError) {
       console.error("Failed to add visit activity log:", logError?.message || logError);
@@ -617,6 +688,16 @@ export async function PUT(request) {
     delete visitData.force_assign;
     delete visitData.location_text;
     const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
+    const scheduleError = await assertVisitScheduleAllowed({
+      visitDate: normalizedVisitData.visit_date ?? prev.visit_date,
+      timeSlotId: normalizedVisitData.time_slot ?? prev.time_slot,
+    });
+    if (scheduleError) {
+      return NextResponse.json(
+        { error: scheduleError, code: "VISIT_SCHEDULE_PAST" },
+        { status: 400 }
+      );
+    }
     let { data, error } = await supabase
       .from("visits")
       .update(normalizedVisitData)
@@ -646,11 +727,15 @@ export async function PUT(request) {
     // Insert activity log
     try {
       await supabase.from("visit_activity_log").insert([{
-        visit_id: data.id,
-        previous_status: prev.status || null,
-        new_status: data.status || null,
-        changed_by: normalizedVisitData.updated_by || user?.id || null,
-        notes: (normalizedVisitData.notes ? normalizedVisitData.notes + " | " : "") + "visit_date_change=" + String(prev.visit_date || "") + "=>" + String((Object.prototype.hasOwnProperty.call(normalizedVisitData, "visit_date") ? normalizedVisitData.visit_date : data.visit_date) || ""),
+        visit_id:        data.id,
+        activity_type:   "visit_update",
+        old_value:       { status: prev.status || null },
+        new_value:       { status: data.status || null },
+        changed_by:      normalizedVisitData.updated_by || user?.id || null,
+        changed_by_role: user?.role || null,
+        remark:          prev.status !== data.status
+          ? `Status changed: ${prev.status} → ${data.status}`
+          : "Visit updated",
       }]);
     } catch (logError) {
       console.error("Failed to add visit activity log:", logError?.message || logError);

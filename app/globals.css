@@ -1,153 +1,49 @@
-/* app/globals.css */
+/* app/globals.css — app-specific imports + base body rules only.
+   All design tokens, dark-mode overrides, and theme utility classes
+   live in styles/tokens.css — portable across labit-family apps. */
+@import '../styles/tokens.css';
 @import 'leaflet/dist/leaflet.css';
 @import 'slick-carousel/slick/slick.css';
 @import 'slick-carousel/slick/slick-theme.css';
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  
+@keyframes dispatch-stuck-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(237, 137, 54, 0.0); }
+  50% { box-shadow: 0 0 0 6px rgba(237, 137, 54, 0.35); }
+}
+.dispatch-stuck-pulse {
+  animation: dispatch-stuck-pulse 2s ease-in-out infinite;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+
+code, pre, .mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
 }
 
 /* Smooth scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e0;
+  background: var(--border-strong);
   border-radius: 3px;
 }
-
-.dashboard-theme-shell {
-  --dashboard-page-bg: #f7fafc;
-  --dashboard-page-text: #1a202c;
-  --dashboard-shell-bg: transparent;
-  --dashboard-panel-bg: rgba(255, 255, 255, 0.8);
-  --dashboard-panel-border: rgba(15, 23, 42, 0.08);
-  --dashboard-panel-shadow: 0 25px 50px rgba(15, 23, 42, 0.12);
-  --dashboard-heading: #2f855a;
-  --dashboard-text-muted: #4a5568;
-  --dashboard-shortcut-bg: rgba(255, 255, 255, 0.85);
-  --dashboard-shortcut-text: #285e61;
-  --dashboard-soft-bg: #edf2f7;
-  --dashboard-soft-border: rgba(148, 163, 184, 0.22);
-  --dashboard-tab-bg: transparent;
-  --dashboard-tab-border: transparent;
-  --dashboard-tab-active-bg: rgba(255, 255, 255, 0.84);
-  --dashboard-tab-active-text: #1a202c;
-  --dashboard-input-bg: #ffffff;
-  --dashboard-input-border: rgba(148, 163, 184, 0.5);
-  --dashboard-input-text: #1a202c;
-  --dashboard-input-placeholder: #718096;
-}
-
-.dashboard-theme-dark {
-  --dashboard-page-bg: #0b1320;
-  --dashboard-page-text: #f8fafc;
-  --dashboard-shell-bg: radial-gradient(circle at top left, rgba(0, 195, 255, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(255, 123, 67, 0.16), transparent 22%),
-    linear-gradient(180deg, #0b1320 0%, #111827 50%, #0d1726 100%);
-  --dashboard-panel-bg: rgba(8, 15, 28, 0.82);
-  --dashboard-panel-border: rgba(126, 244, 215, 0.16);
-  --dashboard-panel-shadow: 0 28px 80px rgba(0, 0, 0, 0.22);
-  --dashboard-heading: #7ef4d7;
-  --dashboard-text-muted: rgba(248, 250, 252, 0.78);
-  --dashboard-shortcut-bg: rgba(11, 19, 32, 0.82);
-  --dashboard-shortcut-text: #dbeafe;
-  --dashboard-soft-bg: rgba(255, 255, 255, 0.06);
-  --dashboard-soft-border: rgba(255, 255, 255, 0.08);
-  --dashboard-tab-bg: rgba(255, 255, 255, 0.03);
-  --dashboard-tab-border: rgba(255, 255, 255, 0.08);
-  --dashboard-tab-active-bg: rgba(126, 244, 215, 0.16);
-  --dashboard-tab-active-text: #ffffff;
-  --dashboard-input-bg: rgba(15, 23, 42, 0.88);
-  --dashboard-input-border: rgba(148, 163, 184, 0.25);
-  --dashboard-input-text: #f8fafc;
-  --dashboard-input-placeholder: rgba(226, 232, 240, 0.6);
-}
-
-.dashboard-theme-shell {
-  color: var(--dashboard-page-text);
-}
-
-.dashboard-theme-shortcutbar {
-  background: var(--dashboard-shortcut-bg) !important;
-  color: var(--dashboard-shortcut-text);
-  border-bottom: 1px solid var(--dashboard-panel-border);
-}
-
-.dashboard-theme-card {
-  background: var(--dashboard-panel-bg) !important;
-  border: 1px solid var(--dashboard-panel-border);
-  box-shadow: var(--dashboard-panel-shadow);
-  color: var(--dashboard-page-text);
-}
-
-.dashboard-theme-soft-card {
-  background: var(--dashboard-soft-bg) !important;
-  border: 1px solid var(--dashboard-soft-border);
-  color: var(--dashboard-page-text);
-}
-
-.dashboard-theme-shell .dashboard-theme-muted {
-  color: var(--dashboard-text-muted) !important;
-}
-
-.dashboard-theme-shell .dashboard-theme-heading {
-  color: var(--dashboard-heading) !important;
-}
-
-.dashboard-theme-shell .chakra-tabs__tablist {
-  background: var(--dashboard-tab-bg);
-  border-color: var(--dashboard-tab-border) !important;
-}
-
-.dashboard-theme-shell .chakra-tabs__tab {
-  color: var(--dashboard-page-text);
-  border-color: transparent !important;
-}
-
-.dashboard-theme-shell .chakra-tabs__tab[aria-selected="true"] {
-  background: var(--dashboard-tab-active-bg) !important;
-  color: var(--dashboard-tab-active-text) !important;
-  border-color: var(--dashboard-tab-border) !important;
-}
-
-.dashboard-theme-shell .chakra-tabs__tab[aria-selected="false"] {
-  opacity: 0.88;
-}
-
-.dashboard-theme-shell .chakra-tabs__tabpanel {
-  color: var(--dashboard-page-text);
-}
-
-.dashboard-theme-shell input,
-.dashboard-theme-shell select,
-.dashboard-theme-shell textarea {
-  background: var(--dashboard-input-bg) !important;
-  border-color: var(--dashboard-input-border) !important;
-  color: var(--dashboard-input-text) !important;
-}
-
-.dashboard-theme-shell input::placeholder,
-.dashboard-theme-shell textarea::placeholder {
-  color: var(--dashboard-input-placeholder) !important;
-}
-
-.dashboard-theme-shell .dashboard-theme-chip {
-  background: var(--dashboard-soft-bg) !important;
-  border: 1px solid var(--dashboard-soft-border);
-  color: var(--dashboard-page-text);
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-4);
 }

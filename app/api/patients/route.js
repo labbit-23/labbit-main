@@ -29,6 +29,10 @@ function normalizePhone(value) {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+function normalizeName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 async function findPhoneConflicts(phone, excludePatientId = null) {
   const normalized = normalizePhone(phone);
   if (!normalized) return [];
@@ -50,6 +54,27 @@ async function findPhoneConflicts(phone, excludePatientId = null) {
   return (data || []).filter((row) => normalizePhone(row.phone) === normalized);
 }
 
+async function findExactNameConflicts(name, excludePatientId = null) {
+  const normalized = normalizeName(name);
+  if (!normalized) return [];
+
+  let query = supabase
+    .from('patients')
+    .select('id, name, phone')
+    .ilike('name', normalized)
+    .limit(200);
+
+  if (excludePatientId) query = query.neq('id', excludePatientId);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Exact-name conflict lookup failed:', error);
+    return [];
+  }
+
+  return (data || []).filter((row) => normalizeName(row.name) === normalized);
+}
+
 export async function POST(request) {
   try {
     const user = await getSessionUser(request);
@@ -69,6 +94,7 @@ export async function POST(request) {
       email,
       cregno,
       external_key,
+      alt_phone,
       lab_id,
       addresses = [],
     } = body;
@@ -82,6 +108,8 @@ export async function POST(request) {
     let roleKey = 'viewer';
     let beforePatient = null;
     let phoneRelationCandidates = [];
+    let exactNameCandidates = [];
+    const normalizedAltPhone = normalizePhone(alt_phone);
 
     if (id) {
       const permissionCheck = await checkPermission(user, 'patients.update');
@@ -102,7 +130,7 @@ export async function POST(request) {
 
       const { data: existingPatient, error: fetchExistingError } = await supabase
         .from('patients')
-        .select('id, name, phone, dob, gender, email, mrn')
+        .select('id, name, phone, alt_phone, dob, gender, email, mrn')
         .eq('id', id)
         .single();
 
@@ -144,13 +172,32 @@ export async function POST(request) {
       }
 
       phoneRelationCandidates = await findPhoneConflicts(phone, id);
+      exactNameCandidates = await findExactNameConflicts(name, id);
 
-      const { data, error: updateError } = await supabase
+      let updatePayload = { phone, name, dob, gender, email, mrn, alt_phone: normalizedAltPhone || null };
+      let updateResult = await supabase
         .from('patients')
-        .update({ phone, name, dob, gender, email, mrn })
+        .update(updatePayload)
         .eq('id', id)
         .select()
         .single();
+
+      if (
+        updateResult.error &&
+        /column\s+"?alt_phone"?\s+of\s+relation\s+"?patients"?\s+does\s+not\s+exist/i.test(
+          String(updateResult.error.message || '')
+        )
+      ) {
+        updatePayload = { phone, name, dob, gender, email, mrn };
+        updateResult = await supabase
+          .from('patients')
+          .update(updatePayload)
+          .eq('id', id)
+          .select()
+          .single();
+      }
+
+      const { data, error: updateError } = updateResult;
 
       if (updateError) {
         console.error('Update error:', updateError);
@@ -198,6 +245,7 @@ export async function POST(request) {
       }
 
       phoneRelationCandidates = await findPhoneConflicts(phone, null);
+      exactNameCandidates = await findExactNameConflicts(name, null);
 
       isNewPatient = true;
 
@@ -212,11 +260,28 @@ export async function POST(request) {
 
       const newMrn = `L${seqData}`;
 
-      const { data, error: insertError } = await supabase
+      let insertPayload = [{ phone, name, dob, gender, email, mrn: newMrn, is_lead: false, alt_phone: normalizedAltPhone || null }];
+      let insertResult = await supabase
         .from('patients')
-        .insert([{ phone, name, dob, gender, email, mrn: newMrn, is_lead: false }])
+        .insert(insertPayload)
         .select()
         .single();
+
+      if (
+        insertResult.error &&
+        /column\s+"?alt_phone"?\s+of\s+relation\s+"?patients"?\s+does\s+not\s+exist/i.test(
+          String(insertResult.error.message || '')
+        )
+      ) {
+        insertPayload = [{ phone, name, dob, gender, email, mrn: newMrn, is_lead: false }];
+        insertResult = await supabase
+          .from('patients')
+          .insert(insertPayload)
+          .select()
+          .single();
+      }
+
+      const { data, error: insertError } = insertResult;
 
       if (insertError) {
         console.error('Insert error:', insertError);
@@ -318,23 +383,31 @@ export async function POST(request) {
       }
     }
 
-    const responsePayload =
-      phoneRelationCandidates.length > 0
-        ? {
-            ...patient,
-            warnings: [
-              {
-                code: 'SHARED_PHONE_DETECTED',
-                message: 'Same phone exists on other patient records. Verify relationship before proceeding.',
-                related_patients: phoneRelationCandidates.map((row) => ({
-                  id: row.id,
-                  name: row.name,
-                  phone: row.phone,
-                })),
-              },
-            ],
-          }
-        : patient;
+    const warnings = [];
+    if (phoneRelationCandidates.length > 0) {
+      warnings.push({
+        code: 'SHARED_PHONE_DETECTED',
+        message: 'Same phone exists on other patient records. Verify relationship before proceeding.',
+        related_patients: phoneRelationCandidates.map((row) => ({
+          id: row.id,
+          name: row.name,
+          phone: row.phone,
+        })),
+      });
+    }
+    if (exactNameCandidates.length > 0) {
+      warnings.push({
+        code: 'EXACT_NAME_EXISTS',
+        message: 'An existing patient already has the exact same name. Verify if this is the same person/family record.',
+        related_patients: exactNameCandidates.map((row) => ({
+          id: row.id,
+          name: row.name,
+          phone: row.phone,
+        })),
+      });
+    }
+
+    const responsePayload = warnings.length > 0 ? { ...patient, warnings } : patient;
 
     return NextResponse.json(responsePayload, { status: isNewPatient ? 201 : 200 });
   } catch (err) {

@@ -15,7 +15,8 @@ import {
   useToast,
   Circle,
 } from "@chakra-ui/react";
-import { Bell, BellOff, Home, KeyRound, LogOut, Minus, Moon, Plus, Sun, UserCheck, UserX } from "lucide-react";
+import { MoonIcon, SunIcon } from "@chakra-ui/icons";
+import { FiBell, FiBellOff, FiHome, FiKey, FiLogOut, FiUserCheck, FiUserX } from "react-icons/fi";
 import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
@@ -23,8 +24,6 @@ import { useUser } from "../app/context/UserContext";
 import AppNotifications from "./AppNotifications";
 import NotificationsHelper from "../lib/notificationsHelper";
 import PasswordManagementModal from "./PasswordManagementModal";
-
-const FONT_SCALES = ['90%', '100%', '110%', '125%'];
 
 // Map roles to display label and color scheme
 const ROLE_MARKERS = {
@@ -78,26 +77,6 @@ export default function ShortcutBar({
   const toast = useToast();
   const [notificationPermission, setNotificationPermission] = React.useState("unknown");
   const [isPasswordModalOpen, setIsPasswordModalOpen] = React.useState(false);
-  const [fontScale, setFontScale] = React.useState('100%');
-
-  // Load saved font scale for this user on mount / login change
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const key = `labbit_fs_${user?.id ?? 'default'}`;
-    const saved = localStorage.getItem(key);
-    const valid = FONT_SCALES.includes(saved) ? saved : '100%';
-    setFontScale(valid);
-    document.documentElement.style.fontSize = valid;
-  }, [user?.id]);
-
-  const handleFontScale = (delta) => {
-    const idx = FONT_SCALES.indexOf(fontScale);
-    const next = FONT_SCALES[Math.max(0, Math.min(FONT_SCALES.length - 1, idx + delta))];
-    if (next === fontScale) return;
-    setFontScale(next);
-    document.documentElement.style.fontSize = next;
-    try { localStorage.setItem(`labbit_fs_${user?.id ?? 'default'}`, next); } catch (_) {}
-  };
 
   React.useEffect(() => {
     const syncNotificationPermission = () => {
@@ -263,7 +242,7 @@ export default function ShortcutBar({
       : notificationPermission === "unsupported"
       ? "Notifications Unsupported"
       : "Enable Notifications";
-  const notificationIcon = notificationPermission === "granted" ? <Bell size={16} /> : <BellOff size={16} />;
+  const notificationIcon = notificationPermission === "granted" ? <FiBell /> : <FiBellOff />;
   const notificationButtonProps =
     notificationPermission === "granted"
       ? {
@@ -372,27 +351,28 @@ export default function ShortcutBar({
 
   return (
     <Box
-      className={themeMode === "dark" ? "dashboard-theme-dark dashboard-theme-shortcutbar" : ""}
+      className={themeMode === "dark" ? "dashboard-theme-shortcutbar" : ""}
       position="fixed"
       top={0}
       left={0}
       right={0}
-      bg={themeMode === "dark" ? "#0b1320" : "var(--surface)"}
-      backdropFilter={themeMode === "dark" ? "blur(12px)" : "none"}
-      boxShadow={themeMode === "dark" ? "0 10px 30px rgba(2,6,23,0.42)" : "none"}
+      bg={themeMode === "dark" ? "#0f172a" : "rgba(255,255,255,0.85)"}
+      backdropFilter="blur(12px)"
+      boxShadow={themeMode === "dark" ? "0 10px 30px rgba(2,6,23,0.42)" : "sm"}
       borderBottomWidth="1px"
-      borderBottomColor={themeMode === "dark" ? "whiteAlpha.150" : "var(--border)"}
+      borderBottomColor={themeMode === "dark" ? "whiteAlpha.200" : "gray.200"}
       zIndex={1000}
     >
       <AppNotifications />
+      {/* First row: logo + info + home/role/logout all fit here */}
       <Flex
         height={desktopRowHeight}
-        px={{ base: 3, md: 5 }}
+        px={{ base: 2, md: 4 }}
         align="center"
         justify="space-between"
         userSelect="none"
         flexWrap="nowrap"
-        gap={3}
+        gap={2}
       >
         {/* Left section: logo + name (truncate if needed) */}
         <Flex align="center" gap={2} flexShrink={1} minW={0}>
@@ -444,9 +424,9 @@ export default function ShortcutBar({
           {/* Executive/Admin/Phlebo name */}
           {user?.userType === "executive" && user?.name && (
             <Text
-              fontWeight="600"
-              fontSize="13px"
-              color={themeMode === "dark" ? "whiteAlpha.900" : "var(--text-2)"}
+              fontWeight="bold"
+              fontSize={{ base: "sm", md: "md" }}
+              color={themeMode === "dark" ? "whiteAlpha.900" : "teal.700"}
               isTruncated
               maxW={{ base: "90px", sm: "150px" }}
             >
@@ -481,7 +461,7 @@ export default function ShortcutBar({
         <Flex align="center" gap={{ base: 1, sm: 2 }} flexShrink={0}>
           <Tooltip label="Dashboard Home">
             <IconButton
-              icon={<Home size={16} />}
+              icon={<FiHome />}
               onClick={handleHomeDashboard}
               variant="ghost"
               size={{ base: "sm", sm: "md" }}
@@ -517,7 +497,7 @@ export default function ShortcutBar({
           {typeof onToggleTheme === "function" && (
             <Tooltip label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
               <IconButton
-                icon={themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+                icon={themeMode === "dark" ? <SunIcon /> : <MoonIcon />}
                 onClick={onToggleTheme}
                 variant="ghost"
                 size={{ base: "sm", sm: "md" }}
@@ -531,15 +511,13 @@ export default function ShortcutBar({
             <Tooltip label={`Logged in as ${roleMarker.label}`}>
               <Badge
                 colorScheme={roleMarker.color}
-                variant={themeMode === "dark" ? "solid" : "subtle"}
-                bg={themeMode === "dark" ? "whiteAlpha.200" : undefined}
-                color={themeMode === "dark" ? "whiteAlpha.900" : undefined}
+                variant="subtle"
                 px={{ base: 2, sm: 3 }}
                 borderRadius="md"
                 fontSize="0.68rem"
                 fontWeight="bold"
                 maxW="72px"
-                isTruncated={false}
+                isTruncated = {false}
               >
                 {roleMarker.label}
               </Badge>
@@ -548,40 +526,27 @@ export default function ShortcutBar({
           {isDirector && !supportMode && (
             <Tooltip label="Support Login as Patient">
               <IconButton
-                icon={<UserCheck size={16} />}
+                icon={<FiUserCheck />}
                 onClick={handleSupportPatientLogin}
                 variant="outline"
                 colorScheme="purple"
                 size={{ base: "sm", sm: "md" }}
-                color={themeMode === "dark" ? "purple.200" : undefined}
-                borderColor={themeMode === "dark" ? "purple.400" : undefined}
-                _hover={themeMode === "dark" ? { bg: "whiteAlpha.150" } : undefined}
                 aria-label="Support login as patient"
               />
             </Tooltip>
           )}
           {isDirector && supportMode && (
             <>
-              <Badge
-                colorScheme="purple"
-                variant={themeMode === "dark" ? "solid" : "subtle"}
-                bg={themeMode === "dark" ? "whiteAlpha.200" : undefined}
-                color={themeMode === "dark" ? "purple.200" : undefined}
-                px={{ base: 2, sm: 3 }}
-                borderRadius="md"
-              >
+              <Badge colorScheme="purple" variant="subtle" px={{ base: 2, sm: 3 }} borderRadius="md">
                 Support {supportPatientPhone || "active"}
               </Badge>
               <Tooltip label="Exit Support Mode">
                 <IconButton
-                  icon={<UserX size={16} />}
+                  icon={<FiUserX />}
                   onClick={handleSupportExit}
                   variant="outline"
                   colorScheme="red"
                   size={{ base: "sm", sm: "md" }}
-                  color={themeMode === "dark" ? "red.300" : undefined}
-                  borderColor={themeMode === "dark" ? "red.400" : undefined}
-                  _hover={themeMode === "dark" ? { bg: "whiteAlpha.150" } : undefined}
                   aria-label="Exit support mode"
                 />
               </Tooltip>
@@ -590,7 +555,7 @@ export default function ShortcutBar({
           {canManagePassword && (
             <Tooltip label="Change Password">
               <IconButton
-                icon={<KeyRound size={16} />}
+                icon={<FiKey />}
                 onClick={() => setIsPasswordModalOpen(true)}
                 variant="ghost"
                 size={{ base: "sm", sm: "md" }}
@@ -605,54 +570,9 @@ export default function ShortcutBar({
               {rightContent}
             </Box>
           ) : null}
-          {/* Font scale — persists per user in localStorage */}
-          <Flex
-            align="center"
-            gap={0}
-            display={{ base: "none", sm: "flex" }}
-            borderLeft="1px solid"
-            borderColor={themeMode === "dark" ? "whiteAlpha.200" : "var(--border)"}
-            pl={{ base: 1, sm: 2 }}
-            ml={1}
-          >
-            <Tooltip label="Smaller text">
-              <IconButton
-                icon={<Minus size={14} />}
-                onClick={() => handleFontScale(-1)}
-                variant="ghost"
-                size="sm"
-                aria-label="Decrease font size"
-                isDisabled={fontScale === FONT_SCALES[0]}
-                color={themeMode === "dark" ? "whiteAlpha.600" : "var(--text-3)"}
-              />
-            </Tooltip>
-            <Text
-              fontSize="10px"
-              fontWeight="700"
-              color={themeMode === "dark" ? "whiteAlpha.400" : "var(--text-4)"}
-              userSelect="none"
-              w="18px"
-              textAlign="center"
-              letterSpacing="0.02em"
-            >
-              Aa
-            </Text>
-            <Tooltip label="Larger text">
-              <IconButton
-                icon={<Plus size={14} />}
-                onClick={() => handleFontScale(1)}
-                variant="ghost"
-                size="sm"
-                aria-label="Increase font size"
-                isDisabled={fontScale === FONT_SCALES[FONT_SCALES.length - 1]}
-                color={themeMode === "dark" ? "whiteAlpha.600" : "var(--text-3)"}
-              />
-            </Tooltip>
-          </Flex>
-
           <Tooltip label="Logout">
             <IconButton
-              icon={<LogOut size={16} />}
+              icon={<FiLogOut />}
               onClick={handleLogout}
               variant="ghost"
               size={{ base: "sm", sm: "md" }}

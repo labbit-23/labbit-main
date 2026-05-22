@@ -4,11 +4,27 @@
 import React, { useState } from "react";
 import {
   Table, Thead, Tbody, Tr, Th, Td,
-  Badge, IconButton, Spinner, HStack,
+  IconButton, Spinner, HStack,
   Text, Select, Box
 } from "@chakra-ui/react";
-import { EditIcon, DeleteIcon, AddIcon, ViewIcon } from "@chakra-ui/icons";
-import { MdLocationOn } from "react-icons/md";
+import { Eye, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
+import { StatusPill } from "@/components/ui";
+
+const CHAKRA_TO_PILL = {
+  green:  "success",
+  teal:   "success",
+  blue:   "dispatched",
+  purple: "acknowledged",
+  yellow: "pending",
+  orange: "warn",
+  red:    "danger",
+  pink:   "danger",
+  gray:   "closed",
+  white:  "closed",
+};
+function chakraToPill(colorScheme) {
+  return CHAKRA_TO_PILL[String(colorScheme || "").toLowerCase()] || "info";
+}
 
 const formatDate = (dateInput) => {
   if (!dateInput) return "";
@@ -248,7 +264,10 @@ export default function VisitsTable({
                           {visit.patient?.phone ?? "No Phone"}
                         </Box>
                         <Box display={{ base: "block", md: "none" }} fontSize="xs" color={tableMutedText} mt={1}>
-                          {formatDate(visit.visit_date)} · {getSlotDisplay(visit)}
+                          {formatDate(visit.visit_date)} ·{" "}
+                          <Box as="span" fontWeight="extrabold" color={tableText}>
+                            {getSlotDisplay(visit)}
+                          </Box>
                         </Box>
                       </Td>
                       {/* Address / Code */}
@@ -261,7 +280,7 @@ export default function VisitsTable({
                             <IconButton
                               aria-label="Open location pin"
                               title="Location pin available - open in maps"
-                              icon={<MdLocationOn size={16} />}
+                              icon={<MapPin size={14} />}
                               size="xs"
                               variant="solid"
                               colorScheme="red"
@@ -283,16 +302,16 @@ export default function VisitsTable({
                       </Td>
                       {/* Status with dynamic color */}
                       <Td borderColor={rowBorderColor}>
-                        <Badge colorScheme={getStatusColor(visit.status)} rounded="md" px={2}>
-                          {visit.status?.toUpperCase().replace(/_/g, " ")}
-                        </Badge>
+                        <StatusPill status={chakraToPill(getStatusColor(visit.status))}>
+                          {(visit.status || "").replace(/_/g, " ")}
+                        </StatusPill>
                       </Td>
                       {/* Actions */}
                       <Td className="no-export" isNumeric borderColor={rowBorderColor}>
                         <HStack spacing={2} justify="flex-end" flexWrap="nowrap">
                           <IconButton
                             aria-label="View"
-                            icon={<ViewIcon />}
+                            icon={<Eye size={14} />}
                             size="sm"
                             bg={actionButtonBg}
                             color={isDark ? "whiteAlpha.900" : undefined}
@@ -301,7 +320,7 @@ export default function VisitsTable({
                           />
                           <IconButton
                             aria-label="Edit"
-                            icon={<EditIcon />}
+                            icon={<Pencil size={14} />}
                             size="sm"
                             bg={actionButtonBg}
                             color={isDark ? "whiteAlpha.900" : undefined}
@@ -310,7 +329,7 @@ export default function VisitsTable({
                           />
                           <IconButton
                             aria-label="Disable"
-                            icon={<DeleteIcon />}
+                            icon={<Trash2 size={14} />}
                             size="sm"
                             colorScheme="red"
                             onClick={() => handleDisable(visit)}
@@ -338,7 +357,7 @@ export default function VisitsTable({
                               </Select>
                               <IconButton
                                 aria-label="Assign"
-                                icon={<AddIcon />}
+                                icon={<Plus size={14} />}
                                 size="xs"
                                 colorScheme="green"
                                 onClick={() => handleAssign(visit)}
@@ -385,7 +404,10 @@ export default function VisitsTable({
                         {visit.patient?.phone ?? "No Phone"}
                       </Box>
                       <Box display={{ base: "block", md: "none" }} fontSize="xs" color={tableMutedText} mt={1}>
-                        {formatDate(visit.visit_date)} · {getSlotDisplay(visit)}
+                        {formatDate(visit.visit_date)} ·{" "}
+                        <Box as="span" fontWeight="extrabold" color={tableText}>
+                          {getSlotDisplay(visit)}
+                        </Box>
                       </Box>
                     </Td>
                     <Td borderColor={rowBorderColor}>
@@ -397,7 +419,7 @@ export default function VisitsTable({
                           <IconButton
                             aria-label="Open location pin"
                             title="Location pin available - open in maps"
-                            icon={<MdLocationOn size={16} />}
+                            icon={<MapPin size={14} />}
                             size="xs"
                             variant="solid"
                             colorScheme="red"
@@ -416,9 +438,7 @@ export default function VisitsTable({
                       {getSlotDisplay(visit)}
                     </Td>
                     <Td borderColor={rowBorderColor}>
-                      <Badge colorScheme="gray" rounded="md" px={2}>
-                        DISABLED
-                      </Badge>
+                      <StatusPill status="closed">Disabled</StatusPill>
                     </Td>
                   <Td className="no-export" isNumeric borderColor={rowBorderColor}>
                     {/* You can add re-enable or other actions here if needed */}

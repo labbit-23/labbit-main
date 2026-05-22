@@ -7,20 +7,24 @@ import {
   Button, useDisclosure, Flex, Text, Heading,
   useToast, IconButton, Badge, HStack, Icon, Menu, MenuButton, MenuList, MenuItem, Tooltip, useBreakpointValue
 } from "@chakra-ui/react";
-import { AddIcon, DownloadIcon, HamburgerIcon, LinkIcon, RepeatIcon } from "@chakra-ui/icons";
 import {
-  FiCalendar,
-  FiUsers,
-  FiClipboard,
-  FiUserCheck,
-  FiMapPin,
-  FiTool,
-  FiShield,
-  FiBarChart2,
-  FiPlayCircle,
-  FiSettings,
-  FiHelpCircle
-} from "react-icons/fi";
+  BarChart2,
+  Calendar,
+  ClipboardList,
+  Download,
+  HelpCircle,
+  Link,
+  MapPin,
+  Menu as MenuIcon,
+  Play,
+  Plus,
+  RefreshCw,
+  Settings,
+  Shield,
+  UserCheck,
+  Users,
+  Wrench,
+} from "lucide-react";
 import dayjs from "dayjs";
 
 import { supabase } from "../../lib/supabaseClient";
@@ -38,8 +42,14 @@ import DashboardMetrics from "../../components/DashboardMetrics";
 import RequireAuth from "../../components/RequireAuth";
 import QuickBookTab from "./components/QuickBookTab";
 import BookingRequestStatusCards from "./components/BookingRequestStatusCards";
+import DispatchStuckAlert from "./components/DispatchStuckAlert";
 import html2canvas from "html2canvas";
 import { useUser } from "@/app/context/UserContext";
+import dynamic from "next/dynamic";
+
+const LazyPatientSearchModal = dynamic(() => import("../components/PatientSearchModal"), {
+  ssr: false,
+});
 
 const CLICKUP_DASHBOARD_URL =
   process.env.NEXT_PUBLIC_CLICKUP_URL || "https://app.clickup.com/";
@@ -200,6 +210,8 @@ export default function AdminDashboard() {
   const [collectionRefreshHandler, setCollectionRefreshHandler] = useState(null);
   const [rolePermissions, setRolePermissions] = useState([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [patientSearchOpen, setPatientSearchOpen] = useState(false);
+  const [patientsTabSelection, setPatientsTabSelection] = useState(null);
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
@@ -216,6 +228,12 @@ export default function AdminDashboard() {
 
   const handleSectionChange = useCallback((nextKey) => {
     setActiveSection((prev) => (prev === nextKey ? prev : nextKey));
+  }, []);
+
+  const handlePatientSearchSelect = useCallback((patient) => {
+    if (!patient) return;
+    setPatientsTabSelection(patient);
+    setActiveSection("patients");
   }, []);
 
   const isPendingBookingRequest = useCallback((booking) => {
@@ -484,42 +502,42 @@ const exportVisitsImage = async () => {
       key: "visits",
       label: "Visits",
       shortLabel: "Visit",
-      icon: FiCalendar,
+      icon: Calendar,
       visible: hasAnyPermission(["visits.create", "visits.update"]),
     },
     {
       key: "patients",
       label: "Patients",
       shortLabel: "Pts",
-      icon: FiUsers,
+      icon: Users,
       visible: hasAnyPermission(["patients.create", "patients.update", "patients.update_identity"]),
     },
     {
       key: "bookings",
       label: "Booking Requests",
       shortLabel: "Bookings",
-      icon: FiClipboard,
+      icon: ClipboardList,
       visible: hasAnyPermission(["quickbook.update"]),
     },
     {
       key: "executives",
       label: "Executives",
       shortLabel: "Exec",
-      icon: FiUserCheck,
+      icon: UserCheck,
       visible: hasAnyPermission(["executives.status.update"]),
     },
     {
       key: "collection_centres",
       label: "Collection Centres",
       shortLabel: "Centres",
-      icon: FiMapPin,
+      icon: MapPin,
       visible: hasAnyPermission(["visits.update", "executives.status.update"]),
     },
     {
       key: "shivam_tools",
       label: "Shivam Tools",
       shortLabel: "Shivam",
-      icon: FiTool,
+      icon: Wrench,
       visible:
         ["director", "admin"].includes(activeRoleKey) ||
         hasAnyPermission([
@@ -532,7 +550,7 @@ const exportVisitsImage = async () => {
       key: "uac",
       label: "UAC",
       shortLabel: "UAC",
-      icon: FiShield,
+      icon: Shield,
       visible: ["director", "admin"].includes(activeRoleKey) || hasAnyPermission(["uac.view"]),
     },
   ]), [activeRoleKey, hasAnyPermission]);
@@ -904,14 +922,14 @@ const exportVisitsImage = async () => {
       {
         key: "run_reports",
         label: "Run Reports",
-        icon: <FiPlayCircle />,
+        icon: <Play size={16} />,
         href: "/admin/reports/run",
         hidden: !canRunReports,
       },
       {
         key: "report_master",
         label: "Report Master",
-        icon: <FiBarChart2 />,
+        icon: <BarChart2 size={16} />,
         href: "/admin/reports/master",
         hidden: !canUseReportSetup,
       },
@@ -941,27 +959,27 @@ const exportVisitsImage = async () => {
       {
         key: "collection",
         label: "Collection",
-        icon: <LinkIcon />,
+        icon: <Link size={14} />,
         href: "/collection-centre",
       },
       {
         key: "whatsapp_setup",
         label: "WhatsApp Setup",
-        icon: <FiSettings />,
+        icon: <Settings size={16} />,
         href: "/admin/whatsapp-setup",
         hidden: !["director"].includes(activeRoleKey),
       },
       {
         key: "app_setup",
         label: "App Setup",
-        icon: <FiSettings />,
+        icon: <Settings size={16} />,
         href: "/admin/app-setup",
         hidden: !["director"].includes(activeRoleKey),
       },
       {
         key: "app_help",
         label: "App Help",
-        icon: <FiHelpCircle />,
+        icon: <HelpCircle size={16} />,
         href: "/admin/app-help",
       },
       {
@@ -981,13 +999,13 @@ const exportVisitsImage = async () => {
       {
         key: "refresh",
         label: "Refresh",
-        icon: <RepeatIcon />,
+        icon: <RefreshCw size={14} />,
         onClick: refreshVisibleTab,
       },
       {
         key: "export_visits",
         label: "Export Visits",
-        icon: <DownloadIcon />,
+        icon: <Download size={14} />,
         onClick: exportVisitsImage,
         isDisabled: activeSection !== "visits",
       },
@@ -1014,7 +1032,7 @@ const exportVisitsImage = async () => {
         <MenuButton
           as={IconButton}
           aria-label="Open admin shortcuts"
-          icon={<HamburgerIcon />}
+          icon={<MenuIcon size={16} />}
           size="sm"
           variant="outline"
         />
@@ -1061,7 +1079,7 @@ const exportVisitsImage = async () => {
             <MenuButton
               as={IconButton}
               aria-label="More admin actions"
-              icon={<HamburgerIcon />}
+              icon={<MenuIcon size={16} />}
               size="sm"
               variant="outline"
             />
@@ -1292,6 +1310,9 @@ const exportVisitsImage = async () => {
                   </Text>
                 </Box>
 
+                {canUseReportDispatch && (["admin", "director", "manager"].includes(activeRoleKey)) && (
+                  <DispatchStuckAlert themeMode={themeMode} />
+                )}
                 <Box mb={6}>
                   <DashboardMetrics hvExecutiveId={null} date={selectedDate} themeMode={themeMode} />
                 </Box>
@@ -1336,7 +1357,18 @@ const exportVisitsImage = async () => {
                         ))}
                     </Flex>
                     <Button
-                      leftIcon={<AddIcon />}
+                      className="no-export"
+                      leftIcon={<Link size={14} />}
+                      colorScheme="blue"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPatientSearchOpen(true)}
+                    >
+                      Patient Search
+                    </Button>
+                    <Button
+                      className="no-export"
+                      leftIcon={<Plus size={14} />}
                       colorScheme="teal"
                       size="sm"
                       onClick={() => handleSectionChange("patients")}
@@ -1385,7 +1417,12 @@ const exportVisitsImage = async () => {
                 </TabPanel>
 
                 <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
-                  <PatientsTab fetchPatients={fetchAll} fetchVisits={fetchAll} />
+                  <PatientsTab
+                    fetchPatients={fetchAll}
+                    fetchVisits={fetchAll}
+                    selectedPatient={patientsTabSelection}
+                    onPatientSelected={setPatientsTabSelection}
+                  />
                 </TabPanel>
 
                 <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
@@ -1407,7 +1444,7 @@ const exportVisitsImage = async () => {
                 <TabPanel px={{ base: 0, md: 4 }} py={{ base: 3, md: 4 }}>
                   <Flex mb={4} justify="flex-end">
                     <Button
-                      leftIcon={<AddIcon />}
+                      leftIcon={<Plus size={14} />}
                       colorScheme="green"
                       onClick={executiveModal.onOpen}
                     >
@@ -1459,6 +1496,12 @@ const exportVisitsImage = async () => {
                 </TabPanel>
               </TabPanels>
             </Tabs>
+            <LazyPatientSearchModal
+              isOpen={patientSearchOpen}
+              onClose={() => setPatientSearchOpen(false)}
+              onSelect={handlePatientSearchSelect}
+              themeMode={themeMode}
+            />
           </Box>
         </Flex>
         <style jsx global>{`

@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Tabs,
   TabList,
@@ -30,6 +31,7 @@ function localYmd(date = new Date()) {
 
 function PhleboContent({ userRole = "executive" }) {
   const { user } = useUser();
+  const router = useRouter();
 
   const [executives, setExecutives] = useState([]);
   const [selectedExecutiveId, setSelectedExecutiveId] = useState(null);
@@ -42,10 +44,11 @@ function PhleboContent({ userRole = "executive" }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem("phleboThemeMode");
-    if (saved === "dark" || saved === "light") {
-      setThemeMode(saved);
+    if (saved === "dark" || saved === "light") setThemeMode(saved);
+    if (window.localStorage.getItem("phleboDefaultView") !== "classic") {
+      router.replace("/phlebo/yourdayview");
     }
-  }, []);
+  }, [router]);
 
   const toggleThemeMode = () => {
     const next = themeMode === "dark" ? "light" : "dark";

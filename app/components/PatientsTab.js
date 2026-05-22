@@ -537,6 +537,7 @@ export default function PatientsTab({
 
       <HStack justify="flex-end" mb={3}>
         <Button
+          className="no-export"
           size="sm"
           variant="outline"
           leftIcon={<SearchIcon />}

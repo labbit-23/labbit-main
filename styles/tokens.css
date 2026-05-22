@@ -1,0 +1,237 @@
+/*
+ * labit · Design Tokens  (portable — copy this file to any labit-family app)
+ * Clinical & calm — Apple-soft, rounded, low chroma.
+ *
+ * Usage:
+ *   @import '../styles/tokens.css';          (from app/globals.css)
+ *   @import '../../labbit-main/styles/tokens.css';  (from a sibling app)
+ *
+ * Components in components/ui/ reference only var(--*) from this file
+ * and Chakra UI primitives — no other app-specific dependencies.
+ */
+
+/* ── Light mode (default) ──────────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --bg:            #F6F7F8;
+  --surface:       #FFFFFF;
+  --surface-2:     #F1F3F4;
+  --surface-3:     #E9ECEE;
+  --overlay:       rgba(15,20,25,0.04);
+
+  /* Lines */
+  --border:        #E6E8EB;
+  --border-mid:    #D6DADE;
+  --border-strong: #D6DADE;
+  --border-soft:   #EFF1F3;
+
+  /* Ink */
+  --text:          #15181C;
+  --text-2:        #525860;
+  --text-3:        #878D94;
+  --text-4:        #B2B7BD;
+  --on-accent:     #FFFFFF;
+
+  /* Accent — plum */
+  --accent:        #8A6BA3;
+  --accent-strong: #6B4F82;
+  --accent-soft:   #F1EBF5;
+  --accent-line:   #D8C9E3;
+  --accent-ink:    #4A3358;
+
+  /* Semantic */
+  --success:       #5BA37A;
+  --success-soft:  #ECF5EF;
+  --success-ink:   #2F6B49;
+  --warn:          #C29852;
+  --warn-soft:     #F8F1E2;
+  --warn-ink:      #7A5A23;
+  --danger:        #C76A6A;
+  --danger-soft:   #F8EAEA;
+  --danger-ink:    #7B3838;
+
+  /* Department hues */
+  --hue-haem:      #D85F6E;   --hue-haem-soft:   #FBECEE;
+  --hue-bio:       #D9994A;   --hue-bio-soft:    #FBF0E2;
+  --hue-micro:     #7AA66B;   --hue-micro-soft:  #EFF5EC;
+  --hue-rad:       #6A7EC7;   --hue-rad-soft:    #ECEEF8;
+
+  /* Radii */
+  --r-xs:   4px;
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r:      14px;
+  --r-lg:   18px;
+  --r-xl:   24px;
+  --r-pill: 999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 1px rgba(15,20,25,0.03);
+  --shadow-sm: 0 1px 2px rgba(15,20,25,0.04), 0 1px 1px rgba(15,20,25,0.03);
+  --shadow:    0 2px 6px -1px rgba(15,20,25,0.06), 0 1px 2px rgba(15,20,25,0.04);
+  --shadow-lg: 0 12px 32px -12px rgba(15,20,25,0.14), 0 4px 10px -3px rgba(15,20,25,0.05);
+  --ring:      0 0 0 3px rgba(138,107,163,0.22);
+
+  /* Typography */
+  --font:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* ── Dark mode context override ────────────────────────────────────── */
+/* Apply this class to a container ancestor to dark-theme all var(--*) inside it. */
+.dashboard-theme-dark {
+  --bg:            #0b1320;
+  --surface:       rgba(8, 15, 28, 0.82);
+  --surface-2:     rgba(255, 255, 255, 0.06);
+  --surface-3:     rgba(255, 255, 255, 0.10);
+  --overlay:       rgba(0, 0, 0, 0.20);
+  --border:        rgba(255, 255, 255, 0.12);
+  --border-mid:    rgba(255, 255, 255, 0.18);
+  --border-soft:   rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --text:          #F8FAFC;
+  --text-2:        rgba(248, 250, 252, 0.80);
+  --text-3:        rgba(248, 250, 252, 0.55);
+  --text-4:        rgba(248, 250, 252, 0.30);
+  --on-accent:     #FFFFFF;
+  --accent:        #A98DC4;
+  --accent-strong: #8A6BA3;
+  --accent-soft:   rgba(138, 107, 163, 0.20);
+  --accent-line:   rgba(138, 107, 163, 0.35);
+  --accent-ink:    #D8C9E3;
+}
+
+/* ── Shell layout helpers ──────────────────────────────────────────── */
+/* These bridge CSS vars → Chakra theming gaps; included here so they
+   travel with the tokens to any app that uses .dashboard-theme-shell. */
+.dashboard-theme-shell {
+  --dashboard-page-bg:           var(--bg);
+  --dashboard-page-text:         var(--text);
+  --dashboard-shell-bg:          transparent;
+  --dashboard-panel-bg:          var(--surface);
+  --dashboard-panel-border:      var(--border);
+  --dashboard-panel-shadow:      var(--shadow);
+  --dashboard-heading:           var(--accent);
+  --dashboard-text-muted:        var(--text-2);
+  --dashboard-shortcut-bg:       rgba(255, 255, 255, 0.92);
+  --dashboard-shortcut-text:     var(--accent-ink);
+  --dashboard-soft-bg:           var(--surface-2);
+  --dashboard-soft-border:       var(--border-soft);
+  --dashboard-tab-bg:            transparent;
+  --dashboard-tab-border:        transparent;
+  --dashboard-tab-active-bg:     var(--surface-2);
+  --dashboard-tab-active-text:   var(--text);
+  --dashboard-input-bg:          var(--surface);
+  --dashboard-input-border:      var(--border);
+  --dashboard-input-text:        var(--text);
+  --dashboard-input-placeholder: var(--text-4);
+}
+
+.dashboard-theme-dark.dashboard-theme-shell,
+.dashboard-theme-dark .dashboard-theme-shell {
+  --dashboard-page-bg:         #0b1320;
+  --dashboard-page-text:       #f8fafc;
+  --dashboard-shell-bg:
+    radial-gradient(circle at top left, rgba(0, 195, 255, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 123, 67, 0.16), transparent 22%),
+    linear-gradient(180deg, #0b1320 0%, #111827 50%, #0d1726 100%);
+  --dashboard-panel-bg:        rgba(8, 15, 28, 0.82);
+  --dashboard-panel-border:    rgba(126, 244, 215, 0.16);
+  --dashboard-panel-shadow:    0 28px 80px rgba(0, 0, 0, 0.22);
+  --dashboard-heading:         #7ef4d7;
+  --dashboard-text-muted:      rgba(248, 250, 252, 0.78);
+  --dashboard-shortcut-bg:     rgba(11, 19, 32, 0.82);
+  --dashboard-shortcut-text:   #dbeafe;
+  --dashboard-soft-bg:         rgba(255, 255, 255, 0.06);
+  --dashboard-soft-border:     rgba(255, 255, 255, 0.08);
+  --dashboard-tab-bg:          rgba(255, 255, 255, 0.03);
+  --dashboard-tab-border:      rgba(255, 255, 255, 0.08);
+  --dashboard-tab-active-bg:   rgba(126, 244, 215, 0.16);
+  --dashboard-tab-active-text: #ffffff;
+  --dashboard-input-bg:        rgba(15, 23, 42, 0.88);
+  --dashboard-input-border:    rgba(148, 163, 184, 0.25);
+  --dashboard-input-text:      #f8fafc;
+  --dashboard-input-placeholder: rgba(226, 232, 240, 0.6);
+}
+
+/* ── Utility theme classes (Chakra bridging) ───────────────────────── */
+.dashboard-theme-shell {
+  color: var(--dashboard-page-text);
+}
+
+.dashboard-theme-shortcutbar {
+  background: var(--dashboard-shortcut-bg) !important;
+  color: var(--dashboard-shortcut-text);
+  border-bottom: 1px solid var(--dashboard-panel-border);
+}
+
+.dashboard-theme-card {
+  background: var(--dashboard-panel-bg) !important;
+  border: 1px solid var(--dashboard-panel-border);
+  box-shadow: var(--dashboard-panel-shadow);
+  color: var(--dashboard-page-text);
+}
+
+.dashboard-theme-soft-card {
+  background: var(--dashboard-soft-bg) !important;
+  border: 1px solid var(--dashboard-soft-border);
+  color: var(--dashboard-page-text);
+}
+
+.dashboard-theme-shell .dashboard-theme-muted {
+  color: var(--dashboard-text-muted) !important;
+}
+
+.dashboard-theme-shell .dashboard-theme-heading {
+  color: var(--dashboard-heading) !important;
+}
+
+.dashboard-theme-shell .chakra-tabs__tablist {
+  background: var(--dashboard-tab-bg);
+  border-color: var(--dashboard-tab-border) !important;
+}
+
+.dashboard-theme-shell .chakra-tabs__tab {
+  color: var(--dashboard-page-text);
+  border-color: transparent !important;
+}
+
+.dashboard-theme-shell .chakra-tabs__tab[aria-selected="true"] {
+  background: var(--dashboard-tab-active-bg) !important;
+  color: var(--dashboard-tab-active-text) !important;
+  border-color: var(--dashboard-tab-border) !important;
+}
+
+.dashboard-theme-shell .chakra-tabs__tab[aria-selected="false"] {
+  opacity: 0.88;
+}
+
+.dashboard-theme-shell .chakra-tabs__tabpanel {
+  color: var(--dashboard-page-text);
+}
+
+.dashboard-theme-shell input,
+.dashboard-theme-shell select,
+.dashboard-theme-shell textarea {
+  background: var(--dashboard-input-bg) !important;
+  border-color: var(--dashboard-input-border) !important;
+  color: var(--dashboard-input-text) !important;
+}
+
+.dashboard-theme-shell input::placeholder,
+.dashboard-theme-shell textarea::placeholder {
+  color: var(--dashboard-input-placeholder) !important;
+}
+
+.dashboard-theme-shell .dashboard-theme-chip {
+  background: var(--dashboard-soft-bg) !important;
+  border: 1px solid var(--dashboard-soft-border);
+  color: var(--dashboard-page-text);
+}
+
+/* Lucide icons in Chakra button/icon contexts scale to the text size */
+.chakra-button__icon svg,
+.chakra-icon svg {
+  width: 1em;
+  height: 1em;
+}

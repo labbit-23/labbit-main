@@ -14,7 +14,6 @@ import {
   ButtonGroup,
   Checkbox,
   Flex,
-  Heading,
   HStack,
   IconButton,
   Input,
@@ -26,7 +25,6 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
-  Progress,
   Select,
   SimpleGrid,
   Table,
@@ -40,12 +38,12 @@ import {
   useDisclosure,
   useToast
 } from "@chakra-ui/react";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, ExternalLinkIcon, RepeatIcon, SearchIcon } from "@chakra-ui/icons";
-import { FiActivity, FiList, FiPause, FiPlay, FiPrinter, FiShare2, FiUploadCloud } from "react-icons/fi";
+import { Activity, ChevronLeft, ChevronRight, Clock, Download, ExternalLink, Files, FlaskConical, LayoutList, LineChart, List, Package, Pause, Play, Printer, RefreshCw, Scan, Search, Share2, TrendingUp, UploadCloud } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
+import { ActionBtn, DataCell, DeptChip, PageHeader, Pane, ReadyBar, SegmentedControl, StatusPill } from "@/components/ui";
 
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
 const DAILY_PAGE_SIZE = 10;
@@ -475,6 +473,7 @@ function fallbackAutoPermissions(role) {
 export default function ReportDispatchWorkspace({
   dispatchMode = "admin",
   userRole = "admin",
+  initialMonitorFilter = "",
 }) {
   const toast = useToast();
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
@@ -494,7 +493,7 @@ export default function ReportDispatchWorkspace({
     upstreamCalled: false
   });
   const [dailyPage, setDailyPage] = useState(1);
-  const [autoStatusFilter, setAutoStatusFilter] = useState("");
+  const [autoStatusFilter, setAutoStatusFilter] = useState(initialMonitorFilter || "");
   const [autoViewFilter, setAutoViewFilter] = useState("pending");
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
@@ -630,12 +629,6 @@ export default function ReportDispatchWorkspace({
     };
   }, [userRole]);
 
-  const readyPct = useMemo(() => {
-    const ready = Number(status?.live_status?.lab_ready || 0);
-    const total = Number(status?.live_status?.lab_total || 0);
-    if (!total) return 0;
-    return Math.max(0, Math.min(100, Math.round((ready / total) * 100)));
-  }, [status]);
 
   const filteredDailyRows = useMemo(() => {
     const sorted = [...(Array.isArray(dailyRows) ? dailyRows : [])].sort(byReqnoDesc);
@@ -1125,7 +1118,9 @@ export default function ReportDispatchWorkspace({
       const limit = Number(options?.limit || 120);
       const query = new URLSearchParams({ limit: String(limit) });
       if (autoStatusFilter) query.set("status", autoStatusFilter);
-      if (selectedDate) query.set("selected_date", selectedDate);
+      // Don't scope by date when filtering by failed — failures can span multiple days
+      const skipDateScope = autoStatusFilter === "failed";
+      if (selectedDate && !skipDateScope) query.set("selected_date", selectedDate);
       const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
@@ -1559,10 +1554,8 @@ export default function ReportDispatchWorkspace({
       ? selectedReportMeta
       : null;
 
-  const statusReqid = displayValue(status?.reqid || activeMeta?.reqid);
   const statusReqno = displayValue(status?.reqno || reqnoInput || activeMeta?.reqno);
   const statusPatient = displayValue(status?.live_status?.patient_name || activeMeta?.patient_name);
-  const statusTestDate = displayValue(status?.live_status?.test_date || activeMeta?.reqdt);
   const statusPhone = displayValue(status?.live_status?.patient_phone || activeMeta?.phoneno);
   const statusMrno = displayValue(status?.live_status?.mrno || activeMeta?.mrno);
   const statusSource = displayValue(status?.live_status?.source || activeMeta?.source);
@@ -1571,8 +1564,6 @@ export default function ReportDispatchWorkspace({
     if (!reqno) return null;
     return (Array.isArray(autoJobs) ? autoJobs : []).find((row) => String(row?.reqno || "").trim() === reqno) || null;
   }, [autoJobs, status?.reqno, reqnoInput, activeMeta?.reqno]);
-  const outputPrimaryIcon =
-    actionMode === "download" ? <DownloadIcon /> : isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />;
 
   return (
     <Box
@@ -1593,93 +1584,78 @@ export default function ReportDispatchWorkspace({
         onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
       />
 
-      <Flex align="stretch" justify="center" pt={{ base: "116px", md: "64px" }} px={[2, 4]} pb={[2, 4]}>
+      <Flex align="stretch" justify="center" pt={{ base: "116px", md: "64px" }} px={[2, 3]} pb={[2, 3]}>
         <Box
           w="full"
           maxW={monitorOpen ? "100%" : "7xl"}
           className="dashboard-theme-card"
           borderRadius="xl"
           px={[3, 5]}
-          py={[3, 4]}
+          py={[2, 3]}
           overflow="visible"
           display="flex"
           flexDirection="column"
-          gap={3}
+          gap={2}
         >
-          <Flex align="center" justify="space-between" wrap="wrap" gap={3}>
-            <Heading className="dashboard-theme-heading" size="lg">Report Dispatch</Heading>
-            {canAutoView ? (
+          <PageHeader
+            title="Report Dispatch"
+            mb={2}
+            actions={canAutoView ? (
               <Button
                 size="sm"
                 variant={monitorOpen ? "solid" : "outline"}
-                colorScheme="blue"
+                colorScheme="purple"
                 onClick={async () => {
                   const next = !monitorOpen;
                   setMonitorOpen(next);
                   if (next) await loadAutoDispatchJobs({ limit: 120, resetPage: true });
                 }}
-                leftIcon={monitorOpen ? <FiPrinter /> : <FaWhatsapp />}
+                leftIcon={monitorOpen ? <Printer size={14} /> : <FaWhatsapp />}
               >
                 {monitorOpen ? "Report Dispatch" : "Dispatch Monitor"}
               </Button>
             ) : null}
-          </Flex>
+          />
 
           {!monitorOpen ? (
             <Box
               borderWidth="1px"
-              borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"}
+              borderColor={themeMode === "dark" ? "whiteAlpha.300" : "var(--border)"}
               borderRadius="lg"
-              p={3}
-              bg={themeMode === "dark" ? "rgba(19,22,30,0.96)" : "rgba(255,255,255,0.97)"}
+              px={3}
+              py={2}
+              bg={themeMode === "dark" ? "rgba(19,22,30,0.96)" : "var(--surface)"}
             >
               <Flex direction="column" gap={2}>
                 <Flex direction={{ base: "column", xl: "row" }} gap={2} align={{ base: "stretch", xl: "center" }} justify="space-between">
-                  <form onSubmit={handleLookup} style={{ width: "100%", minWidth: 0 }}>
-                    <Flex direction="column" gap={2} maxW={{ base: "full", xl: "700px" }}>
+                  <form onSubmit={handleLookup} style={{ minWidth: 0 }}>
+                    <Flex align="center" gap={3}>
                       <Button
                         size="sm"
-                        leftIcon={<FiList />}
-                        colorScheme="blue"
+                        leftIcon={<List size={14} />}
+                        colorScheme="purple"
+                        variant="solid"
                         onClick={handleOpenDateModal}
                         isLoading={dailyLoading}
                         flexShrink={0}
-                        w={{ base: "full", sm: "auto" }}
                       >
                         List Requisitions
                       </Button>
-                      <Text
-                        fontSize="xs"
-                        color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}
-                        whiteSpace="nowrap"
-                        alignSelf="center"
-                        display={{ base: "none", md: "block" }}
-                      >
-                        Cache: {(Array.isArray(dailyRows) ? dailyRows.length : 0)}
+                      <Text fontSize="xs" color="var(--text-3)" whiteSpace="nowrap">
+                        {(Array.isArray(dailyRows) ? dailyRows.length : 0)} cached
                       </Text>
                     </Flex>
                   </form>
 
                   <Flex gap={2} wrap={{ base: "wrap", lg: "nowrap" }} align="center" justify={{ base: "flex-start", xl: "flex-end" }}>
-                    <Text fontSize="sm" fontWeight="semibold" whiteSpace="nowrap">Output:</Text>
-                    <ButtonGroup size="sm" isAttached variant="outline">
-                      <Button
-                        leftIcon={isMobileViewport ? <FiShare2 /> : <ExternalLinkIcon />}
-                        colorScheme={(actionMode === "open" || actionMode === "share") ? "blue" : "gray"}
-                        variant={(actionMode === "open" || actionMode === "share") ? "solid" : "outline"}
-                        onClick={() => setActionMode(isMobileViewport ? "share" : "open")}
-                      >
-                        {isMobileViewport ? "Share" : "Open"}
-                      </Button>
-                      <Button
-                        leftIcon={<DownloadIcon />}
-                        colorScheme={actionMode === "download" ? "blue" : "gray"}
-                        variant={actionMode === "download" ? "solid" : "outline"}
-                        onClick={() => setActionMode("download")}
-                      >
-                        Download
-                      </Button>
-                    </ButtonGroup>
+                    <SegmentedControl
+                      value={actionMode === "download" ? "download" : (isMobileViewport ? "share" : "open")}
+                      onChange={(v) => setActionMode(v)}
+                      options={[
+                        { value: isMobileViewport ? "share" : "open", label: isMobileViewport ? "Share" : "Open", icon: isMobileViewport ? <Share2 size={12} /> : <ExternalLink size={12} /> },
+                        { value: "download", label: "Download", icon: <Download size={12} /> },
+                      ]}
+                    />
                     <HStack spacing={2}>
                       <Text fontSize="sm">Header</Text>
                       <Switch colorScheme="purple" size="md" isChecked={headerRequired} onChange={(e) => setHeaderRequired(e.target.checked)} />
@@ -1695,80 +1671,45 @@ export default function ReportDispatchWorkspace({
           {!monitorOpen ? (
           <Flex gap={2} direction={{ base: "column", md: "row" }}>
             {!isScopedMode && (
-              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
-                <Text fontWeight="semibold" mb={2}>Search by Mobile No</Text>
-                <Flex gap={2} wrap="nowrap" align="center">
-                  <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} maxW={{ base: "none", md: "220px" }} />
-                  <Button size="sm" leftIcon={<SearchIcon />} colorScheme="teal" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
+              <Pane title="Search" flex="1" bodyPx={3} bodyPy={2}>
+                <Flex gap={2} align="center" mb={2}>
+                  <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} />
+                  <Button size="sm" w="110px" leftIcon={<Search size={14} />} colorScheme="purple" variant="solid" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
                 </Flex>
-                {!isScopedMode ? (
-                  <Flex gap={2} wrap="nowrap" align="center" mt={2}>
-                    <Input
-                      size="sm"
-                      value={reqnoInput}
-                      onChange={(e) => setReqnoInput(e.target.value)}
-                      placeholder="REQNO"
-                      flex="1"
-                      minW={0}
-                      maxW={{ base: "none", md: "220px" }}
-                    />
-                    <Button size="sm" leftIcon={<SearchIcon />} colorScheme="blue" onClick={handleReqnoQuickLookup} isLoading={loadingStatus} flexShrink={0}>
-                      Check Status
-                    </Button>
-                  </Flex>
-                ) : null}
-                <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
-                  Auto-dispatch: {activeAutoJob ? `${String(activeAutoJob?.status || "-").toUpperCase()}${activeAutoJob?.sent_at ? ` • ${formatIstDateTime(activeAutoJob.sent_at)}` : ""}` : "No dispatch record yet"}
-                </Text>
-                <Text mt={1} fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Cached: {(Array.isArray(phoneReports) ? phoneReports.length : 0)}</Text>
-              </Box>
+                <Flex gap={2} align="center" mb={2}>
+                  <Input size="sm" value={reqnoInput} onChange={(e) => setReqnoInput(e.target.value)} placeholder="REQNO" flex="1" minW={0} />
+                  <Button size="sm" w="110px" leftIcon={<Search size={14} />} variant="outline" onClick={handleReqnoQuickLookup} isLoading={loadingStatus} flexShrink={0}>
+                    Check Status
+                  </Button>
+                </Flex>
+                <Flex gap={3} align="center" flexWrap="wrap">
+                  <Text fontSize="11px" fontWeight="600" color="var(--text-3)" textTransform="uppercase" letterSpacing="0.05em">
+                    Auto-dispatch
+                  </Text>
+                  <Text fontSize="12px" color="var(--text-3)" flex={1}>
+                    {activeAutoJob ? `${String(activeAutoJob?.status || "-").toUpperCase()}${activeAutoJob?.sent_at ? ` · ${formatIstDateTime(activeAutoJob.sent_at)}` : ""}` : "No record yet"}
+                  </Text>
+                  <Text fontSize="11px" fontWeight="600" color="var(--text-4)">
+                    {Array.isArray(phoneReports) ? phoneReports.length : 0} cached
+                  </Text>
+                </Flex>
+              </Pane>
             )}
 
-            <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} flex="1">
-              <Text fontWeight="semibold" mb={2}>Dispatch Actions</Text>
-              <SimpleGrid columns={{ base: 2, md: 3 }} spacing={2}>
-                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="blue" onClick={() => openDocument("all")} isDisabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)}>
-                  All
-                </Button>
-                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="blue" onClick={() => openDocument("lab")} isDisabled={!hasStatus || !canDispatch || !hasLab}>
-                  Lab
-                </Button>
-                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="blue" onClick={() => openDocument("radiology")} isDisabled={!hasStatus || !canDispatch || !hasRadiology}>
-                  Radiology
-                </Button>
-                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="teal" onClick={openTrend} isDisabled={!hasStatus || !canTrend}>
-                  Trend
-                </Button>
-                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="purple" onClick={openSmartTrends} isDisabled={!hasStatus || !canSmartTrends}>
-                  Trends v2.0
-                </Button>
-                <Button size="sm" w="full" leftIcon={outputPrimaryIcon} colorScheme="cyan" onClick={openSmartSummary} isDisabled={!hasStatus || !canSmartTrends}>
-                  Summary
-                </Button>
-                <Button
-                  size="sm"
-                  w="full"
-                  leftIcon={outputPrimaryIcon}
-                  colorScheme="yellow"
-                  onClick={() => openDocument("all", { printtype: "0" })}
-                  isDisabled={!hasStatus || !currentReqid() || !hasLab}
-                >
-                  Pending
-                </Button>
+            <Pane title="Dispatch Actions" flex="1" bodyPx={3} bodyPy={3}>
+              <SimpleGrid columns={{ base: 2, md: 3 }} spacing={1.5}>
+                <ActionBtn compact icon={<Files size={14} />}       label="All"              variant="lab"        onClick={() => openDocument("all")} disabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)} />
+                <ActionBtn compact icon={<FlaskConical size={14} />} label="Lab"              variant="lab"        onClick={() => openDocument("lab")} disabled={!hasStatus || !canDispatch || !hasLab} />
+                <ActionBtn compact icon={<Scan size={14} />}         label="Radiology"        variant="rad"        onClick={() => openDocument("radiology")} disabled={!hasStatus || !canDispatch || !hasRadiology} />
+                <ActionBtn compact icon={<TrendingUp size={14} />}   label="Trend"            variant="trend"      onClick={openTrend} disabled={!hasStatus || !canTrend} />
+                <ActionBtn compact icon={<LineChart size={14} />}    label="Trends v2.0"      variant="trendv2"    onClick={openSmartTrends} disabled={!hasStatus || !canSmartTrends} />
+                <ActionBtn compact icon={<LayoutList size={14} />}   label="Summary"          variant="summary"    onClick={openSmartSummary} disabled={!hasStatus || !canSmartTrends} />
+                <ActionBtn compact icon={<Clock size={14} />}        label="Pending"          variant="pending"    onClick={() => openDocument("all", { printtype: "0" })} disabled={!hasStatus || !currentReqid() || !hasLab} />
                 {ENABLE_OUTSOURCED_MANUAL_DISPATCH ? (
-                  <Button
-                    size="sm"
-                    w="full"
-                    leftIcon={<FiList />}
-                    colorScheme="orange"
-                    onClick={openOutsourcedModal}
-                    isDisabled={!hasStatus || !currentReqno()}
-                  >
-                    Outsourced Reports
-                  </Button>
+                  <ActionBtn compact icon={<Package size={14} />}    label="Outsourced"       variant="outsourced" onClick={openOutsourcedModal} disabled={!hasStatus || !currentReqno()} />
                 ) : null}
               </SimpleGrid>
-            </Box>
+            </Pane>
           </Flex>
           ) : null}
 
@@ -1861,7 +1802,7 @@ export default function ReportDispatchWorkspace({
                   <Button
                     type="button"
                     size="sm"
-                    leftIcon={<FiList />}
+                    leftIcon={<List size={14} />}
                     variant="outline"
                     minW="120px"
                     onClick={async () => {
@@ -1887,7 +1828,7 @@ export default function ReportDispatchWorkspace({
                     type="button"
                     size="sm"
                     aria-label="Refresh"
-                    icon={<RepeatIcon />}
+                    icon={<RefreshCw size={14} />}
                     variant="outline"
                     onClick={() => loadAutoDispatchJobs({ limit: 120 })}
                     isLoading={autoLoading}
@@ -1909,7 +1850,7 @@ export default function ReportDispatchWorkspace({
                           size="sm"
                           type="button"
                           aria-label={canResumeAllVisible ? "Resume all paused" : "Pause all visible"}
-                          icon={canResumeAllVisible ? <FiPlay /> : <FiPause />}
+                          icon={canResumeAllVisible ? <Play size={14} /> : <Pause size={14} />}
                           colorScheme={canResumeAllVisible ? "green" : "orange"}
                           variant="solid"
                           onClick={() => {
@@ -1958,7 +1899,7 @@ export default function ReportDispatchWorkspace({
                   onChange={(e) => setAutoSearchInput(e.target.value)}
                   placeholder="Search reqno/patient/phone/status/error"
                 />
-                <Button type="button" size="sm" leftIcon={<SearchIcon />} onClick={() => { setAutoSearch(autoSearchInput); setAutoPage(1); }}>
+                <Button type="button" size="sm" leftIcon={<Search size={14} />} onClick={() => { setAutoSearch(autoSearchInput); setAutoPage(1); }}>
                   Search
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => { setAutoSearchInput(""); setAutoSearch(""); setAutoPage(1); }}>
@@ -2011,7 +1952,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="First page"
-                    icon={<ChevronLeftIcon />}
+                    icon={<ChevronLeft size={14} />}
                     onClick={() => setAutoPage(1)}
                     isDisabled={safeAutoPage <= 1}
                     variant="outline"
@@ -2020,7 +1961,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="Previous page"
-                    icon={<ChevronLeftIcon />}
+                    icon={<ChevronLeft size={14} />}
                     onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
                     isDisabled={safeAutoPage <= 1}
                   />
@@ -2029,7 +1970,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="Next page"
-                    icon={<ChevronRightIcon />}
+                    icon={<ChevronRight size={14} />}
                     onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
                     isDisabled={safeAutoPage >= totalAutoPages}
                   />
@@ -2037,7 +1978,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="Last page"
-                    icon={<ChevronRightIcon />}
+                    icon={<ChevronRight size={14} />}
                     onClick={() => setAutoPage(totalAutoPages)}
                     isDisabled={safeAutoPage >= totalAutoPages}
                     variant="outline"
@@ -2131,7 +2072,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="First page"
-                    icon={<ChevronLeftIcon />}
+                    icon={<ChevronLeft size={14} />}
                     onClick={() => setAutoPage(1)}
                     isDisabled={safeAutoPage <= 1}
                     variant="outline"
@@ -2140,7 +2081,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="Previous page"
-                    icon={<ChevronLeftIcon />}
+                    icon={<ChevronLeft size={14} />}
                     onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
                     isDisabled={safeAutoPage <= 1}
                   />
@@ -2149,7 +2090,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="Next page"
-                    icon={<ChevronRightIcon />}
+                    icon={<ChevronRight size={14} />}
                     onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
                     isDisabled={safeAutoPage >= totalAutoPages}
                   />
@@ -2157,7 +2098,7 @@ export default function ReportDispatchWorkspace({
                     size="xs"
                     type="button"
                     aria-label="Last page"
-                    icon={<ChevronRightIcon />}
+                    icon={<ChevronRight size={14} />}
                     onClick={() => setAutoPage(totalAutoPages)}
                     isDisabled={safeAutoPage >= totalAutoPages}
                     variant="outline"
@@ -2179,7 +2120,7 @@ export default function ReportDispatchWorkspace({
                     const canTogglePause = (canPauseRow || canResumeRow) && !isTerminalRow;
                     const pauseAction = job?.is_paused ? "resume" : "pause";
                     const pauseLabel = job?.is_paused ? "Resume" : "Pause";
-                    const pauseIcon = job?.is_paused ? <FiPlay /> : <FiPause />;
+                    const pauseIcon = job?.is_paused ? <Play size={14} /> : <Pause size={14} />;
                     const pauseColor = job?.is_paused ? "green" : "orange";
                     const whyText = buildWhyText(job);
                     return (
@@ -2212,7 +2153,7 @@ export default function ReportDispatchWorkspace({
                         </Tooltip>
                         <HStack spacing={1.5} mt={2} wrap="nowrap">
                           <Tooltip label="Events" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<FiActivity />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} />
+                            <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<Activity size={14} />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} />
                           </Tooltip>
                           <Tooltip label="WhatsApp dispatch now" hasArrow openDelay={250}>
                             <IconButton
@@ -2232,7 +2173,7 @@ export default function ReportDispatchWorkspace({
                             />
                           </Tooltip>
                           <Tooltip label="Push to" hasArrow openDelay={250}>
-                            <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<FiUploadCloud />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
+                            <IconButton size="xs" type="button" aria-label="Push to" colorScheme="purple" icon={<UploadCloud size={14} />} onClick={() => openPushTemplateModal(job)} isDisabled={!canSendToRow} />
                           </Tooltip>
                           <Tooltip label={pauseLabel} hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label={pauseLabel} colorScheme={pauseColor} variant={canTogglePause ? "solid" : "outline"} icon={pauseIcon} onClick={() => runAutoJobAction(jobId, pauseAction)} isDisabled={!canTogglePause} isLoading={isRowActionLoading(jobId, pauseAction)} />
@@ -2282,7 +2223,7 @@ export default function ReportDispatchWorkspace({
                       const canTogglePause = (canPauseRow || canResumeRow) && !isTerminalRow;
                       const pauseAction = job?.is_paused ? "resume" : "pause";
                       const pauseLabel = job?.is_paused ? "Resume" : "Pause";
-                      const pauseIcon = job?.is_paused ? <FiPlay /> : <FiPause />;
+                      const pauseIcon = job?.is_paused ? <Play size={14} /> : <Pause size={14} />;
                       const pauseColor = job?.is_paused ? "green" : "orange";
                       return (
                         <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
@@ -2366,7 +2307,7 @@ export default function ReportDispatchWorkspace({
                                   type="button"
                                   aria-label="Events"
                                   variant="outline"
-                                  icon={<FiActivity />}
+                                  icon={<Activity size={14} />}
                                   onClick={() => openAutoEvents(job)}
                                   isLoading={isRowActionLoading(jobId, "events")}
                                   _hover={{ bg: "gray.100" }}
@@ -2395,7 +2336,7 @@ export default function ReportDispatchWorkspace({
                                   type="button"
                                   aria-label="Push to"
                                   colorScheme="purple"
-                                  icon={<FiUploadCloud />}
+                                  icon={<UploadCloud size={14} />}
                                   onClick={() => openPushTemplateModal(job)}
                                   isDisabled={!canSendToRow}
                                   _hover={{ transform: "translateY(-1px)" }}
@@ -2427,39 +2368,29 @@ export default function ReportDispatchWorkspace({
             </Box>
           ) : null}
 
-          <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="lg" p={2} bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} display="flex" flexDirection="column">
-            <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={2} mb={1}>
-              <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>REQNO</Text>
-                <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusReqno}</Text>
-              </Box>
-              <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Patient</Text>
-                <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusPatient}</Text>
-              </Box>
-              <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Phone</Text>
-                <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusPhone}</Text>
-              </Box>
-              <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>MRNO</Text>
-                <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusMrno}</Text>
-              </Box>
-              <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Status</Text>
-                <Badge colorScheme={tone}>{status?.live_status?.overall_status || "-"}</Badge>
-              </Box>
-              <Box>
-                <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Source</Text>
-                <Text fontSize="sm" fontWeight="semibold" noOfLines={1}>{statusSource}</Text>
-              </Box>
+          <Pane
+            title={statusReqno !== "-" ? statusReqno : "Report Detail"}
+            badge={statusReqno !== "-" ? (
+              <StatusPill status={tone === "green" ? "ready" : tone === "orange" ? "pending" : "closed"}>
+                {status?.live_status?.overall_status || "-"}
+              </StatusPill>
+            ) : null}
+            noPad
+          >
+            <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={4} px={5} py={4} borderBottom="1px solid var(--border-soft)">
+              <DataCell label="Patient" value={statusPatient} />
+              <DataCell label="Phone" value={statusPhone} mono />
+              <DataCell label="MRNO" value={statusMrno} mono />
+              <DataCell label="Source" value={statusSource} />
+              <DataCell label="Reason" value={displayValue(decision?.reason)} dim />
             </SimpleGrid>
-            <Flex justify="space-between" align="center" wrap="wrap" gap={2} mb={1}>
-              <Text fontSize="xs">Ready Lab: {status?.live_status?.lab_ready || 0}/{status?.live_status?.lab_total || 0} | Ready Radiology: {status?.live_status?.radiology_ready || 0}/{status?.live_status?.radiology_total || 0}</Text>
-              <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>{displayValue(decision?.reason)}</Text>
-            </Flex>
-            <Progress mb={1} value={readyPct} borderRadius="full" colorScheme={tone} />
-            <Box overflow="auto" borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" maxH={{ base: "320px", md: "500px" }}>
+            <Box px={5} py={3} borderBottom="1px solid var(--border-soft)">
+              <ReadyBar items={[
+                { label: "Lab", ready: status?.live_status?.lab_ready || 0, total: status?.live_status?.lab_total || 0 },
+                { label: "Radiology", ready: status?.live_status?.radiology_ready || 0, total: status?.live_status?.radiology_total || 0 },
+              ]} />
+            </Box>
+            <Box overflow="auto" maxH={{ base: "320px", md: "500px" }}>
               <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
                 <Thead>
                   <Tr>
@@ -2472,42 +2403,33 @@ export default function ReportDispatchWorkspace({
                 <Tbody>
                   {(Array.isArray(status?.live_status?.tests) ? status.live_status.tests : []).map((row) => {
                     const state = String(row?.state || "").trim();
-                    const statusColor =
-                      state === "ready_not_dispatched"
-                        ? "green"
-                        : state === "ready_dispatched"
-                          ? "blue"
-                          : "orange";
+                    const dept = String(row?.department || "").toLowerCase();
+                    const pillStatus = state === "ready_not_dispatched" ? "ready" : state === "ready_dispatched" ? "dispatched" : "pending";
                     const dispatchLabel =
-                      row?.department === "lab"
-                        ? row?.dispatched
-                          ? "Dispatched"
-                          : detailLoadedFromMonitor
-                            ? "-"
-                            : "Not Dispatched"
+                      dept === "lab"
+                        ? row?.dispatched ? "Dispatched" : detailLoadedFromMonitor ? "-" : "Not Dispatched"
                         : "-";
-
                     return (
                       <Tr key={row?.key || `${row?.test_id || ""}_${row?.test_name || ""}`}>
                         <Td>{displayValue(row?.test_name)}</Td>
-                        <Td textTransform="capitalize">{displayValue(row?.department)}</Td>
                         <Td>
-                          <Badge colorScheme={statusColor}>
-                            {state === "ready_not_dispatched"
-                              ? "READY"
-                              : state === "ready_dispatched"
-                                ? "READY (DONE)"
-                                : "PENDING"}
-                          </Badge>
+                          <DeptChip dept={dept === "radiology" ? "rad" : "bio"}>
+                            {dept || "-"}
+                          </DeptChip>
                         </Td>
-                        <Td>{dispatchLabel}</Td>
+                        <Td>
+                          <StatusPill status={pillStatus}>
+                            {state === "ready_not_dispatched" ? "Ready" : state === "ready_dispatched" ? "Dispatched" : "Pending"}
+                          </StatusPill>
+                        </Td>
+                        <Td color="var(--text-3)" fontSize="11px">{dispatchLabel}</Td>
                       </Tr>
                     );
                   })}
                 </Tbody>
               </Table>
             </Box>
-          </Box>
+          </Pane>
         </Box>
       </Flex>
 
@@ -2520,7 +2442,7 @@ export default function ReportDispatchWorkspace({
               <IconButton
                 size="sm"
                 aria-label="Refresh phone results"
-                icon={<RepeatIcon />}
+                icon={<RefreshCw size={14} />}
                 mr="2.5rem"
                 onClick={() => loadPhoneReports(phoneInput, { force: true })}
                 isLoading={phoneLoading}
@@ -2576,7 +2498,7 @@ export default function ReportDispatchWorkspace({
                 <IconButton
                   size="sm"
                   aria-label="Refresh date results"
-                  icon={<RepeatIcon />}
+                  icon={<RefreshCw size={14} />}
                   onClick={() => loadDateRows(selectedDate, { force: true })}
                   isLoading={dailyLoading}
                 />
@@ -2745,7 +2667,7 @@ export default function ReportDispatchWorkspace({
                               <IconButton
                                 size="xs"
                                 aria-label="Download outsourced report"
-                                icon={<DownloadIcon />}
+                                icon={<Download size={14} />}
                                 variant="outline"
                                 onClick={() => openOutsourcedDownload(row)}
                               />

@@ -34,7 +34,7 @@ import {
   VStack,
   useDisclosure
 } from "@chakra-ui/react";
-import { ExternalLinkIcon, QuestionOutlineIcon, RepeatIcon, SettingsIcon } from "@chakra-ui/icons";
+import { ExternalLink, HelpCircle, RefreshCw, Settings } from "lucide-react";
 import Link from "next/link";
 import RequireAuth from "../../components/RequireAuth";
 import ShortcutBar from "../../components/ShortcutBar";
@@ -1846,6 +1846,7 @@ function CtoDashboardPage() {
 
   return (
     <Box
+      className="dashboard-theme-dark"
       minH="100vh"
       bg="radial-gradient(circle at top left, rgba(0, 195, 255, 0.18), transparent 28%), radial-gradient(circle at top right, rgba(255, 123, 67, 0.16), transparent 22%), linear-gradient(180deg, #0b1320 0%, #111827 50%, #0d1726 100%)"
       color="#f8fafc"
@@ -2064,7 +2065,7 @@ function CtoDashboardPage() {
                 color="#0b1320"
                 _hover={{ bg: "gray.100" }}
                 borderRadius="full"
-                leftIcon={<RepeatIcon />}
+                leftIcon={<RefreshCw size={14} />}
                 onClick={() => refreshRef.current?.()}
               >
                 Run Diagnostics
@@ -2077,7 +2078,7 @@ function CtoDashboardPage() {
                 color="white"
                 _hover={{ bg: "rgba(126, 244, 215, 0.24)" }}
                 borderRadius="full"
-                leftIcon={<SettingsIcon />}
+                leftIcon={<Settings size={14} />}
               >
                 Admin
               </Button>
@@ -2089,7 +2090,7 @@ function CtoDashboardPage() {
                 color="white"
                 _hover={{ bg: "rgba(56, 189, 248, 0.24)" }}
                 borderRadius="full"
-                leftIcon={<ExternalLinkIcon />}
+                leftIcon={<ExternalLink size={14} />}
               >
                 Inbox
               </Button>
@@ -2101,7 +2102,7 @@ function CtoDashboardPage() {
                 color="white"
                 _hover={{ bg: "rgba(250, 204, 21, 0.24)" }}
                 borderRadius="full"
-                leftIcon={<ExternalLinkIcon />}
+                leftIcon={<ExternalLink size={14} />}
               >
                 Report Dispatch
               </Button>
@@ -2114,7 +2115,7 @@ function CtoDashboardPage() {
                 color="white"
                 _hover={{ bg: "rgba(126, 244, 215, 0.16)" }}
                 borderRadius="full"
-                leftIcon={<ExternalLinkIcon />}
+                leftIcon={<ExternalLink size={14} />}
               >
                 Simulator
               </Button>
@@ -2125,7 +2126,7 @@ function CtoDashboardPage() {
                 color="white"
                 _hover={{ bg: "rgba(244, 190, 126, 0.16)" }}
                 borderRadius="full"
-                leftIcon={<ExternalLinkIcon />}
+                leftIcon={<ExternalLink size={14} />}
                 onClick={smartReportModal.onOpen}
               >
                 SMART Report*
@@ -2553,8 +2554,10 @@ function CtoDashboardPage() {
                 value={trendRange}
                 onChange={(e) => setTrendRange(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.72)"
+                bg="rgba(11, 19, 32, 0.88)"
                 borderColor="rgba(255,255,255,0.18)"
+                color="whiteAlpha.900"
+                sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
                 {TREND_RANGE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -2789,7 +2792,7 @@ function CtoDashboardPage() {
                 <Heading size="md">VPS Health</Heading>
                 <IconButton
                   aria-label={showVpsRunbook ? "Hide incident runbook" : "Show incident runbook"}
-                  icon={<QuestionOutlineIcon />}
+                  icon={<HelpCircle size={14} />}
                   size="xs"
                   variant="outline"
                   borderColor="rgba(255,255,255,0.28)"
@@ -3754,8 +3757,10 @@ function CtoDashboardPage() {
                 value={eventsStatusFilter}
                 onChange={(e) => setEventsStatusFilter(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.72)"
+                bg="rgba(11, 19, 32, 0.88)"
                 borderColor="rgba(255,255,255,0.18)"
+                color="whiteAlpha.900"
+                sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
                 <option value="">All status</option>
                 <option value="open">Open</option>
@@ -3767,8 +3772,10 @@ function CtoDashboardPage() {
                 value={eventsSeverityFilter}
                 onChange={(e) => setEventsSeverityFilter(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.72)"
+                bg="rgba(11, 19, 32, 0.88)"
                 borderColor="rgba(255,255,255,0.18)"
+                color="whiteAlpha.900"
+                sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
                 <option value="">All severity</option>
                 <option value="critical">Critical</option>

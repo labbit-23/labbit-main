@@ -89,6 +89,7 @@ export default function ModularPatientModal({
     email: '',
     externalMrNo: '',
     phone: '',
+    altPhone: '',
     address_line: '',
     pincode: '',
   });
@@ -113,6 +114,7 @@ export default function ModularPatientModal({
         email: initialPatient.email ?? '',
         externalMrNo: initialPatient.external_key ?? '',
         phone: initialPatient.phone ?? initialPhone ?? '',  // Use fallback initialPhone
+        altPhone: initialPatient.alt_phone ?? '',
         address_line: initialPatient.address_line ?? '',
         pincode: initialPatient.pincode ?? '',
       });
@@ -148,6 +150,7 @@ export default function ModularPatientModal({
         email: '',
         externalMrNo: '',
         phone: initialPhone ?? '',  // <--- use initialPhone directly
+        altPhone: '',
         address_line: '',
         pincode: '',
       });
@@ -195,6 +198,13 @@ export default function ModularPatientModal({
       toast({ title: 'Valid phone number required', status: 'warning' });
       return false;
     }
+    if (patientData.altPhone) {
+      const altDigits = String(patientData.altPhone || '').replace(/\D/g, '');
+      if (altDigits.length !== 10) {
+        toast({ title: 'Alternate phone must be 10 digits', status: 'warning' });
+        return false;
+      }
+    }
     return true;
   };
 
@@ -210,6 +220,7 @@ export default function ModularPatientModal({
         dob: patientData.dob,
         gender: patientData.gender,
         email: patientData.email,
+        alt_phone: patientData.altPhone,
         cregno: patientData.externalMrNo, // map UI field name to API's expected 'cregno'
         addresses,                        // send addresses array to API
       };
@@ -246,6 +257,26 @@ export default function ModularPatientModal({
         toast({
           title: 'Shared phone detected',
           description: 'Same phone is already linked to other patient records: ' + preview + suffix + '. Please verify family relation before continuing.',
+          status: 'warning',
+          duration: 10000,
+          isClosable: true,
+        });
+      }
+      const sameNameWarning = Array.isArray(savedPatient?.warnings)
+        ? savedPatient.warnings.find((item) => item?.code === 'EXACT_NAME_EXISTS')
+        : null;
+      if (sameNameWarning) {
+        const related = Array.isArray(sameNameWarning.related_patients)
+          ? sameNameWarning.related_patients
+          : [];
+        const preview = related
+          .slice(0, 3)
+          .map((p) => (p?.name || 'Unknown') + ' (' + (p?.phone || '-') + ')')
+          .join(', ');
+        const suffix = related.length > 3 ? " +" + (related.length - 3) + " more" : "";
+        toast({
+          title: 'Same name already exists',
+          description: 'Potential duplicate by exact name: ' + preview + suffix + '. Please verify before proceeding.',
           status: 'warning',
           duration: 10000,
           isClosable: true,
@@ -343,6 +374,18 @@ export default function ModularPatientModal({
                   placeholder="10-digit phone number"
                   isDisabled={disablePhoneInput}
                   aria-readonly="true"
+                />
+              </HStack>
+            </FormControl>
+
+            <FormControl>
+              <HStack spacing={3}>
+                <FormLabel flex="0 0 140px">Alt Phone</FormLabel>
+                <Input
+                  value={patientData.altPhone}
+                  maxLength={10}
+                  onChange={updateField('altPhone')}
+                  placeholder="Second 10-digit number"
                 />
               </HStack>
             </FormControl>
