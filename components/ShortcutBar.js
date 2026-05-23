@@ -625,7 +625,7 @@ export default function ShortcutBar({
           <Flex
             align="center"
             gap={0}
-            display={{ base: "none", sm: "flex" }}
+            display={{ base: "none", md: "flex" }}
             borderLeft="1px solid"
             borderColor={themeMode === "dark" ? "whiteAlpha.200" : "var(--border)"}
             pl={{ base: 1, sm: 2 }}
