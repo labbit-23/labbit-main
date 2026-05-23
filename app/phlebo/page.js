@@ -142,6 +142,19 @@ function PhleboContent({ userRole = "executive" }) {
       >
         <HStack justify="space-between" align="center" mb={4} flexWrap="wrap">
           <DashboardMetrics hvExecutiveId={selectedExecutiveId} date={selectedDate} themeMode={themeMode} />
+          <Box
+            as="a"
+            href="/phlebo/yourdayview"
+            fontSize="11px"
+            color={themeMode === "dark" ? "whiteAlpha.500" : "gray.400"}
+            _hover={{ color: themeMode === "dark" ? "whiteAlpha.800" : "gray.600" }}
+            onClick={() => {
+              if (typeof window !== "undefined")
+                window.localStorage.removeItem("phleboDefaultView");
+            }}
+          >
+            Switch to new view
+          </Box>
         </HStack>
 
         <Tabs
