@@ -45,7 +45,8 @@ function PhleboContent({ userRole = "executive" }) {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem("phleboThemeMode");
     if (saved === "dark" || saved === "light") setThemeMode(saved);
-    if (window.localStorage.getItem("phleboDefaultView") !== "classic") {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("view") !== "classic") {
       router.replace("/phlebo/yourdayview");
     }
   }, [router]);
@@ -148,10 +149,7 @@ function PhleboContent({ userRole = "executive" }) {
             fontSize="11px"
             color={themeMode === "dark" ? "whiteAlpha.500" : "gray.400"}
             _hover={{ color: themeMode === "dark" ? "whiteAlpha.800" : "gray.600" }}
-            onClick={() => {
-              if (typeof window !== "undefined")
-                window.localStorage.removeItem("phleboDefaultView");
-            }}
+            onClick={() => {}}
           >
             Switch to new view
           </Box>

@@ -371,13 +371,9 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
         </Text>
         <Flex align="center" justify="space-between" mt="3px">
           <Text
-            as="a" href="/phlebo"
+            as="a" href="/phlebo?view=classic"
             fontSize="11px" color={muted} opacity={0.65}
             _hover={{ opacity: 1 }} display="inline-block"
-            onClick={() => {
-              if (typeof window !== "undefined")
-                window.localStorage.setItem("phleboDefaultView", "classic");
-            }}
           >
             Switch to classic
           </Text>
