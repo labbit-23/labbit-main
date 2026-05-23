@@ -7,8 +7,17 @@ const POLL_MS = 30000;
 
 function showNotification(title, body) {
   if (typeof window === "undefined" || !("Notification" in window)) return;
-  if (Notification.permission === "granted") {
+  if (Notification.permission !== "granted") return;
+  try {
     new Notification(title, { body });
+  } catch {
+    // Mobile browsers (e.g. Chrome on Android) don't support the Notification constructor
+    // and require showNotification() via a ServiceWorkerRegistration instead
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.showNotification(title, { body }))
+        .catch(() => {});
+    }
   }
 }
 
