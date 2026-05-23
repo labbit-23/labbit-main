@@ -1319,7 +1319,7 @@ const exportVisitsImage = async () => {
                   </Text>
                 </Box>
 
-                {(["director", "manager"].includes(activeRoleKey)) && (
+                {(["director", "admin"].includes(activeRoleKey)) && (
                   <DispatchStuckAlert themeMode={themeMode} />
                 )}
                 <Box mb={6}>
