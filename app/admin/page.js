@@ -1319,7 +1319,7 @@ const exportVisitsImage = async () => {
                   </Text>
                 </Box>
 
-                {canUseReportDispatch && (["admin", "director", "manager"].includes(activeRoleKey)) && (
+                {(["director", "manager"].includes(activeRoleKey)) && (
                   <DispatchStuckAlert themeMode={themeMode} />
                 )}
                 <Box mb={6}>
