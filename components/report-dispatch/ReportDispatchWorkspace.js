@@ -1669,47 +1669,74 @@ export default function ReportDispatchWorkspace({
           {error ? <Text color="red.400" fontSize="sm">{error}</Text> : null}
 
           {!monitorOpen ? (
-          <Flex gap={2} direction={{ base: "column", md: "row" }}>
+          <Flex gap={2} direction={{ base: "column", lg: "row" }} align="stretch">
             {!isScopedMode && (
-              <Pane title="Search" flex="1" bodyPx={3} bodyPy={2}>
-                <Flex gap={2} align="center" mb={2}>
-                  <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} />
-                  <Button size="sm" w="110px" leftIcon={<Search size={14} />} colorScheme="purple" variant="solid" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
-                </Flex>
-                <Flex gap={2} align="center" mb={2}>
-                  <Input size="sm" value={reqnoInput} onChange={(e) => setReqnoInput(e.target.value)} placeholder="REQNO" flex="1" minW={0} />
-                  <Button size="sm" w="110px" leftIcon={<Search size={14} />} variant="outline" onClick={handleReqnoQuickLookup} isLoading={loadingStatus} flexShrink={0}>
-                    Check Status
-                  </Button>
-                </Flex>
-                <Flex gap={3} align="center" flexWrap="wrap">
-                  <Text fontSize="11px" fontWeight="600" color="var(--text-3)" textTransform="uppercase" letterSpacing="0.05em">
-                    Auto-dispatch
-                  </Text>
-                  <Text fontSize="12px" color="var(--text-3)" flex={1}>
-                    {activeAutoJob ? `${String(activeAutoJob?.status || "-").toUpperCase()}${activeAutoJob?.sent_at ? ` · ${formatIstDateTime(activeAutoJob.sent_at)}` : ""}` : "No record yet"}
-                  </Text>
+              <Box flex="1" minW={0}>
+                <Pane title="Search" bodyPx={3} bodyPy={2}>
+                  <Flex gap={2} align="center" mb={2}>
+                    <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} />
+                    <Button size="sm" w="110px" leftIcon={<Search size={14} />} colorScheme="purple" variant="solid" onClick={handleOpenPhoneModal} isLoading={phoneLoading} flexShrink={0}>Report List</Button>
+                  </Flex>
+                  <Flex gap={2} align="center" mb={2}>
+                    <Input size="sm" value={reqnoInput} onChange={(e) => setReqnoInput(e.target.value)} placeholder="REQNO" flex="1" minW={0} />
+                    <Button size="sm" w="110px" leftIcon={<Search size={14} />} variant="outline" onClick={handleReqnoQuickLookup} isLoading={loadingStatus} flexShrink={0}>
+                      Check Status
+                    </Button>
+                  </Flex>
                   <Text fontSize="11px" fontWeight="600" color="var(--text-4)">
                     {Array.isArray(phoneReports) ? phoneReports.length : 0} cached
                   </Text>
-                </Flex>
-              </Pane>
+                </Pane>
+              </Box>
             )}
 
-            <Pane title="Dispatch Actions" flex="1" bodyPx={3} bodyPy={3}>
-              <SimpleGrid columns={{ base: 2, md: 3 }} spacing={1.5}>
-                <ActionBtn compact icon={<Files size={14} />}       label="All"              variant="lab"        onClick={() => openDocument("all")} disabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)} />
-                <ActionBtn compact icon={<FlaskConical size={14} />} label="Lab"              variant="lab"        onClick={() => openDocument("lab")} disabled={!hasStatus || !canDispatch || !hasLab} />
-                <ActionBtn compact icon={<Scan size={14} />}         label="Radiology"        variant="rad"        onClick={() => openDocument("radiology")} disabled={!hasStatus || !canDispatch || !hasRadiology} />
-                <ActionBtn compact icon={<TrendingUp size={14} />}   label="Trend"            variant="trend"      onClick={openTrend} disabled={!hasStatus || !canTrend} />
-                <ActionBtn compact icon={<LineChart size={14} />}    label="Trends v2.0"      variant="trendv2"    onClick={openSmartTrends} disabled={!hasStatus || !canSmartTrends} />
-                <ActionBtn compact icon={<LayoutList size={14} />}   label="Summary"          variant="summary"    onClick={openSmartSummary} disabled={!hasStatus || !canSmartTrends} />
-                <ActionBtn compact icon={<Clock size={14} />}        label="Pending"          variant="pending"    onClick={() => openDocument("all", { printtype: "0" })} disabled={!hasStatus || !currentReqid() || !hasLab} />
-                {ENABLE_OUTSOURCED_MANUAL_DISPATCH ? (
-                  <ActionBtn compact icon={<Package size={14} />}    label="Outsourced"       variant="outsourced" onClick={openOutsourcedModal} disabled={!hasStatus || !currentReqno()} />
+            {!isScopedMode && (
+            <Box flex="1" minW={0}>
+              <Pane
+                title={statusReqno !== "-" ? statusReqno : "Patient"}
+                badge={statusReqno !== "-" ? (
+                  <StatusPill status={tone === "green" ? "ready" : tone === "orange" ? "pending" : "closed"}>
+                    {status?.live_status?.overall_status || "-"}
+                  </StatusPill>
                 ) : null}
-              </SimpleGrid>
-            </Pane>
+                bodyPx={3}
+                bodyPy={3}
+              >
+                <SimpleGrid columns={2} spacing={3}>
+                  <DataCell label="Patient" value={statusPatient} />
+                  <DataCell label="Phone" value={statusPhone} mono />
+                  <DataCell label="MRNO" value={statusMrno} mono />
+                  <DataCell label="Source" value={statusSource} />
+                </SimpleGrid>
+                {displayValue(decision?.reason) !== "-" ? (
+                  <Text fontSize="11px" color="var(--text-3)" mt={2} lineHeight="1.4">{displayValue(decision?.reason)}</Text>
+                ) : null}
+                {activeAutoJob ? (
+                  <Flex gap={2} align="center" mt={2}>
+                    <Text fontSize="11px" fontWeight="600" color="var(--text-3)" textTransform="uppercase" letterSpacing="0.05em">Auto</Text>
+                    <Text fontSize="12px" color="var(--text-3)">{String(activeAutoJob?.status || "-").toUpperCase()}{activeAutoJob?.sent_at ? ` · ${formatIstDateTime(activeAutoJob.sent_at)}` : ""}</Text>
+                  </Flex>
+                ) : null}
+              </Pane>
+            </Box>
+            )}
+
+            <Box flex="1" minW={0}>
+              <Pane title="Dispatch Actions" bodyPx={3} bodyPy={3}>
+                <SimpleGrid columns={{ base: 2, md: 3 }} spacing={1.5}>
+                  <ActionBtn compact icon={<Files size={14} />}       label="All"              variant="lab"        onClick={() => openDocument("all")} disabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)} />
+                  <ActionBtn compact icon={<FlaskConical size={14} />} label="Lab"              variant="lab"        onClick={() => openDocument("lab")} disabled={!hasStatus || !canDispatch || !hasLab} />
+                  <ActionBtn compact icon={<Scan size={14} />}         label="Radiology"        variant="rad"        onClick={() => openDocument("radiology")} disabled={!hasStatus || !canDispatch || !hasRadiology} />
+                  <ActionBtn compact icon={<TrendingUp size={14} />}   label="Trend"            variant="trend"      onClick={openTrend} disabled={!hasStatus || !canTrend} />
+                  <ActionBtn compact icon={<LineChart size={14} />}    label="Trends v2.0"      variant="trendv2"    onClick={openSmartTrends} disabled={!hasStatus || !canSmartTrends} />
+                  <ActionBtn compact icon={<LayoutList size={14} />}   label="Summary"          variant="summary"    onClick={openSmartSummary} disabled={!hasStatus || !canSmartTrends} />
+                  <ActionBtn compact icon={<Clock size={14} />}        label="Pending"          variant="pending"    onClick={() => openDocument("all", { printtype: "0" })} disabled={!hasStatus || !currentReqid() || !hasLab} />
+                  {ENABLE_OUTSOURCED_MANUAL_DISPATCH ? (
+                    <ActionBtn compact icon={<Package size={14} />}    label="Outsourced"       variant="outsourced" onClick={openOutsourcedModal} disabled={!hasStatus || !currentReqno()} />
+                  ) : null}
+                </SimpleGrid>
+              </Pane>
+            </Box>
           </Flex>
           ) : null}
 
@@ -2369,28 +2396,30 @@ export default function ReportDispatchWorkspace({
           ) : null}
 
           <Pane
-            title={statusReqno !== "-" ? statusReqno : "Report Detail"}
-            badge={statusReqno !== "-" ? (
+            title={isScopedMode && statusReqno !== "-" ? statusReqno : (isScopedMode ? "Report Detail" : "Tests")}
+            badge={isScopedMode && statusReqno !== "-" ? (
               <StatusPill status={tone === "green" ? "ready" : tone === "orange" ? "pending" : "closed"}>
                 {status?.live_status?.overall_status || "-"}
               </StatusPill>
             ) : null}
             noPad
           >
-            <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={4} px={5} py={4} borderBottom="1px solid var(--border-soft)">
-              <DataCell label="Patient" value={statusPatient} />
-              <DataCell label="Phone" value={statusPhone} mono />
-              <DataCell label="MRNO" value={statusMrno} mono />
-              <DataCell label="Source" value={statusSource} />
-              <DataCell label="Reason" value={displayValue(decision?.reason)} dim />
-            </SimpleGrid>
+            {isScopedMode && (
+              <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={4} px={5} py={4} borderBottom="1px solid var(--border-soft)">
+                <DataCell label="Patient" value={statusPatient} />
+                <DataCell label="Phone" value={statusPhone} mono />
+                <DataCell label="MRNO" value={statusMrno} mono />
+                <DataCell label="Source" value={statusSource} />
+                <DataCell label="Reason" value={displayValue(decision?.reason)} dim />
+              </SimpleGrid>
+            )}
             <Box px={5} py={3} borderBottom="1px solid var(--border-soft)">
               <ReadyBar items={[
                 { label: "Lab", ready: status?.live_status?.lab_ready || 0, total: status?.live_status?.lab_total || 0 },
                 { label: "Radiology", ready: status?.live_status?.radiology_ready || 0, total: status?.live_status?.radiology_total || 0 },
               ]} />
             </Box>
-            <Box overflow="auto" maxH={{ base: "320px", md: "500px" }}>
+            <Box overflow="auto">
               <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
                 <Thead>
                   <Tr>
