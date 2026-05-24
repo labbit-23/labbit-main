@@ -53,9 +53,19 @@ const ENABLE_OUTSOURCED_MANUAL_DISPATCH =
   String(process.env.NEXT_PUBLIC_ENABLE_OUTSOURCED_MANUAL_DISPATCH || "").trim() === "1";
 
 function toneByMode(mode) {
-  if (mode === "allow_full" || mode === "try_pending_print_once") return "green";
-  if (mode === "manual_review") return "orange";
+  const m = String(mode || "").trim().toLowerCase();
+  if (m === "allow_full" || m === "try_pending_print_once") return "green";
+  if (m === "manual_review") return "orange";
   return "gray";
+}
+
+function derivePillStatus(tone, overallStatus) {
+  if (tone === "green") return "ready";
+  if (tone === "orange") return "pending";
+  const s = String(overallStatus || "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (s === "FULL_REPORT" || s.includes("FULL")) return "ready";
+  if (s.includes("PARTIAL") || s.includes("PENDING")) return "pending";
+  return "closed";
 }
 
 function displayValue(value) {
@@ -1671,7 +1681,7 @@ export default function ReportDispatchWorkspace({
           {!monitorOpen ? (
           <Flex gap={2} direction={{ base: "column", lg: "row" }} align="stretch">
             {!isScopedMode && (
-              <Box flex="1" minW={0}>
+              <Box flexGrow={1} flexShrink={1} flexBasis="0%" minW={0}>
                 <Pane title="Search" bodyPx={3} bodyPy={2}>
                   <Flex gap={2} align="center" mb={2}>
                     <Input size="sm" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="Phone (10-digit)" flex="1" minW={0} />
@@ -1691,23 +1701,27 @@ export default function ReportDispatchWorkspace({
             )}
 
             {!isScopedMode && (
-            <Box flex="1" minW={0}>
+            <Box flexGrow={1} flexShrink={1} flexBasis="0%" minW={0}>
               <Pane
                 title={statusReqno !== "-" ? statusReqno : "Patient"}
                 badge={statusReqno !== "-" ? (
-                  <StatusPill status={tone === "green" ? "ready" : tone === "orange" ? "pending" : "closed"}>
+                  <StatusPill status={derivePillStatus(tone, status?.live_status?.overall_status)}>
                     {status?.live_status?.overall_status || "-"}
                   </StatusPill>
                 ) : null}
                 bodyPx={3}
                 bodyPy={3}
               >
-                <SimpleGrid columns={2} spacing={3}>
+                <SimpleGrid columns={2} spacing={3} mb={2}>
                   <DataCell label="Patient" value={statusPatient} />
                   <DataCell label="Phone" value={statusPhone} mono />
                   <DataCell label="MRNO" value={statusMrno} mono />
                   <DataCell label="Source" value={statusSource} />
                 </SimpleGrid>
+                <ReadyBar items={[
+                  { label: "Lab", ready: status?.live_status?.lab_ready || 0, total: status?.live_status?.lab_total || 0 },
+                  { label: "Radiology", ready: status?.live_status?.radiology_ready || 0, total: status?.live_status?.radiology_total || 0 },
+                ]} />
                 {displayValue(decision?.reason) !== "-" ? (
                   <Text fontSize="11px" color="var(--text-3)" mt={2} lineHeight="1.4">{displayValue(decision?.reason)}</Text>
                 ) : null}
@@ -1721,7 +1735,7 @@ export default function ReportDispatchWorkspace({
             </Box>
             )}
 
-            <Box flex="1" minW={0}>
+            <Box flexGrow={1} flexShrink={1} flexBasis="0%" minW={0}>
               <Pane title="Dispatch Actions" bodyPx={3} bodyPy={3}>
                 <SimpleGrid columns={{ base: 2, md: 3 }} spacing={1.5}>
                   <ActionBtn compact icon={<Files size={14} />}       label="All"              variant="lab"        onClick={() => openDocument("all")} disabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)} />
@@ -2405,20 +2419,22 @@ export default function ReportDispatchWorkspace({
             noPad
           >
             {isScopedMode && (
-              <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={4} px={5} py={4} borderBottom="1px solid var(--border-soft)">
-                <DataCell label="Patient" value={statusPatient} />
-                <DataCell label="Phone" value={statusPhone} mono />
-                <DataCell label="MRNO" value={statusMrno} mono />
-                <DataCell label="Source" value={statusSource} />
-                <DataCell label="Reason" value={displayValue(decision?.reason)} dim />
-              </SimpleGrid>
+              <>
+                <SimpleGrid columns={{ base: 2, sm: 3, lg: 6 }} spacing={4} px={5} py={4} borderBottom="1px solid var(--border-soft)">
+                  <DataCell label="Patient" value={statusPatient} />
+                  <DataCell label="Phone" value={statusPhone} mono />
+                  <DataCell label="MRNO" value={statusMrno} mono />
+                  <DataCell label="Source" value={statusSource} />
+                  <DataCell label="Reason" value={displayValue(decision?.reason)} dim />
+                </SimpleGrid>
+                <Box px={5} py={3} borderBottom="1px solid var(--border-soft)">
+                  <ReadyBar items={[
+                    { label: "Lab", ready: status?.live_status?.lab_ready || 0, total: status?.live_status?.lab_total || 0 },
+                    { label: "Radiology", ready: status?.live_status?.radiology_ready || 0, total: status?.live_status?.radiology_total || 0 },
+                  ]} />
+                </Box>
+              </>
             )}
-            <Box px={5} py={3} borderBottom="1px solid var(--border-soft)">
-              <ReadyBar items={[
-                { label: "Lab", ready: status?.live_status?.lab_ready || 0, total: status?.live_status?.lab_total || 0 },
-                { label: "Radiology", ready: status?.live_status?.radiology_ready || 0, total: status?.live_status?.radiology_total || 0 },
-              ]} />
-            </Box>
             <Box overflow="auto">
               <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
                 <Thead>
