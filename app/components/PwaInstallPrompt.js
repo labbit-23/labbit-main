@@ -15,6 +15,32 @@ import { AddIcon } from "@chakra-ui/icons";
 import { useUser } from "../context/UserContext";
 
 const DISMISSED_KEY = "labit-pwa-install-dismissed";
+const DISMISS_SNOOZE_MS = 24 * 60 * 60 * 1000;
+
+function isDismissedRecently() {
+  if (typeof window === "undefined") return true;
+
+  const storedValue = window.localStorage.getItem(DISMISSED_KEY);
+  if (!storedValue) return false;
+
+  if (storedValue === "true") {
+    window.localStorage.removeItem(DISMISSED_KEY);
+    return false;
+  }
+
+  const dismissedAt = Number(storedValue);
+  if (!Number.isFinite(dismissedAt)) {
+    window.localStorage.removeItem(DISMISSED_KEY);
+    return false;
+  }
+
+  if (Date.now() - dismissedAt > DISMISS_SNOOZE_MS) {
+    window.localStorage.removeItem(DISMISSED_KEY);
+    return false;
+  }
+
+  return true;
+}
 
 function isStandaloneDisplay() {
   if (typeof window === "undefined") return false;
@@ -52,7 +78,7 @@ export default function PwaInstallPrompt() {
       });
     }
 
-    setIsDismissed(window.localStorage.getItem(DISMISSED_KEY) === "true");
+    setIsDismissed(isDismissedRecently());
     setIsStandalone(isStandaloneDisplay());
     setIsIos(isIosDevice());
 
@@ -65,8 +91,6 @@ export default function PwaInstallPrompt() {
     const handleAppInstalled = () => {
       setDeferredPrompt(null);
       setIsStandalone(true);
-      window.localStorage.setItem(DISMISSED_KEY, "true");
-      setIsDismissed(true);
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
@@ -91,7 +115,7 @@ export default function PwaInstallPrompt() {
   }, [canPromptInstall, canShowIosGuide, isDismissed, isLoading, isStandalone, user]);
 
   const dismissPrompt = () => {
-    window.localStorage.setItem(DISMISSED_KEY, "true");
+    window.localStorage.setItem(DISMISSED_KEY, String(Date.now()));
     setIsDismissed(true);
   };
 
