@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabaseServer'; // Adjust path if needed
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { phone: rawPhone, otp, loginAs } = body;
+    const { phone: rawPhone, otp, loginAs, rememberMe } = body;
     const requestedLoginAs = String(loginAs || "").trim().toLowerCase();
 
     if (!rawPhone || !otp) {
@@ -115,7 +115,13 @@ export async function POST(request) {
     const response = NextResponse.json(payload, { status: 200 });
 
     // Save full user data in session (including patients and executive)
-    const session = await getIronSession(request, response, ironOptions);
+    const session = await getIronSession(request, response, {
+      ...ironOptions,
+      cookieOptions: {
+        ...ironOptions.cookieOptions,
+        maxAge: rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 6,
+      },
+    });
 
     if (canUseExecutiveSession && !shouldPreferPatient) {
       const execType = (executive.type || '').trim().toLowerCase();

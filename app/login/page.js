@@ -377,7 +377,13 @@ export default function LoginPage() {
       const resp = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: normalizedPhone, otp, labId: selectedLabId, loginAs: 'patient' }),
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          otp,
+          labId: selectedLabId,
+          loginAs: 'patient',
+          rememberMe: patientRememberMe,
+        }),
       });
       const data = await resp.json();
 

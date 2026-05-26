@@ -2,11 +2,18 @@
 
 import './globals.css';
 import ChakraProviderClient from './ChakraProviderClient';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 import { UserProvider } from './context/UserContext'; // Adjust the import path as necessary
 import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 
 export const metadata = {
   title: "Labit",
+  description: "Labit diagnostics workspace",
+  appleWebApp: {
+    capable: true,
+    title: "Labit",
+    statusBarStyle: "default"
+  },
   icons: {
     icon: [
       { url: "/favicon.ico" },
@@ -15,6 +22,10 @@ export const metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png", type: "image/png" }]
   }
+};
+
+export const viewport = {
+  themeColor: "#0f766e",
 };
 
 export default function RootLayout({ children }) {
@@ -30,6 +41,7 @@ export default function RootLayout({ children }) {
         <UserProvider>
           <ChakraProviderClient>
             {children}
+            <PwaInstallPrompt />
           </ChakraProviderClient>
         </UserProvider>
       </body>
