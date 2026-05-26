@@ -6,6 +6,7 @@ import {
   Button,
   CloseButton,
   HStack,
+  Image,
   Text,
   VStack,
   useBreakpointValue,
@@ -140,9 +141,10 @@ export default function PwaInstallPrompt() {
           flexShrink={0}
           bg="teal.50"
           color="teal.700"
-          borderRadius="md"
+          borderRadius="full"
+          overflow="hidden"
         >
-          <AddIcon boxSize={3} />
+          <Image src="/pwa-icon-512.png" alt="" boxSize="28px" />
         </Box>
 
         <VStack align="stretch" spacing={2} flex="1" minW={0}>
