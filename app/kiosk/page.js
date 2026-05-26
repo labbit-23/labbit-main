@@ -39,6 +39,13 @@ const FEEDBACK_TIMEOUT_SECONDS = (() => {
   return Math.max(5, Math.min(300, Math.round(raw)));
 })();
 
+const NO_AUTOFILL_TEXT_PROPS = {
+  autoComplete: "off",
+  autoCorrect: "off",
+  autoCapitalize: "off",
+  spellCheck: false
+};
+
 const STEP_TEXT = {
   en: {
     scan_title: "Scan Barcode",
@@ -664,6 +671,7 @@ export default function ReportDispatchKioskPage() {
         ))}
       </Flex>
       <form
+        autoComplete="off"
         onSubmit={(e) => {
           e.preventDefault();
           const parsed = parseScanValue(scanValue);
@@ -688,6 +696,7 @@ export default function ReportDispatchKioskPage() {
               scanBufferRef.current = nextValue;
             }}
             placeholder="Scan Barcode  ||||||||||"
+            name="kiosk-barcode-scan"
             h="72px"
             fontSize="xl"
             borderWidth="2px"
@@ -701,8 +710,7 @@ export default function ReportDispatchKioskPage() {
               boxShadow: "0 0 0 1px #0f172a"
             }}
             inputMode="text"
-            autoCorrect="off"
-            autoCapitalize="off"
+            {...NO_AUTOFILL_TEXT_PROPS}
           />
         </FormControl>
         <Button mt={4} size="lg" h="72px" w="100%" colorScheme="blue" type="submit" isLoading={loading} fontSize="xl">
@@ -919,6 +927,8 @@ export default function ReportDispatchKioskPage() {
             fontSize="md"
             placeholder="Tell us your experience"
             inputMode="text"
+            name="kiosk-feedback"
+            {...NO_AUTOFILL_TEXT_PROPS}
             onFocus={markFeedbackInteraction}
           />
         </FormControl>
