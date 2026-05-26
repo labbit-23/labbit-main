@@ -17,6 +17,12 @@ function canUseKioskQueue(user) {
   return ALLOWED_EXEC_TYPES.includes(getRoleKey(user));
 }
 
+function sanitizeWorklistItem(row) {
+  if (!row || typeof row !== "object") return {};
+  const { procedure_name, procedure, test_name, service_name, ...safeRow } = row;
+  return safeRow;
+}
+
 function toIsoDate(value) {
   const text = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -55,15 +61,16 @@ export async function GET(request) {
       department
     });
 
+    const items = Array.isArray(data?.items) ? data.items.map(sanitizeWorklistItem) : [];
+
     return NextResponse.json(
       {
         ok: true,
         fromreqdate,
         toreqdate,
         department,
-        count: Number(data?.count || 0),
-        items: Array.isArray(data?.items) ? data.items : [],
-        upstream: data || null
+        count: Number(data?.count || items.length || 0),
+        items
       },
       { status: 200 }
     );

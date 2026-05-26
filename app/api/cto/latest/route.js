@@ -21,6 +21,12 @@ const IST_TIME_ONLY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   minute: "2-digit",
   hour12: false
 });
+const IST_DAY_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
 function isBotOutboundMessage(row) {
   if (row?.direction !== "outbound") return false;
 
@@ -512,10 +518,191 @@ function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
 }
 
-function normalizeServiceStatus(row) {
-  const status = String(row?.status || "").trim().toLowerCase() || "unknown";
+function parseIsoDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
-  // Treat all unknown states as degraded for operator clarity.
+function parseRecentRunAt(row = {}) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const candidates = [
+    payload.last_success_at,
+    payload.last_run_at,
+    payload.last_completed_at,
+    payload.last_healthy_at,
+    payload.last_ok_at,
+    payload.last_check_at,
+    payload.last_exit_at,
+    payload.last_started_at,
+    payload.last_start_at,
+    payload.last_seen_at,
+    payload.last_seen_alive_at,
+    payload.last_ping_ok_at,
+    payload.last_success_ist,
+    row?.checked_at,
+    row?.updated_at
+  ];
+  for (const value of candidates) {
+    const parsed = parseIsoDate(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function isRunOnceService(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const key = String(row?.service_key || "").toLowerCase();
+
+  const explicitFlags = [
+    payload.run_once,
+    payload.is_run_once,
+    payload.is_scheduled_job
+  ].some((value) => value === true);
+
+  const modeFields = [
+    payload.run_mode,
+    payload.schedule_mode,
+    payload.schedule_type,
+    payload.execution_mode,
+    payload.process_mode,
+    payload.service_mode,
+    payload.kind
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean);
+
+  const modeHint = modeFields.some((value) =>
+    ["once", "daily", "cron", "scheduled", "oneshot", "one_shot", "batch"].some((hint) =>
+      value.includes(hint)
+    )
+  );
+
+  const keyHint = ["digest", "compact", "cron", "scheduler", "backfill", "cleanup", "ops-cleanup"].some((hint) =>
+    key.includes(hint)
+  );
+
+  return explicitFlags || modeHint || keyHint;
+}
+
+function isStoppedLike(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const states = [
+    payload.pm2_status,
+    payload.process_status,
+    payload.process_state,
+    payload.status
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean);
+
+  const stateHint = states.some((value) =>
+    ["stopped", "stop", "exited", "idle"].some((hint) => value.includes(hint))
+  );
+  if (stateHint) return true;
+
+  const message = String(row?.message || "").toLowerCase();
+  return message.includes("stopped") || message.includes("exited");
+}
+
+function isOnlineLike(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const states = [
+    payload.pm2_status,
+    payload.process_status,
+    payload.process_state,
+    payload.status,
+    payload.state
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean);
+
+  return states.some((value) =>
+    ["online", "running", "up", "active", "healthy"].some((hint) => value.includes(hint))
+  );
+}
+
+function isPm2ManagedService(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const key = String(row?.service_key || "").toLowerCase();
+  if (key.startsWith("pm2_")) return true;
+  return [payload.pm2_status, payload.pm2_id, payload.pm2_name].some((value) => value != null);
+}
+
+function parseRestartAt(row = {}) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const candidates = [
+    payload.last_restart_at,
+    payload.last_start_at,
+    payload.last_started_at,
+    payload.started_at,
+    payload.last_boot_at
+  ];
+  for (const value of candidates) {
+    const parsed = parseIsoDate(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function normalizeServiceStatus(row, nowMs = Date.now()) {
+  const status = String(row?.status || "").trim().toLowerCase() || "unknown";
+  const runAt = parseRecentRunAt(row);
+  const ranWithin24h = runAt ? nowMs - runAt.getTime() <= 24 * 60 * 60 * 1000 : false;
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const key = String(row?.service_key || "").toLowerCase();
+  const runAgeMs = runAt ? nowMs - runAt.getTime() : null;
+  const isFreshRun = Number.isFinite(runAgeMs) && runAgeMs <= 10 * 60 * 1000;
+  const restartAt = parseRestartAt(row);
+  const restartAgeMs = restartAt ? nowMs - restartAt.getTime() : null;
+  const restartedRecently = Number.isFinite(restartAgeMs) && restartAgeMs <= 15 * 60 * 1000;
+  const onlineNow = isOnlineLike(row);
+  const isPm2 = isPm2ManagedService(row);
+
+  if (key.includes("supabase_realtime")) {
+    const isRequired = [payload.required, payload.realtime_required, payload.monitor_required].some((v) => v === true);
+    if (!isRequired && ["down", "degraded", "unknown"].includes(status)) {
+      return {
+        ...row,
+        status: "healthy",
+        message: row?.message || "Supabase Realtime is optional/unused for this deployment."
+      };
+    }
+  }
+
+  if (isPm2 && ["down", "degraded", "unknown"].includes(status)) {
+    if (onlineNow && isFreshRun) {
+      return {
+        ...row,
+        status: "healthy",
+        message: row?.message || "Process is online and recently checked after restart/hotfix."
+      };
+    }
+    if (restartedRecently) {
+      return {
+        ...row,
+        status: "degraded",
+        message: row?.message || "Recent controlled restart detected; monitoring stabilization window."
+      };
+    }
+  }
+
+  if (
+    isRunOnceService(row) &&
+    isStoppedLike(row) &&
+    ranWithin24h &&
+    ["unknown", "degraded", "down"].includes(status)
+  ) {
+    return {
+      ...row,
+      status: "healthy",
+      message:
+        row?.message ||
+        `Scheduled run completed recently (${runAt.toISOString()}); idle/stopped is expected for one-shot service.`
+    };
+  }
+
   if (status === "unknown") {
     return {
       ...row,
@@ -525,6 +712,385 @@ function normalizeServiceStatus(row) {
   }
 
   return row;
+}
+
+function hoursAgoIso(hours) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+function isLikelyDispatchErrorText(text = "") {
+  const value = String(text || "").toLowerCase();
+  if (!value) return false;
+  if (value.includes("keyboardinterrupt")) return false;
+  if (value.trim() === "traceback (most recent call last):") return false;
+  return (
+    value.includes("jsondecodeerror") ||
+    value.includes("traceback (most recent call last):") ||
+    value.includes("exception:") ||
+    value.includes("error ") ||
+    value.includes("httperror") ||
+    value.includes("error:") ||
+    value.includes("exception")
+  );
+}
+
+async function loadAutoDispatchMetrics(labId) {
+  const checkedAt = new Date().toISOString();
+  const queueLagMinutes = 30;
+  const waitHours = 6;
+  const cooloffHours = 2;
+  const failSpikeThreshold = 10;
+  const missingProviderIdThreshold = 5;
+
+  let jobsQuery = supabase
+    .from("report_auto_dispatch_jobs")
+    .select("id,lab_id,reqno,status,is_paused,next_attempt_at,scheduled_at,sent_at,updated_at,provider_response,last_error")
+    .in("status", ["queued", "cooling_off", "sent", "failed"])
+    .order("updated_at", { ascending: false })
+    .limit(1200);
+
+  let eventsQuery = supabase
+    .from("report_auto_dispatch_events")
+    .select("id,job_id,reqno,event_type,message,created_at")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  let dispatchLogsQuery = supabase
+    .from("report_dispatch_logs")
+    .select("id,status,result_code,provider_message_id,created_at")
+    .gte("created_at", hoursAgoIso(1))
+    .order("created_at", { ascending: false })
+    .limit(3000);
+
+  let ctoLogsQuery = supabase
+    .from("cto_service_logs")
+    .select("service_key,status,message,created_at,payload")
+    .in("service_key", ["report-sender", "report-enqueue-watch"])
+    .gte("created_at", hoursAgoIso(2))
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (labId) {
+    jobsQuery = jobsQuery.eq("lab_id", labId);
+    dispatchLogsQuery = dispatchLogsQuery.eq("lab_id", labId);
+    ctoLogsQuery = ctoLogsQuery.eq("lab_id", labId);
+  }
+
+  const [
+    { data: jobs, error: jobsError },
+    { data: events, error: eventsError },
+    { data: dispatchLogs, error: dispatchError },
+    { data: ctoLogs, error: ctoLogsError }
+  ] = await Promise.all([jobsQuery, eventsQuery, dispatchLogsQuery, ctoLogsQuery]);
+
+  if (jobsError) throw jobsError;
+  if (eventsError) throw eventsError;
+  if (dispatchError) throw dispatchError;
+  if (ctoLogsError) throw ctoLogsError;
+
+  const jobsList = Array.isArray(jobs) ? jobs : [];
+  const jobIds = new Set(jobsList.map((row) => row?.id).filter(Boolean));
+  const eventsList = (Array.isArray(events) ? events : []).filter((row) => {
+    if (!labId) return true;
+    return jobIds.has(row?.job_id);
+  });
+  const logsList = Array.isArray(dispatchLogs) ? dispatchLogs : [];
+  const ctoLogList = Array.isArray(ctoLogs) ? ctoLogs : [];
+
+  const latestEventByJobId = new Map();
+  for (const ev of eventsList) {
+    if (!ev?.job_id || latestEventByJobId.has(ev.job_id)) continue;
+    latestEventByJobId.set(ev.job_id, ev);
+  }
+
+  const nowMs = Date.now();
+  const dueLagMs = queueLagMinutes * 60 * 1000;
+  const overdueQueued = jobsList.filter((job) => {
+    if (job?.status !== "queued" || job?.is_paused) return false;
+    const nextAt = parseIsoDate(job?.next_attempt_at);
+    return nextAt ? nowMs - nextAt.getTime() > dueLagMs : false;
+  });
+
+  const staleWait = jobsList.filter((job) => {
+    if (job?.sent_at || job?.is_paused) return false;
+    const latest = latestEventByJobId.get(job?.id);
+    if (!latest) return false;
+    const eventType = String(latest?.event_type || "").toLowerCase();
+    const createdAt = parseIsoDate(latest?.created_at);
+    if (!createdAt) return false;
+    const ageHours = (nowMs - createdAt.getTime()) / (60 * 60 * 1000);
+    if (eventType === "queued_wait") return ageHours >= waitHours;
+    if (eventType === "cooling_off") return ageHours >= cooloffHours;
+    return false;
+  });
+
+  const sentStatusDrift = jobsList.filter((job) => {
+    const latest = latestEventByJobId.get(job?.id);
+    if (!latest) return false;
+    const eventType = String(latest?.event_type || "").toLowerCase();
+    return eventType === "sent" && String(job?.status || "").toLowerCase() !== "sent";
+  });
+
+  const failed15m = logsList.filter((row) => {
+    if (String(row?.status || "").toLowerCase() !== "failed") return false;
+    const createdAt = parseIsoDate(row?.created_at);
+    return createdAt ? nowMs - createdAt.getTime() <= 15 * 60 * 1000 : false;
+  });
+  const missingProvider15m = logsList.filter((row) => {
+    const createdAt = parseIsoDate(row?.created_at);
+    if (!(createdAt && nowMs - createdAt.getTime() <= 15 * 60 * 1000)) return false;
+    return !String(row?.provider_message_id || "").trim();
+  });
+
+  const hardWorkerErrors = ctoLogList.filter((row) => {
+    const status = String(row?.status || "").toLowerCase();
+    const message = String(row?.message || "");
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    const sampleError = String(payload?.sample_error || "").trim();
+
+    return status === "down" || status === "degraded" || isLikelyDispatchErrorText(message) || isLikelyDispatchErrorText(sampleError);
+  });
+
+  const failedJobs = jobsList.filter((job) => String(job?.status || "").toLowerCase() === "failed");
+  const invalidPhoneFailedJobs = failedJobs.filter(
+    (job) => String(job?.last_error || "").trim().toUpperCase() === "INVALID_PHONE"
+  );
+  const pdfNotFoundFailedJobs = failedJobs.filter((job) =>
+    /report pdf was not found/i.test(String(job?.last_error || ""))
+  );
+
+  return [
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_queue_stall",
+      label: "Auto Dispatch Queue Stall",
+      status: overdueQueued.length > 0 ? "down" : "healthy",
+      message:
+        overdueQueued.length > 0
+          ? `${overdueQueued.length} queued jobs are overdue by > ${queueLagMinutes}m`
+          : `No queued jobs overdue by > ${queueLagMinutes}m`,
+      payload: {
+        overdue_count: overdueQueued.length,
+        threshold_minutes: queueLagMinutes,
+        samples: overdueQueued.slice(0, 20).map((j) => ({ id: j.id, reqno: j.reqno, next_attempt_at: j.next_attempt_at }))
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_wait_state_stuck",
+      label: "Auto Dispatch Wait-State Stuck",
+      status: staleWait.length > 0 ? "down" : "healthy",
+      message:
+        staleWait.length > 0
+          ? `${staleWait.length} jobs stuck in queued_wait/cooling_off beyond threshold`
+          : "No stale wait-state jobs",
+      payload: {
+        stuck_count: staleWait.length,
+        stuck_queued_wait_hours: waitHours,
+        stuck_cooling_off_hours: cooloffHours,
+        samples: staleWait.slice(0, 20).map((j) => {
+          const ev = latestEventByJobId.get(j.id);
+          return { id: j.id, reqno: j.reqno, status: j.status, latest_event: ev?.event_type || null, latest_event_at: ev?.created_at || null };
+        })
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_state_drift",
+      label: "Auto Dispatch State Drift",
+      status: sentStatusDrift.length > 0 ? "degraded" : "healthy",
+      message:
+        sentStatusDrift.length > 0
+          ? `${sentStatusDrift.length} jobs have latest event=sent but status != sent`
+          : "No sent-state drift detected",
+      payload: {
+        drift_count: sentStatusDrift.length,
+        samples: sentStatusDrift.slice(0, 20).map((j) => ({ id: j.id, reqno: j.reqno, status: j.status }))
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_failures_15m",
+      label: "Auto Dispatch Failures (15m)",
+      status: failed15m.length >= failSpikeThreshold ? "down" : failed15m.length > 0 ? "degraded" : "healthy",
+      message: `${failed15m.length} failed dispatch logs in last 15m`,
+      payload: {
+        failed_15m: failed15m.length,
+        threshold: failSpikeThreshold
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_missing_provider_id_15m",
+      label: "Missing Provider Message ID (15m)",
+      status: missingProvider15m.length >= missingProviderIdThreshold ? "degraded" : "healthy",
+      message: `${missingProvider15m.length} dispatch logs missing provider_message_id in last 15m`,
+      payload: {
+        missing_provider_id_15m: missingProvider15m.length,
+        threshold: missingProviderIdThreshold
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_worker_health",
+      label: "Auto Dispatch Worker Health",
+      status: hardWorkerErrors.length > 0 ? "down" : "healthy",
+      message:
+        hardWorkerErrors.length > 0
+          ? `${hardWorkerErrors.length} worker hard-error log(s) in last 2h`
+          : "No hard worker errors in last 2h",
+      payload: {
+        error_count: hardWorkerErrors.length,
+        samples: hardWorkerErrors.slice(0, 15).map((r) => ({
+          service_key: r.service_key,
+          status: r.status,
+          created_at: r.created_at,
+          message: String(r.message || "").slice(0, 220)
+        }))
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_invalid_phone_jobs",
+      label: "Invalid Phone Jobs",
+      status: invalidPhoneFailedJobs.length > 0 ? "down" : "healthy",
+      message: `${invalidPhoneFailedJobs.length} failed jobs due to invalid phone`,
+      payload: {
+        invalid_phone_failed_count: invalidPhoneFailedJobs.length,
+        samples: invalidPhoneFailedJobs.slice(0, 20).map((j) => ({
+          id: j.id,
+          reqno: j.reqno,
+          updated_at: j.updated_at,
+        }))
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_pdf_not_found_jobs",
+      label: "PDF Not Found Jobs",
+      status: pdfNotFoundFailedJobs.length > 0 ? "degraded" : "healthy",
+      message: `${pdfNotFoundFailedJobs.length} failed jobs with PDF-not-found`,
+      payload: {
+        pdf_not_found_failed_count: pdfNotFoundFailedJobs.length,
+        samples: pdfNotFoundFailedJobs.slice(0, 20).map((j) => ({
+          id: j.id,
+          reqno: j.reqno,
+          updated_at: j.updated_at,
+        }))
+      }
+    })
+  ];
+}
+
+function getIstDayKey(value) {
+  const parsed = parseTimestamp(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return null;
+  return IST_DAY_FORMATTER.format(parsed);
+}
+
+async function loadWebsiteAnalytics(labId) {
+  if (!supabase) return null;
+
+  const now = Date.now();
+  const since30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const since15m = new Date(now - 15 * 60 * 1000).toISOString();
+
+  let dailyQuery = supabase
+    .from("website_events")
+    .select("created_at, session_id")
+    .gte("created_at", since30d)
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
+  let topPagesQuery = supabase
+    .from("website_events")
+    .select("page_path, session_id")
+    .gte("created_at", since7d)
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
+  let activeQuery = supabase
+    .from("website_events")
+    .select("session_id")
+    .gte("created_at", since15m)
+    .order("created_at", { ascending: false })
+    .limit(20000);
+
+  if (labId) {
+    dailyQuery = dailyQuery.eq("lab_id", labId);
+    topPagesQuery = topPagesQuery.eq("lab_id", labId);
+    activeQuery = activeQuery.eq("lab_id", labId);
+  }
+
+  const [
+    { data: dailyRows, error: dailyError },
+    { data: topPageRows, error: topPageError },
+    { data: activeRows, error: activeError }
+  ] = await Promise.all([dailyQuery, topPagesQuery, activeQuery]);
+
+  if (dailyError) throw dailyError;
+  if (topPageError) throw topPageError;
+  if (activeError) throw activeError;
+
+  const dailySets = new Map();
+  for (const row of dailyRows || []) {
+    const day = getIstDayKey(row?.created_at);
+    const sessionId = String(row?.session_id || "").trim();
+    if (!day || !sessionId) continue;
+    if (!dailySets.has(day)) dailySets.set(day, new Set());
+    dailySets.get(day).add(sessionId);
+  }
+
+  const dailyUniqueVisitors = Array.from(dailySets.entries())
+    .map(([day, set]) => ({ day, unique_visitors: set.size }))
+    .sort((a, b) => String(b.day).localeCompare(String(a.day)))
+    .slice(0, 30);
+
+  const currentIstDay = getIstDayKey(new Date().toISOString());
+  const uniqueVisitorsToday =
+    dailyUniqueVisitors.find((row) => row.day === currentIstDay)?.unique_visitors || 0;
+  const uniqueVisitors30d = Array.from(
+    new Set((dailyRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
+  ).length;
+  const uniqueVisitors7d = Array.from(
+    new Set((topPageRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
+  ).length;
+
+  const pageSets = new Map();
+  for (const row of topPageRows || []) {
+    const page = String(row?.page_path || "").trim() || "unknown";
+    const sessionId = String(row?.session_id || "").trim();
+    if (!sessionId) continue;
+    if (!pageSets.has(page)) pageSets.set(page, new Set());
+    pageSets.get(page).add(sessionId);
+  }
+
+  const topPages7d = Array.from(pageSets.entries())
+    .map(([page_path, set]) => ({ page_path, unique_visitors: set.size }))
+    .sort((a, b) => b.unique_visitors - a.unique_visitors)
+    .slice(0, 8);
+
+  const activeSessions15m = Array.from(
+    new Set((activeRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
+  ).length;
+
+  return {
+    active_sessions_15m: activeSessions15m,
+    unique_visitors_today: uniqueVisitorsToday,
+    unique_visitors_7d: uniqueVisitors7d,
+    unique_visitors_30d: uniqueVisitors30d,
+    daily_unique_visitors_30d: dailyUniqueVisitors,
+    top_pages_7d: topPages7d
+  };
 }
 
 export async function GET(request) {
@@ -572,6 +1138,8 @@ export async function GET(request) {
 
     const rows = data || [];
     let whatsappMetrics = [];
+    let autoDispatchMetrics = [];
+    let websiteAnalytics = null;
 
     try {
       whatsappMetrics = await loadWhatsappBotMetrics(labId);
@@ -579,7 +1147,20 @@ export async function GET(request) {
       console.error("[cto/latest] whatsapp metrics error", metricError);
     }
 
-    const combinedRows = [...rows, ...whatsappMetrics].map(normalizeServiceStatus);
+    try {
+      autoDispatchMetrics = await loadAutoDispatchMetrics(labId);
+    } catch (dispatchMetricError) {
+      console.error("[cto/latest] auto dispatch metrics error", dispatchMetricError);
+    }
+
+    try {
+      websiteAnalytics = await loadWebsiteAnalytics(labId);
+    } catch (analyticsError) {
+      console.error("[cto/latest] website analytics error", analyticsError);
+    }
+
+    const nowMs = Date.now();
+    const combinedRows = [...rows, ...whatsappMetrics, ...autoDispatchMetrics].map((row) => normalizeServiceStatus(row, nowMs));
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;
@@ -596,6 +1177,7 @@ export async function GET(request) {
         allowed_lab_ids: isProductCto ? null : assignedLabIds,
         summary,
         services: combinedRows,
+        website_analytics: websiteAnalytics,
       },
       {
         headers: {
