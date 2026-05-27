@@ -40,6 +40,16 @@ import { useUser } from '../context/UserContext'; // <-- import context
 import { getPasswordValidationStatus, isValidPassword } from '@/lib/passwordPolicy';
 
 
+function isStandaloneApp() {
+  if (typeof window === 'undefined') return false;
+
+  return (
+    window.matchMedia?.('(display-mode: standalone)')?.matches ||
+    window.matchMedia?.('(display-mode: fullscreen)')?.matches ||
+    window.navigator.standalone === true
+  );
+}
+
 function OtpInput({ value, onChange }) {
   const handleChange = (e) => {
     let val = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -86,7 +96,7 @@ export default function LoginPage() {
   const [otp, setOtp] = useState('');
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const [patientRememberMe, setPatientRememberMe] = useState(false);
+  const [patientRememberMe, setPatientRememberMe] = useState(() => isStandaloneApp());
 
   // Patient multi-lab info
   const [labIds, setLabIds] = useState([]);
@@ -95,7 +105,7 @@ export default function LoginPage() {
   // Employee login state
   const [employeeIdentifier, setEmployeeIdentifier] = useState('');
   const [employeePassword, setEmployeePassword] = useState('');
-  const [employeeRememberMe, setEmployeeRememberMe] = useState(false);
+  const [employeeRememberMe, setEmployeeRememberMe] = useState(() => isStandaloneApp());
   const [employeeLabIds, setEmployeeLabIds] = useState([]);
 
   // Employee forgot password & reset flow
@@ -685,7 +695,7 @@ export default function LoginPage() {
                   )}
                   <FormControl>
                     <Checkbox isChecked={patientRememberMe} onChange={(e) => setPatientRememberMe(e.target.checked)}>
-                      Remember me
+                      Keep me signed in for 30 days
                     </Checkbox>
                   </FormControl>
                   {!otpSent ? (
@@ -741,7 +751,7 @@ export default function LoginPage() {
                     <FormControl isRequired>{EmployeePasswordInput}</FormControl>
                     <FormControl>
                       <Checkbox isChecked={employeeRememberMe} onChange={(e) => setEmployeeRememberMe(e.target.checked)}>
-                        Remember me
+                        Keep me signed in for 30 days
                       </Checkbox>
                     </FormControl>
                     {errorMsg && (
