@@ -1,7 +1,7 @@
 // File: /app/api/visits/upload-prescription/route.js
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 
 export async function POST(request) {
   try {
@@ -17,7 +17,7 @@ export async function POST(request) {
     }
 
     const fileExt = file.name?.split(".").pop() || "jpg";
-    const fileName = `${uuidv4()}.${fileExt}`;
+    const fileName = `${randomUUID()}.${fileExt}`;
     const filePath = `prescriptions/${fileName}`;
 
     // Upload to Supabase Storage

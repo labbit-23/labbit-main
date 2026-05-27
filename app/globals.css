@@ -3,9 +3,6 @@
    live in styles/tokens.css — portable across labit-family apps. */
 @import '../styles/tokens.css';
 @import 'leaflet/dist/leaflet.css';
-@import 'slick-carousel/slick/slick.css';
-@import 'slick-carousel/slick/slick-theme.css';
-
 @keyframes dispatch-stuck-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(237, 137, 54, 0.0); }
   50% { box-shadow: 0 0 0 6px rgba(237, 137, 54, 0.35); }

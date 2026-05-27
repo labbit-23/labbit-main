@@ -4,7 +4,6 @@ import './globals.css';
 import ChakraProviderClient from './ChakraProviderClient';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 import { UserProvider } from './context/UserContext'; // Adjust the import path as necessary
-import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 
 export const metadata = {
   title: "Labit",
