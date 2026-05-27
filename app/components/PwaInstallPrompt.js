@@ -15,6 +15,7 @@ import { AddIcon } from "@chakra-ui/icons";
 import { useUser } from "../context/UserContext";
 
 const DISMISSED_KEY = "labit-pwa-install-dismissed";
+const INSTALL_REQUEST_EVENT = "labit:pwa-install-request";
 function isDismissedForSession() {
   if (typeof window === "undefined") return true;
 
@@ -49,6 +50,7 @@ export default function PwaInstallPrompt() {
   const [isStandalone, setIsStandalone] = useState(true);
   const [isIos, setIsIos] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
+  const [manualInstallRequested, setManualInstallRequested] = useState(false);
   const isCompact = useBreakpointValue({ base: true, md: false });
 
   useEffect(() => {
@@ -71,14 +73,23 @@ export default function PwaInstallPrompt() {
     const handleAppInstalled = () => {
       setDeferredPrompt(null);
       setIsStandalone(true);
+      setManualInstallRequested(false);
+    };
+
+    const handleInstallRequest = () => {
+      window.sessionStorage.removeItem(DISMISSED_KEY);
+      setIsDismissed(false);
+      setManualInstallRequested(true);
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     window.addEventListener("appinstalled", handleAppInstalled);
+    window.addEventListener(INSTALL_REQUEST_EVENT, handleInstallRequest);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
+      window.removeEventListener(INSTALL_REQUEST_EVENT, handleInstallRequest);
     };
   }, []);
 
@@ -90,9 +101,9 @@ export default function PwaInstallPrompt() {
         !isLoading &&
         !isStandalone &&
         !isDismissed &&
-        (canPromptInstall || canShowIosGuide)
+        (canPromptInstall || canShowIosGuide || manualInstallRequested)
     );
-  }, [canPromptInstall, canShowIosGuide, isDismissed, isLoading, isStandalone, user]);
+  }, [canPromptInstall, canShowIosGuide, isDismissed, isLoading, isStandalone, manualInstallRequested, user]);
 
   const dismissPrompt = () => {
     window.sessionStorage.setItem(DISMISSED_KEY, "true");
@@ -112,6 +123,8 @@ export default function PwaInstallPrompt() {
 
       if (choice?.outcome !== "accepted") {
         dismissPrompt();
+      } else {
+        setManualInstallRequested(false);
       }
     } finally {
       setIsInstalling(false);
@@ -159,7 +172,9 @@ export default function PwaInstallPrompt() {
             <Text fontSize="sm" color="gray.600">
               {canPromptInstall
                 ? "Add Labit to this device for quicker access."
-                : "On iPhone or iPad, use Share and then Add to Home Screen."}
+                : canShowIosGuide
+                ? "On iPhone or iPad, use Share and then Add to Home Screen."
+                : "Use your browser menu to install Labit if the install option is available."}
             </Text>
           </Box>
 

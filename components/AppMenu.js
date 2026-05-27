@@ -23,6 +23,7 @@ import {
   BarChart3,
   Bot,
   Building2,
+  Download,
   ClipboardList,
   FileBarChart,
   FileText,
@@ -186,11 +187,35 @@ export default function AppMenu({ themeMode = "light", variant = "icon" }) {
   const fallbackPermissions = useMemo(() => FALLBACK_ROLE_PERMISSIONS[roleKey] || [], [roleKey]);
   const [permissions, setPermissions] = useState(fallbackPermissions);
   const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [isStandalonePwa, setIsStandalonePwa] = useState(false);
   const isMobile = useBreakpointValue({ base: true, md: false });
 
   useEffect(() => {
     setPermissions(fallbackPermissions);
   }, [fallbackPermissions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncStandaloneMode = () => {
+      setIsStandalonePwa(
+        Boolean(
+          window.matchMedia?.("(display-mode: standalone)")?.matches ||
+            window.matchMedia?.("(display-mode: fullscreen)")?.matches ||
+            window.navigator.standalone === true
+        )
+      );
+    };
+
+    syncStandaloneMode();
+    window.addEventListener("appinstalled", syncStandaloneMode);
+    return () => window.removeEventListener("appinstalled", syncStandaloneMode);
+  }, []);
+
+  const requestPwaInstall = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("labit:pwa-install-request"));
+  };
 
   useEffect(() => {
     if (!user?.id || user?.userType !== "executive") return;
@@ -256,6 +281,28 @@ export default function AppMenu({ themeMode = "light", variant = "icon" }) {
           </HStack>
         </Box>
         <Divider my={1} borderColor={menuBorder} />
+        {!isStandalonePwa ? (
+          <>
+            <MenuItem
+              onClick={requestPwaInstall}
+              icon={<Icon as={Download} boxSize={3.5} />}
+              borderRadius="md"
+              minH="38px"
+              py={1.5}
+              px={2}
+              bg="transparent"
+              color={headingColor}
+              _hover={{ bg: itemHoverBg }}
+              _focus={{ bg: itemHoverBg }}
+            >
+              <Box minW={0}>
+                <Text fontSize="sm" fontWeight="700" lineHeight="1.15">Install Web App</Text>
+                <Text fontSize="xs" color={mutedColor} noOfLines={1} lineHeight="1.2">Add Labit to this device</Text>
+              </Box>
+            </MenuItem>
+            <Divider my={1} borderColor={menuBorder} />
+          </>
+        ) : null}
         {groups.length === 0 ? (
           <Box px={3} py={4}>
             <Text fontSize="sm" color={mutedColor}>No menu items available for this role.</Text>
