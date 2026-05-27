@@ -2045,7 +2045,19 @@ export default function ReportDispatchWorkspace({
                       const color = delivery === "read" ? "green" : delivery === "delivered" ? "blue" : delivery === "failed" ? "red" : "gray";
                       return (
                         <Box key={`sent_card_${row?.id || row?.reqno || row?.phone || Math.random()}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
-                          <Text fontSize="xs" fontWeight="bold">{displayValue(row?.reqno)} • {displayValue(row?.patient_name)}</Text>
+                          <Text fontSize="xs" fontWeight="bold">
+                            <Text
+                              as="span"
+                              fontWeight="bold"
+                              cursor="pointer"
+                              userSelect="text"
+                              onClick={() => handleReqnoClick(row)}
+                            >
+                              {displayValue(row?.reqno)}
+                            </Text>
+                            {" • "}
+                            {displayValue(row?.patient_name)}
+                          </Text>
                           <Text fontSize="xs" color="gray.600">{displayValue(row?.phone)}</Text>
                           <Text fontSize="xs">Status sent: {displayValue(row?.report_label)}</Text>
                           <Text fontSize="xs">Sent: {formatIstDateTime(row?.sent_at)}</Text>
@@ -2079,7 +2091,17 @@ export default function ReportDispatchWorkspace({
                           const isBacklog = Boolean(reqDate) && reqDate !== selectedDate;
                           return (
                           <Tr key={`sent_${row?.id || row?.reqno || row?.phone || idx}`}>
-                            <Td fontWeight="bold">{displayValue(row?.reqno)}</Td>
+                            <Td fontWeight="bold">
+                              <Text
+                                as="span"
+                                fontWeight="bold"
+                                cursor="pointer"
+                                userSelect="text"
+                                onClick={() => handleReqnoClick(row)}
+                              >
+                                {displayValue(row?.reqno)}
+                              </Text>
+                            </Td>
                             <Td>{displayValue(reqDate)}</Td>
                             <Td>{displayValue(row?.patient_name)}</Td>
                             <Td>{displayValue(row?.phone)}</Td>
