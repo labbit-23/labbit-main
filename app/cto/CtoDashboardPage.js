@@ -79,6 +79,16 @@ const TREND_RANGE_OPTIONS = [
   { value: "12w", label: "Weekly (12 Weeks)" },
   { value: "12m", label: "Monthly (12 Months)" },
 ];
+const AUTO_DISPATCH_METRIC_KEYS = [
+  "auto_dispatch_worker_health",
+  "auto_dispatch_queue_stall",
+  "auto_dispatch_wait_state_stuck",
+  "auto_dispatch_state_drift",
+  "auto_dispatch_failures_15m",
+  "auto_dispatch_missing_provider_id_15m",
+  "auto_dispatch_invalid_phone_jobs",
+  "auto_dispatch_pdf_not_found_jobs",
+];
 
 function worstStatus(statuses) {
   if (statuses.includes("down")) return "down";
@@ -342,6 +352,19 @@ function formatMinutesAgoCompact(value) {
   const hours = Math.floor(mins / 60);
   const rem = Math.round(mins % 60);
   return rem > 0 ? `${hours}h ${rem}m ago` : `${hours}h ago`;
+}
+
+function formatCheckedAtCompact(value) {
+  if (!value) return "n/a";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "n/a";
+  return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatWhatsappMetricValue(service) {
@@ -1378,6 +1401,30 @@ export default function CtoDashboardPage({
       .slice(0, 5);
   }, [realServices]);
 
+  const extendedDiagnosticRows = useMemo(() => {
+    const incidentKeys = new Set(incidentFeed.map((service) => service.service_key));
+    const keySystemKeys = new Set(keySystems.flatMap((system) => system.service_keys));
+    const weight = { down: 4, degraded: 3, unknown: 2, healthy: 1 };
+
+    return [...realServices]
+      .filter((service) => {
+        const baseKey = parseServiceKey(service?.service_key).baseKey;
+        if (!baseKey || incidentKeys.has(service.service_key)) return false;
+        return AUTO_DISPATCH_METRIC_KEYS.includes(baseKey) || !keySystemKeys.has(baseKey);
+      })
+      .sort((a, b) => {
+        const aBase = parseServiceKey(a?.service_key).baseKey;
+        const bBase = parseServiceKey(b?.service_key).baseKey;
+        const aAuto = AUTO_DISPATCH_METRIC_KEYS.includes(aBase) ? 1 : 0;
+        const bAuto = AUTO_DISPATCH_METRIC_KEYS.includes(bBase) ? 1 : 0;
+        const statusDelta = (weight[b.status] || 0) - (weight[a.status] || 0);
+        if (statusDelta !== 0) return statusDelta;
+        if (bAuto !== aAuto) return bAuto - aAuto;
+        return String(a.label || a.service_key || "").localeCompare(String(b.label || b.service_key || ""));
+      })
+      .slice(0, 10);
+  }, [incidentFeed, realServices]);
+
   const topDownServices = useMemo(() => {
     return realServices
       .filter((service) => service.status === "down")
@@ -1667,6 +1714,41 @@ export default function CtoDashboardPage({
     const slaLate1h = toFiniteInt(slaPayload?.late_replies_1h, 0);
     const slaNoReply1h = toFiniteInt(slaPayload?.no_reply_1h, 0);
     const slaPct1h = slaCount1h > 0 ? Math.round((slaWithin1h / slaCount1h) * 100) : null;
+    const autoDispatchRows = AUTO_DISPATCH_METRIC_KEYS
+      .map((key) => {
+        const service = serviceByBaseKey.get(key);
+        const payload = service?.payload || {};
+        const valueByKey = {
+          auto_dispatch_worker_health: toFiniteInt(payload?.error_count, 0),
+          auto_dispatch_queue_stall: toFiniteInt(payload?.overdue_count, 0),
+          auto_dispatch_wait_state_stuck: toFiniteInt(payload?.stuck_count, 0),
+          auto_dispatch_state_drift: toFiniteInt(payload?.drift_count, 0),
+          auto_dispatch_failures_15m: toFiniteInt(payload?.failed_15m, 0),
+          auto_dispatch_missing_provider_id_15m: toFiniteInt(payload?.missing_provider_id_15m, 0),
+          auto_dispatch_invalid_phone_jobs: toFiniteInt(payload?.invalid_phone_failed_count, 0),
+          auto_dispatch_pdf_not_found_jobs: toFiniteInt(payload?.pdf_not_found_failed_count, 0),
+        };
+        const labelByKey = {
+          auto_dispatch_worker_health: "Worker Errors",
+          auto_dispatch_queue_stall: "Queue Stalls",
+          auto_dispatch_wait_state_stuck: "Wait-State Stuck",
+          auto_dispatch_state_drift: "State Drift",
+          auto_dispatch_failures_15m: "Failures (15m)",
+          auto_dispatch_missing_provider_id_15m: "Missing Provider IDs",
+          auto_dispatch_invalid_phone_jobs: "Invalid Phone Jobs",
+          auto_dispatch_pdf_not_found_jobs: "PDF Not Found",
+        };
+
+        return {
+          key,
+          label: labelByKey[key] || service?.label || key,
+          value: service ? valueByKey[key] : null,
+          status: service?.status || "unknown",
+          message: service?.message || "No recent monitor sample",
+          checkedAt: service?.checked_at || null,
+          serviceKey: service?.service_key || key,
+        };
+      });
 
     return {
       botSlaWithin: botSla?.payload?.within_sla_pct ?? null,
@@ -1687,6 +1769,8 @@ export default function CtoDashboardPage({
       websiteUniqueVisitorsToday:
         typeof website?.unique_visitors_today === "number" ? website.unique_visitors_today : null,
       websiteTopPages7d: Array.isArray(website?.top_pages_7d) ? website.top_pages_7d : [],
+      autoDispatchRows,
+      autoDispatchIssues: autoDispatchRows.filter((row) => row.status === "down" || row.status === "degraded").length,
       openEvents,
       positiveRate
     };
@@ -2395,6 +2479,39 @@ export default function CtoDashboardPage({
                   </Text>
                   <Text fontSize="xs" color={mutedText}>Help wait / report wait</Text>
                 </Box>
+              </SimpleGrid>
+            </Box>
+            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+              <HStack justify="space-between" align="center" mb={3} flexWrap="wrap" gap={2}>
+                <Box>
+                  <Text fontSize="xs" color={mutedText}>Auto Dispatch Monitor</Text>
+                  <Text fontSize="xs" color={faintText}>Dispatch queue and provider health</Text>
+                </Box>
+                <Badge colorScheme={managementMetrics.autoDispatchIssues > 0 ? "red" : "green"} borderRadius="full" px={3} py={1}>
+                  {managementMetrics.autoDispatchIssues > 0 ? `${managementMetrics.autoDispatchIssues} issues` : "Healthy"}
+                </Badge>
+              </HStack>
+              <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2}>
+                {managementMetrics.autoDispatchRows.map((row) => (
+                  <Box
+                    key={row.key}
+                    p={3}
+                    borderRadius="12px"
+                    bg={innerBg}
+                    border={panelBorder}
+                    cursor="pointer"
+                    onClick={() => openServiceRca(row.serviceKey)}
+                  >
+                    <HStack justify="space-between" mb={1} align="start" gap={2}>
+                      <Text fontSize="xs" color={mutedText} noOfLines={1}>{row.label}</Text>
+                      <StatusChip status={row.status} color={statusColor(row.status)} />
+                    </HStack>
+                    <Text fontWeight="800" fontSize="xl" color={row.status === "healthy" ? "green.300" : row.status === "down" ? "red.300" : "yellow.300"}>
+                      {row.value == null ? "n/a" : row.value}
+                    </Text>
+                    <Text fontSize="xs" color={faintText} noOfLines={2}>{row.message}</Text>
+                  </Box>
+                ))}
               </SimpleGrid>
             </Box>
             <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
@@ -3309,6 +3426,62 @@ export default function CtoDashboardPage({
           </GridItem>
 
           <GridItem order={2}>
+            <Box
+              p={{ base: 4, md: 5 }}
+              borderRadius="24px"
+              bg={cardBg}
+              border={panelBorder}
+              mb={4}
+            >
+              <HStack justify="space-between" mb={3} flexWrap="wrap" gap={2}>
+                <Heading size="sm">Extended Diagnostics</Heading>
+                <Badge colorScheme="blue" borderRadius="full" px={3} py={1}>
+                  {extendedDiagnosticRows.length}/10 signals
+                </Badge>
+              </HStack>
+              {extendedDiagnosticRows.length === 0 ? (
+                <Box p={3} borderRadius="16px" bg={innerBg} border={panelBorder}>
+                  <Text fontSize="sm" color={softText}>No extended diagnostic signals available.</Text>
+                </Box>
+              ) : (
+                <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={2}>
+                  {extendedDiagnosticRows.map((service) => {
+                    const baseKey = parseServiceKey(service?.service_key).baseKey;
+                    const isAutoDispatch = AUTO_DISPATCH_METRIC_KEYS.includes(baseKey);
+                    return (
+                      <Box
+                        key={service.service_key}
+                        p={3}
+                        borderRadius="14px"
+                        bg={selectedService?.service_key === service.service_key ? "rgba(20,184,166,0.12)" : innerBg}
+                        border={selectedService?.service_key === service.service_key ? "1px solid rgba(45,212,191,0.34)" : panelBorder}
+                        cursor="pointer"
+                        onClick={() => openServiceRca(service.service_key)}
+                      >
+                        <HStack justify="space-between" mb={1} gap={2} align="start">
+                          <HStack spacing={2} minW={0}>
+                            <StatusChip status={service.status} color={statusColor(service.status)} />
+                            <Text fontSize="xs" color={faintText} noOfLines={1}>
+                              {isAutoDispatch ? "Auto Dispatch" : service.category || domainTitleForService(service)}
+                            </Text>
+                          </HStack>
+                          <Text fontSize="xs" color={faintText} flexShrink={0}>{formatCheckedAtCompact(service.checked_at)}</Text>
+                        </HStack>
+                        <Text fontWeight="700" color={strongText} noOfLines={1}>
+                          {service.label || service.service_key}
+                        </Text>
+                        <Text fontSize="sm" color={softText} noOfLines={2}>
+                          {service.message || "No message available."}
+                        </Text>
+                      </Box>
+                    );
+                  })}
+                </SimpleGrid>
+              )}
+            </Box>
+          </GridItem>
+
+          <GridItem order={3}>
             <Box
               p={{ base: 4, md: 5 }}
               borderRadius="24px"
