@@ -224,7 +224,7 @@ export default function AppMenu({ themeMode = "light", variant = "icon" }) {
   const menuBg = isDark ? "#111827" : "white";
   const menuBorder = isDark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.12)";
   const itemHoverBg = isDark ? "rgba(255,255,255,0.09)" : "gray.50";
-  const mutedColor = isDark ? "whiteAlpha.650" : "gray.500";
+  const mutedColor = isDark ? "rgba(226,232,240,0.56)" : "gray.500";
   const headingColor = isDark ? "whiteAlpha.950" : "gray.800";
 
   if (isLoading || !user) return null;

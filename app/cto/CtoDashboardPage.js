@@ -613,6 +613,7 @@ export default function CtoDashboardPage({
   const smartReportModal = useDisclosure();
   const [latest, setLatest] = useState({ summary: { total: 0, healthy: 0, degraded: 0, down: 0, unknown: 0 }, services: [] });
   const [visitMetrics, setVisitMetrics] = useState({ today: {}, mtd: {}, byExecutive: [], loading: true, error: "" });
+  const [visitMetricsMonth, setVisitMetricsMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [agentPresence, setAgentPresence] = useState([]);
   const [labs, setLabs] = useState([]);
   const [selectedLabId, setSelectedLabId] = useState("");
@@ -686,6 +687,18 @@ export default function CtoDashboardPage({
     if (typeof window === "undefined") return;
     window.localStorage.setItem("labbit-cto-dashboard-theme", themeMode);
   }, [themeMode]);
+
+  const isDarkTheme = themeMode === "dark";
+  const strongText = isDarkTheme ? "whiteAlpha.950" : "gray.800";
+  const softText = isDarkTheme ? "whiteAlpha.800" : "gray.700";
+  const mutedText = isDarkTheme ? "whiteAlpha.700" : "gray.600";
+  const faintText = isDarkTheme ? "whiteAlpha.600" : "gray.500";
+  const panelBg = isDarkTheme ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.84)";
+  const cardBg = isDarkTheme ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.72)";
+  const innerBg = isDarkTheme ? "rgba(9,15,26,0.55)" : "rgba(248,250,252,0.92)";
+  const selectBg = isDarkTheme ? "rgba(11, 19, 32, 0.82)" : "white";
+  const panelBorder = isDarkTheme ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(15,23,42,0.10)";
+  const progressTrackBg = isDarkTheme ? "whiteAlpha.200" : "gray.200";
 
   function drillToSection(sectionRef) {
     if (!allowCtoTab) return;
@@ -790,6 +803,7 @@ export default function CtoDashboardPage({
       try {
         const params = new URLSearchParams({ ts: String(Date.now()) });
         if (selectedLabId) params.set("lab_id", selectedLabId);
+        if (visitMetricsMonth) params.set("month", visitMetricsMonth);
         const res = await fetch(`/api/management/visits?${params.toString()}`, {
           credentials: "include",
           cache: "no-store",
@@ -807,7 +821,7 @@ export default function CtoDashboardPage({
     return () => {
       cancelled = true;
     };
-  }, [selectedLabId]);
+  }, [selectedLabId, visitMetricsMonth]);
 
   useEffect(() => {
     if (!showCtoTools) return;
@@ -1817,11 +1831,11 @@ export default function CtoDashboardPage({
       px={2}
       py={1.5}
       borderRadius="14px"
-      bg="rgba(255,255,255,0.06)"
+      bg={panelBg}
       border="1px solid rgba(255,255,255,0.14)"
       color="white"
     >
-      <Text fontSize="xs" color="whiteAlpha.800" whiteSpace="nowrap">Lab</Text>
+      <Text fontSize="xs" color={softText} whiteSpace="nowrap">Lab</Text>
       <Select
         value={selectedLabId}
         onChange={(e) => {
@@ -1832,7 +1846,7 @@ export default function CtoDashboardPage({
         size="sm"
         maxW="220px"
         borderRadius="10px"
-        bg="rgba(11, 19, 32, 0.72)"
+        bg={selectBg}
         borderColor="rgba(255,255,255,0.22)"
         color="white"
       >
@@ -1848,7 +1862,7 @@ export default function CtoDashboardPage({
           size="xs"
           variant="outline"
           borderColor="rgba(255,255,255,0.28)"
-          color="whiteAlpha.900"
+          color={strongText}
           onClick={togglePinnedLab}
         >
           {pinnedLabId === selectedLabId ? "Unpin" : "Pin"}
@@ -1931,7 +1945,7 @@ export default function CtoDashboardPage({
             <Heading size="2xl" lineHeight="1.05" fontWeight="800">
               Labit Operations
             </Heading>
-            <Text color="whiteAlpha.760" fontSize="sm">
+            <Text color={softText} fontSize="sm">
               {subtitle || (isProductCto ? "Product CTO view • multi-lab diagnostics" : "Lab-level diagnostics • restricted to assigned lab")}
             </Text>
             <HStack spacing={2} flexWrap="wrap">
@@ -1945,22 +1959,22 @@ export default function CtoDashboardPage({
                 Not Logged In: {agentPresenceSummary.offline}
               </Badge>
             </HStack>
-              <HStack spacing={4} color="whiteAlpha.760" fontSize="sm" flexWrap="wrap">
+              <HStack spacing={4} color={softText} fontSize="sm" flexWrap="wrap">
                 <HStack spacing={2}>
                   <Box w={2.5} h={2.5} borderRadius="full" bg={heroStats[3].value !== "0" ? "red.400" : heroStats[2].value !== "0" ? "yellow.300" : "green.400"} />
                   <Text>{heroStats[3].value !== "0" ? "Attention needed" : heroStats[2].value !== "0" ? "Degraded services present" : "All critical services healthy"}</Text>
                 </HStack>
-              <Text color="whiteAlpha.500">•</Text>
+              <Text color={faintText}>•</Text>
               <Text>{lastLoadedAt ? `Last updated ${lastLoadedAt}` : "Waiting for first sync"}</Text>
               {selectedLabName && (
                 <>
-                  <Text color="whiteAlpha.500">•</Text>
+                  <Text color={faintText}>•</Text>
                   <Text>Lab: {selectedLabName}</Text>
                 </>
               )}
               {staleServices.length > 0 && (
                 <>
-                  <Text color="whiteAlpha.500">•</Text>
+                  <Text color={faintText}>•</Text>
                   <Text>{staleServices.length} stale service{staleServices.length > 1 ? "s" : ""} hidden</Text>
                 </>
               )}
@@ -1973,12 +1987,12 @@ export default function CtoDashboardPage({
                 px={3}
                 py={2}
                 borderRadius="18px"
-                bg="rgba(255,255,255,0.05)"
-                border="1px solid rgba(255,255,255,0.08)"
+                bg={panelBg}
+                border={panelBorder}
                 minW={{ base: "100%", xl: "320px" }}
                 display={{ base: "block", md: "none" }}
               >
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>
+                <Text fontSize="xs" color={mutedText} mb={1}>
                   Monitoring Lab
                 </Text>
                 <Select
@@ -1989,7 +2003,7 @@ export default function CtoDashboardPage({
                   }}
                   size="sm"
                   borderRadius="10px"
-                  bg="rgba(11, 19, 32, 0.72)"
+                  bg={selectBg}
                   borderColor="rgba(255,255,255,0.18)"
                   color="white"
                 >
@@ -2006,13 +2020,13 @@ export default function CtoDashboardPage({
                       size="xs"
                       variant="outline"
                       borderColor="rgba(255,255,255,0.28)"
-                      color="whiteAlpha.900"
+                      color={strongText}
                       onClick={togglePinnedLab}
                     >
                       {pinnedLabId === selectedLabId ? "Unpin Lab" : "Pin Lab"}
                     </Button>
                     {pinnedLabId === selectedLabId && (
-                      <Text fontSize="xs" color="whiteAlpha.700">Pinned for this browser</Text>
+                      <Text fontSize="xs" color={mutedText}>Pinned for this browser</Text>
                     )}
                   </HStack>
                 )}
@@ -2024,11 +2038,11 @@ export default function CtoDashboardPage({
               px={3}
               py={2}
               borderRadius="28px"
-              bg="rgba(255,255,255,0.05)"
-              border="1px solid rgba(255,255,255,0.08)"
+              bg={panelBg}
+              border={panelBorder}
               maxW={{ base: "full", xl: "1000px" }}
             >
-              <Text fontSize="xs" color="whiteAlpha.700" px={1}>
+              <Text fontSize="xs" color={mutedText} px={1}>
                 Key Status
               </Text>
               <SimpleGrid columns={{ base: 2, md: 4 }} spacing={2}>
@@ -2046,7 +2060,7 @@ export default function CtoDashboardPage({
                     px={3}
                     py={1.5}
                     borderRadius="full"
-                    bg="rgba(255,255,255,0.04)"
+                    bg={cardBg}
                     border="1px solid rgba(255,255,255,0.05)"
                   >
                     <Box
@@ -2061,7 +2075,7 @@ export default function CtoDashboardPage({
                           : "green.400"
                       }
                     />
-                    <Text fontSize="xs" color="whiteAlpha.900" noOfLines={1}>
+                    <Text fontSize="xs" color={strongText} noOfLines={1}>
                       VPS (All)
                     </Text>
                   </Flex>
@@ -2082,7 +2096,7 @@ export default function CtoDashboardPage({
                       px={3}
                       py={1.5}
                       borderRadius="full"
-                      bg="rgba(255,255,255,0.04)"
+                      bg={cardBg}
                       border="1px solid rgba(255,255,255,0.05)"
                       cursor={system.primaryServiceKey ? "pointer" : "default"}
                       onClick={() => {
@@ -2103,7 +2117,7 @@ export default function CtoDashboardPage({
                             : "gray.400"
                         }
                       />
-                      <Text fontSize="xs" color="whiteAlpha.900" noOfLines={1}>
+                      <Text fontSize="xs" color={strongText} noOfLines={1}>
                         {system.label}
                       </Text>
                     </Flex>
@@ -2219,8 +2233,8 @@ export default function CtoDashboardPage({
               px={2}
               py={1.5}
               borderRadius="full"
-              bg="rgba(255,255,255,0.06)"
-              border="1px solid rgba(255,255,255,0.12)"
+              bg={panelBg}
+              border={panelBorder}
               cursor="pointer"
               userSelect="none"
               onClick={() =>
@@ -2263,50 +2277,50 @@ export default function CtoDashboardPage({
             mb={6}
             p={{ base: 5, md: 6 }}
             borderRadius="26px"
-            bg="rgba(255,255,255,0.05)"
-            border="1px solid rgba(255,255,255,0.10)"
+            bg={panelBg}
+            border={panelBorder}
           >
             <Heading size="md" mb={1}>Management Metrics</Heading>
-            <Text color="whiteAlpha.700" mb={4}>Simplified executive view with drill-down into CTO details.</Text>
+            <Text color={mutedText} mb={4}>Simplified executive view with drill-down into CTO details.</Text>
             <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Service Reliability</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Service Reliability</Text>
                 <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1]?.value || "0"}/{heroStats[0]?.value || "0"}</Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Tap to open Operational Domains</Text>
+                <Text fontSize="xs" color={mutedText} mt={1}>Tap to open Operational Domains</Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>{selectedVpsNode.toUpperCase()} Capacity</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>{selectedVpsNode.toUpperCase()} Capacity</Text>
                 <Text fontSize="2xl" fontWeight="800" color="cyan.200">
                   {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                <Text fontSize="xs" color={mutedText} mt={1}>
                   {`Host memory pressure (tap for ${selectedVpsNode.toUpperCase()} Health)`}
                 </Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(feedbackSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Patient Feedback</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(feedbackSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Patient Feedback</Text>
                 <Text fontSize="2xl" fontWeight="800" color="teal.200">
                   {managementMetrics.positiveRate != null ? `${managementMetrics.positiveRate}%` : "n/a"}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Positive rate (4-5)</Text>
+                <Text fontSize="xs" color={mutedText} mt={1}>Positive rate (4-5)</Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Open Ops Events</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Open Ops Events</Text>
                 <Text fontSize="2xl" fontWeight="800" color={managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>
                   {managementMetrics.openEvents}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Tap to open Ops Events</Text>
+                <Text fontSize="xs" color={mutedText} mt={1}>Tap to open Ops Events</Text>
               </Box>
             </SimpleGrid>
             <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3} mt={3}>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(detailSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>WhatsApp SLA (1m)</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(detailSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>WhatsApp SLA (1m)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="blue.200">
                   {managementMetrics.botSlaWithin != null ? `${Math.round(Number(managementMetrics.botSlaWithin))}%` : "n/a"}
                 </Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(trendsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Bot Chats (24h)</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(trendsSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Bot Chats (24h)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="purple.200">
                   {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
                 </Text>
@@ -2314,8 +2328,8 @@ export default function CtoDashboardPage({
               <Box
                 p={4}
                 borderRadius="16px"
-                bg="rgba(255,255,255,0.04)"
-                border="1px solid rgba(255,255,255,0.08)"
+                bg={cardBg}
+                border={panelBorder}
                 cursor="pointer"
                 onClick={() => {
                   const firstDown = realServices.find((service) => service.status === "down");
@@ -2333,60 +2347,72 @@ export default function CtoDashboardPage({
                   drillToSection(detailSectionRef);
                 }}
               >
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Website Active Sessions (15m)</Text>
+                <Text fontSize="xs" color={mutedText} mb={1}>Website Active Sessions (15m)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="cyan.200">
                   {managementMetrics.websiteActiveSessions15m != null ? String(managementMetrics.websiteActiveSessions15m) : "n/a"}
                 </Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Website Unique Visitors (Today)</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Website Unique Visitors (Today)</Text>
                 <Text fontSize="2xl" fontWeight="800" color="teal.200">
                   {managementMetrics.websiteUniqueVisitorsToday != null ? String(managementMetrics.websiteUniqueVisitorsToday) : "n/a"}
                 </Text>
               </Box>
             </SimpleGrid>
-            <Box mt={3} p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
+            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
               <HStack justify="space-between" align="center" mb={2}>
-                <Text fontSize="xs" color="whiteAlpha.700">WhatsApp Engagement Snapshot</Text>
-                <Text fontSize="xs" color="whiteAlpha.600">
+                <Text fontSize="xs" color={mutedText}>WhatsApp Engagement Snapshot</Text>
+                <Text fontSize="xs" color={faintText}>
                   Last report: {managementMetrics.botLastReportIst || "n/a"} ({managementMetrics.botLastReportAgo || "n/a"})
                 </Text>
               </HStack>
               <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2}>
                 <Box p={3} borderRadius="12px" bg="rgba(59,130,246,0.10)" border="1px solid rgba(96,165,250,0.25)">
-                  <Text fontSize="xs" color="whiteAlpha.700">Reports Sent</Text>
+                  <Text fontSize="xs" color={mutedText}>Reports Sent</Text>
                   <Text fontWeight="800" fontSize="lg">{managementMetrics.botReports24h} (24h)</Text>
-                  <Text fontSize="xs" color="whiteAlpha.700">{managementMetrics.botReports1h} in last 1h</Text>
+                  <Text fontSize="xs" color={mutedText}>{managementMetrics.botReports1h} in last 1h</Text>
                 </Box>
                 <Box p={3} borderRadius="12px" bg="rgba(16,185,129,0.10)" border="1px solid rgba(74,222,128,0.25)">
-                  <Text fontSize="xs" color="whiteAlpha.700">Reply SLA (1m)</Text>
+                  <Text fontSize="xs" color={mutedText}>Reply SLA (1m)</Text>
                   <Text fontWeight="800" fontSize="lg">
                     {managementMetrics.botSlaPct1h != null ? `${managementMetrics.botSlaPct1h}%` : "n/a"}
                   </Text>
-                  <Text fontSize="xs" color="whiteAlpha.700">
+                  <Text fontSize="xs" color={mutedText}>
                     {managementMetrics.botSlaWithin1h}/{managementMetrics.botSlaCount1h} within SLA
                   </Text>
                 </Box>
                 <Box p={3} borderRadius="12px" bg="rgba(245,158,11,0.10)" border="1px solid rgba(251,191,36,0.25)">
-                  <Text fontSize="xs" color="whiteAlpha.700">Late / No Reply (1h)</Text>
+                  <Text fontSize="xs" color={mutedText}>Late / No Reply (1h)</Text>
                   <Text fontWeight="800" fontSize="lg">
                     {managementMetrics.botSlaLate1h} / {managementMetrics.botSlaNoReply1h}
                   </Text>
-                  <Text fontSize="xs" color="whiteAlpha.700">Escalation watch</Text>
+                  <Text fontSize="xs" color={mutedText}>Escalation watch</Text>
                 </Box>
                 <Box p={3} borderRadius="12px" bg="rgba(139,92,246,0.10)" border="1px solid rgba(167,139,250,0.25)">
-                  <Text fontSize="xs" color="whiteAlpha.700">Wait Messages (24h)</Text>
+                  <Text fontSize="xs" color={mutedText}>Wait Messages (24h)</Text>
                   <Text fontWeight="800" fontSize="lg">
                     {managementMetrics.botHelpWaits24h} / {managementMetrics.botReportWaits24h}
                   </Text>
-                  <Text fontSize="xs" color="whiteAlpha.700">Help wait / report wait</Text>
+                  <Text fontSize="xs" color={mutedText}>Help wait / report wait</Text>
                 </Box>
               </SimpleGrid>
             </Box>
-            <Box mt={3} p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-              <HStack justify="space-between" align="center" mb={3}>
-                <Text fontSize="xs" color="whiteAlpha.700">Visit Volume</Text>
-                <Text fontSize="xs" color="whiteAlpha.600">Today and month-to-date</Text>
+            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+              <HStack justify="space-between" align="center" mb={3} flexWrap="wrap" gap={2}>
+                <Box>
+                  <Text fontSize="xs" color={mutedText}>Visit Volume</Text>
+                  <Text fontSize="xs" color={faintText}>Today and selected month</Text>
+                </Box>
+                <Input
+                  type="month"
+                  size="xs"
+                  maxW="150px"
+                  value={visitMetricsMonth}
+                  onChange={(event) => setVisitMetricsMonth(event.target.value)}
+                  bg={selectBg}
+                  borderColor="rgba(255,255,255,0.18)"
+                  color={strongText}
+                />
               </HStack>
               {visitMetrics.error ? (
                 <Text fontSize="sm" color="red.200">{visitMetrics.error}</Text>
@@ -2396,47 +2422,58 @@ export default function CtoDashboardPage({
                     {[
                       { label: "Visits Today", value: visitMetrics.today?.total ?? 0, color: "teal.200" },
                       { label: "Completed Today", value: visitMetrics.today?.completed ?? 0, color: "green.300" },
-                      { label: "Visits MTD", value: visitMetrics.mtd?.total ?? 0, color: "cyan.200" },
-                      { label: "Unassigned MTD", value: visitMetrics.mtd?.unassigned ?? 0, color: (visitMetrics.mtd?.unassigned || 0) > 0 ? "orange.300" : "green.300" },
+                      { label: visitMetrics?.is_current_month === false ? "Visits Month" : "Visits MTD", value: visitMetrics.mtd?.total ?? 0, color: "cyan.200" },
+                      { label: visitMetrics?.is_current_month === false ? "Unassigned Month" : "Unassigned MTD", value: visitMetrics.mtd?.unassigned ?? 0, color: (visitMetrics.mtd?.unassigned || 0) > 0 ? "orange.300" : "green.300" },
                     ].map((item) => (
-                      <Box key={item.label} p={3} borderRadius="12px" bg="rgba(255,255,255,0.035)" border="1px solid rgba(255,255,255,0.07)">
-                        <Text fontSize="xs" color="whiteAlpha.700">{item.label}</Text>
+                      <Box key={item.label} p={3} borderRadius="12px" bg={cardBg} border={panelBorder}>
+                        <Text fontSize="xs" color={mutedText}>{item.label}</Text>
                         <Text fontWeight="800" fontSize="xl" color={item.color}>{visitMetrics.loading ? "..." : item.value}</Text>
                       </Box>
                     ))}
                   </SimpleGrid>
-                  <Text fontSize="xs" color="whiteAlpha.700" mb={2}>Visits by Executive (MTD)</Text>
+                  <Text fontSize="xs" color={mutedText} mb={2}>
+                    Visits by Executive ({visitMetrics?.is_current_month === false ? "Selected Month" : "MTD"})
+                  </Text>
                   {(visitMetrics.byExecutive || []).length === 0 ? (
-                    <Text fontSize="sm" color="whiteAlpha.700">No assigned visits in this period.</Text>
+                    <Text fontSize="sm" color={mutedText}>No assigned visits in this period.</Text>
                   ) : (
-                    <Stack spacing={2}>
-                      {(visitMetrics.byExecutive || []).slice(0, 8).map((row) => {
-                        const total = Math.max(Number(visitMetrics.mtd?.total || 0), 1);
-                        const pct = Math.round((Number(row.total || 0) / total) * 100);
-                        return (
-                          <Box key={row.executive_id || row.name}>
-                            <Flex justify="space-between" gap={3} mb={1}>
-                              <Text fontSize="sm" color="whiteAlpha.900" noOfLines={1}>{row.name || "Unassigned"}</Text>
-                              <Text fontSize="sm" color="cyan.200" fontWeight="700">{row.total} ({pct}%)</Text>
-                            </Flex>
-                            <Progress value={pct} size="sm" borderRadius="full" colorScheme="teal" bg="whiteAlpha.200" />
-                          </Box>
-                        );
-                      })}
-                    </Stack>
+                    <Box>
+                      <Flex h="16px" overflow="hidden" borderRadius="full" bg={progressTrackBg} border={panelBorder}>
+                        {(visitMetrics.byExecutive || []).map((row, index) => {
+                          const total = Math.max(Number(visitMetrics.mtd?.total || 0), 1);
+                          const pct = Math.max(1, (Number(row.total || 0) / total) * 100);
+                          const colors = ["#14b8a6", "#3b82f6", "#a855f7", "#f59e0b", "#22c55e", "#ef4444", "#06b6d4", "#ec4899"];
+                          return <Box key={row.executive_id || row.name} flex={String(pct)} bg={colors[index % colors.length]} />;
+                        })}
+                      </Flex>
+                      <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2} mt={2}>
+                        {(visitMetrics.byExecutive || []).map((row, index) => {
+                          const total = Math.max(Number(visitMetrics.mtd?.total || 0), 1);
+                          const pct = Math.round((Number(row.total || 0) / total) * 100);
+                          const colors = ["#14b8a6", "#3b82f6", "#a855f7", "#f59e0b", "#22c55e", "#ef4444", "#06b6d4", "#ec4899"];
+                          return (
+                            <HStack key={row.executive_id || row.name} spacing={2} minW={0}>
+                              <Box w="8px" h="8px" borderRadius="full" bg={colors[index % colors.length]} flexShrink={0} />
+                              <Text fontSize="xs" color="whiteAlpha.850" noOfLines={1}>{row.name || "Unassigned"}</Text>
+                              <Text fontSize="xs" color={faintText} flexShrink={0}>{row.total} ({pct}%)</Text>
+                            </HStack>
+                          );
+                        })}
+                      </SimpleGrid>
+                    </Box>
                   )}
                 </>
               )}
             </Box>
-            <Box mt={3} p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={2}>Top Website Pages (7d)</Text>
+            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+              <Text fontSize="xs" color={mutedText} mb={2}>Top Website Pages (7d)</Text>
               {managementMetrics.websiteTopPages7d.length === 0 ? (
-                <Text fontSize="sm" color="whiteAlpha.700">No page analytics available.</Text>
+                <Text fontSize="sm" color={mutedText}>No page analytics available.</Text>
               ) : (
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
-                  {managementMetrics.websiteTopPages7d.slice(0, 6).map((row) => (
+                  {managementMetrics.websiteTopPages7d.map((row) => (
                     <Flex key={`${row.page_path}-${row.unique_visitors}`} justify="space-between" gap={3}>
-                      <Text fontSize="sm" color="whiteAlpha.900" noOfLines={1}>{row.page_path}</Text>
+                      <Text fontSize="sm" color={strongText} noOfLines={1}>{row.page_path}</Text>
                       <Text fontSize="sm" color="cyan.200" fontWeight="700">{row.unique_visitors}</Text>
                     </Flex>
                   ))}
@@ -2466,14 +2503,14 @@ export default function CtoDashboardPage({
               <Box>
                 <HStack mb={2}>
                   <StatusChip status={smartDiagnosis.label} color={diagnosisTone(smartDiagnosis.severity)} />
-                  <Text color="whiteAlpha.700" fontSize="sm">
+                  <Text color={mutedText} fontSize="sm">
                     Likely cause
                   </Text>
                 </HStack>
                 <Text fontWeight="700" mb={1}>
                   {smartDiagnosis.message || smartDiagnosis.label}
                 </Text>
-                <Text fontSize="sm" color="whiteAlpha.760">
+                <Text fontSize="sm" color={softText}>
                   Based on: {smartDiagnosis.services.map((service) => service.label || service.service_key).join(", ")}
                 </Text>
               </Box>
@@ -2502,46 +2539,46 @@ export default function CtoDashboardPage({
             mb={6}
             p={{ base: 5, md: 6 }}
             borderRadius="26px"
-            bg="rgba(255,255,255,0.05)"
-            border="1px solid rgba(255,255,255,0.10)"
+            bg={panelBg}
+            border={panelBorder}
           >
             <Heading size="md" mb={1}>Simplified CTO View</Heading>
-            <Text color="whiteAlpha.700" mb={4}>Clear health-first view for non-technical operators. Click any card for detail.</Text>
+            <Text color={mutedText} mb={4}>Clear health-first view for non-technical operators. Click any card for detail.</Text>
             <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3} mb={3}>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)">
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Overall Health</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Overall Health</Text>
                 <Text fontSize="2xl" fontWeight="800" color={heroStats[3].value !== "0" ? "red.300" : heroStats[2].value !== "0" ? "yellow.300" : "green.300"}>
                   {heroStats[3].value !== "0" ? "Action Needed" : heroStats[2].value !== "0" ? "Watch Closely" : "Healthy"}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                <Text fontSize="xs" color={mutedText} mt={1}>
                   {heroStats[3].value} down • {heroStats[2].value} degraded
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={1}>
+                <Text fontSize="xs" color={mutedText} mt={1} noOfLines={1}>
                   Down: {topDownServices.length ? topDownServices.join(", ") : "none"}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={1}>
+                <Text fontSize="xs" color={mutedText} mt={1} noOfLines={1}>
                   Degraded: {topDegradedServices.length ? topDegradedServices.join(", ") : "none"}
                 </Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy Services</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Healthy Services</Text>
                 <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1].value}/{heroStats[0].value}</Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Open service domains</Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={1}>
+                <Text fontSize="xs" color={mutedText} mt={1}>Open service domains</Text>
+                <Text fontSize="xs" color={mutedText} mt={1} noOfLines={1}>
                   Down: {topDownServices.length ? topDownServices.join(", ") : "none"}
                 </Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>VPS Pressure</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>VPS Pressure</Text>
                 <Text fontSize="2xl" fontWeight="800" color={pressureTone(vpsHealth.hostMemoryPct) === "red" ? "red.300" : pressureTone(vpsHealth.hostMemoryPct) === "yellow" ? "yellow.300" : "cyan.200"}>
                   {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
                 </Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Host memory usage</Text>
+                <Text fontSize="xs" color={mutedText} mt={1}>Host memory usage</Text>
               </Box>
-              <Box p={4} borderRadius="16px" bg="rgba(255,255,255,0.04)" border="1px solid rgba(255,255,255,0.08)" cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
-                <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Open Events</Text>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
+                <Text fontSize="xs" color={mutedText} mb={1}>Open Events</Text>
                 <Text fontSize="2xl" fontWeight="800" color={managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>{managementMetrics.openEvents}</Text>
-                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>Incident queue</Text>
+                <Text fontSize="xs" color={mutedText} mt={1}>Incident queue</Text>
               </Box>
             </SimpleGrid>
             <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
@@ -2550,8 +2587,8 @@ export default function CtoDashboardPage({
                   key={system.label}
                   p={4}
                   borderRadius="16px"
-                  bg="rgba(255,255,255,0.04)"
-                  border="1px solid rgba(255,255,255,0.08)"
+                  bg={cardBg}
+                  border={panelBorder}
                   cursor={system.primaryServiceKey ? "pointer" : "default"}
                   onClick={() => {
                     if (!system.primaryServiceKey) return;
@@ -2564,7 +2601,7 @@ export default function CtoDashboardPage({
                     <StatusChip status={system.statusText} color={statusColor(system.status)} />
                   </HStack>
                   <Text fontWeight="700">{system.label}</Text>
-                  <Text fontSize="xs" color="whiteAlpha.700" mt={1} noOfLines={2}>
+                  <Text fontSize="xs" color={mutedText} mt={1} noOfLines={2}>
                     {system.message || "No message"}
                   </Text>
                 </Box>
@@ -2593,8 +2630,8 @@ export default function CtoDashboardPage({
               <Box
                 p={5}
                 borderRadius="24px"
-                bg="rgba(255,255,255,0.06)"
-                border="1px solid rgba(255,255,255,0.08)"
+                bg={panelBg}
+                border={panelBorder}
                 backdropFilter="blur(16px)"
                 boxShadow="0 24px 60px rgba(0,0,0,0.18)"
                 cursor="pointer"
@@ -2606,13 +2643,13 @@ export default function CtoDashboardPage({
                   setSelectedServiceKey("");
                 }}
               >
-                <Text fontSize="sm" color="whiteAlpha.700" mb={3}>
+                <Text fontSize="sm" color={mutedText} mb={3}>
                   {stat.label}
                 </Text>
                 <Text fontSize="4xl" fontWeight="800" color={stat.tone} lineHeight="1">
                   {stat.value}
                 </Text>
-                <Text mt={3} fontSize="sm" color="whiteAlpha.800">
+                <Text mt={3} fontSize="sm" color={softText}>
                   {stat.note}
                 </Text>
               </Box>
@@ -2630,12 +2667,12 @@ export default function CtoDashboardPage({
             <Text fontSize="sm" color="yellow.200" fontWeight="700">
               {staleServiceCount} stale service{staleServiceCount > 1 ? "s are" : " is"} excluded from the tiles (older than 10 minutes).
             </Text>
-            <Text fontSize="xs" color="whiteAlpha.800" mt={1}>
+            <Text fontSize="xs" color={softText} mt={1}>
               If this spikes, check collector ingest/network path. Fresh tiles can look healthy while stale services are hidden.
             </Text>
           </Box>
         )}
-        <Text fontSize="xs" color="whiteAlpha.600" mb={6}>
+        <Text fontSize="xs" color={faintText} mb={6}>
           Note: PM2 restart-based degrade/down uses rolling 24h restart counts. For one-shot scheduled jobs, stopped state is treated healthy if last successful run was within 24h.
         </Text>
 
@@ -2643,14 +2680,14 @@ export default function CtoDashboardPage({
           ref={trendsSectionRef}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
-          bg="rgba(255,255,255,0.05)"
-          border="1px solid rgba(255,255,255,0.08)"
+          bg={panelBg}
+          border={panelBorder}
           mb={5}
         >
           <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
             <Box>
               <Heading size="md" mb={1}>Service Trends</Heading>
-              <Text color="whiteAlpha.700">Compact reliability trend over time.</Text>
+              <Text color={mutedText}>Compact reliability trend over time.</Text>
             </Box>
             <HStack spacing={2}>
               <Select
@@ -2658,9 +2695,9 @@ export default function CtoDashboardPage({
                 value={trendRange}
                 onChange={(e) => setTrendRange(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.88)"
+                bg={selectBg}
                 borderColor="rgba(255,255,255,0.18)"
-                color="whiteAlpha.900"
+                color={strongText}
                 sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
                 {TREND_RANGE_OPTIONS.map((option) => (
@@ -2679,34 +2716,34 @@ export default function CtoDashboardPage({
           )}
 
           <SimpleGrid columns={{ base: 2, md: 3, xl: 6 }} spacing={3} mb={4}>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total checks</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Total checks</Text>
               <Text fontWeight="700">{trendData?.summary?.total_checks ?? 0}</Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Healthy rate</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Healthy rate</Text>
               <Text fontWeight="700">
                 {typeof trendData?.summary?.healthy_rate === "number" ? `${Math.round(trendData.summary.healthy_rate * 100)}%` : "n/a"}
               </Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Down rate</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Down rate</Text>
               <Text fontWeight="700">
                 {typeof trendData?.summary?.down_rate === "number" ? `${Math.round(trendData.summary.down_rate * 100)}%` : "n/a"}
               </Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Avg latency</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Avg latency</Text>
               <Text fontWeight="700">
                 {typeof trendData?.summary?.avg_latency_ms === "number" ? `${Math.round(trendData.summary.avg_latency_ms)} ms` : "n/a"}
               </Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Digest rows</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Digest rows</Text>
               <Text fontWeight="700">{Number(trendSource?.digest_rows || 0)}</Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Raw rows</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Raw rows</Text>
               <Text fontWeight="700">{Number(trendSource?.raw_rows || 0)}</Text>
             </Box>
           </SimpleGrid>
@@ -2741,7 +2778,7 @@ export default function CtoDashboardPage({
             </Badge>
           </HStack>
           {!trendWow.hasData && trendWow.reason && (
-            <Text fontSize="xs" color="whiteAlpha.700" mb={4}>
+            <Text fontSize="xs" color={mutedText} mb={4}>
               WoW unavailable: {trendWow.reason}
             </Text>
           )}
@@ -2750,21 +2787,21 @@ export default function CtoDashboardPage({
               <Text fontSize="xs" color="yellow.200">
                 Daily digest is empty. Long-range trends rely mostly on compacted daily digest data.
               </Text>
-              <Text fontSize="xs" color="whiteAlpha.800" mt={1}>
+              <Text fontSize="xs" color={softText} mt={1}>
                 Raw rows in this range: {Number(trendSource?.raw_rows || 0)}. This usually means CTO compaction has not run yet for selected days.
               </Text>
-              <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+              <Text fontSize="xs" color={mutedText} mt={1}>
                 Expected pipeline: collector ingest → `/api/cto/compact` daily compaction (token-auth) → digest-backed trends.
               </Text>
             </Box>
           )}
 
           {trendLoading && (
-            <Text fontSize="sm" color="whiteAlpha.700">Loading trends...</Text>
+            <Text fontSize="sm" color={mutedText}>Loading trends...</Text>
           )}
 
           {!trendLoading && trendPoints.length === 0 && trendComparePoints.length === 0 && (
-            <Text fontSize="sm" color="whiteAlpha.700">No historical points yet. Run digest once data is ingested.</Text>
+            <Text fontSize="sm" color={mutedText}>No historical points yet. Run digest once data is ingested.</Text>
           )}
 
           {!trendLoading && (trendPoints.length > 0 || trendComparePoints.length > 0) && (
@@ -2790,7 +2827,7 @@ export default function CtoDashboardPage({
                 }
               ]
                 .map((item) => (
-                  <Box key={item.key} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+                  <Box key={item.key} borderRadius="16px" bg={innerBg} p={3} border={panelBorder}>
                     {(() => {
                       const uptime = computeChartUptimeDowntime(item.model?.points || [], !item.selectedServiceKey);
                       return (
@@ -2807,7 +2844,7 @@ export default function CtoDashboardPage({
                     <HStack spacing={3} mb={2} justify="space-between" align="center" flexWrap="wrap">
                       <HStack spacing={2}>
                         <Box w={3} h={3} borderRadius="full" bg="#34d399" />
-                        <Text fontSize="xs" color="whiteAlpha.900" fontWeight="700">
+                        <Text fontSize="xs" color={strongText} fontWeight="700">
                           {item.label}
                         </Text>
                       </HStack>
@@ -2816,7 +2853,7 @@ export default function CtoDashboardPage({
                         value={item.selectedServiceKey}
                         onChange={(e) => item.onChange(e.target.value)}
                         maxW={{ base: "100%", md: "280px" }}
-                        bg="rgba(11, 19, 32, 0.72)"
+                        bg={selectBg}
                         borderColor="rgba(255,255,255,0.18)"
                       >
                         <option value="">{item.allLabel}</option>
@@ -2864,12 +2901,12 @@ export default function CtoDashboardPage({
                     </svg>
 
                     {!item.model.hasPath && (
-                      <Text mt={2} fontSize="xs" color="whiteAlpha.700">
+                      <Text mt={2} fontSize="xs" color={mutedText}>
                         Trend line unavailable for this selection and range.
                       </Text>
                     )}
 
-                    <HStack justify="space-between" mt={2} color="whiteAlpha.700" fontSize="xs">
+                    <HStack justify="space-between" mt={2} color={mutedText} fontSize="xs">
                       <Text noOfLines={1} maxW="32%">{item.model.xLabels.start}</Text>
                       <Text noOfLines={1} maxW="32%" textAlign="center">{item.model.xLabels.mid}</Text>
                       <Text noOfLines={1} maxW="32%" textAlign="right">{item.model.xLabels.end}</Text>
@@ -2886,7 +2923,7 @@ export default function CtoDashboardPage({
           mb={8}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
-          bg="rgba(8,15,28,0.82)"
+          bg={panelBg}
           border="1px solid rgba(56, 189, 248, 0.24)"
           boxShadow="0 28px 80px rgba(0,0,0,0.22)"
         >
@@ -2900,12 +2937,12 @@ export default function CtoDashboardPage({
                   size="xs"
                   variant="outline"
                   borderColor="rgba(255,255,255,0.28)"
-                  color="whiteAlpha.900"
+                  color={strongText}
                   _hover={{ bg: "whiteAlpha.120" }}
                   onClick={() => setShowVpsRunbook((prev) => !prev)}
                 />
               </HStack>
-              <Text color="whiteAlpha.700" fontSize="sm">
+              <Text color={mutedText} fontSize="sm">
                 Fast triage view for memory and host pressure across VPS services.
               </Text>
             </Box>
@@ -2919,7 +2956,7 @@ export default function CtoDashboardPage({
               <HStack
                 spacing={1}
                 mr={{ base: 0, md: 1 }}
-                bg="rgba(255,255,255,0.06)"
+                bg={panelBg}
                 p={1}
                 borderRadius="full"
                 overflowX="auto"
@@ -2953,9 +2990,9 @@ export default function CtoDashboardPage({
           </Flex>
 
           {!trendLoading && vpsHostTrendPoints.length > 0 && (
-            <Box mt={4} borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+            <Box mt={4} borderRadius="16px" bg={innerBg} p={3} border={panelBorder}>
               <HStack spacing={3} mb={3} justify="space-between" align="center" flexWrap="wrap">
-                <Text fontSize="sm" color="whiteAlpha.900" fontWeight="700">
+                <Text fontSize="sm" color={strongText} fontWeight="700">
                   {vpsComparisonNodes.length > 1
                     ? `VPS Host Pressure Trend (${vpsComparisonNodes.map((node) => node.toUpperCase()).join(" vs ")})`
                     : `${selectedVpsNode.toUpperCase()} Host Pressure Trend`}
@@ -2968,8 +3005,8 @@ export default function CtoDashboardPage({
                       px={2}
                       py={1}
                       borderRadius="999px"
-                      bg="rgba(255,255,255,0.05)"
-                      border="1px solid rgba(255,255,255,0.12)"
+                      bg={panelBg}
+                      border={panelBorder}
                     >
                       <Box as="svg" width="18" height="8" viewBox="0 0 18 8" role="img" aria-label={index === 0 ? "solid line" : "dashed line"}>
                         <line
@@ -2983,18 +3020,18 @@ export default function CtoDashboardPage({
                           strokeLinecap="round"
                         />
                       </Box>
-                      <Text fontSize="10px" color="whiteAlpha.900">{node.toUpperCase()}</Text>
+                      <Text fontSize="10px" color={strongText}>{node.toUpperCase()}</Text>
                     </HStack>
                   ))}
                   {vpsComparisonNodes.length > 1 && (
-                    <Text fontSize="10px" color="whiteAlpha.600" px={1}>
+                    <Text fontSize="10px" color={faintText} px={1}>
                       Solid = {vpsComparisonNodes[0]?.toUpperCase()} | Dashed = {vpsComparisonNodes[1]?.toUpperCase()}
                     </Text>
                   )}
                   {vpsHostCompactMetrics.map((item) => (
-                    <Box key={item.key} px={2.5} py={1.5} borderRadius="10px" bg="rgba(255,255,255,0.05)" border="1px solid rgba(255,255,255,0.12)">
-                      <Text fontSize="10px" color="whiteAlpha.700" lineHeight="1.1">{item.label}</Text>
-                      <Text fontSize="sm" color="whiteAlpha.950" fontWeight="700" lineHeight="1.1">{item.value}</Text>
+                    <Box key={item.key} px={2.5} py={1.5} borderRadius="10px" bg={panelBg} border={panelBorder}>
+                      <Text fontSize="10px" color={mutedText} lineHeight="1.1">{item.label}</Text>
+                      <Text fontSize="sm" color={strongText} fontWeight="700" lineHeight="1.1">{item.value}</Text>
                     </Box>
                   ))}
                   <Button
@@ -3044,18 +3081,18 @@ export default function CtoDashboardPage({
                     compareModel: vpsComparisonNodes[1] ? vpsHostMetricModelsByNode?.[vpsComparisonNodes[1]]?.load : null
                   }
                 ].map((metric) => (
-                  <Box key={metric.label} p={3} borderRadius="12px" border="1px solid rgba(255,255,255,0.08)" bg="rgba(255,255,255,0.02)">
+                  <Box key={metric.label} p={3} borderRadius="12px" border={panelBorder} bg={cardBg}>
                     <HStack justify="space-between" mb={2} align="flex-start">
-                      <Text fontSize="xs" color="whiteAlpha.800">{metric.label}</Text>
+                      <Text fontSize="xs" color={softText}>{metric.label}</Text>
                       <VStack spacing={0} align="flex-end">
-                        <Text fontSize="xs" color="whiteAlpha.900" fontWeight="700" lineHeight="1.1">
+                        <Text fontSize="xs" color={strongText} fontWeight="700" lineHeight="1.1">
                           {(() => {
                             const hovered = hostMetricHover[metric.label];
                             const point = Number.isFinite(hovered?.value) ? hovered : metric.model.latestPoint;
                             return Number.isFinite(point?.value) ? `${point.value.toFixed(1)}%` : "n/a";
                           })()}
                         </Text>
-                        <Text fontSize="10px" color="whiteAlpha.600" lineHeight="1.1">
+                        <Text fontSize="10px" color={faintText} lineHeight="1.1">
                           {(() => {
                             const hovered = hostMetricHover[metric.label];
                             const point = Number.isFinite(hovered?.value) ? hovered : metric.model.latestPoint;
@@ -3127,7 +3164,7 @@ export default function CtoDashboardPage({
                         <circle cx={metric.model.width / 2} cy={metric.model.singlePointY} r="3.5" fill={metric.color} />
                       )}
                     </svg>
-                    <HStack justify="space-between" mt={1} color="whiteAlpha.650" fontSize="xs">
+                    <HStack justify="space-between" mt={1} color={faintText} fontSize="xs">
                       <Text noOfLines={1}>{metric.model.xLabels.start}</Text>
                       <Text noOfLines={1} textAlign="right">{metric.model.xLabels.end}</Text>
                     </HStack>
@@ -3138,10 +3175,10 @@ export default function CtoDashboardPage({
           )}
           {!trendLoading && vpsHostTrendPoints.length === 0 && (
             <Box mt={4} borderRadius="12px" bg="rgba(9,15,26,0.35)" p={3} border="1px dashed rgba(255,255,255,0.16)">
-              <Text fontSize="sm" color="whiteAlpha.800">
+              <Text fontSize="sm" color={softText}>
                 VPS host pressure trend is unavailable for the selected range.
               </Text>
-              <Text fontSize="xs" color="whiteAlpha.600" mt={1}>
+              <Text fontSize="xs" color={faintText} mt={1}>
                 Waiting for recent VPS host samples in CTO logs.
               </Text>
             </Box>
@@ -3162,7 +3199,7 @@ export default function CtoDashboardPage({
                   {system.label}: {system.status}
                 </Badge>
               ))}
-            <Text fontSize="xs" color="whiteAlpha.650">
+            <Text fontSize="xs" color={faintText}>
               If these turn degraded/down with high memory or disk pressure, start incident triage from VPS first.
             </Text>
           </HStack>
@@ -3179,10 +3216,10 @@ export default function CtoDashboardPage({
                 Incident First Steps {hasVpsIncident ? "(Auto-opened)" : ""}
               </Text>
               <VStack align="flex-start" spacing={1.5}>
-                <Text fontSize="sm" color="whiteAlpha.900">1. Check <b>Supabase</b> and <b>Labit</b> badges above. If either is down/degraded, start there.</Text>
-                <Text fontSize="sm" color="whiteAlpha.900">2. If Host Memory or Disk is high, reduce load first, then restart only the affected service.</Text>
-                <Text fontSize="sm" color="whiteAlpha.900">3. Open Service Detail for the worst service and read latest message + payload before taking action.</Text>
-                <Text fontSize="sm" color="whiteAlpha.900">4. If issue persists for 5+ minutes, escalate with timestamp and affected services.</Text>
+                <Text fontSize="sm" color={strongText}>1. Check <b>Supabase</b> and <b>Labit</b> badges above. If either is down/degraded, start there.</Text>
+                <Text fontSize="sm" color={strongText}>2. If Host Memory or Disk is high, reduce load first, then restart only the affected service.</Text>
+                <Text fontSize="sm" color={strongText}>3. Open Service Detail for the worst service and read latest message + payload before taking action.</Text>
+                <Text fontSize="sm" color={strongText}>4. If issue persists for 5+ minutes, escalate with timestamp and affected services.</Text>
               </VStack>
             </Box>
           )}
@@ -3206,7 +3243,7 @@ export default function CtoDashboardPage({
               p={{ base: 4, md: 5 }}
               borderRadius="24px"
               bg="linear-gradient(180deg, rgba(26,37,55,0.96) 0%, rgba(13,23,38,0.98) 100%)"
-              border="1px solid rgba(255,255,255,0.08)"
+              border={panelBorder}
             >
               <HStack justify="space-between" mb={2} flexWrap="wrap">
                 <Heading size="sm">Priority Issues</Heading>
@@ -3214,7 +3251,7 @@ export default function CtoDashboardPage({
                   {incidentFeed.length ? `${incidentFeed.length} active` : "No active issue"}
                 </Badge>
               </HStack>
-              <Text color="whiteAlpha.700" mb={3} fontSize="sm">
+              <Text color={mutedText} mb={3} fontSize="sm">
                 Quick attention strip. Click an item to inspect details.
               </Text>
 
@@ -3222,10 +3259,10 @@ export default function CtoDashboardPage({
                 <Box
                   p={3}
                   borderRadius="16px"
-                  bg="rgba(255,255,255,0.04)"
-                  border="1px solid rgba(255,255,255,0.08)"
+                  bg={cardBg}
+                  border={panelBorder}
                 >
-                  <Text fontSize="sm" color="whiteAlpha.760">No active degraded or down services.</Text>
+                  <Text fontSize="sm" color={softText}>No active degraded or down services.</Text>
                 </Box>
               )}
 
@@ -3256,12 +3293,12 @@ export default function CtoDashboardPage({
                           status={incident.status}
                           color={statusColor(incident.status)}
                         />
-                        <Text fontSize="xs" color="whiteAlpha.600">
+                        <Text fontSize="xs" color={faintText}>
                           {incident.category || "other"}
                         </Text>
                       </HStack>
                       <Text fontWeight="700" mb={1} noOfLines={1}>{incident.label || incident.service_key}</Text>
-                      <Text fontSize="sm" color="whiteAlpha.760" noOfLines={2}>
+                      <Text fontSize="sm" color={softText} noOfLines={2}>
                         {incident.message || "Service needs review."}
                       </Text>
                     </Box>
@@ -3275,8 +3312,8 @@ export default function CtoDashboardPage({
             <Box
               p={{ base: 4, md: 5 }}
               borderRadius="24px"
-              bg="rgba(255,255,255,0.04)"
-              border="1px solid rgba(255,255,255,0.08)"
+              bg={cardBg}
+              border={panelBorder}
               mb={4}
             >
               <HStack justify="space-between" mb={3} flexWrap="wrap">
@@ -3287,7 +3324,7 @@ export default function CtoDashboardPage({
                     value={pm2SelectedApp}
                     onChange={(event) => setPm2SelectedApp(event.target.value)}
                     maxW="240px"
-                    bg="rgba(255,255,255,0.06)"
+                    bg={panelBg}
                     borderColor="whiteAlpha.300"
                   >
                     {pm2Apps.map((app) => (
@@ -3309,12 +3346,12 @@ export default function CtoDashboardPage({
                 p={3}
                 borderRadius="12px"
                 bg="rgba(5,10,20,0.9)"
-                border="1px solid rgba(255,255,255,0.08)"
+                border={panelBorder}
                 maxH="280px"
                 overflowY="auto"
               >
                 {pm2Loading && (
-                  <Text fontSize="11px" color="whiteAlpha.800">Loading logs...</Text>
+                  <Text fontSize="11px" color={softText}>Loading logs...</Text>
                 )}
                 {!pm2Loading && pm2LogEntries.length > 0 && (
                   <VStack align="stretch" spacing={1}>
@@ -3326,7 +3363,7 @@ export default function CtoDashboardPage({
                         <Text fontSize="10px" color={String(entry?.level || "").toUpperCase() === "ERROR" ? "red.300" : String(entry?.level || "").toUpperCase() === "WARNING" ? "yellow.300" : "whiteAlpha.600"} minW="56px">
                           {String(entry?.level || "INFO").toUpperCase()}
                         </Text>
-                        <Text fontSize="11px" color="whiteAlpha.900" whiteSpace="pre-wrap" flex="1">
+                        <Text fontSize="11px" color={strongText} whiteSpace="pre-wrap" flex="1">
                           {entry?.message || ""}
                         </Text>
                       </HStack>
@@ -3340,7 +3377,7 @@ export default function CtoDashboardPage({
                     fontSize="11px"
                     lineHeight="1.45"
                     whiteSpace="pre-wrap"
-                    color="whiteAlpha.900"
+                    color={strongText}
                   >
                     {pm2LogText || "No log output."}
                   </Text>
@@ -3351,14 +3388,14 @@ export default function CtoDashboardPage({
               ref={operationalSectionRef}
               p={{ base: 5, md: 6 }}
               borderRadius="28px"
-              bg="rgba(8,15,28,0.82)"
+              bg={panelBg}
               border="1px solid rgba(126, 244, 215, 0.16)"
               boxShadow="0 28px 80px rgba(0,0,0,0.22)"
             >
               <Flex justify="space-between" align="center" mb={5}>
                 <Box>
                   <Heading size="md" mb={1}>Operational Domains</Heading>
-                  <Text color="whiteAlpha.700">
+                  <Text color={mutedText}>
                     {activeStatusFilter ? `Showing ${activeStatusFilter} services` : "Showing all monitored services"}
                   </Text>
                 </Box>
@@ -3367,7 +3404,7 @@ export default function CtoDashboardPage({
                     <Button
                       size="xs"
                       variant="ghost"
-                      color="whiteAlpha.800"
+                      color={softText}
                       _hover={{ bg: "whiteAlpha.120" }}
                       onClick={() => {
                         setActiveStatusFilter("");
@@ -3388,10 +3425,10 @@ export default function CtoDashboardPage({
                   <Box
                     p={4}
                     borderRadius="22px"
-                    bg="rgba(255,255,255,0.04)"
-                    border="1px solid rgba(255,255,255,0.08)"
+                    bg={cardBg}
+                    border={panelBorder}
                   >
-                    <Text fontSize="sm" color="whiteAlpha.760">
+                    <Text fontSize="sm" color={softText}>
                       No monitoring data has been ingested yet.
                     </Text>
                   </Box>
@@ -3401,8 +3438,8 @@ export default function CtoDashboardPage({
                     key={domain.title}
                     p={4}
                     borderRadius="22px"
-                    bg="rgba(255,255,255,0.04)"
-                    border="1px solid rgba(255,255,255,0.08)"
+                    bg={cardBg}
+                    border={panelBorder}
                   >
                     {(() => {
                       const summary = summarizeGroupStatus(domain);
@@ -3415,7 +3452,7 @@ export default function CtoDashboardPage({
                             </HStack>
                             <StatusChip status={summary.text} color={summary.color} />
                           </HStack>
-                          <Text fontSize="xs" color="whiteAlpha.600" mb={3}>
+                          <Text fontSize="xs" color={faintText} mb={3}>
                             {summary.detail}
                           </Text>
                         </>
@@ -3498,7 +3535,7 @@ export default function CtoDashboardPage({
                                   ))}
                                 </Box>
                               ) : (
-                                <Text fontSize="xs" color="whiteAlpha.700" flexShrink={0} whiteSpace="nowrap">
+                                <Text fontSize="xs" color={mutedText} flexShrink={0} whiteSpace="nowrap">
                                   {typeof service.latency_ms === "number" ? `${service.latency_ms} ms` : "n/a"}
                                 </Text>
                               )}
@@ -3506,7 +3543,7 @@ export default function CtoDashboardPage({
                                 size="xs"
                                 variant="outline"
                                 borderColor="rgba(255,255,255,0.24)"
-                                color="whiteAlpha.900"
+                                color={strongText}
                                 _hover={{ bg: "whiteAlpha.120" }}
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -3533,17 +3570,17 @@ export default function CtoDashboardPage({
               ref={detailSectionRef}
               p={{ base: 5, md: 6 }}
               borderRadius="28px"
-              bg="rgba(255,255,255,0.05)"
-              border="1px solid rgba(255,255,255,0.08)"
+              bg={panelBg}
+              border={panelBorder}
             >
               <Heading size="md" mb={1}>Latency Watchlist</Heading>
-              <Text color="whiteAlpha.700" mb={6}>
+              <Text color={mutedText} mb={6}>
                 Slowest responding services from the latest collector run.
               </Text>
 
               <Stack spacing={5}>
                 {topLatency.length === 0 && !loading && (
-                  <Text fontSize="sm" color="whiteAlpha.760">No latency data yet.</Text>
+                  <Text fontSize="sm" color={softText}>No latency data yet.</Text>
                 )}
                 {topLatency.map((item) => (
                   <Box
@@ -3558,16 +3595,16 @@ export default function CtoDashboardPage({
                   >
                     <Flex justify="space-between" align="center" mb={2}>
                       <Text fontWeight="600">{item.label || item.service_key}</Text>
-                      <Text color="whiteAlpha.700">{item.latency_ms} ms</Text>
+                      <Text color={mutedText}>{item.latency_ms} ms</Text>
                     </Flex>
                     <Progress
                       value={Math.min(100, Math.round(((item.latency_ms || 0) / 3000) * 100))}
                       colorScheme={item.status === "down" ? "red" : item.status === "degraded" ? "yellow" : "green"}
                       borderRadius="full"
-                      bg="whiteAlpha.200"
+                      bg={progressTrackBg}
                       size="sm"
                     />
-                    <Text mt={2} fontSize="sm" color="whiteAlpha.700">
+                    <Text mt={2} fontSize="sm" color={mutedText}>
                       {item.message || "No detail"}
                     </Text>
                   </Box>
@@ -3580,29 +3617,29 @@ export default function CtoDashboardPage({
             <Box
               p={{ base: 5, md: 6 }}
               borderRadius="28px"
-              bg="rgba(255,255,255,0.05)"
-              border="1px solid rgba(255,255,255,0.08)"
+              bg={panelBg}
+              border={panelBorder}
               h="100%"
             >
               <Heading size="md" mb={1}>Service Detail</Heading>
-              <Text color="whiteAlpha.700" mb={5}>
+              <Text color={mutedText} mb={5}>
                 Latest detail for the selected service.
               </Text>
 
               {selectedService ? (
                 <Stack spacing={4}>
-                  <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
+                  <Box p={4} borderRadius="18px" bg={innerBg}>
                     <HStack justify="space-between" mb={3}>
                       <Text fontWeight="700">{selectedService.label || selectedService.service_key}</Text>
                       <StatusChip status={selectedService.status} color={statusColor(selectedService.status)} />
                     </HStack>
                     <SimpleGrid columns={2} spacing={3}>
                       <Box>
-                        <Text fontSize="xs" color="whiteAlpha.600" mb={1}>Category</Text>
+                        <Text fontSize="xs" color={faintText} mb={1}>Category</Text>
                         <Text fontSize="sm">{selectedService.category || "other"}</Text>
                       </Box>
                       <Box>
-                        <Text fontSize="xs" color="whiteAlpha.600" mb={1}>Latency</Text>
+                        <Text fontSize="xs" color={faintText} mb={1}>Latency</Text>
                         <Text fontSize="sm">
                           {isWhatsappMetric(selectedService)
                             ? (selectedService.payload?.last_bot_message_ist || selectedService.payload?.last_bot_report_sent_ist || "n/a")
@@ -3612,32 +3649,32 @@ export default function CtoDashboardPage({
                         </Text>
                       </Box>
                       <Box>
-                        <Text fontSize="xs" color="whiteAlpha.600" mb={1}>Checked</Text>
+                        <Text fontSize="xs" color={faintText} mb={1}>Checked</Text>
                         <Text fontSize="sm">
                           {selectedService.checked_at ? new Date(selectedService.checked_at).toLocaleString() : "n/a"}
                         </Text>
                       </Box>
                       <Box>
-                        <Text fontSize="xs" color="whiteAlpha.600" mb={1}>Source</Text>
+                        <Text fontSize="xs" color={faintText} mb={1}>Source</Text>
                         <Text fontSize="sm">{selectedService.source || latest.source || "n/a"}</Text>
                       </Box>
                     </SimpleGrid>
                   </Box>
 
-                  <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
-                    <Text fontSize="xs" color="whiteAlpha.600" mb={2}>Latest message</Text>
-                    <Text fontSize="sm" color="whiteAlpha.860">
+                  <Box p={4} borderRadius="18px" bg={innerBg}>
+                    <Text fontSize="xs" color={faintText} mb={2}>Latest message</Text>
+                    <Text fontSize="sm" color={softText}>
                       {selectedService.message || "No detail available for this service."}
                     </Text>
                   </Box>
 
                   {selectedIssueSamples.length > 0 && (
-                    <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
+                    <Box p={4} borderRadius="18px" bg={innerBg}>
                       <HStack justify="space-between" mb={3}>
-                        <Text fontSize="xs" color="whiteAlpha.600">
+                        <Text fontSize="xs" color={faintText}>
                           SLA Issue Samples (Last 1h)
                         </Text>
-                        <Text fontSize="xs" color="whiteAlpha.700">
+                        <Text fontSize="xs" color={mutedText}>
                           Showing {selectedIssueSamples.length}
                         </Text>
                       </HStack>
@@ -3647,8 +3684,8 @@ export default function CtoDashboardPage({
                             key={`${sample?.phone || "unknown"}-${sample?.inbound_ist || "na"}-${sample?.outbound_ist || "na"}-${index}`}
                             p={2.5}
                             borderRadius="12px"
-                            bg="rgba(255,255,255,0.03)"
-                            border="1px solid rgba(255,255,255,0.08)"
+                            bg={cardBg}
+                            border={panelBorder}
                           >
                             <HStack justify="space-between" align="start" spacing={3}>
                               <VStack align="start" spacing={0}>
@@ -3664,19 +3701,19 @@ export default function CtoDashboardPage({
                                       {sample.phone}
                                     </Link>
                                   ) : (
-                                    <Text fontSize="xs" color="whiteAlpha.800">Unknown phone</Text>
+                                    <Text fontSize="xs" color={softText}>Unknown phone</Text>
                                   )}
                                 </HStack>
-                                <Text fontSize="xs" color="whiteAlpha.700" mt={1}>
+                                <Text fontSize="xs" color={mutedText} mt={1}>
                                   Inbound: {sample?.inbound_ist || "n/a"}{sample?.outbound_ist ? ` • Outbound: ${sample.outbound_ist}` : ""}
                                 </Text>
-                                <Text fontSize="xs" color="whiteAlpha.700">
+                                <Text fontSize="xs" color={mutedText}>
                                   Delay: {Number.isFinite(sample?.response_delay_seconds) ? `${sample.response_delay_seconds}s` : "No reply in window"}
                                 </Text>
                               </VStack>
                             </HStack>
                             {sample?.inbound_text && (
-                              <Text fontSize="xs" color="whiteAlpha.800" mt={2} noOfLines={2}>
+                              <Text fontSize="xs" color={softText} mt={2} noOfLines={2}>
                                 "{sample.inbound_text}"
                               </Text>
                             )}
@@ -3686,16 +3723,16 @@ export default function CtoDashboardPage({
                     </Box>
                   )}
 
-                  <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
-                    <Text fontSize="xs" color="whiteAlpha.600" mb={3}>Payload</Text>
+                  <Box p={4} borderRadius="18px" bg={innerBg}>
+                    <Text fontSize="xs" color={faintText} mb={3}>Payload</Text>
                     <Stack spacing={2}>
                       {selectedPayloadEntries.length === 0 && (
-                        <Text fontSize="sm" color="whiteAlpha.700">No payload metadata returned.</Text>
+                        <Text fontSize="sm" color={mutedText}>No payload metadata returned.</Text>
                       )}
                       {selectedPayloadEntries.map(([key, value]) => (
                         <Flex key={key} justify="space-between" gap={4}>
-                          <Text fontSize="sm" color="whiteAlpha.700">{key}</Text>
-                          <Text fontSize="sm" color="whiteAlpha.900" textAlign="right" noOfLines={2}>
+                          <Text fontSize="sm" color={mutedText}>{key}</Text>
+                          <Text fontSize="sm" color={strongText} textAlign="right" noOfLines={2}>
                             {formatPayloadValue(key, value)}
                           </Text>
                         </Flex>
@@ -3704,8 +3741,8 @@ export default function CtoDashboardPage({
                   </Box>
                 </Stack>
               ) : (
-                <Box p={4} borderRadius="18px" bg="rgba(10, 18, 30, 0.55)">
-                  <Text fontSize="sm" color="whiteAlpha.760">Select a service to inspect its latest status and payload.</Text>
+                <Box p={4} borderRadius="18px" bg={innerBg}>
+                  <Text fontSize="sm" color={softText}>Select a service to inspect its latest status and payload.</Text>
                 </Box>
               )}
             </Box>
@@ -3716,14 +3753,14 @@ export default function CtoDashboardPage({
           ref={feedbackSectionRef}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
-          bg="rgba(255,255,255,0.05)"
-          border="1px solid rgba(255,255,255,0.08)"
+          bg={panelBg}
+          border={panelBorder}
           mb={5}
         >
           <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
             <Box>
               <Heading size="md" mb={1}>Feedback Insights</Heading>
-              <Text color="whiteAlpha.700">Patient satisfaction trends by period.</Text>
+              <Text color={mutedText}>Patient satisfaction trends by period.</Text>
             </Box>
             <HStack spacing={2}>
               <Select
@@ -3731,7 +3768,7 @@ export default function CtoDashboardPage({
                 value={feedbackPeriod}
                 onChange={(e) => setFeedbackPeriod(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.72)"
+                bg={selectBg}
                 borderColor="rgba(255,255,255,0.18)"
               >
                 <option value="day">Day</option>
@@ -3748,24 +3785,24 @@ export default function CtoDashboardPage({
           )}
 
           <SimpleGrid columns={{ base: 1, md: 4 }} spacing={3} mb={4}>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Total feedback</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Total feedback</Text>
               <Text fontWeight="700">{feedbackData?.summary?.total_feedback ?? 0}</Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Avg rating</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Avg rating</Text>
               <Text fontWeight="700">
                 {typeof feedbackData?.summary?.avg_rating === "number" ? `${feedbackData.summary.avg_rating}/5` : "n/a"}
               </Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Positive rate (4-5)</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Positive rate (4-5)</Text>
               <Text fontWeight="700">
                 {typeof feedbackData?.summary?.positive_rate === "number" ? `${Math.round(feedbackData.summary.positive_rate * 100)}%` : "n/a"}
               </Text>
             </Box>
-            <Box p={3} borderRadius="14px" bg="rgba(255,255,255,0.04)">
-              <Text fontSize="xs" color="whiteAlpha.700" mb={1}>Negative rate (1-2)</Text>
+            <Box p={3} borderRadius="14px" bg={cardBg}>
+              <Text fontSize="xs" color={mutedText} mb={1}>Negative rate (1-2)</Text>
               <Text fontWeight="700">
                 {typeof feedbackData?.summary?.negative_rate === "number" ? `${Math.round(feedbackData.summary.negative_rate * 100)}%` : "n/a"}
               </Text>
@@ -3773,12 +3810,12 @@ export default function CtoDashboardPage({
           </SimpleGrid>
 
           {feedbackLoading && (
-            <Text fontSize="sm" color="whiteAlpha.700">Loading feedback analytics...</Text>
+            <Text fontSize="sm" color={mutedText}>Loading feedback analytics...</Text>
           )}
 
           {!feedbackLoading && (
             <Grid templateColumns={{ base: "1fr", lg: "1.2fr 1fr" }} gap={4}>
-              <Box borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
+              <Box borderRadius="16px" bg={innerBg} p={3} border={panelBorder}>
                 <HStack spacing={2} mb={3} flexWrap="wrap">
                   {(feedbackData?.categories || []).map((category) => (
                     <Button
@@ -3792,13 +3829,13 @@ export default function CtoDashboardPage({
                     </Button>
                   ))}
                 </HStack>
-                <Text fontSize="sm" mb={3} color="whiteAlpha.900" fontWeight="600">Trend by {feedbackPeriod}</Text>
+                <Text fontSize="sm" mb={3} color={strongText} fontWeight="600">Trend by {feedbackPeriod}</Text>
                 <Stack spacing={3}>
                   {(selectedFeedbackCategory?.points || []).length ? selectedFeedbackCategory.points.slice(-12).map((point) => (
                     <Box key={point.key}>
                       <Flex justify="space-between" mb={1}>
-                        <Text fontSize="xs" color="whiteAlpha.700">{point.label}</Text>
-                        <Text fontSize="xs" color="whiteAlpha.700">
+                        <Text fontSize="xs" color={mutedText}>{point.label}</Text>
+                        <Text fontSize="xs" color={mutedText}>
                           {point.total} · {typeof point.avg_rating === "number" ? `${point.avg_rating}/5` : "n/a"}
                         </Text>
                       </Flex>
@@ -3806,35 +3843,35 @@ export default function CtoDashboardPage({
                         value={typeof point.positive_rate === "number" ? Math.round(point.positive_rate * 100) : 0}
                         colorScheme="green"
                         borderRadius="full"
-                        bg="whiteAlpha.200"
+                        bg={progressTrackBg}
                         size="sm"
                       />
                       <Button
                         mt={2}
                         size="xs"
                         variant="ghost"
-                        color="whiteAlpha.800"
+                        color={softText}
                         onClick={() => openFeedbackDetails(point, selectedFeedbackCategory)}
                       >
                         View details
                       </Button>
                     </Box>
                   )) : (
-                    <Text fontSize="sm" color="whiteAlpha.700">No feedback data for selected category/period.</Text>
+                    <Text fontSize="sm" color={mutedText}>No feedback data for selected category/period.</Text>
                   )}
                 </Stack>
               </Box>
 
-              <Box borderRadius="16px" bg="rgba(9,15,26,0.55)" p={3} border="1px solid rgba(255,255,255,0.08)">
-                <Text fontSize="sm" mb={3} color="whiteAlpha.900" fontWeight="600">Top feedback sources</Text>
+              <Box borderRadius="16px" bg={innerBg} p={3} border={panelBorder}>
+                <Text fontSize="sm" mb={3} color={strongText} fontWeight="600">Top feedback sources</Text>
                 <Stack spacing={2}>
                   {feedbackData?.top_sources?.length ? feedbackData.top_sources.map((sourceRow) => (
                     <Flex key={sourceRow.source} justify="space-between">
-                      <Text fontSize="sm" color="whiteAlpha.800">{sourceRow.source}</Text>
-                      <Text fontSize="sm" color="whiteAlpha.900">{sourceRow.count}</Text>
+                      <Text fontSize="sm" color={softText}>{sourceRow.source}</Text>
+                      <Text fontSize="sm" color={strongText}>{sourceRow.count}</Text>
                     </Flex>
                   )) : (
-                    <Text fontSize="sm" color="whiteAlpha.700">No source breakdown yet.</Text>
+                    <Text fontSize="sm" color={mutedText}>No source breakdown yet.</Text>
                   )}
                 </Stack>
               </Box>
@@ -3846,14 +3883,14 @@ export default function CtoDashboardPage({
           ref={eventsSectionRef}
           p={{ base: 5, md: 6 }}
           borderRadius="28px"
-          bg="rgba(255,255,255,0.05)"
-          border="1px solid rgba(255,255,255,0.08)"
+          bg={panelBg}
+          border={panelBorder}
           mb={5}
         >
           <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} mb={4} flexWrap="wrap">
             <Box>
               <Heading size="md" mb={1}>Ops Events</Heading>
-              <Text color="whiteAlpha.700">Human-readable incident queue for CTO operations.</Text>
+              <Text color={mutedText}>Human-readable incident queue for CTO operations.</Text>
             </Box>
             <HStack spacing={2} flexWrap="wrap">
               <Select
@@ -3861,9 +3898,9 @@ export default function CtoDashboardPage({
                 value={eventsStatusFilter}
                 onChange={(e) => setEventsStatusFilter(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.88)"
+                bg={selectBg}
                 borderColor="rgba(255,255,255,0.18)"
-                color="whiteAlpha.900"
+                color={strongText}
                 sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
                 <option value="">All status</option>
@@ -3876,9 +3913,9 @@ export default function CtoDashboardPage({
                 value={eventsSeverityFilter}
                 onChange={(e) => setEventsSeverityFilter(e.target.value)}
                 maxW="170px"
-                bg="rgba(11, 19, 32, 0.88)"
+                bg={selectBg}
                 borderColor="rgba(255,255,255,0.18)"
-                color="whiteAlpha.900"
+                color={strongText}
                 sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
                 <option value="">All severity</option>
@@ -3900,21 +3937,21 @@ export default function CtoDashboardPage({
             <Table size="sm" variant="simple">
               <Thead>
                 <Tr>
-                  <Th color="whiteAlpha.800">Severity</Th>
-                  <Th color="whiteAlpha.800">Status</Th>
-                  <Th color="whiteAlpha.800">Service</Th>
-                  <Th color="whiteAlpha.800">Type</Th>
-                  <Th color="whiteAlpha.800">Message</Th>
-                  <Th color="whiteAlpha.800">Source</Th>
-                  <Th color="whiteAlpha.800">Count</Th>
-                  <Th color="whiteAlpha.800">Last Seen</Th>
-                  <Th color="whiteAlpha.800">Action</Th>
+                  <Th color={softText}>Severity</Th>
+                  <Th color={softText}>Status</Th>
+                  <Th color={softText}>Service</Th>
+                  <Th color={softText}>Type</Th>
+                  <Th color={softText}>Message</Th>
+                  <Th color={softText}>Source</Th>
+                  <Th color={softText}>Count</Th>
+                  <Th color={softText}>Last Seen</Th>
+                  <Th color={softText}>Action</Th>
                 </Tr>
               </Thead>
               <Tbody>
                 {!eventsLoading && eventsRows.length === 0 && (
                   <Tr>
-                    <Td colSpan={9} color="whiteAlpha.700">No events found. Events populate from complaint capture and `/api/cto/events` ingest.</Td>
+                    <Td colSpan={9} color={mutedText}>No events found. Events populate from complaint capture and `/api/cto/events` ingest.</Td>
                   </Tr>
                 )}
                 {eventsRows.map((row) => (
@@ -3925,18 +3962,18 @@ export default function CtoDashboardPage({
                     <Td>
                       <StatusChip status={row.status || "open"} color={row.status === "resolved" ? "green" : row.status === "acknowledged" ? "purple" : "red"} />
                     </Td>
-                    <Td color="whiteAlpha.900">{row.service_key || "-"}</Td>
-                    <Td color="whiteAlpha.800">{row.event_type || "-"}</Td>
-                    <Td maxW="360px" color="whiteAlpha.900">
+                    <Td color={strongText}>{row.service_key || "-"}</Td>
+                    <Td color={softText}>{row.event_type || "-"}</Td>
+                    <Td maxW="360px" color={strongText}>
                       <Text noOfLines={2}>{row.message || "-"}</Text>
                     </Td>
-                    <Td color="whiteAlpha.700">{row.source || "-"}</Td>
-                    <Td color="whiteAlpha.900">
+                    <Td color={mutedText}>{row.source || "-"}</Td>
+                    <Td color={strongText}>
                       {row.event_type === "pm2_restart_storm_24h" && Number.isFinite(Number(row?.payload?.restarts_24h))
                         ? Number(row.payload.restarts_24h)
                         : (row.occurrence_count ?? 1)}
                     </Td>
-                    <Td color="whiteAlpha.700">
+                    <Td color={mutedText}>
                       {row.last_seen_at ? new Date(row.last_seen_at).toLocaleString() : "-"}
                     </Td>
                     <Td>
@@ -3945,7 +3982,7 @@ export default function CtoDashboardPage({
                           size="xs"
                           variant="outline"
                           borderColor="rgba(255,255,255,0.25)"
-                          color="whiteAlpha.900"
+                          color={strongText}
                           _hover={{ bg: "whiteAlpha.120" }}
                           isDisabled={row.status === "acknowledged" || row.status === "resolved" || eventActionBusy[row.id]}
                           onClick={() => updateEventStatus(row.id, "acknowledged")}
@@ -3974,18 +4011,18 @@ export default function CtoDashboardPage({
 
       <Modal isOpen={smartReportModal.isOpen} onClose={smartReportModal.onClose} isCentered>
         <ModalOverlay bg="blackAlpha.600" />
-        <ModalContent bg="#111827" color="white" border="1px solid rgba(255,255,255,0.12)">
+        <ModalContent bg="#111827" color="white" border={panelBorder}>
           <ModalHeader>SMART Report* (Experimental)</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            <Text fontSize="sm" color="whiteAlpha.800" mb={2}>
+            <Text fontSize="sm" color={softText} mb={2}>
               Enter MRNO to open or download the Smart Trends PDF.
             </Text>
             <Input
               value={smartMrnoInput}
               onChange={(e) => setSmartMrnoInput(e.target.value)}
               placeholder="MRNO"
-              bg="rgba(11, 19, 32, 0.72)"
+              bg={selectBg}
               borderColor="rgba(255,255,255,0.2)"
             />
           </ModalBody>
@@ -4014,7 +4051,7 @@ export default function CtoDashboardPage({
 
       <Modal isOpen={feedbackDetailsModal.isOpen} onClose={feedbackDetailsModal.onClose} size="4xl" isCentered>
         <ModalOverlay bg="blackAlpha.600" />
-        <ModalContent bg="#111827" color="white" border="1px solid rgba(255,255,255,0.12)">
+        <ModalContent bg="#111827" color="white" border={panelBorder}>
           <ModalHeader>{feedbackDetailsTitle || "Feedback details"}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
@@ -4024,34 +4061,34 @@ export default function CtoDashboardPage({
               </Box>
             )}
             {feedbackDetailsLoading ? (
-              <Text fontSize="sm" color="whiteAlpha.700">Loading details...</Text>
+              <Text fontSize="sm" color={mutedText}>Loading details...</Text>
             ) : (
               <Box overflowX="auto">
                 <Table size="sm" variant="simple">
                   <Thead>
                     <Tr>
-                      <Th color="whiteAlpha.800">Time</Th>
-                      <Th color="whiteAlpha.800">Phone</Th>
-                      <Th color="whiteAlpha.800">Rating</Th>
-                      <Th color="whiteAlpha.800">Source</Th>
-                      <Th color="whiteAlpha.800">Comment</Th>
+                      <Th color={softText}>Time</Th>
+                      <Th color={softText}>Phone</Th>
+                      <Th color={softText}>Rating</Th>
+                      <Th color={softText}>Source</Th>
+                      <Th color={softText}>Comment</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
                     {feedbackDetailsRows.length === 0 && (
                       <Tr>
-                        <Td colSpan={5} color="whiteAlpha.700">No feedback rows found for this bucket.</Td>
+                        <Td colSpan={5} color={mutedText}>No feedback rows found for this bucket.</Td>
                       </Tr>
                     )}
                     {feedbackDetailsRows.map((row) => (
                       <Tr key={row.id || `${row.created_at}-${row.patient_phone}-${row.reqno || ""}`}>
-                        <Td color="whiteAlpha.800">
+                        <Td color={softText}>
                           {row.created_at ? new Date(row.created_at).toLocaleString() : "-"}
                         </Td>
-                        <Td color="whiteAlpha.900">{row.patient_phone || "-"}</Td>
-                        <Td color="whiteAlpha.900">{row.rating || "-"}</Td>
-                        <Td color="whiteAlpha.800">{row.source || row.captured_via || "-"}</Td>
-                        <Td color="whiteAlpha.900">
+                        <Td color={strongText}>{row.patient_phone || "-"}</Td>
+                        <Td color={strongText}>{row.rating || "-"}</Td>
+                        <Td color={softText}>{row.source || row.captured_via || "-"}</Td>
+                        <Td color={strongText}>
                           <Text noOfLines={3}>{row.feedback || "-"}</Text>
                         </Td>
                       </Tr>

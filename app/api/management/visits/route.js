@@ -21,7 +21,17 @@ function istDateParts(date = new Date()) {
   });
   const parts = Object.fromEntries(formatter.formatToParts(date).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
   const today = parts.year + "-" + parts.month + "-" + parts.day;
-  return { today, monthStart: parts.year + "-" + parts.month + "-01" };
+  return { today, currentMonth: parts.year + "-" + parts.month, monthStart: parts.year + "-" + parts.month + "-01" };
+}
+
+function monthRange(monthKey, today) {
+  const normalized = /^\d{4}-\d{2}$/.test(String(monthKey || "")) ? String(monthKey) : today.slice(0, 7);
+  const start = normalized + "-01";
+  const [year, month] = normalized.split("-").map(Number);
+  const lastDate = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const naturalEnd = normalized + "-" + String(lastDate).padStart(2, "0");
+  const end = normalized === today.slice(0, 7) ? today : naturalEnd;
+  return { month: normalized, start, end, isCurrentMonth: normalized === today.slice(0, 7) };
 }
 
 function summarize(rows, predicate = () => true) {
@@ -54,13 +64,14 @@ export async function GET(req) {
   }
 
   const labId = requestedLabId || assignedLabIds[0] || null;
-  const { today, monthStart } = istDateParts();
+  const { today, currentMonth } = istDateParts();
+  const range = monthRange(url.searchParams.get("month"), today);
 
   let query = supabase
     .from("visits")
     .select("id,status,visit_date,executive_id,executive:executive_id(id,name)")
-    .gte("visit_date", monthStart)
-    .lte("visit_date", today)
+    .gte("visit_date", range.start)
+    .lte("visit_date", range.end)
     .not("status", "eq", "disabled")
     .order("visit_date", { ascending: false })
     .limit(10000);
@@ -96,7 +107,11 @@ export async function GET(req) {
   return NextResponse.json({
     lab_id: labId,
     today_date: today,
-    month_start: monthStart,
+    current_month: currentMonth,
+    selected_month: range.month,
+    month_start: range.start,
+    month_end: range.end,
+    is_current_month: range.isCurrentMonth,
     today: summarize(rows, (row) => row.visit_date === today),
     mtd: summarize(rows),
     byExecutive,
