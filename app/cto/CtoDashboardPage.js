@@ -665,6 +665,7 @@ export default function CtoDashboardPage({
   const [pm2ReloadTick, setPm2ReloadTick] = useState(0);
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const [showVpsRunbook, setShowVpsRunbook] = useState(false);
+  const [themeMode, setThemeMode] = useState("dark");
   const [dashboardTab, setDashboardTab] = useState(defaultDashboardTab);
   const [dashboardViewMode, setDashboardViewMode] = useState("simplified");
   const refreshRef = useRef(null);
@@ -674,6 +675,17 @@ export default function CtoDashboardPage({
   const trendsSectionRef = useRef(null);
   const feedbackSectionRef = useRef(null);
   const eventsSectionRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedTheme = window.localStorage.getItem("labbit-cto-dashboard-theme");
+    if (storedTheme === "dark" || storedTheme === "light") setThemeMode(storedTheme);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("labbit-cto-dashboard-theme", themeMode);
+  }, [themeMode]);
 
   function drillToSection(sectionRef) {
     if (!allowCtoTab) return;
@@ -1881,14 +1893,20 @@ export default function CtoDashboardPage({
 
   return (
     <Box
-      className="dashboard-theme-dark"
+      className={themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}
       minH="100vh"
-      bg="radial-gradient(circle at top left, rgba(0, 195, 255, 0.18), transparent 28%), radial-gradient(circle at top right, rgba(255, 123, 67, 0.16), transparent 22%), linear-gradient(180deg, #0b1320 0%, #111827 50%, #0d1726 100%)"
-      color="#f8fafc"
+      bg={themeMode === "dark"
+        ? "radial-gradient(circle at top left, rgba(0, 195, 255, 0.18), transparent 28%), radial-gradient(circle at top right, rgba(255, 123, 67, 0.16), transparent 22%), linear-gradient(180deg, #0b1320 0%, #111827 50%, #0d1726 100%)"
+        : "linear-gradient(180deg, #f8fafc 0%, #eef4f8 48%, #e8f0f4 100%)"}
+      color={themeMode === "dark" ? "#f8fafc" : "#102033"}
       px={{ base: 4, md: 8 }}
       py={{ base: 5, md: 8 }}
     >
-      <ShortcutBar themeMode="dark" centerContent={monitoringLabControl} />
+      <ShortcutBar
+        themeMode={themeMode}
+        centerContent={monitoringLabControl}
+        onToggleTheme={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
+      />
       <Box maxW="1440px" mx="auto">
         <Box pt="64px" />
         <Flex

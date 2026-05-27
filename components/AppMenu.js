@@ -20,25 +20,23 @@ import {
   useBreakpointValue,
 } from "@chakra-ui/react";
 import {
-  Activity,
   BarChart3,
   Bot,
   Building2,
   ClipboardList,
   FileBarChart,
   FileText,
+  FlaskConical,
   HeartPulse,
   Home,
   LayoutDashboard,
   Menu as MenuIcon,
   MessageCircle,
   MonitorCog,
-  RadioTower,
+  ScanLine,
   Settings,
   Shield,
   Stethoscope,
-  TestTube2,
-  Users,
 } from "lucide-react";
 import { useUser } from "../app/context/UserContext";
 
@@ -129,8 +127,8 @@ const MENU_GROUPS = [
     key: "diagnostics",
     label: "Diagnostics & Imaging",
     items: [
-      { key: "dexa_reports", label: "DEXA Reports", description: "External DEXA report workspace", href: EXTERNAL_LINKS.dexaReports, icon: Activity, roles: ["director", "director_ceo", "admin", "manager"], permissions: ["reports.run.mis", "management.metrics.view"], external: true, hidden: !EXTERNAL_LINKS.dexaReports },
-      { key: "dicom_dashboard", label: "DICOM Dashboard", description: "External imaging and DICOM dashboard", href: EXTERNAL_LINKS.dicomDashboard, icon: RadioTower, roles: ["director", "director_ceo", "admin", "manager"], permissions: ["cto.view", "management.metrics.view"], external: true, hidden: !EXTERNAL_LINKS.dicomDashboard },
+      { key: "dexa_reports", label: "DEXA Reports", description: "External DEXA report workspace", href: EXTERNAL_LINKS.dexaReports, icon: FlaskConical, roles: ["director", "director_ceo", "admin", "manager"], permissions: ["reports.run.mis", "management.metrics.view"], external: true, hidden: !EXTERNAL_LINKS.dexaReports },
+      { key: "dicom_dashboard", label: "DICOM Dashboard", description: "External imaging and DICOM dashboard", href: EXTERNAL_LINKS.dicomDashboard, icon: ScanLine, roles: ["director", "director_ceo", "admin", "manager"], permissions: ["cto.view", "management.metrics.view"], external: true, hidden: !EXTERNAL_LINKS.dicomDashboard },
     ],
   },
   {
@@ -221,7 +219,13 @@ export default function AppMenu({ themeMode = "light", variant = "icon" }) {
   }, [fallbackPermissions, roleKey, user]);
 
   const groups = useMemo(() => getAppMenuGroups({ roleKey, permissions }), [roleKey, permissions]);
-  const buttonColor = themeMode === "dark" ? "whiteAlpha.900" : "gray.700";
+  const isDark = themeMode === "dark";
+  const buttonColor = isDark ? "whiteAlpha.900" : "gray.700";
+  const menuBg = isDark ? "#111827" : "white";
+  const menuBorder = isDark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.12)";
+  const itemHoverBg = isDark ? "rgba(255,255,255,0.09)" : "gray.50";
+  const mutedColor = isDark ? "whiteAlpha.650" : "gray.500";
+  const headingColor = isDark ? "whiteAlpha.950" : "gray.800";
 
   if (isLoading || !user) return null;
 
@@ -241,20 +245,20 @@ export default function AppMenu({ themeMode = "light", variant = "icon" }) {
           {variant === "button" && !isMobile ? "Menu" : null}
         </MenuButton>
       </Tooltip>
-      <MenuList minW={{ base: "290px", md: "340px" }} maxH="75vh" overflowY="auto" p={2}>
-        <Box px={3} py={2}>
+      <MenuList minW={{ base: "260px", md: "300px" }} maxH="75vh" overflowY="auto" p={1.5} bg={menuBg} borderColor={menuBorder} boxShadow={isDark ? "0 18px 50px rgba(0,0,0,0.45)" : "lg"}>
+        <Box px={2.5} py={2}>
           <HStack justify="space-between" align="center">
             <Box minW={0}>
-              <Text fontSize="sm" fontWeight="800">Labit Menu</Text>
-              <Text fontSize="xs" color="gray.500" noOfLines={1}>{roleLabel(roleKey)}</Text>
+              <Text fontSize="sm" fontWeight="800" color={headingColor}>Labit Menu</Text>
+              <Text fontSize="xs" color={mutedColor} noOfLines={1}>{roleLabel(roleKey)}</Text>
             </Box>
             {loadingPermissions ? <Spinner size="xs" /> : <Badge colorScheme="teal">Allowed</Badge>}
           </HStack>
         </Box>
-        <Divider my={1} />
+        <Divider my={1} borderColor={menuBorder} />
         {groups.length === 0 ? (
           <Box px={3} py={4}>
-            <Text fontSize="sm" color="gray.500">No menu items available for this role.</Text>
+            <Text fontSize="sm" color={mutedColor}>No menu items available for this role.</Text>
           </Box>
         ) : groups.map((group) => (
           <MenuGroup key={group.key} title={group.label}>
@@ -265,17 +269,23 @@ export default function AppMenu({ themeMode = "light", variant = "icon" }) {
                 href={item.href}
                 target={item.external ? "_blank" : undefined}
                 rel={item.external ? "noopener noreferrer" : undefined}
-                icon={<Icon as={item.icon || Home} boxSize={4} />}
+                icon={<Icon as={item.icon || Home} boxSize={3.5} />}
                 borderRadius="md"
-                py={2}
+                minH="38px"
+                py={1.5}
+                px={2}
+                bg="transparent"
+                color={headingColor}
+                _hover={{ bg: itemHoverBg }}
+                _focus={{ bg: itemHoverBg }}
               >
                 <Box minW={0}>
                   <HStack spacing={2} align="center">
-                    <Text fontSize="sm" fontWeight="700">{item.label}</Text>
+                    <Text fontSize="sm" fontWeight="700" lineHeight="1.15">{item.label}</Text>
                     {item.external ? <Badge size="sm" colorScheme="purple">External</Badge> : null}
                   </HStack>
                   {item.description ? (
-                    <Text fontSize="xs" color="gray.500" noOfLines={1}>{item.description}</Text>
+                    <Text fontSize="xs" color={mutedColor} noOfLines={1} lineHeight="1.2">{item.description}</Text>
                   ) : null}
                 </Box>
               </MenuItem>
