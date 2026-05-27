@@ -26,7 +26,7 @@ function notifyDiff(roleKey, prev, next) {
 
   const delta = (key) => (next[key] || 0) - (prev[key] || 0);
 
-  if (["admin", "manager", "director"].includes(roleKey)) {
+  if (["admin", "manager", "director", "director_ceo"].includes(roleKey)) {
     if (delta("admin_visit_attention") > 0) {
       showNotification("Visit Attention Needed", `${delta("admin_visit_attention")} visit(s) now need admin attention.`);
     }
@@ -75,7 +75,7 @@ export default function AppNotifications() {
     if (!user?.id || user?.userType !== "executive") return;
 
     const roleKey = (user.executiveType || "").toLowerCase();
-    const supportedRoles = new Set(["admin", "manager", "director", "phlebo", "logistics", "b2b"]);
+    const supportedRoles = new Set(["admin", "manager", "director", "director_ceo", "phlebo", "logistics", "b2b"]);
     if (!supportedRoles.has(roleKey)) return;
 
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {

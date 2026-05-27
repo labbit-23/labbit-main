@@ -10,7 +10,8 @@ const supabase = createClient(
 );
 
 function canAccessCto(user) {
-  return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
+  const role = String(user?.roleKey || user?.executiveType || "").toLowerCase();
+  return user?.userType === "executive" && (role === "director" || role === "director_ceo");
 }
 
 export async function GET(request) {

@@ -38,6 +38,7 @@ export default function ExecutiveModal({
     { value: "Admin", label: "Admin" },
     { value: "Manager", label: "Manager" },
     { value: "Director", label: "Director" },
+    { value: "director_ceo", label: "Director / CEO" },
     { value: "logistics", label: "Logistics" },
     { value: "b2b", label: "Collection Centre" },
   ];

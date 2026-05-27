@@ -10,7 +10,8 @@ const ALLOWED_SEVERITIES = new Set(["critical", "high", "medium", "info"]);
 const ALLOWED_STATUSES = new Set(["open", "acknowledged", "resolved"]);
 
 function canAccessCto(user) {
-  return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
+  const role = String(user?.roleKey || user?.executiveType || "").toLowerCase();
+  return user?.userType === "executive" && (role === "director" || role === "director_ceo");
 }
 
 function normalizeText(value) {

@@ -19,7 +19,8 @@ const RAW_FALLBACK_HOUR_LIMIT = 2500;
 const IST_TIME_ZONE = "Asia/Kolkata";
 
 function canAccessCto(user) {
-  return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
+  const role = String(user?.roleKey || user?.executiveType || "").toLowerCase();
+  return user?.userType === "executive" && (role === "director" || role === "director_ceo");
 }
 
 function normalizeKey(value = "") {

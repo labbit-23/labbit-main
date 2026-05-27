@@ -24,12 +24,17 @@ import {
   UserCheck,
   Users,
   Wrench,
+  MonitorCog,
+  Activity,
+  RadioTower,
+  Minus,
 } from "lucide-react";
 import dayjs from "dayjs";
 
 import { supabase } from "../../lib/supabaseClient";
 
 import ShortcutBar from "../../components/ShortcutBar";
+import ShortcutActionsMenu from "../../components/ShortcutActionsMenu";
 import VisitsTable from "./components/VisitsTable";
 import VisitModal from "../components/VisitModal";
 import ExecutiveList from "./components/ExecutiveList";
@@ -46,6 +51,7 @@ import DispatchStuckAlert from "./components/DispatchStuckAlert";
 import html2canvas from "html2canvas";
 import { useUser } from "@/app/context/UserContext";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 
 const LazyPatientSearchModal = dynamic(() => import("../components/PatientSearchModal"), {
   ssr: false,
@@ -57,6 +63,8 @@ const WHATSAPP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/whatsapp.svg";
 const CLICKUP_ICON_URL =
   "https://cdn.jsdelivr.net/npm/simple-icons@v15/icons/clickup.svg";
+const DEXA_REPORTS_URL = process.env.NEXT_PUBLIC_DEXA_REPORTS_URL || "";
+const DICOM_DASHBOARD_URL = process.env.NEXT_PUBLIC_DICOM_DASHBOARD_URL || "";
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
 const BOOKING_HISTORY_PAGE_SIZE = 120;
 const ADMIN_SECTION_ORDER = [
@@ -186,6 +194,7 @@ function roleKeyFromUser(user) {
 
 export default function AdminDashboard() {
   const toast = useToast();
+  const searchParams = useSearchParams();
   const { user } = useUser();
   const isMobileNav = useBreakpointValue({ base: true, md: false });
 
@@ -212,6 +221,25 @@ export default function AdminDashboard() {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [patientSearchOpen, setPatientSearchOpen] = useState(false);
   const [patientsTabSelection, setPatientsTabSelection] = useState(null);
+  const [fontScale, setFontScale] = useState("100%");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = `labbit_fs_${user?.id ?? "default"}`;
+    const saved = window.localStorage.getItem(key);
+    const valid = ["90%", "100%", "110%", "125%"].includes(saved) ? saved : "100%";
+    setFontScale(valid);
+  }, [user?.id]);
+
+  const handleFontScale = useCallback((delta) => {
+    const scales = ["90%", "100%", "110%", "125%"];
+    const idx = scales.indexOf(fontScale);
+    const next = scales[Math.max(0, Math.min(scales.length - 1, idx + delta))];
+    if (!next || next === fontScale) return;
+    setFontScale(next);
+    document.documentElement.style.fontSize = next;
+    try { window.localStorage.setItem(`labbit_fs_${user?.id ?? "default"}`, next); } catch (_) {}
+  }, [fontScale, user?.id]);
 
   const visitModal = useDisclosure();
   const executiveModal = useDisclosure();
@@ -568,6 +596,13 @@ const exportVisitsImage = async () => {
   const canRunReports = canUseReportSetup || hasAnyPermission(["reports.run.mis", "reports.run.transaction"]);
   const visibleSections = adminSections.filter((item) => item.visible);
   const activeTabIndex = Math.max(0, ADMIN_SECTION_ORDER.indexOf(activeSection));
+
+  useEffect(() => {
+    const requestedSection = String(searchParams?.get("section") || "").trim();
+    if (!requestedSection) return;
+    if (!ADMIN_SECTION_ORDER.includes(requestedSection)) return;
+    setActiveSection(requestedSection);
+  }, [searchParams]);
 
   useEffect(() => {
     const fallbackForRole = () => {
@@ -927,6 +962,41 @@ const exportVisitsImage = async () => {
       badgeCount: sectionBadgeCounts[section.key] || 0,
     }));
 
+    const globalNavigation = [
+      {
+        key: "management_home",
+        label: "Management Metrics",
+        icon: <BarChart2 size={16} />,
+        href: "/management",
+        hidden: !(activeRoleKey === "director" || activeRoleKey === "director_ceo" || hasAnyPermission(["management.metrics.view"])),
+      },
+      {
+        key: "cto_home",
+        label: "CTO Ops",
+        icon: <MonitorCog size={16} />,
+        href: "/cto",
+        hidden: activeRoleKey !== "director",
+      },
+      {
+        key: "dexa_reports",
+        label: "DEXA Reports",
+        icon: <Activity size={16} />,
+        href: DEXA_REPORTS_URL,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        hidden: !DEXA_REPORTS_URL || !(activeRoleKey === "director" || activeRoleKey === "director_ceo" || hasAnyPermission(["reports.run.mis", "management.metrics.view"])),
+      },
+      {
+        key: "dicom_dashboard",
+        label: "DICOM Dashboard",
+        icon: <RadioTower size={16} />,
+        href: DICOM_DASHBOARD_URL,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        hidden: !DICOM_DASHBOARD_URL || !(activeRoleKey === "director" || activeRoleKey === "director_ceo" || hasAnyPermission(["cto.view", "management.metrics.view"])),
+      },
+    ];
+
     const common = [
       {
         key: "run_reports",
@@ -1006,6 +1076,20 @@ const exportVisitsImage = async () => {
         rel: "noopener noreferrer",
       },
       {
+        key: "font_down",
+        label: "Smaller Text",
+        icon: <Minus size={14} />,
+        onClick: () => handleFontScale(-1),
+        isDisabled: fontScale === "90%",
+      },
+      {
+        key: "font_up",
+        label: "Larger Text",
+        icon: <Plus size={14} />,
+        onClick: () => handleFontScale(1),
+        isDisabled: fontScale === "125%",
+      },
+      {
         key: "refresh",
         label: "Refresh",
         icon: <RefreshCw size={14} />,
@@ -1020,13 +1104,17 @@ const exportVisitsImage = async () => {
       },
     ];
 
-    return [...sectionActions, ...common].filter((item) => !item.hidden);
+    return [...sectionActions, ...globalNavigation, ...common].filter((item) => !item.hidden);
   }, [
+    activeRoleKey,
     activeSection,
     canUseReportDispatch,
     canUseReportSetup,
     canRunReports,
+    fontScale,
+    handleFontScale,
     handleSectionChange,
+    hasAnyPermission,
     refreshVisibleTab,
     sectionBadgeCounts,
     unreadWhatsAppCount,
@@ -1036,104 +1124,14 @@ const exportVisitsImage = async () => {
   ]);
 
   const shortcutMenu = (
-    isMobileNav ? (
-      <Menu isLazy>
-        <MenuButton
-          as={IconButton}
-          aria-label="Open admin shortcuts"
-          icon={<MenuIcon size={16} />}
-          size="sm"
-          variant="outline"
-        />
-        <MenuList minW="220px" maxH="70vh" overflowY="auto">
-          {shortcutActions.map((action) => (
-            <MenuItem
-              key={action.key}
-              icon={action.icon}
-              as={action.href ? "a" : "button"}
-              href={action.href}
-              target={action.target}
-              rel={action.rel}
-              onClick={action.onClick}
-              isDisabled={action.isDisabled}
-              fontWeight={action.isActive ? "700" : "500"}
-            >
-              {action.label}{action.badgeCount > 0 ? ` (${action.badgeCount > 99 ? "99+" : action.badgeCount})` : ""}
-            </MenuItem>
-          ))}
-        </MenuList>
-      </Menu>
-    ) : (
-      <HStack spacing={1} align="center">
-        {shortcutActions
-          .filter((action) => ["dispatch", "whatsapp", "export_visits"].includes(action.key))
-          .map((action) => (
-          <ShortcutAction
-            key={action.key}
-            label={action.label}
-            icon={action.icon}
-            onClick={action.onClick}
-            href={action.href}
-            target={action.target}
-            rel={action.rel}
-            badgeCount={action.badgeCount}
-            colorScheme={action.colorScheme}
-            variant={action.variant}
-            isActive={action.isActive}
-            isDisabled={action.isDisabled}
-          />
-        ))}
-        <Menu isLazy>
-          <Tooltip label="More actions" hasArrow>
-            <MenuButton
-              as={IconButton}
-              aria-label="More admin actions"
-              icon={<MenuIcon size={16} />}
-              size="sm"
-              variant="outline"
-            />
-          </Tooltip>
-          <MenuList minW="240px" maxH="70vh" overflowY="auto">
-            {shortcutActions
-              .filter((action) => !["dispatch", "whatsapp", "export_visits", "refresh"].includes(action.key))
-              .map((action) => (
-                <MenuItem
-                  key={action.key}
-                  icon={action.icon}
-                  as={action.href ? "a" : "button"}
-                  href={action.href}
-                  target={action.target}
-                  rel={action.rel}
-                  onClick={action.onClick}
-                  isDisabled={action.isDisabled}
-                  fontWeight={action.isActive ? "700" : "500"}
-                >
-                  {action.label}
-                  {action.badgeCount > 0 ? ` (${action.badgeCount > 99 ? "99+" : action.badgeCount})` : ""}
-                </MenuItem>
-              ))}
-          </MenuList>
-        </Menu>
-        {shortcutActions
-          .filter((action) => action.key === "refresh")
-          .map((action) => (
-            <ShortcutAction
-              key={action.key}
-              label={action.label}
-              icon={action.icon}
-              onClick={action.onClick}
-              href={action.href}
-              target={action.target}
-              rel={action.rel}
-              badgeCount={action.badgeCount}
-              colorScheme={action.colorScheme}
-              variant={action.variant}
-              isActive={action.isActive}
-              isDisabled={action.isDisabled}
-            />
-          ))}
-      </HStack>
-    )
+    <ShortcutActionsMenu
+      actions={shortcutActions}
+      isMobile={isMobileNav}
+      primaryKeys={["dispatch", "whatsapp", "export_visits"]}
+      trailingKeys={["refresh"]}
+      menuLabel="More admin actions"
+      mobileLabel="Open admin shortcuts"
+    />
   );
 
   const perExecVisitCounts = nonDisabledTodaysVisits.reduce((acc, v) => {

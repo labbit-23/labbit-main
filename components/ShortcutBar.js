@@ -15,7 +15,7 @@ import {
   useToast,
   Circle,
 } from "@chakra-ui/react";
-import { Bell, BellOff, Home, KeyRound, LogOut, Minus, Moon, Plus, Sun, UserCheck, UserX } from "lucide-react";
+import { Bell, BellOff, Home, KeyRound, LogOut, Moon, Sun, UserCheck, UserX } from "lucide-react";
 import DateSelector from "../app/components/DateSelector";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
@@ -23,6 +23,7 @@ import { useUser } from "../app/context/UserContext";
 import AppNotifications from "./AppNotifications";
 import NotificationsHelper from "../lib/notificationsHelper";
 import PasswordManagementModal from "./PasswordManagementModal";
+import AppMenu from "./AppMenu";
 
 const FONT_SCALES = ['90%', '100%', '110%', '125%'];
 
@@ -31,6 +32,7 @@ const ROLE_MARKERS = {
   admin:    { label: "Admin",    color: "blue"   },
   manager:  { label: "Manager",  color: "cyan"   },
   director: { label: "Director", color: "purple" },
+  director_ceo: { label: "Director / CEO", color: "pink" },
   phlebo:   { label: "Phlebo",   color: "green"  },
   logistics:  { label: "Logistics",  color: "yellow" },
   b2b:  { label: "B2B Client",  color: "teal" },
@@ -235,8 +237,9 @@ export default function ShortcutBar({
         router.push("/patient");
         break;
       case "executive":
-        if (["admin", "manager", "director"].includes((user.executiveType || "").toLowerCase())) {
-          router.push((user.executiveType || "").toLowerCase() === "director" ? "/cto" : "/admin");
+        if (["admin", "manager", "director", "director_ceo"].includes((user.executiveType || "").toLowerCase())) {
+          const execType = (user.executiveType || "").toLowerCase();
+          router.push(execType === "director" ? "/cto" : execType === "director_ceo" ? "/management" : "/admin");
         } else if ((user.executiveType || "").toLowerCase() === "phlebo") {
           router.push("/phlebo");
         } else {
@@ -491,8 +494,9 @@ export default function ShortcutBar({
           </Flex>
         ) : null}
 
-        {/* Right section: Home + Role badge + Logout */}
+        {/* Right section: Global app menu + Home + Role badge + Logout */}
         <Flex align="center" gap={{ base: 1, sm: 2 }} flexShrink={0}>
+          {!rightContent && <AppMenu themeMode={themeMode} />}
           {!isPhlebo && (
             <Tooltip label="Dashboard Home">
               <IconButton
@@ -621,51 +625,6 @@ export default function ShortcutBar({
               {rightContent}
             </Box>
           ) : null}
-          {/* Font scale — persists per user in localStorage */}
-          <Flex
-            align="center"
-            gap={0}
-            display={{ base: "none", md: "flex" }}
-            borderLeft="1px solid"
-            borderColor={themeMode === "dark" ? "whiteAlpha.200" : "var(--border)"}
-            pl={{ base: 1, sm: 2 }}
-            ml={1}
-          >
-            <Tooltip label="Smaller text">
-              <IconButton
-                icon={<Minus size={14} />}
-                onClick={() => handleFontScale(-1)}
-                variant="ghost"
-                size="sm"
-                aria-label="Decrease font size"
-                isDisabled={fontScale === FONT_SCALES[0]}
-                color={themeMode === "dark" ? "whiteAlpha.600" : "var(--text-3)"}
-              />
-            </Tooltip>
-            <Text
-              fontSize="10px"
-              fontWeight="700"
-              color={themeMode === "dark" ? "whiteAlpha.400" : "var(--text-4)"}
-              userSelect="none"
-              w="18px"
-              textAlign="center"
-              letterSpacing="0.02em"
-            >
-              Aa
-            </Text>
-            <Tooltip label="Larger text">
-              <IconButton
-                icon={<Plus size={14} />}
-                onClick={() => handleFontScale(1)}
-                variant="ghost"
-                size="sm"
-                aria-label="Increase font size"
-                isDisabled={fontScale === FONT_SCALES[FONT_SCALES.length - 1]}
-                color={themeMode === "dark" ? "whiteAlpha.600" : "var(--text-3)"}
-              />
-            </Tooltip>
-          </Flex>
-
           <Tooltip label="Logout">
             <IconButton
               icon={<LogOut size={16} />}
