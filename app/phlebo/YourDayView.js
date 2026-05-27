@@ -42,7 +42,7 @@ function actionLabel(s) {
   // NOTE — in_progress → sample_picked will become a barcode scan once
   // ERPNext label integration is ready. Keep this button's position and size;
   // only the tap handler will change.
-  if (n === "in_progress")    return "Sample taken";
+  if (n === "in_progress")    return "Sample picked";
   if (n === "sample_picked")  return "Dropped at lab";
   if (n === "sample_dropped") return "Visit done";
   return null;
@@ -108,9 +108,9 @@ function slotDisplay(slotName) {
 
 function visitPriority(v) {
   const n = norm(v?.status);
-  if (n === "sample_picked")  return 0;
-  if (n === "in_progress")    return 1;
-  if (n === "sample_dropped") return 2;
+  if (n === "in_progress")    return 0;
+  if (n === "sample_dropped") return 1;
+  if (n === "sample_picked")  return 2;
   return 3;
 }
 
@@ -162,10 +162,13 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   const drawModal       = useDisclosure();
   const estimateModal   = useDisclosure();
   const gpayModal       = useDisclosure();
+  const locConfirmModal = useDisclosure();
   const estimateBillingRef = useRef(null);
   const [contactVisit, setContactVisit]     = useState(null);
   const [pendingAssign, setPendingAssign]   = useState(null);
   const [detailVisit, setDetailVisit]       = useState(null);
+  const [pendingLocUpdate, setPendingLocUpdate] = useState(null); // { visit, coords }
+  const [updatingLoc, setUpdatingLoc]           = useState(false);
   const [visitTestIds, setVisitTestIds]     = useState(new Set());
   const [loadingTests, setLoadingTests]     = useState(false);
   const [savingTests, setSavingTests]       = useState(false);
@@ -238,7 +241,8 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
     visitPriority(a) - visitPriority(b) || slotMinutes(a.time_slot?.slot_name) - slotMinutes(b.time_slot?.slot_name)
   );
   const current  = sorted[0] || null;
-  const upcoming = sorted.slice(1);
+  const carrying = sorted.filter(v => norm(v.status) === "sample_picked");
+  const upcoming = sorted.slice(1).filter(v => norm(v.status) !== "sample_picked");
 
   const isAfter5pm = new Date().getHours() >= 17;
   const tomorrowSorted = [...tomorrowMine].sort((a, b) =>
@@ -251,6 +255,36 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   // ── Actions ───────────────────────────────────────────────────────────────
 
   async function advanceVisit(visit) {
+    const next = nextStatus(visit.status);
+    if (!next) return;
+
+    // When leaving the patient, offer to pin their location
+    if (norm(visit.status) === "in_progress") {
+      setAdvancing(visit.id);
+      try {
+        const coords = await new Promise((resolve) =>
+          navigator.geolocation.getCurrentPosition(
+            (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+            () => resolve(null),
+            { timeout: 6000, maximumAge: 30000 }
+          )
+        );
+        if (coords) {
+          setPendingLocUpdate({ visit, coords });
+          locConfirmModal.onOpen();
+          return;
+        }
+      } catch {
+        // no GPS — skip the prompt and advance directly
+      } finally {
+        setAdvancing(null);
+      }
+    }
+
+    await doAdvanceVisit(visit);
+  }
+
+  async function doAdvanceVisit(visit) {
     const next = nextStatus(visit.status);
     if (!next) return;
     setAdvancing(visit.id);
@@ -269,6 +303,42 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
     } finally {
       setAdvancing(null);
     }
+  }
+
+  async function confirmLocUpdate() {
+    if (!pendingLocUpdate) return;
+    const { visit, coords } = pendingLocUpdate;
+    setUpdatingLoc(true);
+    try {
+      const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
+      if (def?.id) {
+        await supabase
+          .from("patient_addresses")
+          .update({ lat: coords.lat, lng: coords.lng })
+          .eq("id", def.id);
+      } else {
+        // No patient address — update the visit's own lat/lng so future booking can inherit it
+        await supabase
+          .from("visits")
+          .update({ lat: coords.lat, lng: coords.lng })
+          .eq("id", visit.id);
+      }
+    } catch {
+      // non-fatal — still advance
+    } finally {
+      setUpdatingLoc(false);
+      locConfirmModal.onClose();
+      const v = visit;
+      setPendingLocUpdate(null);
+      await doAdvanceVisit(v);
+    }
+  }
+
+  async function skipLocUpdate() {
+    locConfirmModal.onClose();
+    const v = pendingLocUpdate?.visit;
+    setPendingLocUpdate(null);
+    if (v) await doAdvanceVisit(v);
   }
 
   async function doAssign(visit, force = false) {
@@ -472,6 +542,40 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
             </Box>
             <Text color="var(--warn)" fontSize="20px" lineHeight="1">›</Text>
           </Flex>
+        )}
+
+        {/* Carrying samples — sample_picked visits in transit to lab */}
+        {carrying.length > 0 && (
+          <Box>
+            <Text fontSize="11px" fontWeight="600" color={muted}
+              textTransform="uppercase" letterSpacing="0.06em" mb={2} px="2px">
+              Carrying sample{carrying.length > 1 ? "s" : ""}
+            </Text>
+            <Box bg={surface} borderRadius="xl" border="1px solid" borderColor={borderC} overflow="hidden">
+              {carrying.map((v, i) => (
+                <Box key={v.id}>
+                  {i > 0 && <Box h="1px" bg={isDark ? "whiteAlpha.100" : "gray.100"} />}
+                  <Flex px={4} py={3} align="center" justify="space-between" gap={3}>
+                    <Box flex={1} minW={0}>
+                      <Text fontSize="14px" fontWeight="700" color={text} noOfLines={1}>
+                        {v.patient?.name || "Patient"}
+                      </Text>
+                      <Text fontSize="12px" color={muted}>
+                        {v.time_slot?.slot_name || ""}{v.address ? ` · ${v.address}` : ""}
+                      </Text>
+                    </Box>
+                    <Button
+                      size="sm" colorScheme="purple" variant="solid"
+                      isLoading={advancingId === v.id}
+                      onClick={() => doAdvanceVisit(v)}
+                    >
+                      Drop at lab
+                    </Button>
+                  </Flex>
+                </Box>
+              ))}
+            </Box>
+          </Box>
         )}
 
         {/* Upcoming */}
@@ -752,6 +856,27 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
               }}>
                 Claim anyway
               </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      {/* Location confirm dialog */}
+      <AlertDialog
+        isOpen={locConfirmModal.isOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={skipLocUpdate}
+        isCentered
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent borderRadius="2xl" mx={4}>
+            <AlertDialogHeader fontSize="md" fontWeight="700">Update patient location?</AlertDialogHeader>
+            <AlertDialogBody fontSize="sm" color={muted}>
+              Pin <strong>{pendingLocUpdate?.visit?.patient?.name || "this patient"}</strong>'s address to your current GPS location. Future visits will navigate here automatically.
+            </AlertDialogBody>
+            <AlertDialogFooter gap={2}>
+              <Button ref={cancelRef} variant="ghost" onClick={skipLocUpdate} isDisabled={updatingLoc}>Skip</Button>
+              <Button colorScheme="teal" onClick={confirmLocUpdate} isLoading={updatingLoc}>Update location</Button>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialogOverlay>
@@ -1149,7 +1274,7 @@ const STATUS_LABELS = {
   assigned:       "Assigned to phlebo",
   accepted:       "Accepted",
   in_progress:    "Going to patient",
-  sample_picked:  "Sample taken",
+  sample_picked:  "Sample picked",
   sample_dropped: "Dropped at lab",
   completed:      "Visit done",
   cancelled:      "Cancelled",

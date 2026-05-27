@@ -270,15 +270,19 @@ export async function PUT(request, context) {
       updateData.status = "booked";
     }
 
-    const scheduleError = await assertVisitScheduleAllowed({
-      visitDate: effectiveVisitDate,
-      timeSlotId: effectiveTimeSlotId,
-    });
-    if (scheduleError) {
-      return NextResponse.json(
-        { error: scheduleError, code: "VISIT_SCHEDULE_PAST" },
-        { status: 400 }
-      );
+    const isRescheduling = Object.prototype.hasOwnProperty.call(updateData, "visit_date") ||
+      Object.prototype.hasOwnProperty.call(updateData, "time_slot");
+    if (isRescheduling) {
+      const scheduleError = await assertVisitScheduleAllowed({
+        visitDate: effectiveVisitDate,
+        timeSlotId: effectiveTimeSlotId,
+      });
+      if (scheduleError) {
+        return NextResponse.json(
+          { error: scheduleError, code: "VISIT_SCHEDULE_PAST" },
+          { status: 400 }
+        );
+      }
     }
 
     // 2️⃣ Update the visit
