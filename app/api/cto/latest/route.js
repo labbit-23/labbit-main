@@ -526,6 +526,94 @@ function parseIsoDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseMaybeJson(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function istYmdKey(value = new Date()) {
+  const parsed = value instanceof Date ? value : parseIsoDate(value);
+  if (!parsed) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(parsed);
+  const get = (type) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}${get("month")}${get("day")}`;
+}
+
+function summarizeDispatchSnapshot(job) {
+  const snap = parseMaybeJson(job?.last_status_snapshot) || {};
+  const tests = Array.isArray(snap?.tests) ? snap.tests : [];
+  const out = {
+    tests_total: 0,
+    lab: { total: 0, approved: 0, pending_approval: 0, ready: 0, waiting: 0 },
+    radiology: { total: 0, approved: 0, pending_approval: 0, ready: 0, waiting: 0 }
+  };
+
+  for (const row of tests) {
+    out.tests_total += 1;
+    let group = String(row?.GROUPNM ?? row?.groupnm ?? "").trim().toUpperCase();
+    const gid = String(row?.GROUPID ?? row?.groupid ?? "").trim().toUpperCase();
+    const dept = String(row?.DEPTID ?? row?.deptid ?? "").trim().toUpperCase();
+    const reportStatus = String(row?.REPORT_STATUS ?? row?.report_status ?? "").trim().toUpperCase();
+    const testName = String(row?.TESTNM ?? row?.testnm ?? row?.test_name ?? "").trim().toUpperCase();
+
+    if (!group) {
+      if (gid === "GDEP0002") group = "RADIOLOGY";
+      else if (gid === "GDEP0001") group = "LAB";
+    }
+    if (!group && reportStatus.startsWith("RADIOLOGY")) group = "RADIOLOGY";
+    if (!group && reportStatus.startsWith("LAB")) group = "LAB";
+    if (!group && /\b(XRAY|X-RAY|CT|MRI|USG|ULTRASOUND|SONOGRAPHY|DOPPLER|MAMMO|SCAN)\b/.test(testName)) group = "RADIOLOGY";
+    if (!group && dept.startsWith("RAD")) group = "RADIOLOGY";
+
+    const bucket = group === "RADIOLOGY" ? out.radiology : out.lab;
+    bucket.total += 1;
+    const approved = String(row?.APPROVEDFLG ?? row?.approvedflg ?? "").trim() === "1";
+    const ready = reportStatus === "LAB_READY" || reportStatus === "RADIOLOGY_READY";
+    const performedRaw = String(
+      row?.TESTPERFORMEDFLG ??
+      row?.testperformedflg ??
+      row?.TESTPERFORMED ??
+      row?.testperformed ??
+      row?.PERFORMEDFLG ??
+      row?.performedflg ??
+      ""
+    ).trim().toUpperCase();
+    const performed = ["1", "Y", "YES", "TRUE", "DONE"].includes(performedRaw);
+    if (approved) bucket.approved += 1;
+    else if (performed) bucket.pending_approval += 1;
+    if (ready) bucket.ready += 1;
+    else if (!performed) bucket.waiting += 1;
+  }
+
+  const snapRadTotal = Number(snap?.radiology_total || 0);
+  const snapRadReady = Number(snap?.radiology_ready || 0);
+  if (out.radiology.total === 0 && snapRadTotal > 0) {
+    out.radiology.total = snapRadTotal;
+    out.radiology.ready = Math.max(0, Math.min(snapRadReady, snapRadTotal));
+    out.radiology.waiting = Math.max(0, snapRadTotal - out.radiology.ready);
+  }
+
+  const snapLabTotal = Number(snap?.lab_total || 0);
+  const snapLabReady = Number(snap?.lab_ready || 0);
+  if (out.lab.total === 0 && snapLabTotal > 0) {
+    out.lab.total = snapLabTotal;
+    out.lab.ready = Math.max(0, Math.min(snapLabReady, snapLabTotal));
+    out.lab.waiting = Math.max(0, snapLabTotal - out.lab.ready);
+  }
+
+  return out;
+}
+
 function parseRecentRunAt(row = {}) {
   const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
   const candidates = [
@@ -745,8 +833,8 @@ async function loadAutoDispatchMetrics(labId) {
 
   let jobsQuery = supabase
     .from("report_auto_dispatch_jobs")
-    .select("id,lab_id,reqno,status,is_paused,next_attempt_at,scheduled_at,sent_at,updated_at,provider_response,last_error")
-    .in("status", ["queued", "cooling_off", "sent", "failed"])
+    .select("id,lab_id,reqno,status,is_paused,next_attempt_at,scheduled_at,sent_at,updated_at,provider_response,last_error,last_status_snapshot")
+    .in("status", ["queued", "cooling_off", "retrying", "sent", "failed"])
     .order("updated_at", { ascending: false })
     .limit(1200);
 
@@ -860,7 +948,65 @@ async function loadAutoDispatchMetrics(labId) {
     /report pdf was not found/i.test(String(job?.last_error || ""))
   );
 
+  const todayKey = istYmdKey(new Date());
+  const pipelineSummary = {
+    total_jobs: 0,
+    queued_jobs: 0,
+    cooling_off_jobs: 0,
+    retrying_jobs: 0,
+    sent_jobs: 0,
+    sent_today: 0,
+    sent_24h: 0,
+    failed_jobs: 0,
+    paused_jobs: 0,
+    tests_total: 0,
+    tests_pending: 0,
+    approval_pending: 0,
+    lab_pending_approval_tests: 0,
+    lab_waiting_tests: 0,
+    radiology_pending_approval_tests: 0,
+    radiology_waiting_tests: 0
+  };
+
+  for (const job of jobsList) {
+    const status = String(job?.status || "").trim().toLowerCase();
+    pipelineSummary.total_jobs += 1;
+    if (status === "queued") pipelineSummary.queued_jobs += 1;
+    else if (status === "cooling_off") pipelineSummary.cooling_off_jobs += 1;
+    else if (status === "retrying") pipelineSummary.retrying_jobs += 1;
+    else if (status === "sent") pipelineSummary.sent_jobs += 1;
+    else if (status === "failed") pipelineSummary.failed_jobs += 1;
+    if (job?.is_paused) pipelineSummary.paused_jobs += 1;
+
+    const sentAt = parseIsoDate(job?.sent_at);
+    if (status === "sent" && sentAt) {
+      if (istYmdKey(sentAt) === todayKey) pipelineSummary.sent_today += 1;
+      if (nowMs - sentAt.getTime() <= 24 * 60 * 60 * 1000) pipelineSummary.sent_24h += 1;
+    }
+
+    if (["queued", "cooling_off", "retrying"].includes(status)) {
+      const buckets = summarizeDispatchSnapshot(job);
+      pipelineSummary.tests_total += buckets.tests_total;
+      pipelineSummary.lab_pending_approval_tests += buckets.lab.pending_approval;
+      pipelineSummary.lab_waiting_tests += buckets.lab.waiting;
+      pipelineSummary.radiology_pending_approval_tests += buckets.radiology.pending_approval;
+      pipelineSummary.radiology_waiting_tests += buckets.radiology.waiting;
+    }
+  }
+  pipelineSummary.approval_pending =
+    pipelineSummary.lab_pending_approval_tests + pipelineSummary.radiology_pending_approval_tests;
+  pipelineSummary.tests_pending = pipelineSummary.lab_waiting_tests + pipelineSummary.radiology_waiting_tests;
+
   return [
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_pipeline_summary",
+      label: "Report Dispatch Pipeline",
+      status: pipelineSummary.failed_jobs > 0 || pipelineSummary.approval_pending > 0 ? "degraded" : "healthy",
+      message: `${pipelineSummary.sent_today} sent today, ${pipelineSummary.queued_jobs + pipelineSummary.retrying_jobs} enqueued, ${pipelineSummary.cooling_off_jobs} cooling off`,
+      payload: pipelineSummary
+    }),
     buildMetricRow({
       labId,
       checkedAt,

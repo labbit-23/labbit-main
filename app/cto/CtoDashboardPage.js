@@ -34,7 +34,7 @@ import {
   VStack,
   useDisclosure
 } from "@chakra-ui/react";
-import { ExternalLink, HelpCircle, RefreshCw, Settings } from "lucide-react";
+import { HelpCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import ShortcutBar from "../../components/ShortcutBar";
 
@@ -1702,6 +1702,8 @@ export default function CtoDashboardPage({
     const botLastReport = serviceByBaseKey.get("whatsapp_bot_last_report");
     const botHelpWaits = serviceByBaseKey.get("whatsapp_bot_help_waits_24h");
     const botReportWaits = serviceByBaseKey.get("whatsapp_bot_report_waits_24h");
+    const autoPipeline = serviceByBaseKey.get("auto_dispatch_pipeline_summary");
+    const pipelinePayload = autoPipeline?.payload || {};
     const website = latest?.website_analytics || {};
     const openEvents = (eventsRows || []).filter((row) => String(row?.status || "open") !== "resolved").length;
     const positiveRate = typeof feedbackData?.summary?.positive_rate === "number"
@@ -1749,6 +1751,18 @@ export default function CtoDashboardPage({
           serviceKey: service?.service_key || key,
         };
       });
+    const autoDispatchByKey = Object.fromEntries(autoDispatchRows.map((row) => [row.key, row]));
+    const autoDispatchSummary = {
+      attentionSignals: autoDispatchRows.filter((row) => row.status === "down" || row.status === "degraded").length,
+      queueDelays:
+        toFiniteInt(autoDispatchByKey.auto_dispatch_queue_stall?.value, 0) +
+        toFiniteInt(autoDispatchByKey.auto_dispatch_wait_state_stuck?.value, 0),
+      recentFailures: toFiniteInt(autoDispatchByKey.auto_dispatch_failures_15m?.value, 0),
+      dataFixes:
+        toFiniteInt(autoDispatchByKey.auto_dispatch_missing_provider_id_15m?.value, 0) +
+        toFiniteInt(autoDispatchByKey.auto_dispatch_invalid_phone_jobs?.value, 0) +
+        toFiniteInt(autoDispatchByKey.auto_dispatch_pdf_not_found_jobs?.value, 0),
+    };
 
     return {
       botSlaWithin: botSla?.payload?.within_sla_pct ?? null,
@@ -1770,7 +1784,22 @@ export default function CtoDashboardPage({
         typeof website?.unique_visitors_today === "number" ? website.unique_visitors_today : null,
       websiteTopPages7d: Array.isArray(website?.top_pages_7d) ? website.top_pages_7d : [],
       autoDispatchRows,
-      autoDispatchIssues: autoDispatchRows.filter((row) => row.status === "down" || row.status === "degraded").length,
+      autoDispatchPipeline: {
+        sentToday: toFiniteInt(pipelinePayload?.sent_today, 0),
+        sent24h: toFiniteInt(pipelinePayload?.sent_24h, 0),
+        enqueued: toFiniteInt(pipelinePayload?.queued_jobs, 0) + toFiniteInt(pipelinePayload?.retrying_jobs, 0),
+        coolingOff: toFiniteInt(pipelinePayload?.cooling_off_jobs, 0),
+        failed: toFiniteInt(pipelinePayload?.failed_jobs, 0),
+        paused: toFiniteInt(pipelinePayload?.paused_jobs, 0),
+        approvalPending: toFiniteInt(pipelinePayload?.approval_pending, 0),
+        testsPending: toFiniteInt(pipelinePayload?.tests_pending, 0),
+        labApprovalPending: toFiniteInt(pipelinePayload?.lab_pending_approval_tests, 0),
+        scanApprovalPending: toFiniteInt(pipelinePayload?.radiology_pending_approval_tests, 0),
+        labWaiting: toFiniteInt(pipelinePayload?.lab_waiting_tests, 0),
+        scanWaiting: toFiniteInt(pipelinePayload?.radiology_waiting_tests, 0),
+      },
+      autoDispatchSummary,
+      autoDispatchIssues: autoDispatchSummary.attentionSignals,
       openEvents,
       positiveRate
     };
@@ -2209,7 +2238,7 @@ export default function CtoDashboardPage({
                 ))}
               </SimpleGrid>
             </Flex>
-            <SimpleGrid columns={{ base: 2, md: 3, xl: 6 }} spacing={2} minW={{ base: "100%", xl: "840px" }}>
+            <SimpleGrid columns={{ base: 1, sm: 2 }} spacing={2} minW={{ base: "100%", xl: "320px" }}>
               <Button
                 size="sm"
                 bg="white"
@@ -2221,57 +2250,6 @@ export default function CtoDashboardPage({
               >
                 Run Diagnostics
               </Button>
-              <Button
-                size="sm"
-                as={Link}
-                href="/admin"
-                bg="rgba(126, 244, 215, 0.16)"
-                color="white"
-                _hover={{ bg: "rgba(126, 244, 215, 0.24)" }}
-                borderRadius="full"
-                leftIcon={<Settings size={14} />}
-              >
-                Admin
-              </Button>
-              <Button
-                size="sm"
-                as={Link}
-                href="/admin/whatsapp"
-                bg="rgba(56, 189, 248, 0.16)"
-                color="white"
-                _hover={{ bg: "rgba(56, 189, 248, 0.24)" }}
-                borderRadius="full"
-                leftIcon={<ExternalLink size={14} />}
-              >
-                Inbox
-              </Button>
-              <Button
-                size="sm"
-                as={Link}
-                href="/admin/report-dispatch"
-                bg="rgba(250, 204, 21, 0.16)"
-                color="white"
-                _hover={{ bg: "rgba(250, 204, 21, 0.24)" }}
-                borderRadius="full"
-                leftIcon={<ExternalLink size={14} />}
-              >
-                Report Dispatch
-              </Button>
-              {showCtoTools && (
-              <Button
-                size="sm"
-                as={Link}
-                href="/cto/whatsapp-sim"
-                variant="outline"
-                borderColor="rgba(126, 244, 215, 0.55)"
-                color="white"
-                _hover={{ bg: "rgba(126, 244, 215, 0.16)" }}
-                borderRadius="full"
-                leftIcon={<ExternalLink size={14} />}
-              >
-                Simulator
-              </Button>
-              )}
               {showCtoTools && (
               <Button
                 size="sm"
@@ -2280,7 +2258,6 @@ export default function CtoDashboardPage({
                 color="white"
                 _hover={{ bg: "rgba(244, 190, 126, 0.16)" }}
                 borderRadius="full"
-                leftIcon={<ExternalLink size={14} />}
                 onClick={smartReportModal.onOpen}
               >
                 SMART Report*
@@ -2364,156 +2341,28 @@ export default function CtoDashboardPage({
             bg={panelBg}
             border={panelBorder}
           >
-            <Heading size="md" mb={1}>Management Metrics</Heading>
-            <Text color={mutedText} mb={4}>Simplified executive view with drill-down into CTO details.</Text>
-            <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
-                <Text fontSize="xs" color={mutedText} mb={1}>Service Reliability</Text>
-                <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1]?.value || "0"}/{heroStats[0]?.value || "0"}</Text>
-                <Text fontSize="xs" color={mutedText} mt={1}>Tap to open Operational Domains</Text>
-              </Box>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
-                <Text fontSize="xs" color={mutedText} mb={1}>{selectedVpsNode.toUpperCase()} Capacity</Text>
-                <Text fontSize="2xl" fontWeight="800" color="cyan.200">
-                  {Number.isFinite(vpsHealth.hostMemoryPct) ? `${Math.round(vpsHealth.hostMemoryPct)}%` : "n/a"}
-                </Text>
-                <Text fontSize="xs" color={mutedText} mt={1}>
-                  {`Host memory pressure (tap for ${selectedVpsNode.toUpperCase()} Health)`}
-                </Text>
-              </Box>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(feedbackSectionRef)}>
-                <Text fontSize="xs" color={mutedText} mb={1}>Patient Feedback</Text>
-                <Text fontSize="2xl" fontWeight="800" color="teal.200">
-                  {managementMetrics.positiveRate != null ? `${managementMetrics.positiveRate}%` : "n/a"}
-                </Text>
-                <Text fontSize="xs" color={mutedText} mt={1}>Positive rate (4-5)</Text>
-              </Box>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
-                <Text fontSize="xs" color={mutedText} mb={1}>Open Ops Events</Text>
-                <Text fontSize="2xl" fontWeight="800" color={managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>
-                  {managementMetrics.openEvents}
-                </Text>
-                <Text fontSize="xs" color={mutedText} mt={1}>Tap to open Ops Events</Text>
-              </Box>
+            <Heading size="md" mb={1}>Management Dashboard</Heading>
+            <Text color={mutedText} mb={4}>Visits, report delivery, patient feedback, and web demand.</Text>
+
+            <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
+              {[
+                { label: "Visits Today", value: visitMetrics.today?.total ?? 0, note: `${visitMetrics.today?.completed ?? 0} completed`, color: "teal.200" },
+                { label: visitMetrics?.is_current_month === false ? "Visits Month" : "Visits MTD", value: visitMetrics.mtd?.total ?? 0, note: `${visitMetrics.mtd?.unassigned ?? 0} unassigned`, color: "cyan.200" },
+                { label: "Reports Sent", value: managementMetrics.autoDispatchPipeline.sentToday, note: `${managementMetrics.autoDispatchPipeline.sent24h} in last 24h`, color: "blue.200" },
+                { label: "Website Visitors", value: managementMetrics.websiteUniqueVisitorsToday ?? "n/a", note: `${managementMetrics.websiteActiveSessions15m ?? 0} active now`, color: "teal.200" },
+                { label: "Patient Feedback", value: managementMetrics.positiveRate != null ? `${managementMetrics.positiveRate}%` : "n/a", note: "Positive rate", color: "green.300" },
+                { label: "Ops Watchlist", value: managementMetrics.openEvents, note: "Open items", color: managementMetrics.openEvents > 0 ? "orange.300" : "green.300" },
+              ].map((item) => (
+                <Box key={item.label} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+                  <Text fontSize="xs" color={mutedText} mb={1}>{item.label}</Text>
+                  <Text fontSize="2xl" fontWeight="800" color={item.color}>
+                    {visitMetrics.loading && item.label.startsWith("Visits") ? "..." : item.value}
+                  </Text>
+                  <Text fontSize="xs" color={mutedText} mt={1}>{item.note}</Text>
+                </Box>
+              ))}
             </SimpleGrid>
-            <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3} mt={3}>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(detailSectionRef)}>
-                <Text fontSize="xs" color={mutedText} mb={1}>WhatsApp SLA (1m)</Text>
-                <Text fontSize="2xl" fontWeight="800" color="blue.200">
-                  {managementMetrics.botSlaWithin != null ? `${Math.round(Number(managementMetrics.botSlaWithin))}%` : "n/a"}
-                </Text>
-              </Box>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(trendsSectionRef)}>
-                <Text fontSize="xs" color={mutedText} mb={1}>Bot Chats (24h)</Text>
-                <Text fontSize="2xl" fontWeight="800" color="purple.200">
-                  {managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a"}
-                </Text>
-              </Box>
-              <Box
-                p={4}
-                borderRadius="16px"
-                bg={cardBg}
-                border={panelBorder}
-                cursor="pointer"
-                onClick={() => {
-                  const firstDown = realServices.find((service) => service.status === "down");
-                  if (firstDown) {
-                    setActiveStatusFilter("");
-                    openServiceRca(firstDown.service_key);
-                    return;
-                  }
-                  const firstDegraded = realServices.find((service) => service.status === "degraded");
-                  if (firstDegraded) {
-                    setActiveStatusFilter("");
-                    openServiceRca(firstDegraded.service_key);
-                    return;
-                  }
-                  drillToSection(detailSectionRef);
-                }}
-              >
-                <Text fontSize="xs" color={mutedText} mb={1}>Website Active Sessions (15m)</Text>
-                <Text fontSize="2xl" fontWeight="800" color="cyan.200">
-                  {managementMetrics.websiteActiveSessions15m != null ? String(managementMetrics.websiteActiveSessions15m) : "n/a"}
-                </Text>
-              </Box>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
-                <Text fontSize="xs" color={mutedText} mb={1}>Website Unique Visitors (Today)</Text>
-                <Text fontSize="2xl" fontWeight="800" color="teal.200">
-                  {managementMetrics.websiteUniqueVisitorsToday != null ? String(managementMetrics.websiteUniqueVisitorsToday) : "n/a"}
-                </Text>
-              </Box>
-            </SimpleGrid>
-            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
-              <HStack justify="space-between" align="center" mb={2}>
-                <Text fontSize="xs" color={mutedText}>WhatsApp Engagement Snapshot</Text>
-                <Text fontSize="xs" color={faintText}>
-                  Last report: {managementMetrics.botLastReportIst || "n/a"} ({managementMetrics.botLastReportAgo || "n/a"})
-                </Text>
-              </HStack>
-              <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2}>
-                <Box p={3} borderRadius="12px" bg="rgba(59,130,246,0.10)" border="1px solid rgba(96,165,250,0.25)">
-                  <Text fontSize="xs" color={mutedText}>Reports Sent</Text>
-                  <Text fontWeight="800" fontSize="lg">{managementMetrics.botReports24h} (24h)</Text>
-                  <Text fontSize="xs" color={mutedText}>{managementMetrics.botReports1h} in last 1h</Text>
-                </Box>
-                <Box p={3} borderRadius="12px" bg="rgba(16,185,129,0.10)" border="1px solid rgba(74,222,128,0.25)">
-                  <Text fontSize="xs" color={mutedText}>Reply SLA (1m)</Text>
-                  <Text fontWeight="800" fontSize="lg">
-                    {managementMetrics.botSlaPct1h != null ? `${managementMetrics.botSlaPct1h}%` : "n/a"}
-                  </Text>
-                  <Text fontSize="xs" color={mutedText}>
-                    {managementMetrics.botSlaWithin1h}/{managementMetrics.botSlaCount1h} within SLA
-                  </Text>
-                </Box>
-                <Box p={3} borderRadius="12px" bg="rgba(245,158,11,0.10)" border="1px solid rgba(251,191,36,0.25)">
-                  <Text fontSize="xs" color={mutedText}>Late / No Reply (1h)</Text>
-                  <Text fontWeight="800" fontSize="lg">
-                    {managementMetrics.botSlaLate1h} / {managementMetrics.botSlaNoReply1h}
-                  </Text>
-                  <Text fontSize="xs" color={mutedText}>Escalation watch</Text>
-                </Box>
-                <Box p={3} borderRadius="12px" bg="rgba(139,92,246,0.10)" border="1px solid rgba(167,139,250,0.25)">
-                  <Text fontSize="xs" color={mutedText}>Wait Messages (24h)</Text>
-                  <Text fontWeight="800" fontSize="lg">
-                    {managementMetrics.botHelpWaits24h} / {managementMetrics.botReportWaits24h}
-                  </Text>
-                  <Text fontSize="xs" color={mutedText}>Help wait / report wait</Text>
-                </Box>
-              </SimpleGrid>
-            </Box>
-            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
-              <HStack justify="space-between" align="center" mb={3} flexWrap="wrap" gap={2}>
-                <Box>
-                  <Text fontSize="xs" color={mutedText}>Auto Dispatch Monitor</Text>
-                  <Text fontSize="xs" color={faintText}>Dispatch queue and provider health</Text>
-                </Box>
-                <Badge colorScheme={managementMetrics.autoDispatchIssues > 0 ? "red" : "green"} borderRadius="full" px={3} py={1}>
-                  {managementMetrics.autoDispatchIssues > 0 ? `${managementMetrics.autoDispatchIssues} issues` : "Healthy"}
-                </Badge>
-              </HStack>
-              <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2}>
-                {managementMetrics.autoDispatchRows.map((row) => (
-                  <Box
-                    key={row.key}
-                    p={3}
-                    borderRadius="12px"
-                    bg={innerBg}
-                    border={panelBorder}
-                    cursor="pointer"
-                    onClick={() => openServiceRca(row.serviceKey)}
-                  >
-                    <HStack justify="space-between" mb={1} align="start" gap={2}>
-                      <Text fontSize="xs" color={mutedText} noOfLines={1}>{row.label}</Text>
-                      <StatusChip status={row.status} color={statusColor(row.status)} />
-                    </HStack>
-                    <Text fontWeight="800" fontSize="xl" color={row.status === "healthy" ? "green.300" : row.status === "down" ? "red.300" : "yellow.300"}>
-                      {row.value == null ? "n/a" : row.value}
-                    </Text>
-                    <Text fontSize="xs" color={faintText} noOfLines={2}>{row.message}</Text>
-                  </Box>
-                ))}
-              </SimpleGrid>
-            </Box>
+
             <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
               <HStack justify="space-between" align="center" mb={3} flexWrap="wrap" gap={2}>
                 <Box>
@@ -2571,7 +2420,7 @@ export default function CtoDashboardPage({
                           return (
                             <HStack key={row.executive_id || row.name} spacing={2} minW={0}>
                               <Box w="8px" h="8px" borderRadius="full" bg={colors[index % colors.length]} flexShrink={0} />
-                              <Text fontSize="xs" color="whiteAlpha.850" noOfLines={1}>{row.name || "Unassigned"}</Text>
+                              <Text fontSize="xs" color={strongText} noOfLines={1}>{row.name || "Unassigned"}</Text>
                               <Text fontSize="xs" color={faintText} flexShrink={0}>{row.total} ({pct}%)</Text>
                             </HStack>
                           );
@@ -2582,6 +2431,58 @@ export default function CtoDashboardPage({
                 </>
               )}
             </Box>
+
+            <SimpleGrid columns={{ base: 1, xl: 2 }} spacing={3} mt={3}>
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+                <HStack justify="space-between" align="center" mb={2}>
+                  <Text fontSize="xs" color={mutedText}>Report Delivery</Text>
+                  <Text fontSize="xs" color={faintText}>Last report: {managementMetrics.botLastReportIst || "n/a"}</Text>
+                </HStack>
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
+                  {[
+                    { label: "Reports Sent", value: managementMetrics.autoDispatchPipeline.sentToday, note: `${managementMetrics.autoDispatchPipeline.sent24h} in last 24h`, tone: "rgba(59,130,246,0.10)", border: "1px solid rgba(96,165,250,0.25)" },
+                    { label: "Patient Chats", value: managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a", note: "Last 24h", tone: "rgba(20,184,166,0.10)", border: "1px solid rgba(45,212,191,0.25)" },
+                    { label: "Waiting Messages", value: `${managementMetrics.botHelpWaits24h} / ${managementMetrics.botReportWaits24h}`, note: "Help / report", tone: "rgba(139,92,246,0.10)", border: "1px solid rgba(167,139,250,0.25)" },
+                    { label: "Late or No Reply", value: `${managementMetrics.botSlaLate1h} / ${managementMetrics.botSlaNoReply1h}`, note: "Last 1h", tone: "rgba(245,158,11,0.10)", border: "1px solid rgba(251,191,36,0.25)" },
+                  ].map((item) => (
+                    <Box key={item.label} p={3} borderRadius="12px" bg={item.tone} border={item.border}>
+                      <Text fontSize="xs" color={mutedText}>{item.label}</Text>
+                      <Text fontWeight="800" fontSize="lg" color={strongText}>{item.value}</Text>
+                      <Text fontSize="xs" color={mutedText}>{item.note}</Text>
+                    </Box>
+                  ))}
+                </SimpleGrid>
+              </Box>
+
+              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+                <HStack justify="space-between" align="center" mb={2}>
+                  <Text fontSize="xs" color={mutedText}>Report Dispatch Pipeline</Text>
+                  <Badge colorScheme={managementMetrics.autoDispatchPipeline.failed > 0 ? "red" : managementMetrics.autoDispatchPipeline.approvalPending > 0 || managementMetrics.autoDispatchPipeline.testsPending > 0 ? "orange" : "green"} borderRadius="full" px={3} py={1}>
+                    {managementMetrics.autoDispatchPipeline.failed > 0 ? `${managementMetrics.autoDispatchPipeline.failed} failed` : "Live"}
+                  </Badge>
+                </HStack>
+                <SimpleGrid columns={{ base: 2, md: 3 }} spacing={2}>
+                  {[
+                    { label: "Sent Today", value: managementMetrics.autoDispatchPipeline.sentToday, color: "green.300" },
+                    { label: "Enqueued", value: managementMetrics.autoDispatchPipeline.enqueued, color: managementMetrics.autoDispatchPipeline.enqueued > 0 ? "blue.200" : "green.300" },
+                    { label: "Cooling Off", value: managementMetrics.autoDispatchPipeline.coolingOff, color: managementMetrics.autoDispatchPipeline.coolingOff > 0 ? "orange.300" : "green.300" },
+                    { label: "Approval Pending", value: managementMetrics.autoDispatchPipeline.approvalPending, color: managementMetrics.autoDispatchPipeline.approvalPending > 0 ? "orange.300" : "green.300" },
+                    { label: "Tests Pending", value: managementMetrics.autoDispatchPipeline.testsPending, color: managementMetrics.autoDispatchPipeline.testsPending > 0 ? "orange.300" : "green.300" },
+                    { label: "Failed", value: managementMetrics.autoDispatchPipeline.failed, color: managementMetrics.autoDispatchPipeline.failed > 0 ? "red.300" : "green.300" },
+                  ].map((item) => (
+                    <Box key={item.label} p={3} borderRadius="12px" bg={innerBg} border={panelBorder}>
+                      <Text fontSize="xs" color={mutedText}>{item.label}</Text>
+                      <Text fontWeight="800" fontSize="xl" color={item.color}>{item.value}</Text>
+                    </Box>
+                  ))}
+                </SimpleGrid>
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2} mt={2}>
+                  <Text fontSize="xs" color={faintText}>Lab approval {managementMetrics.autoDispatchPipeline.labApprovalPending} / scans {managementMetrics.autoDispatchPipeline.scanApprovalPending}</Text>
+                  <Text fontSize="xs" color={faintText}>Lab waiting {managementMetrics.autoDispatchPipeline.labWaiting} / scans {managementMetrics.autoDispatchPipeline.scanWaiting}</Text>
+                </SimpleGrid>
+              </Box>
+            </SimpleGrid>
+
             <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
               <Text fontSize="xs" color={mutedText} mb={2}>Top Website Pages (7d)</Text>
               {managementMetrics.websiteTopPages7d.length === 0 ? (
