@@ -1223,8 +1223,7 @@ async function loadWebsiteAnalytics(labId) {
 
   const topPages7d = Array.from(pageSets.entries())
     .map(([page_path, set]) => ({ page_path, unique_visitors: set.size }))
-    .sort((a, b) => b.unique_visitors - a.unique_visitors)
-    .slice(0, 8);
+    .sort((a, b) => b.unique_visitors - a.unique_visitors);
 
   const activeSessions15m = Array.from(
     new Set((activeRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))

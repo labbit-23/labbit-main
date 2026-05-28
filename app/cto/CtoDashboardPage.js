@@ -2346,8 +2346,6 @@ export default function CtoDashboardPage({
 
             <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
               {[
-                { label: "Visits Today", value: visitMetrics.today?.total ?? 0, note: `${visitMetrics.today?.completed ?? 0} completed`, color: "teal.200" },
-                { label: visitMetrics?.is_current_month === false ? "Visits Month" : "Visits MTD", value: visitMetrics.mtd?.total ?? 0, note: `${visitMetrics.mtd?.unassigned ?? 0} unassigned`, color: "cyan.200" },
                 { label: "Reports Sent", value: managementMetrics.autoDispatchPipeline.sentToday, note: `${managementMetrics.autoDispatchPipeline.sent24h} in last 24h`, color: "blue.200" },
                 { label: "Website Visitors", value: managementMetrics.websiteUniqueVisitorsToday ?? "n/a", note: `${managementMetrics.websiteActiveSessions15m ?? 0} active now`, color: "teal.200" },
                 { label: "Patient Feedback", value: managementMetrics.positiveRate != null ? `${managementMetrics.positiveRate}%` : "n/a", note: "Positive rate", color: "green.300" },
@@ -3703,18 +3701,18 @@ export default function CtoDashboardPage({
               {selectedService ? (
                 <Stack spacing={4}>
                   <Box p={4} borderRadius="18px" bg={innerBg}>
-                    <HStack justify="space-between" mb={3}>
-                      <Text fontWeight="700">{selectedService.label || selectedService.service_key}</Text>
+                    <HStack justify="space-between" align="start" mb={3} gap={2} flexWrap="wrap">
+                      <Text fontWeight="700" minW={0} wordBreak="break-word">{selectedService.label || selectedService.service_key}</Text>
                       <StatusChip status={selectedService.status} color={statusColor(selectedService.status)} />
                     </HStack>
-                    <SimpleGrid columns={2} spacing={3}>
+                    <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
                       <Box>
                         <Text fontSize="xs" color={faintText} mb={1}>Category</Text>
-                        <Text fontSize="sm">{selectedService.category || "other"}</Text>
+                        <Text fontSize="sm" wordBreak="break-word">{selectedService.category || "other"}</Text>
                       </Box>
                       <Box>
                         <Text fontSize="xs" color={faintText} mb={1}>Latency</Text>
-                        <Text fontSize="sm">
+                        <Text fontSize="sm" wordBreak="break-word">
                           {isWhatsappMetric(selectedService)
                             ? (selectedService.payload?.last_bot_message_ist || selectedService.payload?.last_bot_report_sent_ist || "n/a")
                             : typeof selectedService.latency_ms === "number"
@@ -3724,27 +3722,27 @@ export default function CtoDashboardPage({
                       </Box>
                       <Box>
                         <Text fontSize="xs" color={faintText} mb={1}>Checked</Text>
-                        <Text fontSize="sm">
+                        <Text fontSize="sm" wordBreak="break-word">
                           {selectedService.checked_at ? new Date(selectedService.checked_at).toLocaleString() : "n/a"}
                         </Text>
                       </Box>
                       <Box>
                         <Text fontSize="xs" color={faintText} mb={1}>Source</Text>
-                        <Text fontSize="sm">{selectedService.source || latest.source || "n/a"}</Text>
+                        <Text fontSize="sm" wordBreak="break-word">{selectedService.source || latest.source || "n/a"}</Text>
                       </Box>
                     </SimpleGrid>
                   </Box>
 
                   <Box p={4} borderRadius="18px" bg={innerBg}>
                     <Text fontSize="xs" color={faintText} mb={2}>Latest message</Text>
-                    <Text fontSize="sm" color={softText}>
+                    <Text fontSize="sm" color={softText} whiteSpace="pre-wrap" wordBreak="break-word">
                       {selectedService.message || "No detail available for this service."}
                     </Text>
                   </Box>
 
                   {selectedIssueSamples.length > 0 && (
                     <Box p={4} borderRadius="18px" bg={innerBg}>
-                      <HStack justify="space-between" mb={3}>
+                      <HStack justify="space-between" align="start" mb={3} gap={2} flexWrap="wrap">
                         <Text fontSize="xs" color={faintText}>
                           SLA Issue Samples (Last 1h)
                         </Text>
@@ -3761,9 +3759,9 @@ export default function CtoDashboardPage({
                             bg={cardBg}
                             border={panelBorder}
                           >
-                            <HStack justify="space-between" align="start" spacing={3}>
-                              <VStack align="start" spacing={0}>
-                                <HStack spacing={2}>
+                            <HStack justify="space-between" align="start" spacing={3} minW={0}>
+                              <VStack align="start" spacing={0} minW={0} w="full">
+                                <HStack spacing={2} flexWrap="wrap" minW={0}>
                                   <Badge
                                     colorScheme={String(sample?.issue_type || "").toLowerCase() === "no_reply" ? "red" : "yellow"}
                                     borderRadius="full"
@@ -3771,14 +3769,14 @@ export default function CtoDashboardPage({
                                     {String(sample?.issue_type || "issue").replace(/_/g, " ")}
                                   </Badge>
                                   {sample?.phone ? (
-                                    <Link href={`/admin/whatsapp/${encodeURIComponent(String(sample.phone))}`} style={{ color: "#7ef4d7", fontSize: "12px" }}>
+                                    <Link href={`/admin/whatsapp/${encodeURIComponent(String(sample.phone))}`} style={{ color: "#7ef4d7", fontSize: "12px", overflowWrap: "anywhere" }}>
                                       {sample.phone}
                                     </Link>
                                   ) : (
                                     <Text fontSize="xs" color={softText}>Unknown phone</Text>
                                   )}
                                 </HStack>
-                                <Text fontSize="xs" color={mutedText} mt={1}>
+                                <Text fontSize="xs" color={mutedText} mt={1} wordBreak="break-word">
                                   Inbound: {sample?.inbound_ist || "n/a"}{sample?.outbound_ist ? ` • Outbound: ${sample.outbound_ist}` : ""}
                                 </Text>
                                 <Text fontSize="xs" color={mutedText}>
@@ -3787,7 +3785,7 @@ export default function CtoDashboardPage({
                               </VStack>
                             </HStack>
                             {sample?.inbound_text && (
-                              <Text fontSize="xs" color={softText} mt={2} noOfLines={2}>
+                              <Text fontSize="xs" color={softText} mt={2} whiteSpace="pre-wrap" wordBreak="break-word">
                                 "{sample.inbound_text}"
                               </Text>
                             )}
@@ -3804,9 +3802,9 @@ export default function CtoDashboardPage({
                         <Text fontSize="sm" color={mutedText}>No payload metadata returned.</Text>
                       )}
                       {selectedPayloadEntries.map(([key, value]) => (
-                        <Flex key={key} justify="space-between" gap={4}>
-                          <Text fontSize="sm" color={mutedText}>{key}</Text>
-                          <Text fontSize="sm" color={strongText} textAlign="right" noOfLines={2}>
+                        <Flex key={key} justify="space-between" gap={2} direction={{ base: "column", sm: "row" }} minW={0}>
+                          <Text fontSize="sm" color={mutedText} wordBreak="break-word">{key}</Text>
+                          <Text fontSize="sm" color={strongText} textAlign={{ base: "left", sm: "right" }} whiteSpace="pre-wrap" wordBreak="break-word" minW={0}>
                             {formatPayloadValue(key, value)}
                           </Text>
                         </Flex>
