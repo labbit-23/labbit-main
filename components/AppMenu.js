@@ -107,6 +107,7 @@ const MENU_GROUPS = [
     items: [
       { key: "management", label: "Management Metrics", description: "CEO view for visits, WhatsApp, and operations", href: "/management", icon: BarChart3, roles: ["director", "director_ceo"], permissions: ["management.metrics.view"] },
       { key: "cto", label: "CTO Ops", description: "System health, incidents, trends, and diagnostics", href: "/cto", icon: MonitorCog, roles: ["director"] },
+      { key: "report_dispatch", label: "Report Dispatch", description: "Manual and auto report dispatch monitor", href: "/admin/report-dispatch", icon: FileText, roles: ["admin", "manager", "director", "b2b", "logistics"], permissions: ["reports.dispatch", "reports.auto_dispatch.view"] },
       { key: "admin", label: "Admin Dashboard", description: "Visits, bookings, patients, executives, and UAC", href: "/admin", icon: LayoutDashboard, roles: ["admin", "manager", "director"], permissions: ["visits.create", "visits.update", "patients.update", "quickbook.update", "executives.status.update"] },
       { key: "phlebo", label: "Phlebo Dashboard", description: "Assigned and open visits", href: "/phlebo", icon: Stethoscope, roles: ["phlebo"] },
       { key: "collection", label: "Collection Centre", description: "B2B and logistics workspace", href: "/collection-centre", icon: Building2, roles: ["b2b", "logistics", "admin", "manager", "director"] },
@@ -118,7 +119,6 @@ const MENU_GROUPS = [
     label: "Operations",
     items: [
       { key: "whatsapp", label: "WhatsApp Inbox", description: "Patient conversations and handoffs", href: "/admin/whatsapp", icon: MessageCircle, roles: ["admin", "manager", "director"], permissions: ["whatsapp.reply"] },
-      { key: "report_dispatch", label: "Report Dispatch", description: "Manual and auto report dispatch monitor", href: "/admin/report-dispatch", icon: FileText, roles: ["admin", "manager", "director", "b2b", "logistics"], permissions: ["reports.dispatch", "reports.auto_dispatch.view"] },
       { key: "run_reports", label: "Run Reports", description: "MIS and transaction reports", href: "/admin/reports/run", icon: FileBarChart, roles: ["admin", "manager", "director"], permissions: ["reports.run.mis", "reports.run.transaction", "reports.setup"] },
       { key: "report_master", label: "Report Master", description: "Report catalog and setup", href: "/admin/reports/master", icon: ClipboardList, roles: ["admin", "director"], permissions: ["reports.setup"] },
       { key: "cto_sim", label: "WhatsApp Simulator", description: "CTO-only simulator tools", href: "/cto/whatsapp-sim", icon: Bot, roles: ["director"], permissions: ["simulator.read"] },
