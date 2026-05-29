@@ -405,8 +405,7 @@ function domainForServiceKey(serviceKey = "") {
   if (baseKey === "supabase_main") return "Database";
   if (
     baseKey === "orthanc_main" ||
-    baseKey.startsWith("mirth_") ||
-    baseKey === "tailscale_mirth"
+    baseKey.startsWith("mirth_")
   ) {
     return "Machine Interfacing";
   }

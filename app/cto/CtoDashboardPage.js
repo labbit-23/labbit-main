@@ -66,7 +66,7 @@ const keySystems = [
   { service_keys: ["whatsapp_bot_activity", "whatsapp_bot_response_sla_1m", "whatsapp_bot_chats_24h", "whatsapp_bot_reports_24h", "whatsapp_bot_last_report"], label: "WhatsApp Bot" },
   { service_keys: ["supabase_main"], label: "Supabase" },
   { service_keys: ["oracle_db"], label: "Oracle DB" },
-  { service_keys: ["mirth_lab", "mirth_dicom", "tailscale_mirth"], label: "Mirth" },
+  { service_keys: ["mirth_lab", "mirth_dicom"], label: "Mirth" },
   { service_keys: ["tomcat_7", "tomcat_9"], label: "Tomcat" },
   { service_keys: ["orthanc_main"], label: "Orthanc" },
 ];
@@ -286,8 +286,7 @@ function domainTitleForService(service) {
     category === "mirth" ||
     category === "orthanc" ||
     key === "orthanc_main" ||
-    key.startsWith("mirth_") ||
-    key === "tailscale_mirth"
+    key.startsWith("mirth_")
   ) {
     return "Machine Interfacing";
   }
@@ -329,7 +328,7 @@ function iconForService(service) {
   if (key === "supabase_main") return iconForSystemLabel("Supabase");
   if (key === "oracle_db") return iconForSystemLabel("Oracle DB");
   if (key === "orthanc_main") return iconForSystemLabel("Orthanc");
-  if (key.startsWith("mirth_") || key === "tailscale_mirth") return iconForSystemLabel("Mirth");
+  if (key.startsWith("mirth_")) return iconForSystemLabel("Mirth");
   if (key.startsWith("tomcat_")) return iconForSystemLabel("Tomcat");
   if (key.startsWith("whatsapp_bot_")) return iconForSystemLabel("WhatsApp Bot");
   return iconForDomainTitle(domainTitleForService(service));
@@ -1496,7 +1495,8 @@ export default function CtoDashboardPage({
     if (valid.length === 0) {
       return { uptimeLabel: "n/a", downtimeLabel: "n/a", uptimePct: null, downtimePct: null };
     }
-    const downBuckets = valid.filter((point) => Number(point?.healthy_rate) < 0.999).length;
+    // Count as downtime only if health rate < 80% (actual meaningful degradation, not normal variance)
+    const downBuckets = valid.filter((point) => Number(point?.healthy_rate) < 0.8).length;
     const totalBuckets = valid.length;
     const upBuckets = Math.max(0, totalBuckets - downBuckets);
     const downMinutes = downBuckets * trendBucketMinutes;
