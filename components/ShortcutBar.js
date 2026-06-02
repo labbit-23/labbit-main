@@ -496,7 +496,7 @@ export default function ShortcutBar({
 
         {/* Right section: Global app menu + Home + Role badge + Logout */}
         <Flex align="center" gap={{ base: 1, sm: 2 }} flexShrink={0}>
-          {!rightContent && <AppMenu themeMode={themeMode} />}
+          <AppMenu themeMode={themeMode} />
           {!isPhlebo && (
             <Tooltip label="Dashboard Home">
               <IconButton
