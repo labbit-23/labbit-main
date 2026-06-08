@@ -943,13 +943,24 @@ async function loadAutoDispatchMetrics(labId) {
   const todayKey = istYmdKey(new Date());
   const failedJobs = jobsList.filter((job) => {
     if (String(job?.status || "").toLowerCase() !== "failed") return false;
-    const failedAt = parseIsoDate(job?.updated_at);
-    return !failedAt || istYmdKey(failedAt) === todayKey;
+    // Scope by created_at — the date the job was enqueued — not updated_at which
+    // gets bumped on every retry and inflates counts for repeatedly-failing jobs.
+    const createdAt = parseIsoDate(job?.created_at);
+    return !createdAt || istYmdKey(createdAt) === todayKey;
   });
-  const invalidPhoneFailedJobs = failedJobs.filter(
+  // Deduplicate by reqno so repeated re-enqueues of the same bad-phone requisition
+  // count as one failure, not hundreds.
+  const failedReqnosSeen = new Set();
+  const failedJobsDistinct = failedJobs.filter((job) => {
+    const rn = String(job?.reqno || "").trim();
+    if (!rn || failedReqnosSeen.has(rn)) return false;
+    failedReqnosSeen.add(rn);
+    return true;
+  });
+  const invalidPhoneFailedJobs = failedJobsDistinct.filter(
     (job) => String(job?.last_error || "").trim().toUpperCase() === "INVALID_PHONE"
   );
-  const pdfNotFoundFailedJobs = failedJobs.filter((job) =>
+  const pdfNotFoundFailedJobs = failedJobsDistinct.filter((job) =>
     /report pdf was not found/i.test(String(job?.last_error || ""))
   );
   const pipelineSummary = {
