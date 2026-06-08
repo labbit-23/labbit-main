@@ -769,8 +769,9 @@ export default function ReportDispatchWorkspace({
       const ts = parseTimestamp(row?.updated_at || row?.created_at)?.getTime();
       return ts != null && ts >= bounds.start && ts < bounds.end;
     }).length;
-    const sentToday = autoSummary?.sent_jobs ?? monitorDateStats.sent;
-    return { totalJobs, pendingQueue, coolingOff, failedUnpaused, sentToday };
+    const sentToday = autoSummary?.sent_today_total ?? autoSummary?.sent_jobs ?? monitorDateStats.sent;
+    const prevDaySent = autoSummary?.previous_days_sent_jobs ?? 0;
+    return { totalJobs, pendingQueue, coolingOff, failedUnpaused, sentToday, prevDaySent };
   }, [autoJobs, autoSummary, monitorDateStats, selectedDate]);
 
   const sentTodaySplit = useMemo(() => {
@@ -1811,6 +1812,13 @@ export default function ReportDispatchWorkspace({
                     L {sentTodaySplit.lab} • R {sentTodaySplit.radiology} • H {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • O ${sentTodaySplit.other}` : ""}
                   </Text>
                 </Box>
+                {monitorTopStats.prevDaySent > 0 && (
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}>
+                    <Text fontSize="xs" opacity={0.7}>Prev day reports</Text>
+                    <Text fontWeight="bold">{monitorTopStats.prevDaySent}</Text>
+                    <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>sent today</Text>
+                  </Box>
+                )}
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Read</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
               </SimpleGrid>

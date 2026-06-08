@@ -667,6 +667,7 @@ export async function GET(request) {
         sentDayQuery = applyLabScope(sentDayQuery, labIds);
         const { data: sentDayRows, error: sentDayError } = await sentDayQuery;
         if (!sentDayError && Array.isArray(sentDayRows)) {
+          summary.sent_today_total = sentDayRows.length;
           const dayKey = summaryDateKey;
           for (const row of sentDayRows) {
             const reqno = String(row?.reqno || "").trim();
