@@ -1802,10 +1802,30 @@ export default function ReportDispatchWorkspace({
               </Flex>
 
               <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={2} mb={2}>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{monitorTopStats.pendingQueue}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.800" : "yellow.100"}><Text fontSize="xs" opacity={0.7}>Cooling Off</Text><Text fontWeight="bold">{monitorTopStats.coolingOff}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Failed (today)</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "orange.900" : "orange.50"}
+                  borderColor={autoStatusFilter === "queued" ? "orange.400" : "transparent"}
+                  _hover={{ borderColor: "orange.300" }}
+                  onClick={() => setAutoStatusFilter(autoStatusFilter === "queued" ? "" : "queued")}
+                ><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{monitorTopStats.pendingQueue}</Text></Box>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "yellow.800" : "yellow.100"}
+                  borderColor={autoStatusFilter === "cooling_off" ? "yellow.500" : "transparent"}
+                  _hover={{ borderColor: "yellow.400" }}
+                  onClick={() => setAutoStatusFilter(autoStatusFilter === "cooling_off" ? "" : "cooling_off")}
+                ><Text fontSize="xs" opacity={0.7}>Cooling Off</Text><Text fontWeight="bold">{monitorTopStats.coolingOff}</Text></Box>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "red.900" : "red.50"}
+                  borderColor={autoStatusFilter === "failed" ? "red.400" : "transparent"}
+                  _hover={{ borderColor: "red.300" }}
+                  onClick={() => setAutoStatusFilter(autoStatusFilter === "failed" ? "" : "failed")}
+                ><Text fontSize="xs" opacity={0.7}>Failed (today)</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "teal.900" : "teal.50"}
+                  borderColor={autoStatusFilter === "sent" ? "teal.400" : "transparent"}
+                  _hover={{ borderColor: "teal.300" }}
+                  onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
+                >
                   <Text fontSize="xs" opacity={0.7}>Sent Today</Text>
                   <Text fontWeight="bold">{monitorTopStats.sentToday}</Text>
                   <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
@@ -1813,14 +1833,29 @@ export default function ReportDispatchWorkspace({
                   </Text>
                 </Box>
                 {monitorTopStats.prevDaySent > 0 && (
-                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}>
+                  <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                    bg={themeMode === "dark" ? "purple.900" : "purple.50"}
+                    borderColor={autoStatusFilter === "sent" ? "purple.400" : "transparent"}
+                    _hover={{ borderColor: "purple.300" }}
+                    onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
+                  >
                     <Text fontSize="xs" opacity={0.7}>Prev day reports</Text>
                     <Text fontWeight="bold">{monitorTopStats.prevDaySent}</Text>
                     <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>sent today</Text>
                   </Box>
                 )}
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "green.900" : "green.50"}><Text fontSize="xs" opacity={0.7}>Read</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "green.900" : "green.50"}
+                  borderColor={autoStatusFilter === "sent" ? "green.400" : "transparent"}
+                  _hover={{ borderColor: "green.300" }}
+                  onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
+                ><Text fontSize="xs" opacity={0.7}>Read</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read}</Text></Box>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "blue.900" : "blue.50"}
+                  borderColor={autoStatusFilter === "sent" ? "blue.400" : "transparent"}
+                  _hover={{ borderColor: "blue.300" }}
+                  onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
+                ><Text fontSize="xs" opacity={0.7}>Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
               </SimpleGrid>
 
               <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"} mb={3}>
