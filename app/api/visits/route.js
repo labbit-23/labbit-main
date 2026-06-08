@@ -685,18 +685,22 @@ export async function PUT(request) {
     }
 
     // Update visit
+    const isRescheduling = Object.prototype.hasOwnProperty.call(visitData, "visit_date") ||
+      Object.prototype.hasOwnProperty.call(visitData, "time_slot");
     delete visitData.force_assign;
     delete visitData.location_text;
     const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
-    const scheduleError = await assertVisitScheduleAllowed({
-      visitDate: normalizedVisitData.visit_date ?? prev.visit_date,
-      timeSlotId: normalizedVisitData.time_slot ?? prev.time_slot,
-    });
-    if (scheduleError) {
-      return NextResponse.json(
-        { error: scheduleError, code: "VISIT_SCHEDULE_PAST" },
-        { status: 400 }
-      );
+    if (isRescheduling) {
+      const scheduleError = await assertVisitScheduleAllowed({
+        visitDate: normalizedVisitData.visit_date ?? prev.visit_date,
+        timeSlotId: normalizedVisitData.time_slot ?? prev.time_slot,
+      });
+      if (scheduleError) {
+        return NextResponse.json(
+          { error: scheduleError, code: "VISIT_SCHEDULE_PAST" },
+          { status: 400 }
+        );
+      }
     }
     let { data, error } = await supabase
       .from("visits")
