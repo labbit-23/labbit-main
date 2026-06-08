@@ -104,6 +104,13 @@ function friendlyRoute(value) {
   return text || "-";
 }
 
+function istDayBounds(ymd) {
+  const m = String(ymd || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const startMs = Date.UTC(+m[1], +m[2] - 1, +m[3], 0, 0, 0) - (5.5 * 60 * 60 * 1000);
+  return { start: startMs, end: startMs + 86400000 };
+}
+
 function parseTimestamp(value, options = {}) {
   if (!value) return null;
   if (value instanceof Date) return value;
@@ -754,11 +761,13 @@ export default function ReportDispatchWorkspace({
     const totalJobs = autoSummary?.total_jobs ?? monitorDateStats.total;
     const pendingQueue = (autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying);
     const coolingOff = autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off;
-    // Count only today's (selectedDate) failed jobs that are not paused
-    const key = String(selectedDate || "").replace(/-/g, "");
+    const bounds = istDayBounds(selectedDate);
     const failedUnpaused = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
-      return st === "failed" && !row?.is_paused && String(row?.reqno || "").startsWith(key);
+      if (st !== "failed" || row?.is_paused) return false;
+      if (!bounds) return true;
+      const ts = parseTimestamp(row?.updated_at || row?.created_at)?.getTime();
+      return ts != null && ts >= bounds.start && ts < bounds.end;
     }).length;
     const sentToday = autoSummary?.sent_jobs ?? monitorDateStats.sent;
     return { totalJobs, pendingQueue, coolingOff, failedUnpaused, sentToday };
