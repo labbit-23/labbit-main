@@ -754,13 +754,15 @@ export default function ReportDispatchWorkspace({
     const totalJobs = autoSummary?.total_jobs ?? monitorDateStats.total;
     const pendingQueue = (autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying);
     const coolingOff = autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off;
+    // Count only today's (selectedDate) failed jobs that are not paused
+    const key = String(selectedDate || "").replace(/-/g, "");
     const failedUnpaused = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
-      return st === "failed" && !row?.is_paused;
+      return st === "failed" && !row?.is_paused && String(row?.reqno || "").startsWith(key);
     }).length;
     const sentToday = autoSummary?.sent_jobs ?? monitorDateStats.sent;
     return { totalJobs, pendingQueue, coolingOff, failedUnpaused, sentToday };
-  }, [autoJobs, autoSummary, monitorDateStats]);
+  }, [autoJobs, autoSummary, monitorDateStats, selectedDate]);
 
   const sentTodaySplit = useMemo(() => {
     const rows = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
@@ -1792,7 +1794,7 @@ export default function ReportDispatchWorkspace({
               <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={2} mb={2}>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "orange.900" : "orange.50"}><Text fontSize="xs" opacity={0.7}>Pending Queue</Text><Text fontWeight="bold">{monitorTopStats.pendingQueue}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "yellow.800" : "yellow.100"}><Text fontSize="xs" opacity={0.7}>Cooling Off</Text><Text fontWeight="bold">{monitorTopStats.coolingOff}</Text></Box>
-                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Failed (Active)</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
+                <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "red.900" : "red.50"}><Text fontSize="xs" opacity={0.7}>Failed (today)</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
                 <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}>
                   <Text fontSize="xs" opacity={0.7}>Sent Today</Text>
                   <Text fontWeight="bold">{monitorTopStats.sentToday}</Text>
