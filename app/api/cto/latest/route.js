@@ -940,15 +940,18 @@ async function loadAutoDispatchMetrics(labId) {
     return status === "down" || status === "degraded" || isLikelyDispatchErrorText(message) || isLikelyDispatchErrorText(sampleError);
   });
 
-  const failedJobs = jobsList.filter((job) => String(job?.status || "").toLowerCase() === "failed");
+  const todayKey = istYmdKey(new Date());
+  const failedJobs = jobsList.filter((job) => {
+    if (String(job?.status || "").toLowerCase() !== "failed") return false;
+    const failedAt = parseIsoDate(job?.updated_at);
+    return !failedAt || istYmdKey(failedAt) === todayKey;
+  });
   const invalidPhoneFailedJobs = failedJobs.filter(
     (job) => String(job?.last_error || "").trim().toUpperCase() === "INVALID_PHONE"
   );
   const pdfNotFoundFailedJobs = failedJobs.filter((job) =>
     /report pdf was not found/i.test(String(job?.last_error || ""))
   );
-
-  const todayKey = istYmdKey(new Date());
   const pipelineSummary = {
     total_jobs: 0,
     queued_jobs: 0,
@@ -975,7 +978,10 @@ async function loadAutoDispatchMetrics(labId) {
     else if (status === "cooling_off") pipelineSummary.cooling_off_jobs += 1;
     else if (status === "retrying") pipelineSummary.retrying_jobs += 1;
     else if (status === "sent") pipelineSummary.sent_jobs += 1;
-    else if (status === "failed") pipelineSummary.failed_jobs += 1;
+    else if (status === "failed") {
+      const failedAt = parseIsoDate(job?.updated_at || job?.sent_at);
+      if (!failedAt || istYmdKey(failedAt) === todayKey) pipelineSummary.failed_jobs += 1;
+    }
     if (job?.is_paused) pipelineSummary.paused_jobs += 1;
 
     const sentAt = parseIsoDate(job?.sent_at);
