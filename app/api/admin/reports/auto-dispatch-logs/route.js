@@ -581,8 +581,7 @@ export async function GET(request) {
       events = Array.isArray(evRows) ? evRows : [];
     }
 
-    const summaryDateKey = selectedDateKey || ymdKeyFromIsoDate(new Date().toISOString().slice(0, 10));
-    const summaryDayRange = istDayRange(summary.selected_date);
+    const summaryDayRange = istDayRange(selectedDate || new Date().toISOString().slice(0, 10));
     const dateJobs = summaryDayRange
       ? enrichedJobs.filter((row) => {
           const ca = String(row?.created_at || "").trim();
