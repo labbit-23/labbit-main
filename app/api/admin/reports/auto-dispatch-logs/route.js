@@ -327,16 +327,14 @@ export async function GET(request) {
     }
 
     if (selectedDateKey) {
-      const st = String(status || "").toLowerCase();
-      if (st === "sent") {
-        const range = istDayRange(selectedDate);
-        if (range) {
+      const range = istDayRange(selectedDate);
+      if (range) {
+        const st = String(status || "").toLowerCase();
+        if (st === "sent") {
           jobsQuery = jobsQuery.gte("sent_at", range.startIso).lt("sent_at", range.endIso);
         } else {
-          jobsQuery = jobsQuery.like("reqno", `${selectedDateKey}%`);
+          jobsQuery = jobsQuery.gte("created_at", range.startIso).lt("created_at", range.endIso);
         }
-      } else {
-        jobsQuery = jobsQuery.like("reqno", `${selectedDateKey}%`);
       }
     }
 
@@ -584,7 +582,13 @@ export async function GET(request) {
     }
 
     const summaryDateKey = selectedDateKey || ymdKeyFromIsoDate(new Date().toISOString().slice(0, 10));
-    const dateJobs = enrichedJobs.filter((row) => String(row?.reqno || "").startsWith(summaryDateKey));
+    const summaryDayRange = istDayRange(summary.selected_date);
+    const dateJobs = summaryDayRange
+      ? enrichedJobs.filter((row) => {
+          const ca = String(row?.created_at || "").trim();
+          return ca >= summaryDayRange.startIso && ca < summaryDayRange.endIso;
+        })
+      : enrichedJobs;
     const summary = {
       selected_date: selectedDate || new Date().toISOString().slice(0, 10),
       total_jobs: dateJobs.length,
@@ -659,7 +663,7 @@ export async function GET(request) {
       if (sentDayRange) {
         let sentDayQuery = supabase
           .from(JOBS_TABLE)
-          .select("reqno,metadata")
+          .select("reqno,metadata,created_at")
           .eq("status", "sent")
           .gte("sent_at", sentDayRange.startIso)
           .lt("sent_at", sentDayRange.endIso)
@@ -668,10 +672,10 @@ export async function GET(request) {
         const { data: sentDayRows, error: sentDayError } = await sentDayQuery;
         if (!sentDayError && Array.isArray(sentDayRows)) {
           summary.sent_today_total = sentDayRows.length;
-          const dayKey = summaryDateKey;
           for (const row of sentDayRows) {
-            const reqno = String(row?.reqno || "").trim();
-            if (dayKey && reqno && !reqno.startsWith(dayKey)) {
+            const rowCreatedAt = String(row?.created_at || "").trim();
+            const createdToday = rowCreatedAt && rowCreatedAt >= sentDayRange.startIso && rowCreatedAt < sentDayRange.endIso;
+            if (!createdToday) {
               summary.previous_days_sent_jobs += 1;
             }
             const meta = parseMaybeJson(row?.metadata) || {};
@@ -684,6 +688,30 @@ export async function GET(request) {
       }
     } catch (sentDiagErr) {
       console.warn("[auto-dispatch-logs] sent-day diagnostics skipped", sentDiagErr?.message || String(sentDiagErr));
+    }
+
+    // Distinct failed requisitions created today — uses created_at IST range to avoid counting
+    // duplicate rows from repeated re-enqueues of the same bad-phone reqno.
+    try {
+      const failedDayRange = istDayRange(summary.selected_date);
+      if (failedDayRange) {
+        let failedQuery = supabase
+          .from(JOBS_TABLE)
+          .select("reqno")
+          .gte("created_at", failedDayRange.startIso)
+          .lt("created_at", failedDayRange.endIso)
+          .eq("status", "failed")
+          .eq("is_paused", false)
+          .limit(5000);
+        failedQuery = applyLabScope(failedQuery, labIds);
+        const { data: failedRows } = await failedQuery;
+        const distinctFailed = new Set(
+          (failedRows || []).map((r) => String(r?.reqno || "").trim()).filter(Boolean)
+        ).size;
+        summary.failed_today_total = distinctFailed;
+      }
+    } catch (failedCountErr) {
+      console.warn("[auto-dispatch-logs] failed count skipped", failedCountErr?.message);
     }
 
     // Day-level risk counters from event history (not current row state),

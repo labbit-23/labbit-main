@@ -725,10 +725,12 @@ export default function ReportDispatchWorkspace({
   }, [sentInlineRows]);
 
   const monitorDateStats = useMemo(() => {
-    const key = String(selectedDate || "").replace(/-/g, "");
-    const dateJobs = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) =>
-      String(row?.reqno || "").startsWith(key)
-    );
+    const bounds = istDayBounds(selectedDate);
+    const dateJobs = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
+      if (!bounds) return true;
+      const ca = row?.created_at ? new Date(row.created_at).getTime() : null;
+      return Number.isFinite(ca) && ca >= bounds.start && ca < bounds.end;
+    });
     const stats = {
       total: dateJobs.length,
       queued: 0,
@@ -761,13 +763,9 @@ export default function ReportDispatchWorkspace({
     const totalJobs = autoSummary?.total_jobs ?? monitorDateStats.total;
     const pendingQueue = (autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying);
     const coolingOff = autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off;
-    const bounds = istDayBounds(selectedDate);
-    const failedUnpaused = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
+    const failedUnpaused = autoSummary?.failed_today_total ?? (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
-      if (st !== "failed" || row?.is_paused) return false;
-      if (!bounds) return true;
-      const ts = parseTimestamp(row?.updated_at || row?.created_at)?.getTime();
-      return ts != null && ts >= bounds.start && ts < bounds.end;
+      return st === "failed" && !row?.is_paused;
     }).length;
     const sentToday = autoSummary?.sent_today_total ?? autoSummary?.sent_jobs ?? monitorDateStats.sent;
     const prevDaySent = autoSummary?.previous_days_sent_jobs ?? 0;
@@ -775,11 +773,13 @@ export default function ReportDispatchWorkspace({
   }, [autoJobs, autoSummary, monitorDateStats, selectedDate]);
 
   const sentTodaySplit = useMemo(() => {
+    const bounds = istDayBounds(selectedDate);
     const rows = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
       if (st !== "sent") return false;
-      const req = String(row?.reqno || "").trim();
-      return req.startsWith(String(selectedDate || "").replace(/-/g, ""));
+      if (!bounds) return true;
+      const sentMs = row?.sent_at ? new Date(row.sent_at).getTime() : null;
+      return Number.isFinite(sentMs) && sentMs >= bounds.start && sentMs < bounds.end;
     });
     const out = { lab: 0, radiology: 0, hybrid: 0, other: 0 };
     for (const row of rows) {
