@@ -708,18 +708,35 @@ export default function QuickBookTab({
                           }}
                         />
                       </WrapItem>
-                      <WrapItem>
-                        <IconButton
-                          size="xs"
-                          variant="solid"
-                          colorScheme="green"
-                          icon={<FiCalendar />}
-                          aria-label="Create visit"
-                          title="Create visit"
-                          isDisabled={Boolean(qb.visit_id)}
-                          onClick={() => setProcessingQuickBook(qb)}
-                        />
-                      </WrapItem>
+                      {!isCentreVisit && (
+                        <WrapItem w="100%">
+                          <Button
+                            size="xs"
+                            w="100%"
+                            variant="solid"
+                            colorScheme="green"
+                            leftIcon={<FiCalendar />}
+                            isDisabled={Boolean(qb.visit_id)}
+                            onClick={() => setProcessingQuickBook(qb)}
+                          >
+                            Create visit
+                          </Button>
+                        </WrapItem>
+                      )}
+                      {isCentreVisit && (
+                        <WrapItem>
+                          <IconButton
+                            size="xs"
+                            variant="solid"
+                            colorScheme="green"
+                            icon={<FiCalendar />}
+                            aria-label="Create visit"
+                            title="Create visit"
+                            isDisabled={Boolean(qb.visit_id)}
+                            onClick={() => setProcessingQuickBook(qb)}
+                          />
+                        </WrapItem>
+                      )}
                       <WrapItem>
                         <IconButton
                           size="xs"
@@ -849,18 +866,35 @@ export default function QuickBookTab({
                             }}
                           />
                         </WrapItem>
-                        <WrapItem>
-                          <IconButton
-                            size="xs"
-                            variant="solid"
-                            colorScheme="green"
-                            icon={<FiCalendar />}
-                            aria-label="Create visit"
-                            title="Create visit"
-                            isDisabled={Boolean(qb.visit_id)}
-                            onClick={() => setProcessingQuickBook(qb)}
-                          />
-                        </WrapItem>
+                        {!isCentreVisit && (
+                          <WrapItem w="100%">
+                            <Button
+                              size="xs"
+                              w="100%"
+                              variant="solid"
+                              colorScheme="green"
+                              leftIcon={<FiCalendar />}
+                              isDisabled={Boolean(qb.visit_id)}
+                              onClick={() => setProcessingQuickBook(qb)}
+                            >
+                              Create visit
+                            </Button>
+                          </WrapItem>
+                        )}
+                        {isCentreVisit && (
+                          <WrapItem>
+                            <IconButton
+                              size="xs"
+                              variant="solid"
+                              colorScheme="green"
+                              icon={<FiCalendar />}
+                              aria-label="Create visit"
+                              title="Create visit"
+                              isDisabled={Boolean(qb.visit_id)}
+                              onClick={() => setProcessingQuickBook(qb)}
+                            />
+                          </WrapItem>
+                        )}
                         <WrapItem>
                           <IconButton
                             size="xs"
