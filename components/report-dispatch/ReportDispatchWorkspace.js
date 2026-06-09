@@ -1137,11 +1137,14 @@ export default function ReportDispatchWorkspace({
   async function loadAutoDispatchJobs(options = {}) {
     setAutoLoading(true);
     try {
-      const limit = Number(options?.limit || 120);
+      // When a date is selected, request enough rows to cover all requisitions for
+      // that day — collapseByReqno on the client then gives the correct unique set.
+      const skipDateScope = autoStatusFilter === "failed";
+      const limit = (selectedDate && !skipDateScope)
+        ? Number(options?.limit || 2000)
+        : Number(options?.limit || 120);
       const query = new URLSearchParams({ limit: String(limit) });
       if (autoStatusFilter) query.set("status", autoStatusFilter);
-      // Don't scope by date when filtering by failed — failures can span multiple days
-      const skipDateScope = autoStatusFilter === "failed";
       if (selectedDate && !skipDateScope) query.set("selected_date", selectedDate);
       const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());

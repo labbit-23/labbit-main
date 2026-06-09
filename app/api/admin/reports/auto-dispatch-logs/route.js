@@ -309,10 +309,14 @@ export async function GET(request) {
 
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "").trim();
-    const limit = Math.min(toInt(url.searchParams.get("limit"), 50), 200);
     const selectedDate = String(url.searchParams.get("selected_date") || "").trim();
     const jobId = String(url.searchParams.get("job_id") || "").trim();
     const selectedDateKey = ymdKeyFromIsoDate(selectedDate);
+    // For date-scoped requests fetch all rows for the day so collapseByReqno on
+    // the client produces the full unique-reqno set, not a partial slice by updated_at.
+    const limit = selectedDate
+      ? Math.min(toInt(url.searchParams.get("limit"), 50), 5000)
+      : Math.min(toInt(url.searchParams.get("limit"), 50), 200);
 
     let jobsQuery = supabase
       .from(JOBS_TABLE)
