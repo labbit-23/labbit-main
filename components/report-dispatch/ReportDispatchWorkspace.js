@@ -1801,7 +1801,7 @@ export default function ReportDispatchWorkspace({
                 </ButtonGroup>
               </Flex>
 
-              <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={2} mb={2}>
+              <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={2} mb={2}>
                 <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
                   bg={themeMode === "dark" ? "orange.900" : "orange.50"}
                   borderColor={autoStatusFilter === "queued" ? "orange.400" : "transparent"}
@@ -1826,36 +1826,24 @@ export default function ReportDispatchWorkspace({
                   _hover={{ borderColor: "teal.300" }}
                   onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
                 >
-                  <Text fontSize="xs" opacity={0.7}>Sent Today</Text>
+                  <Text fontSize="xs" opacity={0.7}>Sent Today{monitorTopStats.prevDaySent > 0 ? ` (+${monitorTopStats.prevDaySent} prev)` : ""}</Text>
                   <Text fontWeight="bold">{monitorTopStats.sentToday}</Text>
                   <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
-                    L {sentTodaySplit.lab} • R {sentTodaySplit.radiology} • H {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • O ${sentTodaySplit.other}` : ""}
+                    Lab {sentTodaySplit.lab} • Scan {sentTodaySplit.radiology} • Both {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • Other ${sentTodaySplit.other}` : ""}
                   </Text>
                 </Box>
-                {monitorTopStats.prevDaySent > 0 && (
-                  <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
-                    bg={themeMode === "dark" ? "purple.900" : "purple.50"}
-                    borderColor={autoStatusFilter === "sent" ? "purple.400" : "transparent"}
-                    _hover={{ borderColor: "purple.300" }}
-                    onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
-                  >
-                    <Text fontSize="xs" opacity={0.7}>Prev day reports</Text>
-                    <Text fontWeight="bold">{monitorTopStats.prevDaySent}</Text>
-                    <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>sent today</Text>
-                  </Box>
-                )}
                 <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
                   bg={themeMode === "dark" ? "green.900" : "green.50"}
                   borderColor={autoStatusFilter === "sent" ? "green.400" : "transparent"}
                   _hover={{ borderColor: "green.300" }}
                   onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
-                ><Text fontSize="xs" opacity={0.7}>Read</Text><Text fontWeight="bold">{autoSummary?.delivery_read_jobs ?? monitorDateStats.read}</Text></Box>
-                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
-                  bg={themeMode === "dark" ? "blue.900" : "blue.50"}
-                  borderColor={autoStatusFilter === "sent" ? "blue.400" : "transparent"}
-                  _hover={{ borderColor: "blue.300" }}
-                  onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
-                ><Text fontSize="xs" opacity={0.7}>Delivered</Text><Text fontWeight="bold">{autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}</Text></Box>
+                >
+                  <Text fontSize="xs" opacity={0.7}>Delivery Status</Text>
+                  <Text fontWeight="bold">{(autoSummary?.delivery_read_jobs ?? monitorDateStats.read) + (autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered)}</Text>
+                  <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
+                    Read {autoSummary?.delivery_read_jobs ?? monitorDateStats.read} • Delivered {autoSummary?.delivery_delivered_jobs ?? monitorDateStats.delivered}
+                  </Text>
+                </Box>
               </SimpleGrid>
 
               <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"} mb={3}>
