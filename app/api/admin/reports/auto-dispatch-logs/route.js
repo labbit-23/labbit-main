@@ -662,7 +662,7 @@ export async function GET(request) {
       if (sentDayRange) {
         let sentDayQuery = supabase
           .from(JOBS_TABLE)
-          .select("reqno,metadata,created_at")
+          .select("reqno,metadata,created_at,provider_response")
           .eq("status", "sent")
           .gte("sent_at", sentDayRange.startIso)
           .lt("sent_at", sentDayRange.endIso)
@@ -682,6 +682,54 @@ export async function GET(request) {
             if (src === "outsourced_report") {
               summary.outsourced_sent_jobs += 1;
             }
+          }
+
+          // Compute accurate Read/Delivered counts from the full sent-today set.
+          // The paged list is too small and noisy to derive these from.
+          const sentProviderIds = sentDayRows
+            .map((r) => extractProviderMessageIdFromJob(r))
+            .filter(Boolean)
+            .map((id) => String(id).trim())
+            .filter(Boolean);
+          const uniqueSentProviderIds = [...new Set(sentProviderIds)];
+          if (uniqueSentProviderIds.length > 0) {
+            const deliveryWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: sentDeliveryRows } = await supabase
+              .from("whatsapp_messages")
+              .select("message_id,payload,created_at")
+              .eq("direction", "status")
+              .gte("created_at", deliveryWindowStart)
+              .in("message_id", uniqueSentProviderIds.slice(0, 1000))
+              .order("created_at", { ascending: false })
+              .limit(5000);
+            const bestDelivery = new Map();
+            for (const ev of sentDeliveryRows || []) {
+              const payload = parseMaybeJson(ev?.payload);
+              const statusKey = String(
+                payload?.status || payload?.raw_status?.status || payload?.statuses?.[0]?.status || ""
+              ).trim().toLowerCase();
+              if (!statusKey) continue;
+              const msgId = normalizeMessageId(ev?.message_id);
+              if (!msgId) continue;
+              const prev = bestDelivery.get(msgId);
+              if (!prev || deliveryRank(statusKey) > deliveryRank(prev)) {
+                bestDelivery.set(msgId, statusKey);
+              }
+            }
+            let readCount = 0;
+            let deliveredCount = 0;
+            let sentOnlyCount = 0;
+            for (const row of sentDayRows) {
+              const pid = normalizeMessageId(extractProviderMessageIdFromJob(row));
+              const ds = pid ? (bestDelivery.get(pid) || null) : null;
+              if (ds === "read") readCount += 1;
+              else if (ds === "delivered") deliveredCount += 1;
+              else if (pid) sentOnlyCount += 1;
+            }
+            summary.delivery_read_jobs = readCount;
+            summary.delivery_delivered_jobs = deliveredCount;
+            summary.delivery_sent_only_jobs = sentOnlyCount;
+            summary.delivery_unknown_jobs = sentDayRows.length - readCount - deliveredCount - sentOnlyCount;
           }
         }
       }
