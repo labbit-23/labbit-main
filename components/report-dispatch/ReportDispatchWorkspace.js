@@ -514,6 +514,9 @@ export default function ReportDispatchWorkspace({
   const [autoViewFilter, setAutoViewFilter] = useState("pending");
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
+  const [showSentInline, setShowSentInline] = useState(false);
+  const [sentInlineRows, setSentInlineRows] = useState([]);
+  const [sentInlineLoading, setSentInlineLoading] = useState(false);
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -616,6 +619,11 @@ export default function ReportDispatchWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
+  useEffect(() => {
+    if (!monitorOpen || !showSentInline) return;
+    loadSentInlineRows({ limit: 1000 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, showSentInline, monitorOpen]);
 
   useEffect(() => {
     let active = true;
@@ -711,6 +719,10 @@ export default function ReportDispatchWorkspace({
     });
     return collapseByReqno(filtered).sort(byReqnoDesc);
   }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter]);
+
+  const sentDispatchRows = useMemo(() => {
+    return [...(Array.isArray(sentInlineRows) ? sentInlineRows : [])].sort(byReqnoDesc);
+  }, [sentInlineRows]);
 
   const monitorDateStats = useMemo(() => {
     const bounds = istDayBounds(selectedDate);
@@ -1145,6 +1157,26 @@ export default function ReportDispatchWorkspace({
       return false;
     } finally {
       setAutoLoading(false);
+    }
+  }
+
+  async function loadSentInlineRows(options = {}) {
+    setSentInlineLoading(true);
+    try {
+      const limit = Number(options?.limit || 1000);
+      const query = new URLSearchParams({ limit: String(limit), status: "sent" });
+      if (selectedDate) query.set("selected_date", selectedDate);
+      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setSentInlineRows(Array.isArray(json?.jobs) ? json.jobs : []);
+      return true;
+    } catch (err) {
+      setSentInlineRows([]);
+      setError(err?.message || "Failed to load sent reports");
+      return false;
+    } finally {
+      setSentInlineLoading(false);
     }
   }
 
@@ -1850,6 +1882,20 @@ export default function ReportDispatchWorkspace({
                       All
                     </Button>
                   </ButtonGroup>
+                  <Button
+                    type="button"
+                    size="sm"
+                    leftIcon={<List size={14} />}
+                    variant="outline"
+                    minW="120px"
+                    onClick={async () => {
+                      const next = !showSentInline;
+                      setShowSentInline(next);
+                      if (next) await loadSentInlineRows({ limit: 1000 });
+                    }}
+                  >
+                    {showSentInline ? "Hide Sent" : "View Sent"}
+                  </Button>
                   <Select size="sm" maxW="220px" borderRadius="md" value={autoStatusFilter} onChange={(e) => setAutoStatusFilter(e.target.value)}>
                     <option value="">All statuses</option>
                     <option value="queued">queued</option>
@@ -1981,6 +2027,7 @@ export default function ReportDispatchWorkspace({
                   </AlertDialogContent>
                 </AlertDialogOverlay>
               </AlertDialog>
+              {!showSentInline ? (
               <Flex mb={3} align="center" justify="space-between" wrap="wrap" gap={2}>
                 <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
                 <HStack spacing={2}>
@@ -2021,6 +2068,149 @@ export default function ReportDispatchWorkspace({
                   />
                 </HStack>
               </Flex>
+              ) : null}
+              {showSentInline ? (
+              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
+                <Flex align="center" justify="space-between" mb={2}>
+                  <Text fontWeight="semibold" fontSize="sm">Sent Reports</Text>
+                  <Badge colorScheme="green">{sentDispatchRows.length}</Badge>
+                </Flex>
+                {sentInlineLoading ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading sent reports...</Text>
+                ) : sentDispatchRows.length === 0 ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
+                ) : (
+                  isMobileViewport ? (
+                  <Box>
+                    {sentDispatchRows.slice(0, 100).map((row) => {
+                      const delivery = deriveDeliveryStatus(row);
+                      const color = delivery === "read" ? "green" : delivery === "delivered" ? "blue" : delivery === "failed" ? "red" : "gray";
+                      return (
+                        <Box key={`sent_card_${row?.id || row?.reqno || row?.phone || Math.random()}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
+                          <Text fontSize="xs" fontWeight="bold">
+                            <Text
+                              as="span"
+                              fontWeight="bold"
+                              cursor="pointer"
+                              userSelect="text"
+                              onClick={() => handleReqnoClick(row)}
+                            >
+                              {displayValue(row?.reqno)}
+                            </Text>
+                            {" • "}
+                            {displayValue(row?.patient_name)}
+                          </Text>
+                          <Text fontSize="xs" color="gray.600">{displayValue(row?.phone)}</Text>
+                          <Text fontSize="xs">Status sent: {displayValue(row?.report_label)}</Text>
+                          <Text fontSize="xs">Sent: {formatIstDateTime(row?.sent_at)}</Text>
+                          <HStack spacing={2} mt={1}>
+                            <Badge colorScheme={color}>{delivery}</Badge>
+                            <Text fontSize="10px">{formatIstDateTime(row?.delivery_status_at, { naiveTz: "utc" })}</Text>
+                          </HStack>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                  ) : (
+                  <Box overflowX="auto">
+                    <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
+                      <Thead>
+                        <Tr>
+                          <Th>Req No</Th>
+                          <Th>Req Date</Th>
+                          <Th>Patient</Th>
+                          <Th>Phone</Th>
+                          <Th>Status Sent</Th>
+                          <Th>Backlog</Th>
+                          <Th>Sent (IST)</Th>
+                          <Th>Delivery</Th>
+                          <Th>Receipt Time (IST)</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {sentDispatchRows.slice(0, 100).map((row, idx) => {
+                          const reqDate = reqDateFromReqno(row?.reqno);
+                          const isBacklog = Boolean(reqDate) && reqDate !== selectedDate;
+                          return (
+                          <Tr key={`sent_${row?.id || row?.reqno || row?.phone || idx}`}>
+                            <Td fontWeight="bold">
+                              <Text
+                                as="span"
+                                fontWeight="bold"
+                                cursor="pointer"
+                                userSelect="text"
+                                onClick={() => handleReqnoClick(row)}
+                              >
+                                {displayValue(row?.reqno)}
+                              </Text>
+                            </Td>
+                            <Td>{displayValue(reqDate)}</Td>
+                            <Td>{displayValue(row?.patient_name)}</Td>
+                            <Td>{displayValue(row?.phone)}</Td>
+                            <Td>{displayValue(row?.report_label)}</Td>
+                            <Td>
+                              <Badge colorScheme={isBacklog ? "orange" : "green"}>
+                                {isBacklog ? "Older cleared" : "Today"}
+                              </Badge>
+                            </Td>
+                            <Td>{formatIstDateTime(row?.sent_at)}</Td>
+                            <Td>
+                              <Badge colorScheme={deriveDeliveryStatus(row) === "read" ? "green" : deriveDeliveryStatus(row) === "delivered" ? "blue" : "gray"}>
+                                {deriveDeliveryStatus(row)}
+                              </Badge>
+                            </Td>
+                            <Td>{formatIstDateTime(row?.delivery_status_at, { naiveTz: "utc" })}</Td>
+                          </Tr>
+                        )})}
+                      </Tbody>
+                    </Table>
+                  </Box>
+                  )
+                )}
+              </Box>
+              ) : null}
+              {showSentInline ? (
+              <Flex mb={3} align="center" justify="space-between" wrap="wrap" gap={2}>
+                <Text fontSize="xs">{autoFilteredJobs.length} records</Text>
+                <HStack spacing={2}>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="First page"
+                    icon={<ChevronLeft size={14} />}
+                    onClick={() => setAutoPage(1)}
+                    isDisabled={safeAutoPage <= 1}
+                    variant="outline"
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Previous page"
+                    icon={<ChevronLeft size={14} />}
+                    onClick={() => setAutoPage((p) => Math.max(1, p - 1))}
+                    isDisabled={safeAutoPage <= 1}
+                  />
+                  <Text fontSize="xs">Page {safeAutoPage} / {totalAutoPages}</Text>
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Next page"
+                    icon={<ChevronRight size={14} />}
+                    onClick={() => setAutoPage((p) => Math.min(totalAutoPages, p + 1))}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                  />
+                  <IconButton
+                    size="xs"
+                    type="button"
+                    aria-label="Last page"
+                    icon={<ChevronRight size={14} />}
+                    onClick={() => setAutoPage(totalAutoPages)}
+                    isDisabled={safeAutoPage >= totalAutoPages}
+                    variant="outline"
+                  />
+                </HStack>
+              </Flex>
+              ) : null}
 
               {isMobileViewport ? (
                 <Box>

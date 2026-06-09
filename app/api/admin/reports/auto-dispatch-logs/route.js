@@ -331,16 +331,9 @@ export async function GET(request) {
       if (range) {
         const st = String(status || "").toLowerCase();
         if (st === "sent") {
-          // Sent jobs: scope by when they were actually sent.
           jobsQuery = jobsQuery.gte("sent_at", range.startIso).lt("sent_at", range.endIso);
-        } else if (st === "failed") {
-          // Failed jobs: scope by creation date to avoid counting repeated re-enqueues
-          // of the same bad-phone reqno as multiple distinct failures.
-          jobsQuery = jobsQuery.gte("created_at", range.startIso).lt("created_at", range.endIso);
         } else {
-          // General / pending statuses: scope by updated_at so we capture jobs enqueued
-          // yesterday but still active or sent today, while excluding truly stale rows.
-          jobsQuery = jobsQuery.gte("updated_at", range.startIso).lt("updated_at", range.endIso);
+          jobsQuery = jobsQuery.gte("created_at", range.startIso).lt("created_at", range.endIso);
         }
       }
     }
