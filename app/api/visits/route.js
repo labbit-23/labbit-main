@@ -632,6 +632,7 @@ export async function PUT(request) {
     const visitData = await request.json();
     const forceAssign = Boolean(visitData.force_assign);
     const locationText = visitData.location_text || "";
+    const updatedBy = visitData.updated_by;
     const hasExplicitStatus = Object.prototype.hasOwnProperty.call(visitData, "status");
 
     if (!visitData.id) {
@@ -689,6 +690,7 @@ export async function PUT(request) {
       Object.prototype.hasOwnProperty.call(visitData, "time_slot");
     delete visitData.force_assign;
     delete visitData.location_text;
+    delete visitData.updated_by;
     const normalizedVisitData = await resolveOrCreatePatientAddress(visitData, locationText);
     if (isRescheduling) {
       const scheduleError = await assertVisitScheduleAllowed({
@@ -735,7 +737,7 @@ export async function PUT(request) {
         activity_type:   "visit_update",
         old_value:       { status: prev.status || null },
         new_value:       { status: data.status || null },
-        changed_by:      normalizedVisitData.updated_by || user?.id || null,
+        changed_by:      updatedBy || user?.id || null,
         changed_by_role: user?.role || null,
         remark:          prev.status !== data.status
           ? `Status changed: ${prev.status} → ${data.status}`
