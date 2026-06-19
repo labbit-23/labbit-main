@@ -3258,7 +3258,7 @@ export default function CtoDashboardPage({
             <Box
               p={{ base: 4, md: 5 }}
               borderRadius="24px"
-              bg="linear-gradient(180deg, rgba(26,37,55,0.96) 0%, rgba(13,23,38,0.98) 100%)"
+              bg={innerBg}
               border={panelBorder}
             >
               <HStack justify="space-between" mb={2} flexWrap="wrap">
@@ -3298,10 +3298,10 @@ export default function CtoDashboardPage({
                       w={{ base: "full", md: "auto" }}
                       p={3}
                       borderRadius="16px"
-                      bg={selectedService?.service_key === incident.service_key ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)"}
-                      border={selectedService?.service_key === incident.service_key ? "1px solid rgba(126,244,215,0.32)" : "1px solid rgba(255,255,255,0.08)"}
+                      bg={selectedService?.service_key === incident.service_key ? (isDarkTheme ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)") : (isDarkTheme ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.04)")}
+                      border={selectedService?.service_key === incident.service_key ? (isDarkTheme ? "1px solid rgba(126,244,215,0.32)" : "1px solid rgba(126,244,215,0.45)") : (isDarkTheme ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(15,23,42,0.12)")}
                       cursor="pointer"
-                      _hover={{ bg: "rgba(255,255,255,0.07)" }}
+                      _hover={{ bg: isDarkTheme ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.06)" }}
                       onClick={() => openServiceRca(incident.service_key)}
                     >
                       <HStack justify="space-between" mb={2}>
@@ -3414,11 +3414,11 @@ export default function CtoDashboardPage({
                   </Button>
                 </HStack>
               </HStack>
-              {pm2Error && <Text fontSize="sm" color="red.200" mb={2}>{pm2Error}</Text>}
+              {pm2Error && <Text fontSize="sm" color={isDarkTheme ? "red.200" : "red.600"} mb={2}>{pm2Error}</Text>}
               <Box
                 p={3}
                 borderRadius="12px"
-                bg="rgba(5,10,20,0.9)"
+                bg={isDarkTheme ? "rgba(5,10,20,0.9)" : "rgba(248,250,252,0.98)"}
                 border={panelBorder}
                 maxH="280px"
                 overflowY="auto"
