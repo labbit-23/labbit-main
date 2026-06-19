@@ -2254,9 +2254,9 @@ export default function CtoDashboardPage({
               <Button
                 size="sm"
                 variant="outline"
-                borderColor="rgba(244, 190, 126, 0.65)"
-                color="white"
-                _hover={{ bg: "rgba(244, 190, 126, 0.16)" }}
+                borderColor={isDarkTheme ? "rgba(244, 190, 126, 0.65)" : "orange.400"}
+                color={isDarkTheme ? "white" : "orange.700"}
+                _hover={{ bg: isDarkTheme ? "rgba(244, 190, 126, 0.16)" : "rgba(244, 190, 126, 0.10)" }}
                 borderRadius="full"
                 onClick={smartReportModal.onOpen}
               >
@@ -2273,7 +2273,7 @@ export default function CtoDashboardPage({
             size="sm"
             borderRadius="full"
             variant={dashboardTab === "cto" ? "solid" : "outline"}
-            colorScheme={dashboardTab === "cto" ? "teal" : "whiteAlpha"}
+            colorScheme={dashboardTab === "cto" ? "teal" : isDarkTheme ? "whiteAlpha" : "gray"}
             onClick={() => setDashboardTab("cto")}
           >
             CTO Ops
@@ -2282,7 +2282,7 @@ export default function CtoDashboardPage({
             size="sm"
             borderRadius="full"
             variant={dashboardTab === "management" ? "solid" : "outline"}
-            colorScheme={dashboardTab === "management" ? "teal" : "whiteAlpha"}
+            colorScheme={dashboardTab === "management" ? "teal" : isDarkTheme ? "whiteAlpha" : "gray"}
             onClick={() => setDashboardTab("management")}
           >
             Management Metrics
@@ -2304,15 +2304,15 @@ export default function CtoDashboardPage({
               role="button"
               aria-label="Toggle simplified and advanced CTO dashboard view"
             >
-              <Text fontSize="xs" color={dashboardViewMode === "simplified" ? "teal.200" : "whiteAlpha.700"}>
+              <Text fontSize="xs" color={dashboardViewMode === "simplified" ? "teal.200" : isDarkTheme ? "whiteAlpha.700" : "gray.600"}>
                 Simplified
               </Text>
               <Box
                 w="42px"
                 h="22px"
                 borderRadius="full"
-                bg={dashboardViewMode === "advanced" ? "teal.400" : "whiteAlpha.400"}
-                border="1px solid rgba(255,255,255,0.28)"
+                bg={dashboardViewMode === "advanced" ? "teal.400" : isDarkTheme ? "whiteAlpha.400" : "gray.300"}
+                border={isDarkTheme ? "1px solid rgba(255,255,255,0.28)" : "1px solid rgba(15,23,42,0.20)"}
                 p="2px"
                 transition="all 0.2s ease"
               >
@@ -2320,12 +2320,12 @@ export default function CtoDashboardPage({
                   w="16px"
                   h="16px"
                   borderRadius="full"
-                  bg="white"
+                  bg={isDarkTheme ? "white" : "gray.900"}
                   transform={dashboardViewMode === "advanced" ? "translateX(20px)" : "translateX(0px)"}
                   transition="transform 0.2s ease"
                 />
               </Box>
-              <Text fontSize="xs" color={dashboardViewMode === "advanced" ? "teal.200" : "whiteAlpha.700"}>
+              <Text fontSize="xs" color={dashboardViewMode === "advanced" ? "teal.200" : isDarkTheme ? "whiteAlpha.700" : "gray.600"}>
                 Advanced
               </Text>
             </HStack>
