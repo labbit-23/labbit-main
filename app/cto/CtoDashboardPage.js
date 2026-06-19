@@ -3407,6 +3407,9 @@ export default function CtoDashboardPage({
                   <Button
                     size="sm"
                     variant="outline"
+                    borderColor={isDarkTheme ? "whiteAlpha.300" : "gray.400"}
+                    color={strongText}
+                    _hover={{ bg: isDarkTheme ? "whiteAlpha.100" : "gray.100" }}
                     onClick={() => setPm2ReloadTick((v) => v + 1)}
                     isLoading={pm2Loading}
                   >
