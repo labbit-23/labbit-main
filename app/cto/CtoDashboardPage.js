@@ -3396,8 +3396,9 @@ export default function CtoDashboardPage({
                     value={pm2SelectedApp}
                     onChange={(event) => setPm2SelectedApp(event.target.value)}
                     maxW="240px"
-                    bg={panelBg}
-                    borderColor="whiteAlpha.300"
+                    bg={selectBg}
+                    color={strongText}
+                    borderColor={isDarkTheme ? "whiteAlpha.300" : "gray.300"}
                   >
                     {pm2Apps.map((app) => (
                       <option key={app} value={app}>{app}</option>
@@ -3427,19 +3428,24 @@ export default function CtoDashboardPage({
                 )}
                 {!pm2Loading && pm2LogEntries.length > 0 && (
                   <VStack align="stretch" spacing={1}>
-                    {pm2LogEntries.map((entry, index) => (
-                      <HStack key={`${entry?.raw || entry?.message || "line"}-${index}`} align="start" spacing={2}>
-                        <Text fontSize="10px" color="cyan.200" minW="170px">
-                          {entry?.timestamp || "no-ts"}
-                        </Text>
-                        <Text fontSize="10px" color={String(entry?.level || "").toUpperCase() === "ERROR" ? "red.300" : String(entry?.level || "").toUpperCase() === "WARNING" ? "yellow.300" : "whiteAlpha.600"} minW="56px">
-                          {String(entry?.level || "INFO").toUpperCase()}
-                        </Text>
-                        <Text fontSize="11px" color={strongText} whiteSpace="pre-wrap" flex="1">
-                          {entry?.message || ""}
-                        </Text>
-                      </HStack>
-                    ))}
+                    {pm2LogEntries.map((entry, index) => {
+                      const level = String(entry?.level || "").toUpperCase();
+                      const levelColor = level === "ERROR" ? (isDarkTheme ? "red.300" : "red.600") : level === "WARNING" ? (isDarkTheme ? "yellow.300" : "orange.600") : (isDarkTheme ? "whiteAlpha.600" : "gray.600");
+                      const tsColor = isDarkTheme ? "cyan.200" : "blue.600";
+                      return (
+                        <HStack key={`${entry?.raw || entry?.message || "line"}-${index}`} align="start" spacing={2}>
+                          <Text fontSize="10px" color={tsColor} minW="170px">
+                            {entry?.timestamp || "no-ts"}
+                          </Text>
+                          <Text fontSize="10px" color={levelColor} minW="56px">
+                            {level || "INFO"}
+                          </Text>
+                          <Text fontSize="11px" color={softText} whiteSpace="pre-wrap" flex="1">
+                            {entry?.message || ""}
+                          </Text>
+                        </HStack>
+                      );
+                    })}
                   </VStack>
                 )}
                 {!pm2Loading && pm2LogEntries.length === 0 && (
