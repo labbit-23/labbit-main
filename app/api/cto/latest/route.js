@@ -1131,7 +1131,7 @@ async function loadAutoDispatchMetrics(labId) {
         samples: invalidPhoneFailedJobs.slice(0, 20).map((j) => ({
           id: j.id,
           reqno: j.reqno,
-          updated_at: j.updated_at,
+          updated_at_ist: j.updated_at ? IST_FORMATTER.format(new Date(j.updated_at)) : "n/a",
         }))
       }
     }),
@@ -1147,7 +1147,7 @@ async function loadAutoDispatchMetrics(labId) {
         samples: pdfNotFoundFailedJobs.slice(0, 20).map((j) => ({
           id: j.id,
           reqno: j.reqno,
-          updated_at: j.updated_at,
+          updated_at_ist: j.updated_at ? IST_FORMATTER.format(new Date(j.updated_at)) : "n/a",
         }))
       }
     })
