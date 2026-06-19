@@ -3,8 +3,8 @@ import CtoDashboardPage from "./CtoDashboardPage";
 
 export default function CtoPage() {
   return (
-    <RequireAuth roles={["director"]}>
-      <CtoDashboardPage />
+    <RequireAuth roles={["director", "director_ceo"]}>
+      <CtoDashboardPage defaultDashboardTab="management" />
     </RequireAuth>
   );
 }
