@@ -1945,8 +1945,8 @@ export default function CtoDashboardPage({
       py={1.5}
       borderRadius="14px"
       bg={panelBg}
-      border="1px solid rgba(255,255,255,0.14)"
-      color="white"
+      border={panelBorder}
+      color={strongText}
     >
       <Text fontSize="xs" color={softText} whiteSpace="nowrap">Lab</Text>
       <Select
@@ -1960,8 +1960,8 @@ export default function CtoDashboardPage({
         maxW="220px"
         borderRadius="10px"
         bg={selectBg}
-        borderColor="rgba(255,255,255,0.22)"
-        color="white"
+        borderColor={isDarkTheme ? "rgba(255,255,255,0.22)" : "gray.300"}
+        color={strongText}
       >
         {labs.length === 0 && <option value="">Default Lab</option>}
         {labs.map((lab) => (
@@ -1974,7 +1974,7 @@ export default function CtoDashboardPage({
         <Button
           size="xs"
           variant="outline"
-          borderColor="rgba(255,255,255,0.28)"
+          borderColor={isDarkTheme ? "rgba(255,255,255,0.28)" : "gray.400"}
           color={strongText}
           onClick={togglePinnedLab}
         >
@@ -2117,8 +2117,8 @@ export default function CtoDashboardPage({
                   size="sm"
                   borderRadius="10px"
                   bg={selectBg}
-                  borderColor="rgba(255,255,255,0.18)"
-                  color="white"
+                  borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "gray.300"}
+                  color={strongText}
                 >
                   {labs.length === 0 && <option value="">Default Lab</option>}
                   {labs.map((lab) => (
@@ -2132,7 +2132,7 @@ export default function CtoDashboardPage({
                     <Button
                       size="xs"
                       variant="outline"
-                      borderColor="rgba(255,255,255,0.28)"
+                      borderColor={isDarkTheme ? "rgba(255,255,255,0.28)" : "gray.400"}
                       color={strongText}
                       onClick={togglePinnedLab}
                     >
@@ -2174,7 +2174,7 @@ export default function CtoDashboardPage({
                     py={1.5}
                     borderRadius="full"
                     bg={cardBg}
-                    border="1px solid rgba(255,255,255,0.05)"
+                    border={isDarkTheme ? "1px solid rgba(255,255,255,0.05)" : "1px solid rgba(15,23,42,0.08)"}
                   >
                     <Box
                       w={2.5}
@@ -2210,7 +2210,7 @@ export default function CtoDashboardPage({
                       py={1.5}
                       borderRadius="full"
                       bg={cardBg}
-                      border="1px solid rgba(255,255,255,0.05)"
+                      border={isDarkTheme ? "1px solid rgba(255,255,255,0.05)" : "1px solid rgba(15,23,42,0.08)"}
                       cursor={system.primaryServiceKey ? "pointer" : "default"}
                       onClick={() => {
                         if (system.primaryServiceKey) openServiceRca(system.primaryServiceKey);
@@ -2374,7 +2374,7 @@ export default function CtoDashboardPage({
                   value={visitMetricsMonth}
                   onChange={(event) => setVisitMetricsMonth(event.target.value)}
                   bg={selectBg}
-                  borderColor="rgba(255,255,255,0.18)"
+                  borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)"}
                   color={strongText}
                 />
               </HStack>
@@ -2533,9 +2533,9 @@ export default function CtoDashboardPage({
               <Button
                 size="sm"
                 variant="outline"
-                borderColor="whiteAlpha.300"
-                color="white"
-                _hover={{ bg: "whiteAlpha.120" }}
+                borderColor={isDarkTheme ? "whiteAlpha.300" : "gray.400"}
+                color={strongText}
+                _hover={{ bg: isDarkTheme ? "whiteAlpha.120" : "gray.100" }}
                 onClick={() => {
                   const firstDown = smartDiagnosis.services.find((service) => service.status === "down") || smartDiagnosis.services[0];
                   if (firstDown) {
@@ -2652,7 +2652,7 @@ export default function CtoDashboardPage({
                 boxShadow="0 24px 60px rgba(0,0,0,0.18)"
                 cursor="pointer"
                 outline={activeStatusFilter === stat.filter ? "2px solid rgba(126,244,215,0.45)" : "none"}
-                _hover={{ bg: "rgba(255,255,255,0.09)" }}
+                _hover={{ bg: isDarkTheme ? "rgba(255,255,255,0.09)" : "rgba(15,23,42,0.06)" }}
                 onClick={() => {
                   const nextFilter = activeStatusFilter === stat.filter ? "" : stat.filter;
                   setActiveStatusFilter(nextFilter);
@@ -2712,7 +2712,7 @@ export default function CtoDashboardPage({
                 onChange={(e) => setTrendRange(e.target.value)}
                 maxW="170px"
                 bg={selectBg}
-                borderColor="rgba(255,255,255,0.18)"
+                borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)"}
                 color={strongText}
                 sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
@@ -2870,7 +2870,7 @@ export default function CtoDashboardPage({
                         onChange={(e) => item.onChange(e.target.value)}
                         maxW={{ base: "100%", md: "280px" }}
                         bg={selectBg}
-                        borderColor="rgba(255,255,255,0.18)"
+                        borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)"}
                       >
                         <option value="">{item.allLabel}</option>
                         {item.options.map((serviceKey) => (
@@ -2952,7 +2952,7 @@ export default function CtoDashboardPage({
                   icon={<HelpCircle size={14} />}
                   size="xs"
                   variant="outline"
-                  borderColor="rgba(255,255,255,0.28)"
+                  borderColor={isDarkTheme ? "rgba(255,255,255,0.28)" : "rgba(15,23,42,0.15)"}
                   color={strongText}
                   _hover={{ bg: "whiteAlpha.120" }}
                   onClick={() => setShowVpsRunbook((prev) => !prev)}
@@ -3620,7 +3620,7 @@ export default function CtoDashboardPage({
                               <Button
                                 size="xs"
                                 variant="outline"
-                                borderColor="rgba(255,255,255,0.24)"
+                                borderColor={isDarkTheme ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.14)"}
                                 color={strongText}
                                 _hover={{ bg: "whiteAlpha.120" }}
                                 onClick={(event) => {
@@ -3666,9 +3666,9 @@ export default function CtoDashboardPage({
                     p={3}
                     borderRadius="18px"
                     cursor="pointer"
-                    bg={selectedService?.service_key === item.service_key ? "rgba(255,255,255,0.08)" : "transparent"}
+                    bg={selectedService?.service_key === item.service_key ? (isDarkTheme ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.06)") : "transparent"}
                     border={selectedService?.service_key === item.service_key ? "1px solid rgba(126,244,215,0.32)" : "1px solid transparent"}
-                    _hover={{ bg: "rgba(255,255,255,0.05)" }}
+                    _hover={{ bg: isDarkTheme ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.04)" }}
                     onClick={() => openServiceRca(item.service_key)}
                   >
                     <Flex justify="space-between" align="center" mb={2}>
@@ -3847,7 +3847,7 @@ export default function CtoDashboardPage({
                 onChange={(e) => setFeedbackPeriod(e.target.value)}
                 maxW="170px"
                 bg={selectBg}
-                borderColor="rgba(255,255,255,0.18)"
+                borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)"}
               >
                 <option value="day">Day</option>
                 <option value="month">Month</option>
@@ -3977,7 +3977,7 @@ export default function CtoDashboardPage({
                 onChange={(e) => setEventsStatusFilter(e.target.value)}
                 maxW="170px"
                 bg={selectBg}
-                borderColor="rgba(255,255,255,0.18)"
+                borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)"}
                 color={strongText}
                 sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
@@ -3992,7 +3992,7 @@ export default function CtoDashboardPage({
                 onChange={(e) => setEventsSeverityFilter(e.target.value)}
                 maxW="170px"
                 bg={selectBg}
-                borderColor="rgba(255,255,255,0.18)"
+                borderColor={isDarkTheme ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)"}
                 color={strongText}
                 sx={{ option: { background: '#0f1726', color: '#f8fafc' } }}
               >
@@ -4059,7 +4059,7 @@ export default function CtoDashboardPage({
                         <Button
                           size="xs"
                           variant="outline"
-                          borderColor="rgba(255,255,255,0.25)"
+                          borderColor={isDarkTheme ? "rgba(255,255,255,0.25)" : "rgba(15,23,42,0.14)"}
                           color={strongText}
                           _hover={{ bg: "whiteAlpha.120" }}
                           isDisabled={row.status === "acknowledged" || row.status === "resolved" || eventActionBusy[row.id]}
@@ -4089,7 +4089,7 @@ export default function CtoDashboardPage({
 
       <Modal isOpen={smartReportModal.isOpen} onClose={smartReportModal.onClose} isCentered>
         <ModalOverlay bg="blackAlpha.600" />
-        <ModalContent bg="#111827" color="white" border={panelBorder}>
+        <ModalContent bg={isDarkTheme ? "#111827" : "white"} color={strongText} border={panelBorder}>
           <ModalHeader>SMART Report* (Experimental)</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
@@ -4101,7 +4101,7 @@ export default function CtoDashboardPage({
               onChange={(e) => setSmartMrnoInput(e.target.value)}
               placeholder="MRNO"
               bg={selectBg}
-              borderColor="rgba(255,255,255,0.2)"
+              borderColor={isDarkTheme ? "rgba(255,255,255,0.2)" : "rgba(15,23,42,0.12)"}
             />
           </ModalBody>
           <ModalFooter>
@@ -4129,7 +4129,7 @@ export default function CtoDashboardPage({
 
       <Modal isOpen={feedbackDetailsModal.isOpen} onClose={feedbackDetailsModal.onClose} size="4xl" isCentered>
         <ModalOverlay bg="blackAlpha.600" />
-        <ModalContent bg="#111827" color="white" border={panelBorder}>
+        <ModalContent bg={isDarkTheme ? "#111827" : "white"} color={strongText} border={panelBorder}>
           <ModalHeader>{feedbackDetailsTitle || "Feedback details"}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
