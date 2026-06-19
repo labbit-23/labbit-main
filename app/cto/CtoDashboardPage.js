@@ -2241,9 +2241,9 @@ export default function CtoDashboardPage({
             <SimpleGrid columns={{ base: 1, sm: 2 }} spacing={2} minW={{ base: "100%", xl: "320px" }}>
               <Button
                 size="sm"
-                bg="white"
-                color="#0b1320"
-                _hover={{ bg: "gray.100" }}
+                bg={isDarkTheme ? "whiteAlpha.200" : "white"}
+                color={isDarkTheme ? "gray.900" : "#0b1320"}
+                _hover={{ bg: isDarkTheme ? "whiteAlpha.300" : "gray.100" }}
                 borderRadius="full"
                 leftIcon={<RefreshCw size={14} />}
                 onClick={() => refreshRef.current?.()}
@@ -2954,7 +2954,7 @@ export default function CtoDashboardPage({
                   variant="outline"
                   borderColor={isDarkTheme ? "rgba(255,255,255,0.28)" : "rgba(15,23,42,0.15)"}
                   color={strongText}
-                  _hover={{ bg: "whiteAlpha.120" }}
+                  _hover={{ bg: isDarkTheme ? "whiteAlpha.120" : "gray.100" }}
                   onClick={() => setShowVpsRunbook((prev) => !prev)}
                 />
               </HStack>
@@ -3486,7 +3486,7 @@ export default function CtoDashboardPage({
                       size="xs"
                       variant="ghost"
                       color={softText}
-                      _hover={{ bg: "whiteAlpha.120" }}
+                      _hover={{ bg: isDarkTheme ? "whiteAlpha.120" : "gray.100" }}
                       onClick={() => {
                         setActiveStatusFilter("");
                         setSelectedServiceKey("");
@@ -3593,7 +3593,7 @@ export default function CtoDashboardPage({
                                   ? "rgba(248,113,113,0.24)"
                                   : service.status === "degraded"
                                   ? "rgba(250,204,21,0.18)"
-                                  : "rgba(255,255,255,0.08)"
+                                  : isDarkTheme ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.05)"
                             }}
                             onClick={() => setSelectedServiceKey(service.service_key)}
                           >
@@ -3625,7 +3625,7 @@ export default function CtoDashboardPage({
                                 variant="outline"
                                 borderColor={isDarkTheme ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.14)"}
                                 color={strongText}
-                                _hover={{ bg: "whiteAlpha.120" }}
+                                _hover={{ bg: isDarkTheme ? "whiteAlpha.120" : "gray.100" }}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   openServiceRca(service.service_key);
@@ -4064,7 +4064,7 @@ export default function CtoDashboardPage({
                           variant="outline"
                           borderColor={isDarkTheme ? "rgba(255,255,255,0.25)" : "rgba(15,23,42,0.14)"}
                           color={strongText}
-                          _hover={{ bg: "whiteAlpha.120" }}
+                          _hover={{ bg: isDarkTheme ? "whiteAlpha.120" : "gray.100" }}
                           isDisabled={row.status === "acknowledged" || row.status === "resolved" || eventActionBusy[row.id]}
                           onClick={() => updateEventStatus(row.id, "acknowledged")}
                         >
