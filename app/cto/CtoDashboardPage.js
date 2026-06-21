@@ -1783,6 +1783,7 @@ export default function CtoDashboardPage({
       websiteUniqueVisitorsToday:
         typeof website?.unique_visitors_today === "number" ? website.unique_visitors_today : null,
       websiteTopPages7d: Array.isArray(website?.top_pages_7d) ? website.top_pages_7d : [],
+      websiteUtmSources7d: Array.isArray(website?.utm_sources_7d) ? website.utm_sources_7d : [],
       autoDispatchRows,
       autoDispatchPipeline: {
         sentToday: toFiniteInt(pipelinePayload?.sent_today, 0),
@@ -2491,6 +2492,22 @@ export default function CtoDashboardPage({
                     <Flex key={`${row.page_path}-${row.unique_visitors}`} justify="space-between" gap={3}>
                       <Text fontSize="sm" color={strongText} noOfLines={1}>{row.page_path}</Text>
                       <Text fontSize="sm" color="cyan.200" fontWeight="700">{row.unique_visitors}</Text>
+                    </Flex>
+                  ))}
+                </SimpleGrid>
+              )}
+            </Box>
+
+            <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+              <Text fontSize="xs" color={mutedText} mb={2}>Visitor Sources (7d)</Text>
+              {managementMetrics.websiteUtmSources7d.length === 0 ? (
+                <Text fontSize="sm" color={mutedText}>No source analytics available.</Text>
+              ) : (
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
+                  {managementMetrics.websiteUtmSources7d.map((row) => (
+                    <Flex key={`${row.source}-${row.unique_visitors}`} justify="space-between" gap={3}>
+                      <Text fontSize="sm" color={strongText} noOfLines={1}>{row.source || "direct"}</Text>
+                      <Text fontSize="sm" color="green.200" fontWeight="700">{row.unique_visitors}</Text>
                     </Flex>
                   ))}
                 </SimpleGrid>

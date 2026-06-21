@@ -1189,21 +1189,31 @@ async function loadWebsiteAnalytics(labId) {
     .order("created_at", { ascending: false })
     .limit(20000);
 
+  let utmSourceQuery = supabase
+    .from("website_events")
+    .select("utm_source, session_id")
+    .gte("created_at", since7d)
+    .order("created_at", { ascending: false })
+    .limit(50000);
+
   if (labId) {
     dailyQuery = dailyQuery.eq("lab_id", labId);
     topPagesQuery = topPagesQuery.eq("lab_id", labId);
     activeQuery = activeQuery.eq("lab_id", labId);
+    utmSourceQuery = utmSourceQuery.eq("lab_id", labId);
   }
 
   const [
     { data: dailyRows, error: dailyError },
     { data: topPageRows, error: topPageError },
-    { data: activeRows, error: activeError }
-  ] = await Promise.all([dailyQuery, topPagesQuery, activeQuery]);
+    { data: activeRows, error: activeError },
+    { data: utmSourceRows, error: utmSourceError }
+  ] = await Promise.all([dailyQuery, topPagesQuery, activeQuery, utmSourceQuery]);
 
   if (dailyError) throw dailyError;
   if (topPageError) throw topPageError;
   if (activeError) throw activeError;
+  if (utmSourceError) throw utmSourceError;
 
   const dailySets = new Map();
   for (const row of dailyRows || []) {
@@ -1246,13 +1256,28 @@ async function loadWebsiteAnalytics(labId) {
     new Set((activeRows || []).map((row) => String(row?.session_id || "").trim()).filter(Boolean))
   ).length;
 
+  const utmSourceSets = new Map();
+  for (const row of utmSourceRows || []) {
+    const source = String(row?.utm_source || "direct").trim() || "direct";
+    const sessionId = String(row?.session_id || "").trim();
+    if (!sessionId) continue;
+    if (!utmSourceSets.has(source)) utmSourceSets.set(source, new Set());
+    utmSourceSets.get(source).add(sessionId);
+  }
+
+  const utmSources7d = Array.from(utmSourceSets.entries())
+    .map(([source, set]) => ({ source, unique_visitors: set.size }))
+    .sort((a, b) => b.unique_visitors - a.unique_visitors)
+    .slice(0, 10);
+
   return {
     active_sessions_15m: activeSessions15m,
     unique_visitors_today: uniqueVisitorsToday,
     unique_visitors_7d: uniqueVisitors7d,
     unique_visitors_30d: uniqueVisitors30d,
     daily_unique_visitors_30d: dailyUniqueVisitors,
-    top_pages_7d: topPages7d
+    top_pages_7d: topPages7d,
+    utm_sources_7d: utmSources7d
   };
 }
 
