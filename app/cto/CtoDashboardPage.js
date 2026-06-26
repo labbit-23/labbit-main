@@ -2345,7 +2345,7 @@ export default function CtoDashboardPage({
             <Heading size="md" mb={1}>Management Dashboard</Heading>
             <Text color={mutedText} mb={4}>Visits, report delivery, patient feedback, and web demand.</Text>
 
-            <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
+            <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
               {[
                 { label: "Reports Sent", value: managementMetrics.autoDispatchPipeline.sentToday, note: `${managementMetrics.autoDispatchPipeline.sent24h} in last 24h`, color: "blue.200" },
                 { label: "Website Visitors", value: managementMetrics.websiteUniqueVisitorsToday ?? "n/a", note: `${managementMetrics.websiteActiveSessions15m ?? 0} active now`, color: "teal.200" },
@@ -2361,6 +2361,29 @@ export default function CtoDashboardPage({
                 </Box>
               ))}
             </SimpleGrid>
+
+            <Box mt={4} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
+              <Text fontSize="xs" color={mutedText} mb={3} fontWeight="600">Diagnostic Metrics</Text>
+              <SimpleGrid columns={{ base: 2, md: 3, xl: 4 }} spacing={2}>
+                {[
+                  { label: "Total Jobs", value: managementMetrics.autoDispatchPipeline.sentToday + managementMetrics.autoDispatchPipeline.enqueued + managementMetrics.autoDispatchPipeline.failed, color: "gray.400", tone: "rgba(107,114,128,0.10)" },
+                  { label: "Lab Ready", value: managementMetrics.autoDispatchPipeline.labWaiting, color: "green.300", tone: "rgba(34,197,94,0.10)" },
+                  { label: "Scans Ready", value: managementMetrics.autoDispatchPipeline.scanWaiting, color: "cyan.300", tone: "rgba(34,211,238,0.10)" },
+                  { label: "Approved Pending", value: managementMetrics.autoDispatchPipeline.approvalPending, color: managementMetrics.autoDispatchPipeline.approvalPending > 0 ? "orange.300" : "gray.400", tone: managementMetrics.autoDispatchPipeline.approvalPending > 0 ? "rgba(245,158,11,0.10)" : "rgba(107,114,128,0.10)" },
+                  { label: "Lab Approval", value: managementMetrics.autoDispatchPipeline.labApprovalPending, color: managementMetrics.autoDispatchPipeline.labApprovalPending > 0 ? "yellow.300" : "gray.400", tone: managementMetrics.autoDispatchPipeline.labApprovalPending > 0 ? "rgba(234,179,8,0.10)" : "rgba(107,114,128,0.10)" },
+                  { label: "Scans Approval", value: managementMetrics.autoDispatchPipeline.scanApprovalPending, color: managementMetrics.autoDispatchPipeline.scanApprovalPending > 0 ? "yellow.300" : "gray.400", tone: managementMetrics.autoDispatchPipeline.scanApprovalPending > 0 ? "rgba(234,179,8,0.10)" : "rgba(107,114,128,0.10)" },
+                  { label: "Invalid Phone", value: managementMetrics.autoDispatchRows.find(r => r.key === "auto_dispatch_invalid_phone_jobs")?.value ?? 0, color: "red.300", tone: "rgba(239,68,68,0.10)" },
+                  { label: "PDF Missing", value: managementMetrics.autoDispatchRows.find(r => r.key === "auto_dispatch_pdf_not_found_jobs")?.value ?? 0, color: "red.300", tone: "rgba(239,68,68,0.10)" },
+                  { label: "Paused", value: managementMetrics.autoDispatchPipeline.paused, color: managementMetrics.autoDispatchPipeline.paused > 0 ? "purple.300" : "gray.400", tone: managementMetrics.autoDispatchPipeline.paused > 0 ? "rgba(168,85,247,0.10)" : "rgba(107,114,128,0.10)" },
+                  { label: "Failed", value: managementMetrics.autoDispatchPipeline.failed, color: managementMetrics.autoDispatchPipeline.failed > 0 ? "red.300" : "green.300", tone: managementMetrics.autoDispatchPipeline.failed > 0 ? "rgba(239,68,68,0.10)" : "rgba(34,197,94,0.10)" },
+                ].map((item) => (
+                  <Box key={item.label} p={3} borderRadius="12px" bg={item.tone} border={`1px solid ${item.color.replace(".300", ".500").replace(".400", ".500")}`}>
+                    <Text fontSize="xs" color={mutedText}>{item.label}</Text>
+                    <Text fontWeight="800" fontSize="lg" color={item.color}>{item.value}</Text>
+                  </Box>
+                ))}
+              </SimpleGrid>
+            </Box>
 
             <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
               <HStack justify="space-between" align="center" mb={3} flexWrap="wrap" gap={2}>
@@ -2431,56 +2454,26 @@ export default function CtoDashboardPage({
               )}
             </Box>
 
-            <SimpleGrid columns={{ base: 1, xl: 2 }} spacing={3} mt={3}>
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
-                <HStack justify="space-between" align="center" mb={2}>
-                  <Text fontSize="xs" color={mutedText}>Report Delivery</Text>
-                  <Text fontSize="xs" color={faintText}>Last report: {managementMetrics.botLastReportIst || "n/a"}</Text>
-                </HStack>
-                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
-                  {[
-                    { label: "Reports Sent", value: managementMetrics.autoDispatchPipeline.sentToday, note: `${managementMetrics.autoDispatchPipeline.sent24h} in last 24h`, tone: "rgba(59,130,246,0.10)", border: "1px solid rgba(96,165,250,0.25)" },
-                    { label: "Patient Chats", value: managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a", note: "Last 24h", tone: "rgba(20,184,166,0.10)", border: "1px solid rgba(45,212,191,0.25)" },
-                    { label: "Waiting Messages", value: `${managementMetrics.botHelpWaits24h} / ${managementMetrics.botReportWaits24h}`, note: "Help / report", tone: "rgba(139,92,246,0.10)", border: "1px solid rgba(167,139,250,0.25)" },
-                    { label: "Late or No Reply", value: `${managementMetrics.botSlaLate1h} / ${managementMetrics.botSlaNoReply1h}`, note: "Last 1h", tone: "rgba(245,158,11,0.10)", border: "1px solid rgba(251,191,36,0.25)" },
-                  ].map((item) => (
-                    <Box key={item.label} p={3} borderRadius="12px" bg={item.tone} border={item.border}>
-                      <Text fontSize="xs" color={mutedText}>{item.label}</Text>
-                      <Text fontWeight="800" fontSize="lg" color={strongText}>{item.value}</Text>
-                      <Text fontSize="xs" color={mutedText}>{item.note}</Text>
-                    </Box>
-                  ))}
-                </SimpleGrid>
-              </Box>
-
-              <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
-                <HStack justify="space-between" align="center" mb={2}>
-                  <Text fontSize="xs" color={mutedText}>Report Dispatch Pipeline</Text>
-                  <Badge colorScheme={managementMetrics.autoDispatchPipeline.failed > 0 ? "red" : managementMetrics.autoDispatchPipeline.approvalPending > 0 || managementMetrics.autoDispatchPipeline.testsPending > 0 ? "orange" : "green"} borderRadius="full" px={3} py={1}>
-                    {managementMetrics.autoDispatchPipeline.failed > 0 ? `${managementMetrics.autoDispatchPipeline.failed} failed` : "Live"}
-                  </Badge>
-                </HStack>
-                <SimpleGrid columns={{ base: 2, md: 3 }} spacing={2}>
-                  {[
-                    { label: "Sent Today", value: managementMetrics.autoDispatchPipeline.sentToday, color: "green.300" },
-                    { label: "Enqueued", value: managementMetrics.autoDispatchPipeline.enqueued, color: managementMetrics.autoDispatchPipeline.enqueued > 0 ? "blue.200" : "green.300" },
-                    { label: "Cooling Off", value: managementMetrics.autoDispatchPipeline.coolingOff, color: managementMetrics.autoDispatchPipeline.coolingOff > 0 ? "orange.300" : "green.300" },
-                    { label: "Approval Pending", value: managementMetrics.autoDispatchPipeline.approvalPending, color: managementMetrics.autoDispatchPipeline.approvalPending > 0 ? "orange.300" : "green.300" },
-                    { label: "Tests Pending", value: managementMetrics.autoDispatchPipeline.testsPending, color: managementMetrics.autoDispatchPipeline.testsPending > 0 ? "orange.300" : "green.300" },
-                    { label: "Failed", value: managementMetrics.autoDispatchPipeline.failed, color: managementMetrics.autoDispatchPipeline.failed > 0 ? "red.300" : "green.300" },
-                  ].map((item) => (
-                    <Box key={item.label} p={3} borderRadius="12px" bg={innerBg} border={panelBorder}>
-                      <Text fontSize="xs" color={mutedText}>{item.label}</Text>
-                      <Text fontWeight="800" fontSize="xl" color={item.color}>{item.value}</Text>
-                    </Box>
-                  ))}
-                </SimpleGrid>
-                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2} mt={2}>
-                  <Text fontSize="xs" color={faintText}>Lab approval {managementMetrics.autoDispatchPipeline.labApprovalPending} / scans {managementMetrics.autoDispatchPipeline.scanApprovalPending}</Text>
-                  <Text fontSize="xs" color={faintText}>Lab waiting {managementMetrics.autoDispatchPipeline.labWaiting} / scans {managementMetrics.autoDispatchPipeline.scanWaiting}</Text>
-                </SimpleGrid>
-              </Box>
-            </SimpleGrid>
+            <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} mt={3}>
+              <HStack justify="space-between" align="center" mb={2}>
+                <Text fontSize="xs" color={mutedText}>Report Delivery</Text>
+                <Text fontSize="xs" color={faintText}>Last report: {managementMetrics.botLastReportIst || "n/a"}</Text>
+              </HStack>
+              <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={2}>
+                {[
+                  { label: "Reports Sent", value: managementMetrics.autoDispatchPipeline.sentToday, note: `${managementMetrics.autoDispatchPipeline.sent24h} in last 24h`, tone: "rgba(59,130,246,0.10)", border: "1px solid rgba(96,165,250,0.25)" },
+                  { label: "Patient Chats", value: managementMetrics.botChats24h != null ? String(managementMetrics.botChats24h) : "n/a", note: "Last 24h", tone: "rgba(20,184,166,0.10)", border: "1px solid rgba(45,212,191,0.25)" },
+                  { label: "Waiting Messages", value: `${managementMetrics.botHelpWaits24h} / ${managementMetrics.botReportWaits24h}`, note: "Help / report", tone: "rgba(139,92,246,0.10)", border: "1px solid rgba(167,139,250,0.25)" },
+                  { label: "Late or No Reply", value: `${managementMetrics.botSlaLate1h} / ${managementMetrics.botSlaNoReply1h}`, note: "Last 1h", tone: "rgba(245,158,11,0.10)", border: "1px solid rgba(251,191,36,0.25)" },
+                ].map((item) => (
+                  <Box key={item.label} p={3} borderRadius="12px" bg={item.tone} border={item.border}>
+                    <Text fontSize="xs" color={mutedText}>{item.label}</Text>
+                    <Text fontWeight="800" fontSize="lg" color={strongText}>{item.value}</Text>
+                    <Text fontSize="xs" color={mutedText}>{item.note}</Text>
+                  </Box>
+                ))}
+              </SimpleGrid>
+            </Box>
 
             <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
               <Text fontSize="xs" color={mutedText} mb={2}>Top Website Pages (7d)</Text>
