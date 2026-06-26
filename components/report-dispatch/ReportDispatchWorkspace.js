@@ -514,6 +514,9 @@ export default function ReportDispatchWorkspace({
   const [autoViewFilter, setAutoViewFilter] = useState("pending");
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
+  const [showSentInline, setShowSentInline] = useState(false);
+  const [sentInlineRows, setSentInlineRows] = useState([]);
+  const [sentInlineLoading, setSentInlineLoading] = useState(false);
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -617,6 +620,12 @@ export default function ReportDispatchWorkspace({
   }, [selectedDate]);
 
   useEffect(() => {
+    if (!monitorOpen || !showSentInline) return;
+    loadSentInlineRows({ limit: 1000 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, showSentInline, monitorOpen]);
+
+  useEffect(() => {
     let active = true;
     async function loadPermissions() {
       try {
@@ -711,6 +720,9 @@ export default function ReportDispatchWorkspace({
     return collapseByReqno(filtered).sort(byReqnoDesc);
   }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter]);
 
+  const sentDispatchRows = useMemo(() => {
+    return [...(Array.isArray(sentInlineRows) ? sentInlineRows : [])].sort(byReqnoDesc);
+  }, [sentInlineRows]);
 
   const monitorDateStats = useMemo(() => {
     const bounds = istDayBounds(selectedDate);
@@ -751,9 +763,13 @@ export default function ReportDispatchWorkspace({
     const totalJobs = autoSummary?.total_jobs ?? monitorDateStats.total;
     const pendingQueue = (autoSummary?.queued_jobs ?? monitorDateStats.queued) + (autoSummary?.retrying_jobs ?? monitorDateStats.retrying);
     const coolingOff = autoSummary?.cooling_off_jobs ?? monitorDateStats.cooling_off;
+    const bounds = istDayBounds(selectedDate);
     const failedUnpaused = autoSummary?.failed_today_total ?? (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
-      return st === "failed" && !row?.is_paused;
+      if (st !== "failed" || row?.is_paused) return false;
+      if (!bounds) return true;
+      const createdMs = row?.created_at ? new Date(row.created_at).getTime() : null;
+      return Number.isFinite(createdMs) && createdMs >= bounds.start && createdMs < bounds.end;
     }).length;
     const sentToday = autoSummary?.sent_today_total ?? autoSummary?.sent_jobs ?? monitorDateStats.sent;
     const prevDaySent = autoSummary?.previous_days_sent_jobs ?? 0;
@@ -1147,6 +1163,26 @@ export default function ReportDispatchWorkspace({
       return false;
     } finally {
       setAutoLoading(false);
+    }
+  }
+
+  async function loadSentInlineRows(options = {}) {
+    setSentInlineLoading(true);
+    try {
+      const limit = Number(options?.limit || 1000);
+      const query = new URLSearchParams({ limit: String(limit), status: "sent" });
+      if (selectedDate) query.set("selected_date", selectedDate);
+      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setSentInlineRows(Array.isArray(json?.jobs) ? json.jobs : []);
+      return true;
+    } catch (err) {
+      setSentInlineRows([]);
+      setError(err?.message || "Failed to load sent reports");
+      return false;
+    } finally {
+      setSentInlineLoading(false);
     }
   }
 
@@ -1789,14 +1825,14 @@ export default function ReportDispatchWorkspace({
                   borderColor={autoStatusFilter === "failed" ? "red.400" : "transparent"}
                   _hover={{ borderColor: "red.300" }}
                   onClick={() => setAutoStatusFilter(autoStatusFilter === "failed" ? "" : "failed")}
-                ><Text fontSize="xs" opacity={0.7}>Failed (today)</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
+                ><Text fontSize="xs" opacity={0.7}>Failed {selectedDate === dayjs().format("YYYY-MM-DD") ? "(today)" : `(${selectedDate})`}</Text><Text fontWeight="bold">{monitorTopStats.failedUnpaused}</Text></Box>
                 <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
                   bg={themeMode === "dark" ? "teal.900" : "teal.50"}
                   borderColor={autoStatusFilter === "sent" ? "teal.400" : "transparent"}
                   _hover={{ borderColor: "teal.300" }}
                   onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
                 >
-                  <Text fontSize="xs" opacity={0.7}>Sent Today{monitorTopStats.prevDaySent > 0 ? ` (+${monitorTopStats.prevDaySent} prev)` : ""}</Text>
+                  <Text fontSize="xs" opacity={0.7}>Sent {selectedDate === dayjs().format("YYYY-MM-DD") ? "(today)" : `(${selectedDate})`}{monitorTopStats.prevDaySent > 0 ? ` (+${monitorTopStats.prevDaySent} prev)` : ""}</Text>
                   <Text fontWeight="bold">{monitorTopStats.sentToday}</Text>
                   <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
                     Lab {sentTodaySplit.lab} • Scan {sentTodaySplit.radiology} • Both {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • Other ${sentTodaySplit.other}` : ""}
@@ -1852,6 +1888,20 @@ export default function ReportDispatchWorkspace({
                       All
                     </Button>
                   </ButtonGroup>
+                  <Button
+                    type="button"
+                    size="sm"
+                    leftIcon={<List size={14} />}
+                    variant="outline"
+                    minW="120px"
+                    onClick={async () => {
+                      const next = !showSentInline;
+                      setShowSentInline(next);
+                      if (next) await loadSentInlineRows({ limit: 1000 });
+                    }}
+                  >
+                    {showSentInline ? "Hide Sent" : "View Sent"}
+                  </Button>
                   <Select size="sm" maxW="220px" borderRadius="md" value={autoStatusFilter} onChange={(e) => setAutoStatusFilter(e.target.value)}>
                     <option value="">All statuses</option>
                     <option value="queued">queued</option>
@@ -2281,6 +2331,84 @@ export default function ReportDispatchWorkspace({
                     </Tbody>
                   </Table>
                 </Box>
+              )}
+              {!showSentInline ? null : (
+              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
+                <Flex align="center" justify="space-between" mb={2}>
+                  <Text fontWeight="semibold" fontSize="sm">Sent Reports</Text>
+                  <Badge colorScheme="green">{sentDispatchRows.length}</Badge>
+                </Flex>
+                {sentInlineLoading ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading sent reports...</Text>
+                ) : sentDispatchRows.length === 0 ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
+                ) : (
+                  isMobileViewport ? (
+                    <Box>
+                      {sentDispatchRows.map((job) => {
+                        const jobId = String(job?.id || "");
+                        const statusValue = String(job?.status || "");
+                        const whyText = buildWhyText(job);
+                        return (
+                          <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
+                            <Flex justify="space-between" align="center" mb={1}>
+                              <Badge colorScheme="green" borderRadius="md" px={2} textTransform="lowercase">Sent</Badge>
+                              <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
+                            </Flex>
+                            <Text fontSize="xs" fontWeight="semibold">
+                              <Text as="span" fontWeight="bold" cursor="pointer" userSelect="text" onClick={() => handleReqnoClick(job)}>
+                                {displayValue(job?.reqno)}
+                              </Text>
+                              {" • "}
+                              {displayValue(job?.patient_name)}
+                            </Text>
+                            <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)}</Text>
+                            <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
+                              <Text fontSize="xs" noOfLines={1} mt={1}>Sent: {smartTimestamp(job)}</Text>
+                            </Tooltip>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  ) : (
+                    <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflowX="auto" overflowY="visible">
+                      <Table size="sm" variant="simple" sx={{ tableLayout: "fixed", minWidth: "900px", "th, td": { fontSize: "xs", py: 2, verticalAlign: "top", whiteSpace: "normal", wordBreak: "break-word" }, th: { bg: themeMode === "dark" ? "gray.800" : "gray.50", letterSpacing: "0.08em" } }}>
+                        <Thead>
+                          <Tr>
+                            <Th>Delivery Status</Th>
+                            <Th>REQNO</Th>
+                            <Th>Patient</Th>
+                            <Th>Phone</Th>
+                            <Th>Sent At (IST)</Th>
+                            <Th>Why / State</Th>
+                            <Th>Actions</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {sentDispatchRows.map((job) => {
+                            const jobId = String(job?.id || "");
+                            const deliveryStatus = deriveDeliveryStatus(job);
+                            const whyText = buildWhyText(job);
+                            const canPushRow = canAutoPush;
+                            const canSendToRow = canAutoSendTo;
+                            return (
+                              <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
+                                <Td><Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge></Td>
+                                <Td><Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text></Td>
+                                <Td>{displayValue(job?.patient_name)}</Td>
+                                <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
+                                <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
+                                <Td><Tooltip label={whyText} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{whyText}</Text></Tooltip></Td>
+                                <Td><HStack spacing={0.5} noOfLines={1}><Tooltip label="Events" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Events" variant="ghost" icon={<Activity size={14} />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} /></Tooltip>{canPushRow ? <Tooltip label="Push" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Push" variant="ghost" icon={<UploadCloud size={14} />} onClick={() => runAutoJobAction(jobId, "push")} isLoading={isRowActionLoading(jobId, "push")} /></Tooltip> : null}{canSendToRow ? <Tooltip label="Resend to" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Resend to" variant="ghost" icon={<Share2 size={14} />} onClick={() => openAutoSendToModal(job)} /></Tooltip> : null}</HStack></Td>
+                              </Tr>
+                            );
+                          })}
+                        </Tbody>
+                      </Table>
+                    </Box>
+                  )
+                )}
+              </Box>
               )}
             </Box>
           ) : null}
