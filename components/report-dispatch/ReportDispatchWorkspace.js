@@ -512,11 +512,14 @@ export default function ReportDispatchWorkspace({
   const [dailyPage, setDailyPage] = useState(1);
   const [autoStatusFilter, setAutoStatusFilter] = useState(initialMonitorFilter || "");
   const [autoViewFilter, setAutoViewFilter] = useState("pending");
+  const [outsourcedFilter, setOutsourcedFilter] = useState("all");
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
   const [showSentInline, setShowSentInline] = useState(false);
   const [sentInlineRows, setSentInlineRows] = useState([]);
   const [sentInlineLoading, setSentInlineLoading] = useState(false);
+  const [outsourcedSentRows, setOutsourcedSentRows] = useState([]);
+  const [outsourcedSentLoading, setOutsourcedSentLoading] = useState(false);
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -626,6 +629,12 @@ export default function ReportDispatchWorkspace({
   }, [selectedDate, showSentInline, monitorOpen]);
 
   useEffect(() => {
+    if (!monitorOpen) return;
+    loadOutsourcedSentRows({ limit: 1000 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, monitorOpen]);
+
+  useEffect(() => {
     let active = true;
     async function loadPermissions() {
       try {
@@ -703,7 +712,11 @@ export default function ReportDispatchWorkspace({
       : rows.filter((row) => !["sent", "cancelled"].includes(String(row?.status || "").trim().toLowerCase()));
     const status = String(autoStatusFilter || "").trim().toLowerCase();
     const byStatus = !status ? byView : byView.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
-    const filtered = byStatus.filter((row) => {
+    const outsourced = String(outsourcedFilter || "all").trim().toLowerCase();
+    const byOutsourced = !outsourced || outsourced === "all" ? byStatus : outsourced === "outsourced"
+      ? byStatus.filter((row) => String((row?.metadata?.report_source) || "").toLowerCase() === "outsourced_report")
+      : byStatus.filter((row) => String((row?.metadata?.report_source) || "").toLowerCase() !== "outsourced_report");
+    const filtered = byOutsourced.filter((row) => {
       const hay = [
         row?.reqno,
         row?.reqid,
@@ -718,7 +731,7 @@ export default function ReportDispatchWorkspace({
       return hay.includes(q);
     });
     return collapseByReqno(filtered).sort(byReqnoDesc);
-  }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter]);
+  }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter, outsourcedFilter]);
 
   const sentDispatchRows = useMemo(() => {
     return [...(Array.isArray(sentInlineRows) ? sentInlineRows : [])].sort(byReqnoDesc);
@@ -1183,6 +1196,26 @@ export default function ReportDispatchWorkspace({
       return false;
     } finally {
       setSentInlineLoading(false);
+    }
+  }
+
+  async function loadOutsourcedSentRows(options = {}) {
+    setOutsourcedSentLoading(true);
+    try {
+      const limit = Number(options?.limit || 1000);
+      const query = new URLSearchParams({ limit: String(limit), status: "sent", report_source: "outsourced_report" });
+      if (selectedDate) query.set("selected_date", selectedDate);
+      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setOutsourcedSentRows(Array.isArray(json?.jobs) ? json.jobs : []);
+      return true;
+    } catch (err) {
+      setOutsourcedSentRows([]);
+      setError(err?.message || "Failed to load outsourced sent reports");
+      return false;
+    } finally {
+      setOutsourcedSentLoading(false);
     }
   }
 
@@ -1888,6 +1921,11 @@ export default function ReportDispatchWorkspace({
                       All
                     </Button>
                   </ButtonGroup>
+                  <Select size="sm" maxW="180px" borderRadius="md" value={outsourcedFilter} onChange={(e) => setOutsourcedFilter(e.target.value)}>
+                    <option value="all">All report types</option>
+                    <option value="outsourced">Outsourced only</option>
+                    <option value="regular">Regular only</option>
+                  </Select>
                   <Button
                     type="button"
                     size="sm"
@@ -2400,6 +2438,79 @@ export default function ReportDispatchWorkspace({
                                 <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
                                 <Td><Tooltip label={whyText} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{whyText}</Text></Tooltip></Td>
                                 <Td><HStack spacing={0.5} noOfLines={1}><Tooltip label="Events" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Events" variant="ghost" icon={<Activity size={14} />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} /></Tooltip>{canPushRow ? <Tooltip label="Push" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Push" variant="ghost" icon={<UploadCloud size={14} />} onClick={() => runAutoJobAction(jobId, "push")} isLoading={isRowActionLoading(jobId, "push")} /></Tooltip> : null}{canSendToRow ? <Tooltip label="Resend to" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Resend to" variant="ghost" icon={<Share2 size={14} />} onClick={() => openAutoSendToModal(job)} /></Tooltip> : null}</HStack></Td>
+                              </Tr>
+                            );
+                          })}
+                        </Tbody>
+                      </Table>
+                    </Box>
+                  )
+                )}
+              </Box>
+              )}
+              {monitorOpen && (
+              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
+                <Flex align="center" justify="space-between" mb={2}>
+                  <Text fontWeight="semibold" fontSize="sm">Outsourced Sent</Text>
+                  <Badge colorScheme="purple">{outsourcedSentRows.length}</Badge>
+                </Flex>
+                {outsourcedSentLoading ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading outsourced reports...</Text>
+                ) : outsourcedSentRows.length === 0 ? (
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No outsourced tests sent for selected date.</Text>
+                ) : (
+                  isMobileViewport ? (
+                    <Box>
+                      {outsourcedSentRows.map((job) => {
+                        const jobId = String(job?.id || "");
+                        return (
+                          <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
+                            <Flex justify="space-between" align="center" mb={1}>
+                              <Badge colorScheme="purple" borderRadius="md" px={2} textTransform="lowercase">Outsourced</Badge>
+                              <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
+                            </Flex>
+                            <Text fontSize="xs" fontWeight="semibold">
+                              <Text as="span" fontWeight="bold" cursor="pointer" userSelect="text" onClick={() => handleReqnoClick(job)}>
+                                {displayValue(job?.reqno)}
+                              </Text>
+                              {" • "}
+                              <Text as="span" fontSize="xs" color="gray.500">T{displayValue((job?.metadata?.outsourced_testid || "").replace(/^T/, ""))}</Text>
+                            </Text>
+                            <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)}</Text>
+                            <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
+                              <Text fontSize="xs" noOfLines={1} mt={1}>Sent: {smartTimestamp(job)}</Text>
+                            </Tooltip>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  ) : (
+                    <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflowX="auto" overflowY="visible">
+                      <Table size="sm" variant="simple" sx={{ tableLayout: "fixed", minWidth: "900px", "th, td": { fontSize: "xs", py: 2, verticalAlign: "top", whiteSpace: "normal", wordBreak: "break-word" }, th: { bg: themeMode === "dark" ? "gray.800" : "gray.50", letterSpacing: "0.08em" } }}>
+                        <Thead>
+                          <Tr>
+                            <Th>Delivery Status</Th>
+                            <Th>REQNO</Th>
+                            <Th>Test ID</Th>
+                            <Th>Phone</Th>
+                            <Th>Sent At (IST)</Th>
+                            <Th>Mode</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {outsourcedSentRows.map((job) => {
+                            const jobId = String(job?.id || "");
+                            const deliveryStatus = deriveDeliveryStatus(job);
+                            const testid = (job?.metadata?.outsourced_testid || "").replace(/^T/, "");
+                            const mode = String(job?.metadata?.outsourced_mode || "").toLowerCase();
+                            return (
+                              <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
+                                <Td><Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge></Td>
+                                <Td><Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text></Td>
+                                <Td><Text mono fontSize="xs">T{testid}</Text></Td>
+                                <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
+                                <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
+                                <Td><Badge colorScheme="orange" borderRadius="md" fontSize="xs" textTransform="lowercase">{mode || "base"}</Badge></Td>
                               </Tr>
                             );
                           })}
