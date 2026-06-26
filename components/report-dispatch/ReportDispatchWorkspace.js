@@ -513,6 +513,13 @@ export default function ReportDispatchWorkspace({
   const [autoStatusFilter, setAutoStatusFilter] = useState(initialMonitorFilter || "");
   const [autoViewFilter, setAutoViewFilter] = useState("pending");
   const [outsourcedFilter, setOutsourcedFilter] = useState("all");
+
+  // Reset filters when monitor opens or mounts
+  useEffect(() => {
+    setOutsourcedFilter("all");
+    setAutoStatusFilter(initialMonitorFilter || "");
+    setAutoViewFilter("pending");
+  }, []);
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
   const [showSentInline, setShowSentInline] = useState(false);
@@ -1203,12 +1210,17 @@ export default function ReportDispatchWorkspace({
     setOutsourcedSentLoading(true);
     try {
       const limit = Number(options?.limit || 1000);
-      const query = new URLSearchParams({ limit: String(limit), status: "sent", report_source: "outsourced_report" });
+      const query = new URLSearchParams({ limit: String(limit), status: "sent" });
       if (selectedDate) query.set("selected_date", selectedDate);
       const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
-      setOutsourcedSentRows(Array.isArray(json?.jobs) ? json.jobs : []);
+      const allJobs = Array.isArray(json?.jobs) ? json.jobs : [];
+      const outsourcedOnly = allJobs.filter((job) => {
+        const meta = job?.metadata && typeof job.metadata === "object" ? job.metadata : {};
+        return String(meta.report_source || "").trim() === "outsourced_report";
+      });
+      setOutsourcedSentRows(outsourcedOnly);
       return true;
     } catch (err) {
       setOutsourcedSentRows([]);
