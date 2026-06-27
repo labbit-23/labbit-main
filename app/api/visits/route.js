@@ -667,22 +667,29 @@ export async function PUT(request) {
       visitData.status = "booked";
     }
 
-    const conflicts = await findTimeslotConflicts({
-      executiveId: effectiveExecutiveId,
-      visitDate: visitData.visit_date ?? prev.visit_date,
-      timeSlotId: visitData.time_slot ?? prev.time_slot,
-      excludeVisitId: visitData.id,
-    });
-    if (conflicts.length > 0 && !forceAssign) {
-      return NextResponse.json(
-        {
-          error: "Timeslot conflict for selected executive.",
-          code: "VISIT_SLOT_CONFLICT",
-          can_override: true,
-          conflicts: conflicts.map(formatConflict),
-        },
-        { status: 409 }
-      );
+    // Only check for conflicts when executive_id, visit_date, or time_slot is being changed
+    const isAssignmentChange = visitData.executive_id && visitData.executive_id !== prev.executive_id;
+    const isScheduleChange = (visitData.visit_date && visitData.visit_date !== prev.visit_date) ||
+                             (visitData.time_slot && visitData.time_slot !== prev.time_slot);
+
+    if (isAssignmentChange || isScheduleChange) {
+      const conflicts = await findTimeslotConflicts({
+        executiveId: effectiveExecutiveId,
+        visitDate: visitData.visit_date ?? prev.visit_date,
+        timeSlotId: visitData.time_slot ?? prev.time_slot,
+        excludeVisitId: visitData.id,
+      });
+      if (conflicts.length > 0 && !forceAssign) {
+        return NextResponse.json(
+          {
+            error: "Timeslot conflict for selected executive.",
+            code: "VISIT_SLOT_CONFLICT",
+            can_override: true,
+            conflicts: conflicts.map(formatConflict),
+          },
+          { status: 409 }
+        );
+      }
     }
 
     // Update visit
