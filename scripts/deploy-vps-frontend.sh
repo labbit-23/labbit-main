@@ -39,9 +39,6 @@ git pull --ff-only origin "${BRANCH}"
 echo "==> Installing dependencies"
 npm ci
 
-echo "==> Installing Playwright browsers for PDF rendering"
-npx playwright install --with-deps
-
 echo "==> Building Next.js app"
 npm run build
 
