@@ -69,7 +69,7 @@ const keySystems = [
   { service_keys: ["oracle_db"], label: "Oracle DB" },
   { service_keys: ["mirth_lab", "mirth_dicom"], label: "Mirth" },
   { service_keys: ["tomcat_7", "tomcat_9"], label: "Tomcat" },
-  { service_keys: ["orthanc_main"], label: "Orthanc" },
+  { service_keys: ["orthanc_main", "orthanc_dell"], label: "Orthanc" },
 ];
 const SERVICE_FRESHNESS_MS = 10 * 60 * 1000;
 const TREND_RANGE_OPTIONS = [
