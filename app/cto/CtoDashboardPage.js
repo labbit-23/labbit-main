@@ -80,15 +80,26 @@ const TREND_RANGE_OPTIONS = [
   { value: "12w", label: "Weekly (12 Weeks)" },
   { value: "12m", label: "Monthly (12 Months)" },
 ];
+// Metrics that trigger critical alerts
+const CRITICAL_DISPATCH_METRICS = [
+  "auto_dispatch_failures_15m",      // Actual delivery failures
+  "auto_dispatch_worker_health",     // Worker process down
+  "auto_dispatch_queue_stall",       // Queue stuck
+];
+
+// Diagnostic/informational metrics (not critical)
+const DIAGNOSTIC_DISPATCH_METRICS = [
+  "auto_dispatch_wait_state_stuck",           // Stuck in queue, not a failure
+  "auto_dispatch_state_drift",                // State issue, not a failure
+  "auto_dispatch_missing_provider_id_15m",    // No delivery confirmation
+  "auto_dispatch_invalid_phone_jobs",         // Data quality issue
+  "auto_dispatch_pdf_not_found_jobs",         // Data quality issue
+];
+
+// All auto_dispatch metrics for filtering
 const AUTO_DISPATCH_METRIC_KEYS = [
-  "auto_dispatch_worker_health",
-  "auto_dispatch_queue_stall",
-  "auto_dispatch_wait_state_stuck",
-  "auto_dispatch_state_drift",
-  "auto_dispatch_failures_15m",
-  "auto_dispatch_missing_provider_id_15m",
-  "auto_dispatch_invalid_phone_jobs",
-  "auto_dispatch_pdf_not_found_jobs",
+  ...CRITICAL_DISPATCH_METRICS,
+  ...DIAGNOSTIC_DISPATCH_METRICS,
 ];
 
 function worstStatus(statuses) {
@@ -1312,7 +1323,16 @@ export default function CtoDashboardPage({
   }, [groupConfig, realServices]);
 
   const heroStats = useMemo(() => {
-    const summary = realServices.reduce(
+    // Only include infrastructure + critical delivery metrics in overall health
+    // Exclude diagnostic metrics (invalid phone, pdf missing, etc.)
+    const criticalServices = realServices.filter((service) => {
+      const baseKey = parseServiceKey(service?.service_key).baseKey;
+      const isDiagnosticMetric = DIAGNOSTIC_DISPATCH_METRICS.includes(baseKey);
+      const isWhatsappMetric = baseKey && baseKey.startsWith("whatsapp_bot");
+      return !isDiagnosticMetric && !isWhatsappMetric;
+    });
+
+    const summary = criticalServices.reduce(
       (acc, row) => {
         acc.total += 1;
         acc[row.status] = (acc[row.status] || 0) + 1;
@@ -1322,7 +1342,7 @@ export default function CtoDashboardPage({
     );
 
     return [
-      { label: "Services", value: String(summary.total || 0), tone: "cyan.300", note: "Fresh services (last 10 min)", filter: "" },
+      { label: "Services", value: String(summary.total || 0), tone: "cyan.300", note: "Fresh services (last 10 min, excluding diagnostics)", filter: "" },
       { label: "Healthy", value: String(summary.healthy || 0), tone: "green.400", note: "Operating normally", filter: "healthy" },
       { label: "Degraded", value: String(summary.degraded || 0), tone: "yellow.300", note: "Slow or partially impaired", filter: "degraded" },
       { label: "Down", value: String(summary.down || 0), tone: "red.400", note: "Immediate attention required", filter: "down" },
