@@ -413,6 +413,7 @@ async function loadWhatsappBotMetrics(labId) {
       message: `${recentBotRows.length} bot message${recentBotRows.length === 1 ? "" : "s"} delivered in the last 24h`,
       payload: {
         count_24h: recentBotRows.length,
+        chat_sessions_24h: recentBotRows.length,
         count_1h: hourlyBotRows.length,
         last_bot_message_at: lastBotMessageAt,
         last_bot_message_ist: formatIstTime(lastBotMessageAt)
