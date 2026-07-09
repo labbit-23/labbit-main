@@ -15,16 +15,27 @@ export function SophosWanCard({ monitoringApiUrl = "http://100.65.63.54:5000" })
     const fetchData = async () => {
       try {
         setLoading(true);
-        // The monitoring result is ingested into CTO dashboard via monitoring API
-        // For now, we'll fetch from monitoring collector or display cached data
-        // This would typically come from the monitoring ingestion API
-        const response = await fetch(`${monitoringApiUrl}/api/monitoring/sophos_firewall`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+        const response = await fetch(`${monitoringApiUrl}/api/monitoring/sophos_firewall`, {
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
         if (response.ok) {
           const result = await response.json();
           setData(result);
+        } else {
+          console.warn("Sophos monitoring API returned non-200 status:", response.status);
         }
       } catch (error) {
-        console.error("Failed to fetch Sophos data:", error);
+        if (error.name === "AbortError") {
+          console.warn("Sophos monitoring API timeout after 5 seconds");
+        } else {
+          console.warn("Failed to fetch Sophos data:", error.message);
+        }
       } finally {
         setLoading(false);
       }
@@ -40,8 +51,10 @@ export function SophosWanCard({ monitoringApiUrl = "http://100.65.63.54:5000" })
     setRestarting(true);
 
     try {
-      // This endpoint should be proxied through the CTO dashboard or called directly via Tailscale
-      const response = await fetch("/api/infrastructure/sophos/restart", {
+      // Call local machine's infrastructure API (100.65.63.54 = sdrc-report-delivery Tailscale IP)
+      // This works even when WANs are down (local admin can restart Sophos)
+      const localApiUrl = "http://100.65.63.54:5001/api/infrastructure/sophos/restart";
+      const response = await fetch(localApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
