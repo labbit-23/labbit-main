@@ -48,6 +48,7 @@ export async function GET(request) {
       ? "default"
       : "plain";
     const printtype = String(url.searchParams.get("printtype") || "1").trim() === "0" ? 0 : 1;
+    const testids = String(url.searchParams.get("testids") || "").trim() || null;
 
     if (!reqid && reqno) {
       try {
@@ -91,7 +92,11 @@ export async function GET(request) {
           ...commonFlags
         })
       : reportScope === "lab"
-      ? getLabReportUrl(reqid, commonFlags)
+      ? getLabReportUrl(reqid, {
+          reqno,
+          testids,
+          ...commonFlags
+        })
       : reportScope === "radiology"
         ? getRadiologyReportUrl(reqid, commonFlags)
         : getReportsUrl(reqid, reqno, {
