@@ -3,6 +3,7 @@ import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
 import { lookupReports } from "@/lib/neosoft/client";
+import { supabase } from "@/lib/supabaseServer";
 import { canUseReportDispatch } from "@/lib/reportDispatchScope";
 
 function normalizeMrno(value) {
@@ -69,12 +70,30 @@ export async function POST(request) {
     }
 
     // TODO: IMPORTANT - Need Shivam/NeoSoft API to update MRN in requisitions table
-    // The actual update needs to happen in the NeoSoft database, not in Supabase
+    // The actual update needs to happen in the NeoSoft database
     // This would require a backend endpoint in the NeoSoft/Shivam system to:
     // - UPDATE requisitions SET mrno = new_mrn WHERE mrno = old_mrn
-    //
-    // For now, we return success with the list of what WOULD be updated
-    // The actual update would need to be done via Shivam API call
+
+    // Also update Supabase patients table (CREGNO field) if doing swap
+    let supabaseUpdateCount = 0;
+    if (action === "swap") {
+      try {
+        // Update all records in patients table where cregno matches old MRN
+        const { error: updateError, count } = await supabase
+          .from("patients")
+          .update({ cregno: newMrno })
+          .eq("cregno", oldMrno);
+
+        if (updateError) {
+          // Log error but don't fail - NeoSoft update is primary
+          console.warn(`Supabase patients update warning: ${updateError.message}`);
+        } else {
+          supabaseUpdateCount = count || 0;
+        }
+      } catch (e) {
+        console.warn(`Supabase patients update error: ${e.message}`);
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -88,8 +107,9 @@ export async function POST(request) {
         reqid: r.reqid,
         current_mrno: r.mrno
       })),
+      supabase_patients_updated: supabaseUpdateCount,
       message: action === "swap"
-        ? `Found ${requisitionsToUpdate.length} requisition(s) to swap from ${oldMrno} to ${newMrno}. Requires Shivam API to execute actual update.`
+        ? `Found ${requisitionsToUpdate.length} requisition(s) to swap from ${oldMrno} to ${newMrno}. Updated ${supabaseUpdateCount} patient record(s) in Supabase. Requires Shivam API to execute update in NeoSoft requisitions table.`
         : `Found ${requisitionsToUpdate.length} requisition(s) to retire with ${oldMrno}. Requires Shivam API to execute actual update.`,
       status: "ready_for_approval",
       next_step: "Call Shivam/NeoSoft API to update MRN in requisitions table"
