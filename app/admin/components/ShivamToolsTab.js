@@ -148,6 +148,15 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
   const [blockedReductionRows, setBlockedReductionRows] = useState([]);
   const [toUpdateWithoutReduction, setToUpdateWithoutReduction] = useState(0);
 
+  const [mrnInput, setMrnInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [mrnLookupLoading, setMrnLookupLoading] = useState(false);
+  const [mrnLookupResult, setMrnLookupResult] = useState(null);
+  const [newMrnInput, setNewMrnInput] = useState("");
+  const [mrnActionLoading, setMrnActionLoading] = useState(false);
+  const mrnConfirmDialog = useDisclosure();
+  const mrnCancelRef = React.useRef(null);
+
   const panelBg = themeMode === "dark" ? "whiteAlpha.100" : "white";
   const panelBorder = themeMode === "dark" ? "whiteAlpha.300" : "gray.200";
   const previewRows = Array.isArray(syncResult?.comparison_rows)
@@ -463,6 +472,22 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
             }}
           >
             Price Sync
+          </Tab>
+          <Tab
+            borderWidth="1px"
+            borderColor={panelBorder}
+            borderRadius="md"
+            px={4}
+            py={2}
+            bg={themeMode === "dark" ? "whiteAlpha.100" : "gray.50"}
+            _selected={{
+              bg: themeMode === "dark" ? "teal.900" : "teal.50",
+              borderColor: "teal.400",
+              boxShadow: "0 0 0 1px var(--chakra-colors-teal-400)",
+              fontWeight: 700
+            }}
+          >
+            MRN Management
           </Tab>
         </TabList>
         <TabPanels>
@@ -844,6 +869,180 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
               ) : null}
             </Grid>
           </TabPanel>
+          <TabPanel px={0} pt={4}>
+            <Grid templateColumns="1fr" gap={4}>
+              <GridItem borderWidth="1px" borderColor={panelBorder} bg={panelBg} borderRadius="lg" p={4}>
+                <Heading size="sm" mb={4}>MRN Reconciliation</Heading>
+                <Stack spacing={4}>
+                  <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.200" : "blue.100"} bg={themeMode === "dark" ? "blue.900" : "blue.50"} borderRadius="md" p={3}>
+                    <Text fontSize="xs" color={themeMode === "dark" ? "blue.100" : "blue.700"}>
+                      Swap, merge, or retire MRNs. Link untagged requisitions by phone number.
+                    </Text>
+                  </Box>
+
+                  <Stack spacing={3}>
+                    <Heading size="xs">Lookup by MRN</Heading>
+                    <HStack spacing={3} align="start" flexWrap="wrap">
+                      <FormControl maxW="220px">
+                        <FormLabel fontSize="sm">Old/Current MRN</FormLabel>
+                        <Input
+                          size="sm"
+                          placeholder="Enter MRN"
+                          value={mrnInput}
+                          onChange={(e) => setMrnInput(e.target.value)}
+                        />
+                      </FormControl>
+                      <Button
+                        size="sm"
+                        mt={{ base: 0, md: 7 }}
+                        variant="outline"
+                        colorScheme="teal"
+                        onClick={async () => {
+                          if (!mrnInput.trim()) {
+                            toast({ title: "MRN is required", status: "warning" });
+                            return;
+                          }
+                          setMrnLookupLoading(true);
+                          try {
+                            const res = await fetch(`/api/admin/mrn/lookup?mrno=${encodeURIComponent(mrnInput.trim())}`, { cache: "no-store" });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data?.error || "Lookup failed");
+                            setMrnLookupResult(data);
+                            toast({ title: "MRN lookup successful", status: "success" });
+                          } catch (error) {
+                            toast({ title: "Lookup failed", description: error?.message, status: "error" });
+                          } finally {
+                            setMrnLookupLoading(false);
+                          }
+                        }}
+                        isLoading={mrnLookupLoading}
+                      >
+                        Lookup
+                      </Button>
+                    </HStack>
+                  </Stack>
+
+                  {mrnLookupResult && (
+                    <Stack spacing={3} pt={3} borderTop="1px solid" borderColor={panelBorder}>
+                      <Box bg={themeMode === "dark" ? "whiteAlpha.50" : "gray.50"} p={3} borderRadius="md">
+                        <Text fontSize="xs" fontWeight="700" mb={2}>Patient Info</Text>
+                        <Grid templateColumns="repeat(2, 1fr)" gap={2}>
+                          <Box>
+                            <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Name</Text>
+                            <Text fontSize="sm" fontWeight="700">{mrnLookupResult?.patient_name || "-"}</Text>
+                          </Box>
+                          <Box>
+                            <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Phone</Text>
+                            <Text fontSize="sm" fontWeight="700">{mrnLookupResult?.mobile_no || "-"}</Text>
+                          </Box>
+                        </Grid>
+                      </Box>
+
+                      <Box>
+                        <Text fontSize="xs" fontWeight="700" mb={2}>Requisitions with this MRN: {mrnLookupResult?.requisition_count || 0}</Text>
+                        {(mrnLookupResult?.requisitions || []).length > 0 && (
+                          <Box overflowX="auto" maxH="200px" overflowY="auto" borderWidth="1px" borderRadius="md">
+                            <Table size="sm">
+                              <Thead>
+                                <Tr>
+                                  <Th>REQNO</Th>
+                                  <Th>Date</Th>
+                                  <Th>Tests</Th>
+                                </Tr>
+                              </Thead>
+                              <Tbody>
+                                {(mrnLookupResult.requisitions || []).map((req) => (
+                                  <Tr key={req.reqno}>
+                                    <Td fontSize="xs">{req.reqno}</Td>
+                                    <Td fontSize="xs">{req.reqdt || "-"}</Td>
+                                    <Td fontSize="xs">{req.test_count || 0}</Td>
+                                  </Tr>
+                                ))}
+                              </Tbody>
+                            </Table>
+                          </Box>
+                        )}
+                      </Box>
+
+                      <Stack spacing={2} pt={3} borderTop="1px solid" borderColor={panelBorder}>
+                        <FormControl>
+                          <FormLabel fontSize="sm">New MRN (for swap/merge)</FormLabel>
+                          <Input
+                            size="sm"
+                            placeholder="Enter new MRN or leave blank to retire"
+                            value={newMrnInput}
+                            onChange={(e) => setNewMrnInput(e.target.value)}
+                          />
+                        </FormControl>
+                        <HStack spacing={2} justify="flex-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setMrnInput("");
+                              setNewMrnInput("");
+                              setMrnLookupResult(null);
+                            }}
+                          >
+                            Clear
+                          </Button>
+                          <Button
+                            size="sm"
+                            colorScheme={newMrnInput.trim() ? "teal" : "red"}
+                            onClick={() => mrnConfirmDialog.onOpen()}
+                            isDisabled={!newMrnInput.trim() && !mrnInput.trim()}
+                          >
+                            {newMrnInput.trim() ? "Swap MRN" : "Retire MRN"}
+                          </Button>
+                        </HStack>
+                      </Stack>
+                    </Stack>
+                  )}
+                </Stack>
+              </GridItem>
+
+              <GridItem borderWidth="1px" borderColor={panelBorder} bg={panelBg} borderRadius="lg" p={4}>
+                <Heading size="sm" mb={4}>Find Untagged Requisitions</Heading>
+                <Stack spacing={3}>
+                  <FormControl>
+                    <FormLabel fontSize="sm">Phone Number</FormLabel>
+                    <Input
+                      size="sm"
+                      placeholder="Enter phone to find untagged requisitions"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(e.target.value)}
+                    />
+                  </FormControl>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    colorScheme="teal"
+                    onClick={async () => {
+                      if (!phoneInput.trim()) {
+                        toast({ title: "Phone number is required", status: "warning" });
+                        return;
+                      }
+                      setMrnLookupLoading(true);
+                      try {
+                        const res = await fetch(`/api/admin/mrn/untagged?phone=${encodeURIComponent(phoneInput.trim())}`, { cache: "no-store" });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data?.error || "Lookup failed");
+                        setMrnLookupResult({ ...data, isUntagged: true });
+                        toast({ title: "Found untagged requisitions", status: "success" });
+                      } catch (error) {
+                        toast({ title: "Lookup failed", description: error?.message, status: "error" });
+                      } finally {
+                        setMrnLookupLoading(false);
+                      }
+                    }}
+                    isLoading={mrnLookupLoading}
+                  >
+                    Search
+                  </Button>
+                </Stack>
+              </GridItem>
+            </Grid>
+          </TabPanel>
         </TabPanels>
       </Tabs>
 
@@ -899,6 +1098,82 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                 }}
               >
                 Confirm Update
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      <AlertDialog
+        isOpen={mrnConfirmDialog.isOpen}
+        leastDestructiveRef={mrnCancelRef}
+        onClose={mrnConfirmDialog.onClose}
+        isCentered
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="700">
+              Confirm MRN {newMrnInput.trim() ? "Swap" : "Retire"}
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <Stack spacing={3}>
+                <Box>
+                  <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Old MRN</Text>
+                  <Text fontSize="md" fontWeight="700">{mrnInput}</Text>
+                </Box>
+                {newMrnInput.trim() && (
+                  <Box>
+                    <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>New MRN</Text>
+                    <Text fontSize="md" fontWeight="700">{newMrnInput}</Text>
+                  </Box>
+                )}
+                <Box bg={themeMode === "dark" ? "red.900" : "red.50"} p={3} borderRadius="md" borderWidth="1px" borderColor="red.300">
+                  <Text fontSize="xs" fontWeight="700" color={themeMode === "dark" ? "red.100" : "red.700"}>
+                    This will update {mrnLookupResult?.requisition_count || 0} requisition(s) in the database and sync to Shivam.
+                  </Text>
+                </Box>
+              </Stack>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <Button ref={mrnCancelRef} onClick={mrnConfirmDialog.onClose}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="teal"
+                ml={3}
+                isLoading={mrnActionLoading}
+                onClick={async () => {
+                  mrnConfirmDialog.onClose();
+                  setMrnActionLoading(true);
+                  try {
+                    const action = newMrnInput.trim() ? "swap" : "retire";
+                    const res = await fetch("/api/admin/mrn/action", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        action,
+                        old_mrn: mrnInput,
+                        new_mrn: newMrnInput || null
+                      })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data?.error || "Action failed");
+                    toast({
+                      title: `MRN ${action} successful`,
+                      description: `Updated ${data?.updated_count || 0} requisition(s)`,
+                      status: "success"
+                    });
+                    setMrnInput("");
+                    setNewMrnInput("");
+                    setMrnLookupResult(null);
+                  } catch (error) {
+                    toast({ title: "Action failed", description: error?.message, status: "error" });
+                  } finally {
+                    setMrnActionLoading(false);
+                  }
+                }}
+              >
+                Confirm {newMrnInput.trim() ? "Swap" : "Retire"}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
