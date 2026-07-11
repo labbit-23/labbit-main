@@ -1,7 +1,7 @@
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
-import { getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
+import { getLabReportUrl, getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
 import { logReportDispatch } from "@/lib/reportDispatchLogs";
 import {
   canUseReportDispatch,
@@ -91,10 +91,7 @@ export async function GET(request) {
           ...commonFlags
         })
       : reportScope === "lab"
-      ? getReportsUrl(reqid, reqno, {
-          printtype,
-          ...commonFlags
-        })
+      ? getLabReportUrl(reqid, commonFlags)
       : reportScope === "radiology"
         ? getRadiologyReportUrl(reqid, commonFlags)
         : getReportsUrl(reqid, reqno, {

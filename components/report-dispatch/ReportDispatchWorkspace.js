@@ -575,6 +575,7 @@ export default function ReportDispatchWorkspace({
   const [outsourcedLoading, setOutsourcedLoading] = useState(false);
   const [outsourcedError, setOutsourcedError] = useState("");
   const [outsourcedIncludeHeader, setOutsourcedIncludeHeader] = useState(true);
+  const [selectedTestIds, setSelectedTestIds] = useState(new Set());
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -979,6 +980,7 @@ export default function ReportDispatchWorkspace({
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       setStatus(json);
+      setSelectedTestIds(new Set());
       const preferredPhone = String(options?.preferredPhone || "").trim();
       const dailyPhone = findPhoneFromDailyRows(clean);
       const resolvedPhone = String(
@@ -1802,7 +1804,7 @@ export default function ReportDispatchWorkspace({
               <Pane title="Dispatch Actions" bodyPx={3} bodyPy={3}>
                 <SimpleGrid columns={{ base: 2, md: 3 }} spacing={1.5}>
                   <ActionBtn compact icon={<Files size={14} />}       label="All"              variant="lab"        onClick={() => openDocument("all")} disabled={!hasStatus || !canDispatch || (!hasLab && !hasRadiology)} />
-                  <ActionBtn compact icon={<FlaskConical size={14} />} label="Lab"              variant="lab"        onClick={() => openDocument("lab")} disabled={!hasStatus || !canDispatch || !hasLab} />
+                  <ActionBtn compact icon={<FlaskConical size={14} />} label={selectedTestIds.size > 0 ? "Selected" : "Lab"} variant="lab" onClick={() => openDocument("lab", selectedTestIds.size > 0 ? { testids: Array.from(selectedTestIds).join(",") } : {})} disabled={!hasStatus || !canDispatch || !hasLab} />
                   <ActionBtn compact icon={<Scan size={14} />}         label="Radiology"        variant="rad"        onClick={() => openDocument("radiology")} disabled={!hasStatus || !canDispatch || !hasRadiology} />
                   <ActionBtn compact icon={<TrendingUp size={14} />}   label="Trend"            variant="trend"      onClick={openTrend} disabled={!hasStatus || !canTrend} />
                   <ActionBtn compact icon={<LineChart size={14} />}    label="Trends v2.0"      variant="trendv2"    onClick={openSmartTrends} disabled={!hasStatus || !canSmartTrends} />
@@ -2566,6 +2568,31 @@ export default function ReportDispatchWorkspace({
               <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 1.5 } }}>
                 <Thead>
                   <Tr>
+                    <Th w="24px">
+                      {(() => {
+                        const labTests = (Array.isArray(status?.live_status?.tests) ? status.live_status.tests : []).filter(t => String(t?.department || "").toLowerCase() === "lab");
+                        const allLabSelected = labTests.length > 0 && labTests.every(t => selectedTestIds.has(String(t?.test_id || "")));
+                        const someLabSelected = labTests.some(t => selectedTestIds.has(String(t?.test_id || "")));
+                        return (
+                          <Checkbox
+                            size="sm"
+                            isChecked={allLabSelected}
+                            isIndeterminate={someLabSelected && !allLabSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const newSet = new Set(selectedTestIds);
+                                labTests.forEach(t => newSet.add(String(t?.test_id || "")));
+                                setSelectedTestIds(newSet);
+                              } else {
+                                const newSet = new Set(selectedTestIds);
+                                labTests.forEach(t => newSet.delete(String(t?.test_id || "")));
+                                setSelectedTestIds(newSet);
+                              }
+                            }}
+                          />
+                        );
+                      })()}
+                    </Th>
                     <Th>Test</Th>
                     <Th>Dept</Th>
                     <Th>Status</Th>
@@ -2581,8 +2608,28 @@ export default function ReportDispatchWorkspace({
                       dept === "lab"
                         ? row?.dispatched ? "Dispatched" : detailLoadedFromMonitor ? "-" : "Not Dispatched"
                         : "-";
+                    const testId = String(row?.test_id || "");
+                    const isLabTest = dept === "lab";
+                    const isChecked = selectedTestIds.has(testId);
                     return (
                       <Tr key={row?.key || `${row?.test_id || ""}_${row?.test_name || ""}`}>
+                        <Td opacity={isLabTest ? 1 : 0.3}>
+                          {isLabTest && (
+                            <Checkbox
+                              size="sm"
+                              isChecked={isChecked}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedTestIds);
+                                if (e.target.checked) {
+                                  newSet.add(testId);
+                                } else {
+                                  newSet.delete(testId);
+                                }
+                                setSelectedTestIds(newSet);
+                              }}
+                            />
+                          )}
+                        </Td>
                         <Td>{displayValue(row?.test_name)}</Td>
                         <Td>
                           <DeptChip dept={dept === "radiology" ? "rad" : "bio"}>
