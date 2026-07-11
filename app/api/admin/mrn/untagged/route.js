@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
-import { supabase } from "@/lib/supabaseServer";
+import { lookupReports } from "@/lib/neosoft/client";
 import { canUseReportDispatch } from "@/lib/reportDispatchScope";
 
 function cleanPhone(phone) {
@@ -31,28 +31,15 @@ export async function GET(request) {
       return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
     }
 
-    // Find requisitions with this phone but NO MRN (or empty MRN)
-    const { data: untaggedReqs, error: queryError } = await supabase
-      .from("requisitions")
-      .select("reqno, reqid, mrno, reqdt, patient_name, mobileno")
-      .eq("mobileno", cleanedPhone)
-      .or("mrno.is.null,mrno.eq.''") // No MRN or empty MRN
-      .order("reqdt", { ascending: false })
-      .limit(100);
+    // Look up all requisitions with this phone via NeoSoft
+    const allPhoneReqs = await lookupReports(cleanedPhone);
 
-    if (queryError) throw queryError;
+    // Find untagged: those with no MRN or empty MRN
+    const untaggedReqs = (allPhoneReqs || []).filter(r =>
+      !r.mrno || String(r.mrno || "").trim() === ""
+    );
 
-    // Also find requisitions with this phone to show MRNs already linked
-    const { data: allPhoneReqs, error: allError } = await supabase
-      .from("requisitions")
-      .select("reqno, reqid, mrno, reqdt, patient_name, mobileno")
-      .eq("mobileno", cleanedPhone)
-      .order("reqdt", { ascending: false })
-      .limit(100);
-
-    if (allError) throw allError;
-
-    // Count unique MRNs for this phone
+    // Collect unique MRNs that ARE tagged
     const uniqueMrns = new Set(
       (allPhoneReqs || [])
         .map(r => r.mrno)
@@ -63,14 +50,14 @@ export async function GET(request) {
       ok: true,
       phone,
       cleaned_phone: cleanedPhone,
-      untagged_count: (untaggedReqs || []).length,
-      untagged_requisitions: (untaggedReqs || []).map(r => ({
+      untagged_count: untaggedReqs.length,
+      untagged_requisitions: untaggedReqs.map(r => ({
         reqno: r.reqno,
         reqid: r.reqid,
         mrno: r.mrno || null,
         reqdt: r.reqdt,
         patient_name: r.patient_name,
-        phone: r.mobileno
+        phone: r.phone || cleanedPhone
       })),
       linked_mrns: Array.from(uniqueMrns),
       total_requisitions_for_phone: (allPhoneReqs || []).length

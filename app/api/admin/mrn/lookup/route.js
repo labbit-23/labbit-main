@@ -3,7 +3,6 @@ import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
 import { lookupReports, getShivamDemographicsByMrno } from "@/lib/neosoft/client";
-import { supabase } from "@/lib/supabaseServer";
 import { canUseReportDispatch } from "@/lib/reportDispatchScope";
 
 function normalizeMrno(value) {
@@ -31,35 +30,36 @@ export async function GET(request) {
       return NextResponse.json({ error: "mrno is required" }, { status: 400 });
     }
 
-    // Get patient demographics from Shivam
-    const demographics = await getShivamDemographicsByMrno(mrno).catch(() => null);
+    // Get patient demographics from Shivam via NeoSoft API
+    let demographics = null;
+    try {
+      demographics = await getShivamDemographicsByMrno(mrno);
+    } catch (e) {
+      // Continue - demographics may not exist in Shivam
+    }
+
     const patientName = demographics?.patient_name || null;
     const patientPhone = demographics?.mobile_no || null;
 
-    // Look up all requisitions with this MRN from database
-    const { data: mrnRequisitions, error: mrnError } = await supabase
-      .from("requisitions")
-      .select("reqno, reqid, mrno, reqdt, patient_name, mobileno")
-      .eq("mrno", mrno)
-      .order("reqdt", { ascending: false })
-      .limit(100);
-
-    if (mrnError) throw mrnError;
-
-    // If we have a phone, find requisitions with same phone but different/no MRN
+    // Requisitions with this MRN must be looked up via NeoSoft
+    // Since we don't have a direct MRN lookup in NeoSoft, we use phone lookup if available
+    let mrnRequisitions = [];
     let duplicatePhoneRequisitions = [];
+
     if (patientPhone) {
       const cleanedPhone = cleanPhone(patientPhone);
-      const { data: phoneReqs, error: phoneError } = await supabase
-        .from("requisitions")
-        .select("reqno, reqid, mrno, reqdt, patient_name, mobileno")
-        .eq("mobileno", cleanedPhone)
-        .neq("mrno", mrno) // Different MRN
-        .order("reqdt", { ascending: false })
-        .limit(50);
+      // Look up all requisitions for this phone via NeoSoft
+      const allPhoneReqs = await lookupReports(cleanedPhone);
 
-      if (phoneError) throw phoneError;
-      duplicatePhoneRequisitions = phoneReqs || [];
+      // Filter to only ones matching this MRN
+      mrnRequisitions = (allPhoneReqs || []).filter(r =>
+        String(r?.mrno || "").toUpperCase() === mrno
+      );
+
+      // Find duplicates: same phone, different MRN
+      duplicatePhoneRequisitions = (allPhoneReqs || []).filter(r =>
+        String(r?.mrno || "").toUpperCase() !== mrno
+      );
     }
 
     return NextResponse.json({
@@ -67,14 +67,14 @@ export async function GET(request) {
       mrno,
       patient_name: patientName,
       mobile_no: patientPhone,
-      requisition_count: (mrnRequisitions || []).length,
-      requisitions: (mrnRequisitions || []).map(r => ({
+      requisition_count: mrnRequisitions.length,
+      requisitions: mrnRequisitions.map(r => ({
         reqno: r.reqno,
         reqid: r.reqid,
         mrno: r.mrno,
         reqdt: r.reqdt,
         patient_name: r.patient_name,
-        phone: r.mobileno,
+        phone: patientPhone,
         test_count: 0
       })),
       duplicate_phone_requisitions: duplicatePhoneRequisitions.map(r => ({
@@ -83,9 +83,10 @@ export async function GET(request) {
         mrno: r.mrno,
         reqdt: r.reqdt,
         patient_name: r.patient_name,
-        phone: r.mobileno
+        phone: r.phone || patientPhone
       })),
-      duplicate_phone_count: duplicatePhoneRequisitions.length
+      duplicate_phone_count: duplicatePhoneRequisitions.length,
+      note: patientPhone ? `Found ${mrnRequisitions.length} requisitions with MRN ${mrno} and ${duplicatePhoneRequisitions.length} with same phone but different MRN` : "No phone found in Shivam for this MRN"
     }, { status: 200 });
 
   } catch (error) {

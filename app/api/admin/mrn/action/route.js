@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
-import { supabase } from "@/lib/supabaseServer";
+import { lookupReports } from "@/lib/neosoft/client";
 import { canUseReportDispatch } from "@/lib/reportDispatchScope";
 
 function normalizeMrno(value) {
   return String(value || "").trim().toUpperCase();
+}
+
+function cleanPhone(phone) {
+  return String(phone || "").replace(/\D/g, "").slice(-10);
 }
 
 export async function POST(request) {
@@ -23,6 +27,7 @@ export async function POST(request) {
     const action = String(body?.action || "").trim().toLowerCase();
     const oldMrno = normalizeMrno(body?.old_mrno);
     const newMrno = body?.new_mrn ? normalizeMrno(body.new_mrn) : null;
+    const phone = body?.phone ? cleanPhone(body.phone) : null;
 
     if (!oldMrno) {
       return NextResponse.json({ error: "old_mrno is required" }, { status: 400 });
@@ -40,15 +45,19 @@ export async function POST(request) {
       return NextResponse.json({ error: "old_mrno and new_mrn cannot be the same" }, { status: 400 });
     }
 
-    // Get all requisitions with old MRN
-    const { data: requisitions, error: selectError } = await supabase
-      .from("requisitions")
-      .select("reqno, reqid, mrno")
-      .eq("mrno", oldMrno);
+    // Requisitions are in NeoSoft, so we look them up via phone
+    // We need the phone number to look up requisitions
+    let requisitionsToUpdate = [];
 
-    if (selectError) throw selectError;
+    if (phone) {
+      const allReqs = await lookupReports(phone);
+      // Find those matching the old MRN
+      requisitionsToUpdate = (allReqs || []).filter(r =>
+        String(r?.mrno || "").toUpperCase() === oldMrno
+      );
+    }
 
-    if (!requisitions || requisitions.length === 0) {
+    if (!requisitionsToUpdate || requisitionsToUpdate.length === 0) {
       return NextResponse.json({
         ok: true,
         action,
@@ -59,39 +68,31 @@ export async function POST(request) {
       }, { status: 200 });
     }
 
-    // Update all requisitions
-    let updateError;
-    if (action === "swap") {
-      const { error: err } = await supabase
-        .from("requisitions")
-        .update({ mrno: newMrno })
-        .eq("mrno", oldMrno);
-      updateError = err;
-    } else if (action === "retire") {
-      // For retire, we could set to null or keep the old MRN with a flag
-      // For now, let's just log it without changing the requisition
-      // This allows manual review before cleanup
-    }
-
-    if (updateError) throw updateError;
-
-    // TODO: Call Shivam API to sync the MRN change if needed
-    // TODO: Add audit log entry
-    // TODO: Add notification/alert for admin
+    // TODO: IMPORTANT - Need Shivam/NeoSoft API to update MRN in requisitions table
+    // The actual update needs to happen in the NeoSoft database, not in Supabase
+    // This would require a backend endpoint in the NeoSoft/Shivam system to:
+    // - UPDATE requisitions SET mrno = new_mrn WHERE mrno = old_mrn
+    //
+    // For now, we return success with the list of what WOULD be updated
+    // The actual update would need to be done via Shivam API call
 
     return NextResponse.json({
       ok: true,
       action,
       old_mrno: oldMrno,
       new_mrn: newMrno,
-      updated_count: requisitions.length,
-      requisitions_updated: requisitions.map(r => ({
+      phone,
+      requisition_count: requisitionsToUpdate.length,
+      requisitions_found: requisitionsToUpdate.map(r => ({
         reqno: r.reqno,
-        reqid: r.reqid
+        reqid: r.reqid,
+        current_mrno: r.mrno
       })),
       message: action === "swap"
-        ? `Successfully swapped ${requisitions.length} requisition(s) from ${oldMrno} to ${newMrno}`
-        : `Marked ${requisitions.length} requisition(s) for retirement from ${oldMrno}`
+        ? `Found ${requisitionsToUpdate.length} requisition(s) to swap from ${oldMrno} to ${newMrno}. Requires Shivam API to execute actual update.`
+        : `Found ${requisitionsToUpdate.length} requisition(s) to retire with ${oldMrno}. Requires Shivam API to execute actual update.`,
+      status: "ready_for_approval",
+      next_step: "Call Shivam/NeoSoft API to update MRN in requisitions table"
     }, { status: 200 });
 
   } catch (error) {
