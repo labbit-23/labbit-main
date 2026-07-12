@@ -425,6 +425,7 @@ function buildWhyText(job) {
     else if (decisionMode === "try_pending_print_once") parts.push("Trying pending-print-once");
     else if (decisionMode === "manual_review") parts.push("Manual review advised");
     if (decisionReason) parts.push(decisionReason);
+    if (skipReason) parts.push(`Skip reason: ${skipReason}`);
     parts.push(`Cooling until ${formatIstDateTime(queueTimeForDisplay(job))}`);
     if (historyText) parts.push(historyText);
     return parts.join(" • ");
@@ -435,6 +436,8 @@ function buildWhyText(job) {
     if (readyText) parts.push(readyText);
     if (blockers) parts.push(`Pending tests: ${blockers}`);
     if (decisionReason) parts.push(decisionReason);
+    if (skipReason) parts.push(`Skip reason: ${skipReason}`);
+    if (!skipReason && skipEventReason) parts.push(`Skip reason: ${skipEventReason}`);
     parts.push(`Next check ${formatIstDateTime(queueTimeForDisplay(job))}`);
     if (historyText) parts.push(historyText);
     return parts.join(" • ");
@@ -460,8 +463,9 @@ function buildWhyText(job) {
     return parts.join(" • ");
   }
 
-  if (decisionReason && readyText) return `${readyText} • ${decisionReason}${historyText ? ` • ${historyText}` : ""}`;
-  if (decisionReason) return `${decisionReason}${historyText ? ` • ${historyText}` : ""}`;
+  if (decisionReason && readyText) return `${readyText} • ${decisionReason}${skipReason ? ` • Skip reason: ${skipReason}` : ""}${historyText ? ` • ${historyText}` : ""}`;
+  if (decisionReason) return `${decisionReason}${skipReason ? ` • Skip reason: ${skipReason}` : ""}${historyText ? ` • ${historyText}` : ""}`;
+  if (skipReason) return `Skip reason: ${skipReason}${readyText ? ` • ${readyText}` : ""}${historyText ? ` • ${historyText}` : ""}`;
   if (readyText) return `${readyText}${historyText ? ` • ${historyText}` : ""}`;
   const fallback = stateHint(job);
   return historyText ? `${fallback} • ${historyText}` : fallback;
