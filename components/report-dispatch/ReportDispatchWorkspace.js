@@ -382,10 +382,13 @@ function buildWhyText(job) {
     const blockers = queuedBlockers(job);
     const decision = snap?.decision && typeof snap.decision === "object" ? snap.decision : {};
     const decisionReason = String(decision?.reason || "").trim();
-    const readyText =
-      Number.isFinite(labTotal + radTotal) && (labTotal > 0 || radTotal > 0)
-        ? `Ready Lab ${labReady}/${labTotal}, Scan ${radReady}/${radTotal}`
-        : "";
+    let readyText = "";
+    if (Number.isFinite(labTotal + radTotal) && (labTotal > 0 || radTotal > 0)) {
+      const readyParts = [];
+      if (labTotal > 0) readyParts.push(`Lab ${labReady}/${labTotal}`);
+      if (radTotal > 0) readyParts.push(`Scan ${radReady}/${radTotal}`);
+      readyText = readyParts.length > 0 ? `Ready: ${readyParts.join(", ")}` : "";
+    }
     const parts = [];
     if (readyText) parts.push(readyText);
     if (blockers) parts.push(`Pending tests: ${blockers}`);
@@ -401,10 +404,13 @@ function buildWhyText(job) {
   const labTotal = Number(snap?.lab_total ?? 0);
   const radReady = Number(snap?.radiology_ready ?? 0);
   const radTotal = Number(snap?.radiology_total ?? 0);
-  const readyText =
-    Number.isFinite(labTotal + radTotal) && (labTotal > 0 || radTotal > 0)
-      ? `Ready Lab ${labReady}/${labTotal}, Scan ${radReady}/${radTotal}`
-      : "";
+  let readyText = "";
+  if (Number.isFinite(labTotal + radTotal) && (labTotal > 0 || radTotal > 0)) {
+    const parts = [];
+    if (labTotal > 0) parts.push(`Lab ${labReady}/${labTotal}`);
+    if (radTotal > 0) parts.push(`Scan ${radReady}/${radTotal}`);
+    readyText = parts.length > 0 ? `Ready: ${parts.join(", ")}` : "";
+  }
 
   const decisionReason = String(decision?.reason || "").trim();
   const skipReason = humanizeSkipReason(meta?.skip_reason);
