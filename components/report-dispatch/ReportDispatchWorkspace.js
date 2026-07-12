@@ -415,7 +415,7 @@ function buildWhyText(job) {
   const decisionReason = String(decision?.reason || "").trim();
   const skipReason = humanizeSkipReason(meta?.skip_reason);
   const skipEvent = job?.skip_event && typeof job.skip_event === "object" ? job.skip_event : null;
-  const skipEventReason = String(skipEvent?.reason || "").trim();
+  const skipEventReason = humanizeSkipReason(skipEvent?.reason);
   const decisionMode = String(decision?.mode || "").trim().toLowerCase();
   const blockers = queuedBlockers(job);
   const reportLabel = String(job?.report_label || "").trim().toLowerCase();
