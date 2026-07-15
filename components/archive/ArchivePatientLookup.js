@@ -93,7 +93,7 @@ export default function ArchivePatientLookup({ onSelect }) {
         <Table size="sm" variant="simple">
           <Thead>
             <Tr>
-              <Th>MRN</Th><Th>Name</Th><Th>Sex</Th><Th>Phone</Th><Th>Last visit</Th><Th />
+              <Th>MRN</Th><Th>Name</Th><Th>Sex</Th><Th>Phone</Th><Th>Last visit</Th>
             </Tr>
           </Thead>
           <Tbody>
@@ -109,17 +109,6 @@ export default function ArchivePatientLookup({ onSelect }) {
                 <Td>{p.sex || '-'}</Td>
                 <Td>{p.mobile || '-'}</Td>
                 <Td>{p.last_visit ? String(p.last_visit).slice(0, 10) : '-'}</Td>
-                <Td>
-                  <Button
-                    size="xs"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSelect?.(p.mrn, p);
-                    }}
-                  >
-                    Open history
-                  </Button>
-                </Td>
               </Tr>
             ))}
           </Tbody>

@@ -122,7 +122,10 @@ export default function PatientHistory({ mrno }) {
   }, [requisitions]);
 
   const visibleResults = useMemo(() => {
-    return (results || []).filter((row) => normalizedValue(row.value) !== 'BNONE');
+    return (results || []).filter((row) => {
+      const value = String(row.value ?? '').trim();
+      return value && normalizedValue(value) !== 'BNONE';
+    });
   }, [results]);
 
   const resultsByReqno = useMemo(() => {
@@ -139,6 +142,22 @@ export default function PatientHistory({ mrno }) {
     return (resultsByReqno.get(reqno) || []).filter((row) => (
       String(row.test_name || '').trim().toLowerCase() === target
     ));
+  };
+
+  const historicalTestCount = (reqno, testName, currentDate) => {
+    const target = String(testName || '').trim().toLowerCase();
+    if (!target) return 0;
+    const previousReqnos = new Set();
+    for (const row of visibleResults) {
+      if (
+        row.requisition_number !== reqno &&
+        String(row.test_name || '').trim().toLowerCase() === target &&
+        (!currentDate || String(row.requested_at) <= String(currentDate))
+      ) {
+        previousReqnos.add(row.requisition_number || String(row.requested_at || ''));
+      }
+    }
+    return previousReqnos.size;
   };
 
   const parameterHistoryRows = (reqno, parameterId, parameter, currentDate) => {
@@ -199,7 +218,7 @@ export default function PatientHistory({ mrno }) {
             <HStack mt={3} spacing={2} flexWrap="wrap">
               {g.tests.map((t) => {
                 const selected = selectedByReqno[g.reqno] === t.test_name;
-                const count = rowsForTest(g.reqno, t.test_name).length;
+                const count = historicalTestCount(g.reqno, t.test_name, g.date);
                 return (
                   <Button
                     key={`${g.reqno}-${t.test_id}`}
@@ -252,7 +271,7 @@ export default function PatientHistory({ mrno }) {
               {rowsForTest(g.reqno, selectedByReqno[g.reqno]).length > 0 ? (
                 <Table size="sm">
                   <Thead>
-                    <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th><Th /></Tr>
+                    <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th></Tr>
                   </Thead>
                   <Tbody>
                     {rowsForTest(g.reqno, selectedByReqno[g.reqno]).map((r, i) => {
@@ -282,24 +301,10 @@ export default function PatientHistory({ mrno }) {
                             <Td fontWeight="semibold" fontSize="sm">{r.value}</Td>
                             <Td fontSize="sm" color="gray.600">{r.unit || '-'}</Td>
                             <Td maxW="320px"><ReferenceText row={r} /></Td>
-                            <Td textAlign="right">
-                              {historyRows.length > 0 ? (
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setExpandedParameters((prev) => ({ ...prev, [key]: !prev[key] }));
-                                  }}
-                                >
-                                  History
-                                </Button>
-                              ) : null}
-                            </Td>
                           </Tr>
                           {isExpanded && (
                             <Tr>
-                              <Td colSpan={5} bg="gray.50">
+                              <Td colSpan={4} bg="gray.50">
                                 <Box py={2}>
                                   <Text fontSize="xs" fontWeight="700" color="gray.600" mb={2}>
                                     Previous values for {r.parameter}
@@ -336,7 +341,7 @@ export default function PatientHistory({ mrno }) {
               )}
               {testHasHistory(g.reqno, selectedByReqno[g.reqno], g.date) && (
                 <Text fontSize="xs" color="gray.500" mt={2}>
-                  Click a parameter row or History to show previous values.
+                  Click a parameter row to show previous values.
                 </Text>
               )}
             </Box>
