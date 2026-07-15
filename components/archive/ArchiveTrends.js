@@ -33,6 +33,24 @@ function outOfRange(row) {
   return false;
 }
 
+function htmlToText(value) {
+  const raw = String(value || '').replace(/<br\s*\/?>/gi, ' / ').trim();
+  if (!raw) return '';
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    return raw
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&nbsp;/g, ' ');
+  }
+  return new DOMParser().parseFromString(raw, 'text/html').body.textContent || '';
+}
+
+function referenceLabel(row, refLow, refHigh) {
+  const reference = htmlToText(row.reference_text);
+  return reference || `${refLow ?? '?'}-${refHigh ?? '?'}`;
+}
+
 export default function ArchiveTrends({ mrno, initialTableView = false }) {
   const [rows, setRows] = useState(null);
   const [filter, setFilter] = useState('');
@@ -121,7 +139,21 @@ export default function ArchiveTrends({ mrno, initialTableView = false }) {
         const refHigh = list[0].reference_high != null ? Number(list[0].reference_high) : null;
         return (
           <Box key={parameter} mb={4}>
-            {!showTable && (
+            {!showTable && list.length === 1 && (
+              <Box borderWidth="1px" borderColor="gray.200" borderRadius="md" p={3}>
+                <Text fontWeight="semibold" fontSize="sm">
+                  {parameter}{' '}
+                  <Text as="span" color="gray.600" fontSize="xs" fontWeight="normal">
+                    ({list[0].unit || 'no units'} · ref {referenceLabel(list[0], refLow, refHigh)})
+                  </Text>
+                </Text>
+                <HStack mt={2} spacing={3}>
+                  <Text fontSize="lg" fontWeight="800">{list[0].value}</Text>
+                  <Text fontSize="xs" color="gray.500">{String(list[0].requested_at).slice(0, 10)}</Text>
+                </HStack>
+              </Box>
+            )}
+            {!showTable && list.length > 1 && (
               <ParameterTrendChart
                 name={parameter}
                 unit={list[0].unit}
@@ -134,24 +166,31 @@ export default function ArchiveTrends({ mrno, initialTableView = false }) {
               <>
                 <Text fontWeight="semibold" fontSize="sm" mb={1}>
                   {parameter}{' '}
-                  <Text as="span" color="gray.500" fontWeight="normal">
-                    ({list[0].unit || 'no units'} · ref {list[0].reference_text || `${refLow ?? '?'}–${refHigh ?? '?'}`})
+                  <Text as="span" color="gray.600" fontSize="xs" fontWeight="normal">
+                    ({list[0].unit || 'no units'} · ref {referenceLabel(list[0], refLow, refHigh)})
                   </Text>
                 </Text>
                 <Table size="sm" variant="striped">
                   <Thead>
                     <Tr>
                       {list.map((r, i) => (
-                        <Th key={i} fontSize="10px" color="gray.500">{String(r.requested_at).slice(0, 10)}</Th>
+                        <Th
+                          key={i}
+                          fontSize="10px"
+                          color="gray.500"
+                          title={String(r.requested_at).slice(0, 10)}
+                        >
+                          {String(r.requested_at).slice(0, 7)}
+                        </Th>
                       ))}
                     </Tr>
                   </Thead>
                   <Tbody>
                     <Tr>
                       {list.map((r, i) => (
-                        <Td key={i} fontSize="11px" color="gray.500" py={1.5}>
+                        <Td key={i} fontSize="12px" color="gray.800" fontWeight="600" py={1.5}>
                           {outOfRange(r)
-                            ? <Badge colorScheme="red" fontSize="10px">{r.value}</Badge>
+                            ? <Badge colorScheme="red" fontSize="11px">{r.value}</Badge>
                             : String(r.value)}
                         </Td>
                       ))}

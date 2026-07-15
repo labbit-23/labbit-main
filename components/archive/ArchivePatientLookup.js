@@ -105,7 +105,7 @@ export default function ArchivePatientLookup({ onSelect }) {
                 <Td>{p.mobile || '-'}</Td>
                 <Td>{p.last_visit ? String(p.last_visit).slice(0, 10) : '-'}</Td>
                 <Td>
-                  <Button size="xs" onClick={() => onSelect?.(p.mrn)}>
+                  <Button size="xs" onClick={() => onSelect?.(p.mrn, p)}>
                     Open history
                   </Button>
                 </Td>
