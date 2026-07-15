@@ -42,7 +42,10 @@ export default function ArchivePatientLookup({ onSelect }) {
       if (phone.trim()) qs.set('phone', phone.trim());
       if (reqno.trim()) qs.set('reqno', reqno.trim());
       const res = await fetch(`/api/archive/search?${qs}`);
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.detail || payload.error || res.statusText);
+      }
       const data = await res.json();
       setResults(data.patients || []);
     } catch (err) {
@@ -54,7 +57,7 @@ export default function ArchivePatientLookup({ onSelect }) {
 
   return (
     <>
-      <HStack align="end" spacing={3} mb={4}>
+      <HStack align="end" spacing={3} mb={4} flexWrap="wrap">
         <FormControl maxW="160px">
           <FormLabel fontSize="sm">MRN</FormLabel>
           <Input size="sm" value={mrno} onChange={(e) => setMrno(e.target.value)} />
@@ -71,7 +74,14 @@ export default function ArchivePatientLookup({ onSelect }) {
           <FormLabel fontSize="sm">Requisition no.</FormLabel>
           <Input size="sm" value={reqno} onChange={(e) => setReqno(e.target.value)} />
         </FormControl>
-        <Button size="sm" colorScheme="teal" onClick={search} isLoading={loading}>
+        <Button
+          size="md"
+          minW="160px"
+          px={6}
+          colorScheme="teal"
+          onClick={search}
+          isLoading={loading}
+        >
           Search Archive
         </Button>
       </HStack>

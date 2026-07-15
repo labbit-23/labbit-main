@@ -28,6 +28,17 @@ To run the project locally:
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
    ```
 
+   Optional patient archive integration:
+
+   ```
+   ARCHIVE_API_BASE_URL=http://127.0.0.1:8010
+   ```
+
+   `/patient-archive` proxies to the Shivam archive FastAPI service at
+   `${ARCHIVE_API_BASE_URL}/api/archive/...`. If unset, local dev defaults to
+   `http://127.0.0.1:8010`; set it explicitly when the archive service runs on a
+   different host or port.
+
 4. Run the development server:
    ```bash
    npm run dev

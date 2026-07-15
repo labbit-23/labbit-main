@@ -6,6 +6,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Button,
   Input,
   Spinner,
   Table,
@@ -32,10 +33,14 @@ function outOfRange(row) {
   return false;
 }
 
-export default function ArchiveTrends({ mrno }) {
+export default function ArchiveTrends({ mrno, initialTableView = false }) {
   const [rows, setRows] = useState(null);
   const [filter, setFilter] = useState('');
-  const [showTable, setShowTable] = useState(false);
+  const [showTable, setShowTable] = useState(Boolean(initialTableView));
+
+  useEffect(() => {
+    setShowTable(Boolean(initialTableView));
+  }, [initialTableView, mrno]);
 
   useEffect(() => {
     if (!mrno) return;
@@ -63,6 +68,11 @@ export default function ArchiveTrends({ mrno }) {
     return m;
   }, [rows, filter]);
 
+  const parameterOptions = useMemo(() => {
+    return Array.from(new Set((rows || []).map((row) => row.parameter).filter(Boolean)))
+      .sort((a, b) => String(a).localeCompare(String(b)));
+  }, [rows]);
+
   if (!rows) return <Spinner size="sm" />;
   if (rows.length === 0) {
     return <Text fontSize="sm" color="gray.500">No numeric trend data in archive for MRN {mrno}.</Text>;
@@ -71,12 +81,26 @@ export default function ArchiveTrends({ mrno }) {
   return (
     <>
       <HStack mb={3} spacing={6}>
-        <Input
-          size="sm" maxW="280px"
-          placeholder="Filter parameter (e.g. HbA1c)"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
+        <HStack spacing={2} align="center">
+          <Input
+            size="sm"
+            maxW="300px"
+            list="archive-trend-parameters"
+            placeholder="Filter parameter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <datalist id="archive-trend-parameters">
+            {parameterOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          {filter ? (
+            <Button size="sm" variant="ghost" onClick={() => setFilter('')}>
+              Clear
+            </Button>
+          ) : null}
+        </HStack>
         <FormControl display="flex" alignItems="center" w="auto">
           <FormLabel htmlFor="trend-table-view" mb="0" fontSize="sm">
             Table view
@@ -84,6 +108,9 @@ export default function ArchiveTrends({ mrno }) {
           <Switch id="trend-table-view" size="sm" isChecked={showTable} onChange={(e) => setShowTable(e.target.checked)} />
         </FormControl>
       </HStack>
+      {byComponent.size === 0 && (
+        <Text fontSize="sm" color="gray.500" mb={3}>No matching numeric parameters.</Text>
+      )}
       {[...byComponent.entries()].map(([parameter, list]) => {
         const chartPoints = list.map((r) => ({
           date: String(r.requested_at).slice(0, 10),
@@ -115,16 +142,16 @@ export default function ArchiveTrends({ mrno }) {
                   <Thead>
                     <Tr>
                       {list.map((r, i) => (
-                        <Th key={i} fontSize="xs">{String(r.requested_at).slice(0, 10)}</Th>
+                        <Th key={i} fontSize="10px" color="gray.500">{String(r.requested_at).slice(0, 10)}</Th>
                       ))}
                     </Tr>
                   </Thead>
                   <Tbody>
                     <Tr>
                       {list.map((r, i) => (
-                        <Td key={i}>
+                        <Td key={i} fontSize="11px" color="gray.500" py={1.5}>
                           {outOfRange(r)
-                            ? <Badge colorScheme="red">{r.value}</Badge>
+                            ? <Badge colorScheme="red" fontSize="10px">{r.value}</Badge>
                             : String(r.value)}
                         </Td>
                       ))}

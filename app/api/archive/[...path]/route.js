@@ -4,14 +4,23 @@
 // forwards the user identity for audit logging.
 
 import { NextResponse } from 'next/server';
-import { getSessionUser, deny } from '@/lib/uac/authz';
+import { checkPermission, getSessionUser, deny } from '@/lib/uac/authz';
 
 const ARCHIVE_API_BASE_URL =
-  process.env.ARCHIVE_API_BASE_URL || 'http://127.0.0.1:8010';
+  process.env.ARCHIVE_API_BASE_URL ||
+  process.env.SHIVAM_ARCHIVE_BASE_URL ||
+  'http://127.0.0.1:8010';
 
 async function forward(request, { params }, method) {
   const user = await getSessionUser(request);
   if (!user) return deny('Sign in required', 401);
+  const permission = await checkPermission(user, 'archive.patient.view');
+  if (!permission.ok) {
+    return deny('Archive access forbidden', 403, {
+      permission: 'archive.patient.view',
+      roleKey: permission.roleKey,
+    });
+  }
 
   const { path } = await params;
   const search = new URL(request.url).search;

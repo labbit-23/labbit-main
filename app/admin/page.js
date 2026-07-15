@@ -26,6 +26,7 @@ import {
   Wrench,
   MonitorCog,
   Activity,
+  Archive,
   RadioTower,
   Minus,
 } from "lucide-react";
@@ -976,6 +977,16 @@ const exportVisitsImage = async () => {
         icon: <MonitorCog size={16} />,
         href: "/cto",
         hidden: activeRoleKey !== "director",
+      },
+      {
+        key: "patient_archive",
+        label: "Patient Archive",
+        icon: <Archive size={16} />,
+        href: "/patient-archive",
+        hidden: !(
+          ["admin", "manager", "director", "director_ceo", "consultant"].includes(activeRoleKey) ||
+          hasAnyPermission(["archive.patient.view"])
+        ),
       },
       {
         key: "dexa_reports",

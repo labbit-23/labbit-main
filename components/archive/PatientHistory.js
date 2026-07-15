@@ -5,15 +5,13 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Accordion,
-  AccordionButton,
-  AccordionIcon,
-  AccordionItem,
-  AccordionPanel,
-  Badge,
   Box,
+  Button,
+  Divider,
+  Flex,
   HStack,
   Spinner,
+  Stack,
   Table,
   Tbody,
   Td,
@@ -24,9 +22,49 @@ import {
   useToast,
 } from '@chakra-ui/react';
 
+function stripTags(value) {
+  return String(value || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function safeReferenceHtml(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    return stripTags(raw);
+  }
+
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  doc.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach((node) => node.remove());
+  doc.body.querySelectorAll('*').forEach((node) => {
+    [...node.attributes].forEach((attr) => {
+      if (/^on/i.test(attr.name) || attr.name !== 'class') node.removeAttribute(attr.name);
+    });
+  });
+  return doc.body.innerHTML;
+}
+
+function ReferenceText({ row }) {
+  const reference = row.reference_text || `${row.reference_low ?? ''} - ${row.reference_high ?? ''}`.trim();
+  if (!reference || reference === '-') return <Text fontSize="xs" color="gray.400">-</Text>;
+  return (
+    <Box
+      fontSize="10px"
+      lineHeight="1.25"
+      color="gray.400"
+      sx={{
+        '& p': { margin: 0 },
+        '& div': { margin: 0 },
+        '& br': { display: 'block', content: '""', marginTop: '1px' },
+      }}
+      dangerouslySetInnerHTML={{ __html: safeReferenceHtml(reference) }}
+    />
+  );
+}
+
 export default function PatientHistory({ mrno }) {
   const [requisitions, setRequisitions] = useState(null);
   const [results, setResults] = useState(null);
+  const [selectedByReqno, setSelectedByReqno] = useState({});
   const toast = useToast();
 
   useEffect(() => {
@@ -45,6 +83,7 @@ export default function PatientHistory({ mrno }) {
         if (!cancelled) {
           setRequisitions(reqData.requisitions || []);
           setResults(resData.results || []);
+          setSelectedByReqno({});
         }
       } catch (err) {
         if (!cancelled) {
@@ -83,56 +122,107 @@ export default function PatientHistory({ mrno }) {
     return m;
   }, [results]);
 
+  const rowsForTest = (reqno, testName) => {
+    const target = String(testName || '').trim().toLowerCase();
+    return (resultsByReqno.get(reqno) || []).filter((row) => (
+      String(row.test_name || '').trim().toLowerCase() === target
+    ));
+  };
+
   if (!requisitions) return <Spinner size="sm" />;
   if (byReqno.length === 0) {
     return <Text fontSize="sm" color="gray.500">No archived requisitions for MRN {mrno}.</Text>;
   }
 
   return (
-    <Accordion allowMultiple>
+    <Stack spacing={3}>
       {byReqno.map((g) => (
-        <AccordionItem key={g.reqno}>
-          <AccordionButton>
-            <HStack flex="1" spacing={4} textAlign="left">
-              <Text fontWeight="semibold">{g.reqno}</Text>
-              <Text fontSize="sm">{String(g.date).slice(0, 10)}</Text>
-              <Text fontSize="sm" color="gray.500">{g.doctor || ''}</Text>
-              <Badge>{g.tests.length} tests</Badge>
-            </HStack>
-            <AccordionIcon />
-          </AccordionButton>
-          <AccordionPanel pb={3}>
-            <Box mb={2}>
-              {g.tests.map((t) => (
-                <Badge
-                  key={`${g.reqno}-${t.test_id}`}
-                  mr={1} mb={1}
-                  colorScheme={t.is_approved ? 'green' : 'orange'}
-                >
-                  {t.test_name}
-                </Badge>
-              ))}
+        <Box key={g.reqno} borderWidth="1px" borderColor="gray.200" borderRadius="md" p={3}>
+          <Flex justify="space-between" align={{ base: 'stretch', md: 'center' }} gap={2} direction={{ base: 'column', md: 'row' }}>
+            <Box>
+              <Text fontWeight="semibold" fontSize="sm">{String(g.date).slice(0, 10)}</Text>
+              <Text fontSize="xs" color="gray.500">
+                {g.doctor || 'Archive visit'}{g.reqno ? ` · ${g.reqno}` : ''}
+              </Text>
             </Box>
-            {(resultsByReqno.get(g.reqno) || []).length > 0 && (
-              <Table size="sm">
-                <Thead>
-                  <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th></Tr>
-                </Thead>
-                <Tbody>
-                  {resultsByReqno.get(g.reqno).map((r, i) => (
-                    <Tr key={i}>
-                      <Td>{r.parameter}</Td>
-                      <Td fontWeight="semibold">{r.value}</Td>
-                      <Td>{r.unit || '-'}</Td>
-                      <Td>{r.reference_text || `${r.reference_low ?? ''} - ${r.reference_high ?? ''}`}</Td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
-            )}
-          </AccordionPanel>
-        </AccordionItem>
+            <Text fontSize="xs" color="gray.400">{g.tests.length} tests</Text>
+          </Flex>
+
+          <HStack mt={3} spacing={2} flexWrap="wrap">
+            {g.tests.map((t) => {
+              const selected = selectedByReqno[g.reqno] === t.test_name;
+              const count = rowsForTest(g.reqno, t.test_name).length;
+              return (
+                <Button
+                  key={`${g.reqno}-${t.test_id}`}
+                  size="xs"
+                  h="24px"
+                  variant={selected ? 'solid' : 'outline'}
+                  colorScheme={t.is_approved ? 'teal' : 'orange'}
+                  onClick={() => setSelectedByReqno((prev) => ({
+                    ...prev,
+                    [g.reqno]: selected ? null : t.test_name,
+                  }))}
+                >
+                  {t.test_name}{count ? ` (${count})` : ''}
+                </Button>
+              );
+            })}
+          </HStack>
+
+          {selectedByReqno[g.reqno] && (
+            <Box mt={3}>
+              <Divider mb={3} />
+              <HStack justify="space-between" mb={2}>
+                <Text fontSize="sm" fontWeight="700">{selectedByReqno[g.reqno]}</Text>
+                <HStack spacing={1}>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      const index = g.tests.findIndex((t) => t.test_name === selectedByReqno[g.reqno]);
+                      const next = g.tests[(index - 1 + g.tests.length) % g.tests.length];
+                      setSelectedByReqno((prev) => ({ ...prev, [g.reqno]: next?.test_name || null }));
+                    }}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      const index = g.tests.findIndex((t) => t.test_name === selectedByReqno[g.reqno]);
+                      const next = g.tests[(index + 1) % g.tests.length];
+                      setSelectedByReqno((prev) => ({ ...prev, [g.reqno]: next?.test_name || null }));
+                    }}
+                  >
+                    Next
+                  </Button>
+                </HStack>
+              </HStack>
+              {rowsForTest(g.reqno, selectedByReqno[g.reqno]).length > 0 ? (
+                <Table size="sm">
+                  <Thead>
+                    <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th></Tr>
+                  </Thead>
+                  <Tbody>
+                    {rowsForTest(g.reqno, selectedByReqno[g.reqno]).map((r, i) => (
+                      <Tr key={i}>
+                        <Td fontSize="sm">{r.parameter}</Td>
+                        <Td fontWeight="semibold" fontSize="sm">{r.value}</Td>
+                        <Td fontSize="sm" color="gray.600">{r.unit || '-'}</Td>
+                        <Td maxW="320px"><ReferenceText row={r} /></Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              ) : (
+                <Text fontSize="sm" color="gray.500">No component results for this test.</Text>
+              )}
+            </Box>
+          )}
+        </Box>
       ))}
-    </Accordion>
+    </Stack>
   );
 }
