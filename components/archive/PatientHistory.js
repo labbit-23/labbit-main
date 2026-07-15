@@ -70,6 +70,7 @@ export default function PatientHistory({ mrno }) {
   const [results, setResults] = useState(null);
   const [selectedByReqno, setSelectedByReqno] = useState({});
   const [collapsedReqnos, setCollapsedReqnos] = useState({});
+  const [expandedParameters, setExpandedParameters] = useState({});
   const toast = useToast();
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function PatientHistory({ mrno }) {
           setResults(resData.results || []);
           setSelectedByReqno({});
           setCollapsedReqnos({});
+          setExpandedParameters({});
         }
       } catch (err) {
         if (!cancelled) {
@@ -139,16 +141,30 @@ export default function PatientHistory({ mrno }) {
     ));
   };
 
-  const historyRowsForTest = (reqno, testName, currentDate) => {
-    const target = String(testName || '').trim().toLowerCase();
+  const parameterHistoryRows = (reqno, parameterId, parameter, currentDate) => {
+    const targetId = String(parameterId ?? '').trim();
+    const targetName = String(parameter || '').trim().toLowerCase();
+    if (!targetId && !targetName) return [];
     return visibleResults
       .filter((row) => (
         row.requisition_number !== reqno &&
-        String(row.test_name || '').trim().toLowerCase() === target
+        (
+          (targetId && String(row.parameter_id ?? '').trim() === targetId) ||
+          (!targetId && String(row.parameter || '').trim().toLowerCase() === targetName)
+        )
       ))
       .sort((a, b) => String(b.requested_at).localeCompare(String(a.requested_at)))
       .filter((row) => !currentDate || String(row.requested_at) <= String(currentDate))
-      .slice(0, 80);
+      .slice(0, 24);
+  };
+
+  const testHasHistory = (reqno, testName, currentDate) => {
+    const target = String(testName || '').trim().toLowerCase();
+    return visibleResults.some((row) => (
+        row.requisition_number !== reqno &&
+        String(row.test_name || '').trim().toLowerCase() === target &&
+        (!currentDate || String(row.requested_at) <= String(currentDate))
+      ));
   };
 
   if (!requisitions) return <Spinner size="sm" />;
@@ -236,48 +252,92 @@ export default function PatientHistory({ mrno }) {
               {rowsForTest(g.reqno, selectedByReqno[g.reqno]).length > 0 ? (
                 <Table size="sm">
                   <Thead>
-                    <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th></Tr>
+                    <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th><Th /></Tr>
                   </Thead>
                   <Tbody>
-                    {rowsForTest(g.reqno, selectedByReqno[g.reqno]).map((r, i) => (
-                      <Tr key={i}>
-                        <Td fontSize="sm">{r.parameter}</Td>
-                        <Td fontWeight="semibold" fontSize="sm">{r.value}</Td>
-                        <Td fontSize="sm" color="gray.600">{r.unit || '-'}</Td>
-                        <Td maxW="320px"><ReferenceText row={r} /></Td>
-                      </Tr>
-                    ))}
+                    {rowsForTest(g.reqno, selectedByReqno[g.reqno]).map((r, i) => {
+                      const key = `${g.reqno}:${r.parameter_id || r.parameter || i}`;
+                      const isExpanded = Boolean(expandedParameters[key]);
+                      const historyRows = parameterHistoryRows(g.reqno, r.parameter_id, r.parameter, g.date);
+                      return (
+                        <React.Fragment key={key}>
+                          <Tr
+                            cursor={historyRows.length > 0 ? 'pointer' : 'default'}
+                            _hover={historyRows.length > 0 ? { bg: 'gray.50' } : undefined}
+                            onClick={() => {
+                              if (historyRows.length === 0) return;
+                              setExpandedParameters((prev) => ({ ...prev, [key]: !prev[key] }));
+                            }}
+                          >
+                            <Td fontSize="sm">
+                              <HStack spacing={1}>
+                                <Text as="span">{r.parameter}</Text>
+                                {historyRows.length > 0 ? (
+                                  <Text as="span" color="gray.500" fontSize="xs">
+                                    {isExpanded ? '▾' : '▸'}
+                                  </Text>
+                                ) : null}
+                              </HStack>
+                            </Td>
+                            <Td fontWeight="semibold" fontSize="sm">{r.value}</Td>
+                            <Td fontSize="sm" color="gray.600">{r.unit || '-'}</Td>
+                            <Td maxW="320px"><ReferenceText row={r} /></Td>
+                            <Td textAlign="right">
+                              {historyRows.length > 0 ? (
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setExpandedParameters((prev) => ({ ...prev, [key]: !prev[key] }));
+                                  }}
+                                >
+                                  History
+                                </Button>
+                              ) : null}
+                            </Td>
+                          </Tr>
+                          {isExpanded && (
+                            <Tr>
+                              <Td colSpan={5} bg="gray.50">
+                                <Box py={2}>
+                                  <Text fontSize="xs" fontWeight="700" color="gray.600" mb={2}>
+                                    Previous values for {r.parameter}
+                                  </Text>
+                                  <Table size="sm" variant="simple">
+                                    <Thead>
+                                      <Tr>
+                                        <Th fontSize="10px" color="gray.500">Date</Th>
+                                        <Th fontSize="10px" color="gray.500">Value</Th>
+                                        <Th fontSize="10px" color="gray.500">Unit</Th>
+                                      </Tr>
+                                    </Thead>
+                                    <Tbody>
+                                      {historyRows.map((row, idx) => (
+                                        <Tr key={`${row.requisition_number}-${idx}`}>
+                                          <Td fontSize="xs" color="gray.600">{String(row.requested_at).slice(0, 10)}</Td>
+                                          <Td fontSize="xs" fontWeight="700">{row.value}</Td>
+                                          <Td fontSize="xs" color="gray.600">{row.unit || '-'}</Td>
+                                        </Tr>
+                                      ))}
+                                    </Tbody>
+                                  </Table>
+                                </Box>
+                              </Td>
+                            </Tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </Tbody>
                 </Table>
               ) : (
                 <Text fontSize="sm" color="gray.500">No component results for this test.</Text>
               )}
-              {historyRowsForTest(g.reqno, selectedByReqno[g.reqno], g.date).length > 0 && (
-                <Box mt={4}>
-                  <Text fontSize="xs" fontWeight="700" color="gray.600" mb={2}>
-                    Previous values for this test
-                  </Text>
-                  <Table size="sm" variant="simple">
-                    <Thead>
-                      <Tr>
-                        <Th fontSize="10px" color="gray.500">Date</Th>
-                        <Th fontSize="10px" color="gray.500">Parameter</Th>
-                        <Th fontSize="10px" color="gray.500">Value</Th>
-                        <Th fontSize="10px" color="gray.500">Unit</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {historyRowsForTest(g.reqno, selectedByReqno[g.reqno], g.date).map((r, i) => (
-                        <Tr key={`${r.requisition_number}-${r.parameter_id}-${i}`}>
-                          <Td fontSize="xs" color="gray.600">{String(r.requested_at).slice(0, 10)}</Td>
-                          <Td fontSize="xs" color="gray.600">{r.parameter}</Td>
-                          <Td fontSize="xs" fontWeight="700">{r.value}</Td>
-                          <Td fontSize="xs" color="gray.600">{r.unit || '-'}</Td>
-                        </Tr>
-                      ))}
-                    </Tbody>
-                  </Table>
-                </Box>
+              {testHasHistory(g.reqno, selectedByReqno[g.reqno], g.date) && (
+                <Text fontSize="xs" color="gray.500" mt={2}>
+                  Click a parameter row or History to show previous values.
+                </Text>
               )}
             </Box>
           )}

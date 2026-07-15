@@ -98,14 +98,25 @@ export default function ArchivePatientLookup({ onSelect }) {
           </Thead>
           <Tbody>
             {results.map((p) => (
-              <Tr key={p.mrn}>
+              <Tr
+                key={p.mrn}
+                cursor="pointer"
+                _hover={{ bg: 'gray.50' }}
+                onClick={() => onSelect?.(p.mrn, p)}
+              >
                 <Td>{p.mrn}</Td>
                 <Td>{p.name}</Td>
                 <Td>{p.sex || '-'}</Td>
                 <Td>{p.mobile || '-'}</Td>
                 <Td>{p.last_visit ? String(p.last_visit).slice(0, 10) : '-'}</Td>
                 <Td>
-                  <Button size="xs" onClick={() => onSelect?.(p.mrn, p)}>
+                  <Button
+                    size="xs"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect?.(p.mrn, p);
+                    }}
+                  >
                     Open history
                   </Button>
                 </Td>
