@@ -1527,7 +1527,13 @@ async function persistPrescriptionMedia({ inboundMedia, labId, phone }) {
 
   try {
     const response = await fetch(inboundMedia.url);
-    if (!response.ok) return inboundMedia.url;
+    if (!response.ok) {
+      return {
+        url: inboundMedia.url,
+        persisted: false,
+        error: `download_http_${response.status}`
+      };
+    }
 
     const fileBuffer = await response.arrayBuffer();
     const ext =
@@ -1543,15 +1549,30 @@ async function persistPrescriptionMedia({ inboundMedia, labId, phone }) {
         upsert: false
       });
 
-    if (uploadError) return inboundMedia.url;
-    return `uploads/${filePath}`;
-  } catch {
-    return inboundMedia.url;
+    if (uploadError) {
+      return {
+        url: inboundMedia.url,
+        persisted: false,
+        error: uploadError.message || "upload_failed"
+      };
+    }
+    return {
+      url: `uploads/${filePath}`,
+      persisted: true,
+      bucket: "uploads",
+      storagePath: filePath
+    };
+  } catch (error) {
+    return {
+      url: inboundMedia.url,
+      persisted: false,
+      error: error?.message || "persist_failed"
+    };
   }
 }
 
 function shouldPersistInboundMedia() {
-  return String(process.env.WHATSAPP_PERSIST_INBOUND_MEDIA || "").toLowerCase() === "true";
+  return String(process.env.WHATSAPP_PERSIST_INBOUND_MEDIA || "true").toLowerCase() !== "false";
 }
 
 async function resolveMediaUrlById({ mediaId, mediaFetchConfig, authDetails }) {
@@ -2575,24 +2596,31 @@ export async function POST(req) {
       );
     }
 
-    // Preserve upstream media links (especially Mtalkz `link`) to avoid replacing with uploaded paths.
     const canPersistToStorage =
       inboundMedia?.url &&
-      shouldPersistInboundMedia() &&
-      inboundMedia.urlSource !== "link";
+      shouldPersistInboundMedia();
 
     if (canPersistToStorage) {
-      const persistedUrl = await persistPrescriptionMedia({
+      const persistedMedia = await persistPrescriptionMedia({
         inboundMedia,
         labId: session.lab_id,
         phone
       });
-      inboundMedia = { ...inboundMedia, url: persistedUrl || inboundMedia.url || null };
+      inboundMedia = {
+        ...inboundMedia,
+        url: persistedMedia?.url || inboundMedia.url || null,
+        persisted: Boolean(persistedMedia?.persisted),
+        bucket: persistedMedia?.bucket || null,
+        storagePath: persistedMedia?.storagePath || null,
+        persistError: persistedMedia?.error || null
+      };
       console.log(
         "📎 MTALKZ_MEDIA storage-persist:",
         JSON.stringify({
           messageId,
-          persistedUrl: inboundMedia.url || null
+          persisted: inboundMedia.persisted,
+          persistedUrl: inboundMedia.url || null,
+          persistError: inboundMedia.persistError || null
         })
       );
     } else if (inboundMedia?.url) {
@@ -2633,7 +2661,11 @@ export async function POST(req) {
                   id: inboundMedia.id || null,
                   url: inboundMedia.url || null,
                   url_source: inboundMedia.urlSource || null,
-                  filename: inboundMedia.filename || null
+                  filename: inboundMedia.filename || null,
+                  bucket: inboundMedia.bucket || null,
+                  storage_path: inboundMedia.storagePath || null,
+                  persisted: Boolean(inboundMedia.persisted),
+                  persist_error: inboundMedia.persistError || null
                 }
               }
             : {})
