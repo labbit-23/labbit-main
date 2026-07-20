@@ -696,6 +696,8 @@ export default function CtoDashboardPage({
   const [pm2LogText, setPm2LogText] = useState("");
   const [pm2LogEntries, setPm2LogEntries] = useState([]);
   const [pm2Loading, setPm2Loading] = useState(false);
+  const [pm2ActionBusy, setPm2ActionBusy] = useState(false);
+  const [pm2ActionMessage, setPm2ActionMessage] = useState("");
   const [pm2Error, setPm2Error] = useState("");
   const [pm2ReloadTick, setPm2ReloadTick] = useState(0);
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
@@ -924,6 +926,38 @@ export default function CtoDashboardPage({
       cancelled = true;
     };
   }, [pm2SelectedApp, pm2ReloadTick, showCtoTools]);
+
+  async function restartPm2App(appName) {
+    const app = String(appName || "").trim();
+    if (!app) return;
+    const allowed = app === "report-enqueue-watch" || app === "report-sender";
+    if (!allowed) {
+      setPm2Error("Restart is enabled only for report enqueue/sender workers.");
+      return;
+    }
+    if (!window.confirm(`Restart ${app}? This will briefly interrupt that worker.`)) return;
+
+    setPm2ActionBusy(true);
+    setPm2ActionMessage("");
+    setPm2Error("");
+    try {
+      const res = await fetch("/api/cto/pm2-actions", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restart", app }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Failed to restart PM2 app");
+      setPm2ActionMessage(body?.message || `${app} restart requested`);
+      setPm2ReloadTick((v) => v + 1);
+      refreshRef.current?.({ silent: true });
+    } catch (error) {
+      setPm2Error(error?.message || "Failed to restart PM2 app");
+    } finally {
+      setPm2ActionBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -3446,9 +3480,20 @@ export default function CtoDashboardPage({
                   >
                     Refresh
                   </Button>
+                  <Button
+                    size="sm"
+                    colorScheme="red"
+                    variant="outline"
+                    onClick={() => restartPm2App(pm2SelectedApp)}
+                    isLoading={pm2ActionBusy}
+                    isDisabled={!["report-enqueue-watch", "report-sender"].includes(pm2SelectedApp)}
+                  >
+                    Restart
+                  </Button>
                 </HStack>
               </HStack>
               {pm2Error && <Text fontSize="sm" color={isDarkTheme ? "red.200" : "red.600"} mb={2}>{pm2Error}</Text>}
+              {pm2ActionMessage && <Text fontSize="sm" color={isDarkTheme ? "green.200" : "green.700"} mb={2}>{pm2ActionMessage}</Text>}
               <Box
                 p={3}
                 borderRadius="12px"
@@ -4231,4 +4276,3 @@ export default function CtoDashboardPage({
     </Box>
   );
 }
-
