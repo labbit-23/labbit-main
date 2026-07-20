@@ -557,32 +557,6 @@ function getMessageMedia(msg) {
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.url ||
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.link ||
     msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document?.url;
-  const rawMsg =
-    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  const mediaId =
-    rawMsg?.image?.id ||
-    rawMsg?.document?.id ||
-    media?.id ||
-    msg?.payload?.raw_message?.image?.id ||
-    msg?.payload?.raw_message?.document?.id ||
-    null;
-  const mediaType = rawMsg?.document?.id || media?.type === "document" ? "document" : "image";
-  const isDurableUrl =
-    /^uploads\//i.test(String(fallbackUrl || "")) ||
-    /\/storage\/v1\/object\/(?:sign|public)\//i.test(String(fallbackUrl || ""));
-
-  if (mediaId && !isDurableUrl) {
-    const query = new URLSearchParams({
-      filedata: String(mediaId),
-      kind: mediaType
-    });
-    if (canonicalFilename) query.set("filename", canonicalFilename);
-    return {
-      type: mediaType,
-      url: `/api/admin/whatsapp/media?${query.toString()}`,
-      filename: canonicalFilename
-    };
-  }
 
   if (fallbackUrl) {
     return {
@@ -602,8 +576,12 @@ function getMessageMedia(msg) {
   }
 // InstaAlerts media extractor
 let filedata = null;
+let rawMsg = null;
 
 try {
+  rawMsg =
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
   filedata =
     rawMsg?.image?.id ||
     rawMsg?.document?.id ||
