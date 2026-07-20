@@ -607,6 +607,18 @@ if (filedata) {
   return null;
 }
 
+function isPendingMediaMessage(msg) {
+  if (!msg || msg.direction !== "inbound") return false;
+  if (String(msg.message || "").trim() !== "__MEDIA__") return false;
+  return Boolean(
+    msg?.payload?.media?.type ||
+    msg?.payload?.raw_message?.image ||
+    msg?.payload?.raw_message?.document ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image ||
+    msg?.payload?.raw_body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.document
+  );
+}
+
 function getInboundLocationPin(msg) {
   if (!msg || msg.direction !== "inbound") return null;
   if (String(msg.message || "").trim() !== "__LOCATION_PIN__") return null;
@@ -3472,6 +3484,7 @@ export default function WhatsAppDashboard() {
                           ? deliveryStatusByProviderMessageId.get(providerMessageId) || null
                           : null;
                       const media = getMessageMedia(msg);
+                      const pendingMedia = !media?.url && isPendingMediaMessage(msg);
                       const msgWithContext = {
                         ...msg,
                         sessionContext: selectedSession?.context || {}
@@ -3585,6 +3598,11 @@ export default function WhatsAppDashboard() {
                                     {media.filename || "Open attachment"}
                                   </a>
                                 )}
+                              </div>
+                            )}
+                            {pendingMedia && (
+                              <div className="wa-msgAttachment">
+                                <div className="wa-msgAttachmentLoading">Loading attachment...</div>
                               </div>
                             )}
                           </div>
@@ -5446,6 +5464,17 @@ export default function WhatsAppDashboard() {
           color: #0f7f85;
           text-decoration: underline;
           text-underline-offset: 2px;
+        }
+
+        .wa-msgAttachmentLoading {
+          display: inline-block;
+          border: 1px solid #d0d9e6;
+          border-radius: 8px;
+          background: #f8fafc;
+          color: #667085;
+          font-size: 12px;
+          font-weight: 700;
+          padding: 8px 10px;
         }
 
         .wa-error {

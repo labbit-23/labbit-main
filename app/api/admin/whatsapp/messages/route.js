@@ -146,6 +146,13 @@ function extractMediaFromPayload(payload = {}) {
   return null;
 }
 
+function withoutNullishValues(input = {}) {
+  if (!input || typeof input !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== null && value !== undefined && value !== "")
+  );
+}
+
 async function resolveMediaUrlById({ mediaId, mediaFetchConfig, authDetails }) {
   if (!mediaId || !mediaFetchConfig?.url) return null;
 
@@ -489,7 +496,7 @@ export async function GET(request) {
           const extractedMedia = extractMediaFromPayload(row?.payload || {});
           const mergedMedia = {
             ...(extractedMedia || {}),
-            ...(row?.payload?.media || {})
+            ...withoutNullishValues(row?.payload?.media || {})
           };
           const mediaId = mergedMedia?.id || null;
           let mediaUrl = mergedMedia?.url;
