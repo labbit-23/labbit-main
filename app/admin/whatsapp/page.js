@@ -571,44 +571,7 @@ function getMessageMedia(msg) {
     /^uploads\//i.test(String(fallbackUrl || "")) ||
     /\/storage\/v1\/object\/(?:sign|public)\//i.test(String(fallbackUrl || ""));
 
-  const proxyUrl = mediaId && !isDurableUrl
-    ? (() => {
-        const query = new URLSearchParams({
-          filedata: String(mediaId),
-          kind: mediaType
-        });
-        if (canonicalFilename) query.set("filename", canonicalFilename);
-        return `/api/admin/whatsapp/media?${query.toString()}`;
-      })()
-    : null;
-
-  if (fallbackUrl) {
-    return {
-      type: media?.type || mediaType || "file",
-      url: fallbackUrl,
-      fallbackUrl: proxyUrl,
-      filename: canonicalFilename
-    };
-  }
-
-  if (proxyUrl) {
-    return {
-      type: mediaType,
-      url: proxyUrl,
-      filename: canonicalFilename
-    };
-  }
-
-  if (media?.type) {
-    return {
-      type: media.type,
-      url: null,
-      filename: canonicalFilename,
-      unavailable: true
-    };
-  }
-
-  if (mediaId) {
+  if (mediaId && !isDurableUrl) {
     const query = new URLSearchParams({
       filedata: String(mediaId),
       kind: mediaType
@@ -617,6 +580,14 @@ function getMessageMedia(msg) {
     return {
       type: mediaType,
       url: `/api/admin/whatsapp/media?${query.toString()}`,
+      filename: canonicalFilename
+    };
+  }
+
+  if (fallbackUrl) {
+    return {
+      type: media?.type || "file",
+      url: fallbackUrl,
       filename: canonicalFilename
     };
   }
@@ -659,30 +630,18 @@ if (filedata) {
 }
 
 function MessageAttachment({ media }) {
-  const [activeUrl, setActiveUrl] = useState(media?.url || "");
   const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => {
-    setActiveUrl(media?.url || "");
-    setImageFailed(false);
-  }, [media?.url, media?.fallbackUrl]);
+  if (!media?.url) return null;
 
-  if (!media?.url && !media?.unavailable) return null;
-
-  if (media.type === "image" && activeUrl && !imageFailed) {
+  if (media.type === "image" && !imageFailed) {
     return (
       <div className="wa-msgAttachment">
-        <a href={activeUrl} target="_blank" rel="noreferrer">
+        <a href={media.url} target="_blank" rel="noreferrer">
           <img
-            src={activeUrl}
+            src={media.url}
             alt="Attachment"
             className="wa-msgAttachmentImage"
-            onError={() => {
-              if (media?.fallbackUrl && activeUrl !== media.fallbackUrl) {
-                setActiveUrl(media.fallbackUrl);
-                return;
-              }
-              setImageFailed(true);
-            }}
+            onError={() => setImageFailed(true)}
           />
         </a>
       </div>
@@ -691,17 +650,15 @@ function MessageAttachment({ media }) {
 
   return (
     <div className="wa-msgAttachment">
-      {media.type === "image" && (imageFailed || !activeUrl) ? (
+      {media.type === "image" && imageFailed ? (
         <div className="wa-msgAttachmentFallback">
           <span>Image unavailable or expired.</span>
-          {activeUrl ? (
-            <a href={activeUrl} target="_blank" rel="noreferrer">
-              Open attachment
-            </a>
-          ) : null}
+          <a href={media.url} target="_blank" rel="noreferrer">
+            Open attachment
+          </a>
         </div>
       ) : (
-        <a href={activeUrl || media.url} target="_blank" rel="noreferrer" className="wa-msgAttachmentLink">
+        <a href={media.url} target="_blank" rel="noreferrer" className="wa-msgAttachmentLink">
           {media.filename || "Open attachment"}
         </a>
       )}
