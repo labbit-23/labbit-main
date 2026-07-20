@@ -629,43 +629,6 @@ if (filedata) {
   return null;
 }
 
-function MessageAttachment({ media }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  if (!media?.url) return null;
-
-  if (media.type === "image" && !imageFailed) {
-    return (
-      <div className="wa-msgAttachment">
-        <a href={media.url} target="_blank" rel="noreferrer">
-          <img
-            src={media.url}
-            alt="Attachment"
-            className="wa-msgAttachmentImage"
-            onError={() => setImageFailed(true)}
-          />
-        </a>
-      </div>
-    );
-  }
-
-  return (
-    <div className="wa-msgAttachment">
-      {media.type === "image" && imageFailed ? (
-        <div className="wa-msgAttachmentFallback">
-          <span>Image unavailable or expired.</span>
-          <a href={media.url} target="_blank" rel="noreferrer">
-            Open attachment
-          </a>
-        </div>
-      ) : (
-        <a href={media.url} target="_blank" rel="noreferrer" className="wa-msgAttachmentLink">
-          {media.filename || "Open attachment"}
-        </a>
-      )}
-    </div>
-  );
-}
-
 function getInboundLocationPin(msg) {
   if (!msg || msg.direction !== "inbound") return null;
   if (String(msg.message || "").trim() !== "__LOCATION_PIN__") return null;
@@ -3633,7 +3596,19 @@ export default function WhatsAppDashboard() {
                             ) : (
                               <div className="wa-msgText">{getDisplayMessageText(msgWithContext, botLabelMap)}</div>
                             )}
-                            <MessageAttachment media={media} />
+                            {media?.url && (
+                              <div className="wa-msgAttachment">
+                                {media.type === "image" ? (
+                                  <a href={media.url} target="_blank" rel="noreferrer">
+                                    <img src={media.url} alt="Attachment" className="wa-msgAttachmentImage" />
+                                  </a>
+                                ) : (
+                                  <a href={media.url} target="_blank" rel="noreferrer" className="wa-msgAttachmentLink">
+                                    {media.filename || "Open attachment"}
+                                  </a>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           {outgoing && !isStatusNote && (
@@ -5490,27 +5465,6 @@ export default function WhatsAppDashboard() {
           display: inline-block;
           font-size: 12px;
           font-weight: 700;
-          color: #0f7f85;
-          text-decoration: underline;
-          text-underline-offset: 2px;
-        }
-
-        .wa-msgAttachmentFallback {
-          display: inline-flex;
-          flex-direction: column;
-          gap: 4px;
-          max-width: 220px;
-          border: 1px solid #f0c9c9;
-          border-radius: 8px;
-          background: #fff5f5;
-          color: #9b1c1c;
-          font-size: 12px;
-          font-weight: 700;
-          line-height: 1.35;
-          padding: 8px 10px;
-        }
-
-        .wa-msgAttachmentFallback a {
           color: #0f7f85;
           text-decoration: underline;
           text-underline-offset: 2px;
