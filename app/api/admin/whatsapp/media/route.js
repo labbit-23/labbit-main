@@ -107,7 +107,15 @@ export async function GET(request) {
     .from("whatsapp_messages")
     .select("lab_id,payload")
     .or(
-        `payload->media->>id.eq.${mediaId},payload->raw_message->image->>id.eq.${mediaId},payload->raw_message->document->>id.eq.${mediaId}`
+        [
+          `payload->media->>id.eq.${mediaId}`,
+          `payload->raw_message->image->>id.eq.${mediaId}`,
+          `payload->raw_message->document->>id.eq.${mediaId}`,
+          `payload->raw_body->entry->0->changes->0->value->messages->0->image->>id.eq.${mediaId}`,
+          `payload->raw_body->entry->0->changes->0->value->messages->0->document->>id.eq.${mediaId}`,
+          `payload->raw_body->value->messages->0->image->>id.eq.${mediaId}`,
+          `payload->raw_body->value->messages->0->document->>id.eq.${mediaId}`
+        ].join(",")
     )
     .limit(1);
 
