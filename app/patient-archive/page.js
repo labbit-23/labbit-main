@@ -27,6 +27,7 @@ import ShortcutBar from '@/components/ShortcutBar';
 import ArchivePatientLookup from '@/components/archive/ArchivePatientLookup';
 import PatientHistory from '@/components/archive/PatientHistory';
 import ArchiveTrends from '@/components/archive/ArchiveTrends';
+import PatientRadiology from '@/components/archive/PatientRadiology';
 
 function PatientIdentity({ patient, mrno, loading }) {
   if (!mrno) return null;
@@ -118,6 +119,7 @@ function PatientArchiveContent() {
               <Tab>Search</Tab>
               <Tab isDisabled={!mrno}>History{mrno ? ` — ${mrno}` : ''}</Tab>
               <Tab isDisabled={!mrno}>Trends</Tab>
+              <Tab isDisabled={!mrno}>Radiology</Tab>
             </TabList>
             <TabPanels>
               <TabPanel px={0}>
@@ -137,6 +139,7 @@ function PatientArchiveContent() {
                 )}
               </TabPanel>
               <TabPanel px={0}>{mrno && <ArchiveTrends mrno={mrno} initialTableView={initialTableView} />}</TabPanel>
+              <TabPanel px={0}>{mrno && <PatientRadiology mrno={mrno} />}</TabPanel>
             </TabPanels>
           </Tabs>
         </Container>

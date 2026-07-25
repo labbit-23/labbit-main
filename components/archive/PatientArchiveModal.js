@@ -22,6 +22,7 @@ import {
 import ArchivePatientLookup from './ArchivePatientLookup';
 import PatientHistory from './PatientHistory';
 import ArchiveTrends from './ArchiveTrends';
+import PatientRadiology from './PatientRadiology';
 
 export default function PatientArchiveModal({ isOpen, onClose, mrno: initialMrno = null }) {
   const [mrno, setMrno] = useState(initialMrno);
@@ -45,6 +46,7 @@ export default function PatientArchiveModal({ isOpen, onClose, mrno: initialMrno
               <Tab>Search</Tab>
               <Tab isDisabled={!mrno}>History</Tab>
               <Tab isDisabled={!mrno}>Trends</Tab>
+              <Tab isDisabled={!mrno}>Radiology</Tab>
             </TabList>
             <TabPanels>
               <TabPanel>
@@ -52,6 +54,7 @@ export default function PatientArchiveModal({ isOpen, onClose, mrno: initialMrno
               </TabPanel>
               <TabPanel>{mrno && <PatientHistory mrno={mrno} />}</TabPanel>
               <TabPanel>{mrno && <ArchiveTrends mrno={mrno} />}</TabPanel>
+              <TabPanel>{mrno && <PatientRadiology mrno={mrno} />}</TabPanel>
             </TabPanels>
           </Tabs>
         </ModalBody>
