@@ -87,8 +87,10 @@ export default function ArchiveTrends({ mrno, initialTableView = false }) {
   }, [rows, filter]);
 
   const parameterOptions = useMemo(() => {
-    return Array.from(new Set((rows || []).map((row) => row.parameter).filter(Boolean)))
-      .sort((a, b) => String(a).localeCompare(String(b)));
+    // Preserve first-seen order from `rows`, not alphabetical -- the backend
+    // already orders psyntax='1' (priority) parameters first, and an
+    // alphabetical re-sort here would undo that.
+    return Array.from(new Set((rows || []).map((row) => row.parameter).filter(Boolean)));
   }, [rows]);
 
   if (!rows) return <Spinner size="sm" />;
