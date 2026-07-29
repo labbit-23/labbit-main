@@ -53,7 +53,20 @@ export default function PatientRadiology({ mrno }) {
             {r.requisition_number}
           </Text>
           {r.findings_text ? (
-            <Text fontSize="sm" whiteSpace="pre-wrap">{r.findings_text}</Text>
+            // findings_text is real HTML (Shivam's own WYSIWYG-authored
+            // report bodies, diagnotech.wordolerep) -- sanitized SERVER-SIDE
+            // in shivam-archive (bleach, see patient_service.sanitize_archive_html)
+            // before this proxy ever receives it, not sanitized here. This
+            // component must never render unsanitized findings_text; if the
+            // upstream contract ever changes, re-verify sanitization happens
+            // before adding it back here.
+            <Box
+              fontSize="sm"
+              maxH="240px"
+              overflowY="auto"
+              sx={{ table: { width: '100%' }, td: { verticalAlign: 'top', padding: '2px 4px' } }}
+              dangerouslySetInnerHTML={{ __html: r.findings_text }}
+            />
           ) : (
             <Text fontSize="sm" color="gray.400">No findings text available for this report.</Text>
           )}
