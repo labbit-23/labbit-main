@@ -1,12 +1,7 @@
 // File: /app/api/generate-visit-code/route.js
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // ← Only safe (server-side)
-);
+import { supabase } from '@/lib/supabaseServer';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);

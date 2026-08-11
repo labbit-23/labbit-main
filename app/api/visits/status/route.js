@@ -1,13 +1,6 @@
 //app/api/visits/status.js
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-// Service key auth so we can bypass RLS if it's enabled
-// and read from reference table safely
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from "@/lib/supabaseServer";
 
 export async function GET() {
   try {

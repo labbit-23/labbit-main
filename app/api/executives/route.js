@@ -1,11 +1,6 @@
 //app/api/executives/route.js
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from "@/lib/supabaseServer";
 
 const COLLECTION_ROLES = new Set(["logistics", "b2b"]);
 const UUID_REGEX =

@@ -1,11 +1,6 @@
 // app/api/save-external-key/route.js
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from '@/lib/supabaseServer';
 
 const DEFAULT_LAB_ID = "b539c161-1e2b-480b-9526-d4b37bd37b1e";
 

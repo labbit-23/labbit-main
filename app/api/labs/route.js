@@ -1,13 +1,8 @@
 //api/labs/route.js
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getIronSession } from "iron-session";
 import { ironOptions as sessionOptions } from "@/lib/session"; // your existing session config
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from "@/lib/supabaseServer";
 
 function canAccessCto(user) {
   const role = String(user?.roleKey || user?.executiveType || "").toLowerCase();
