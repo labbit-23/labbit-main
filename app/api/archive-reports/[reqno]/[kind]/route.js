@@ -40,6 +40,13 @@ export async function GET(request, { params }) {
         'Content-Disposition':
           upstream.headers.get('Content-Disposition') ||
           `inline; filename="archive-${kind}-${reqno}.pdf"`,
+        // The upstream fetch above already used cache: 'no-store', but that
+        // only controls Next.js's own fetch cache -- it says nothing about
+        // whether the BROWSER caches this response. Without this, a tab
+        // that previously got a 404/502 (e.g. a template that was missing
+        // and has since been fixed) could keep serving that cached failure
+        // on repeat clicks to the identical URL instead of re-fetching.
+        'Cache-Control': 'no-store',
       },
     });
   } catch (err) {

@@ -43,7 +43,12 @@ async function forward(request, { params }, method) {
     const body = await upstream.text();
     return new NextResponse(body, {
       status: upstream.status,
-      headers: { 'Content-Type': 'application/json' },
+      // Same fix as the archive-reports PDF proxy: no explicit
+      // Cache-Control here means the BROWSER decides whether to cache a
+      // GET response, not Next.js -- a request made while a downstream
+      // service was briefly failing could otherwise keep being served
+      // from cache after the underlying issue is fixed.
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
   } catch (err) {
     console.error('Archive proxy error:', err);
