@@ -898,6 +898,13 @@ export default function ReportDispatchWorkspace({
     return String(status?.reqno || reqnoInput || selectedReportMeta?.reqno || "").trim();
   }
 
+  function openArchivePdf(kind) {
+    const reqno = currentReqno();
+    if (!reqno) return;
+    const suffix = kind === "radiology" ? "radiology-pdf" : "pdf";
+    window.open(`/api/archive-reports/${encodeURIComponent(reqno)}/${suffix}`, "_blank", "noopener,noreferrer");
+  }
+
   function currentMrno() {
     return String(status?.live_status?.mrno || selectedReportMeta?.mrno || "").trim();
   }
@@ -1766,6 +1773,14 @@ export default function ReportDispatchWorkspace({
                     <Input size="sm" value={reqnoInput} onChange={(e) => setReqnoInput(e.target.value)} placeholder="REQNO" flex="1" minW={0} />
                     <Button size="sm" w="110px" leftIcon={<Search size={14} />} variant="outline" onClick={handleReqnoQuickLookup} isLoading={loadingStatus} flexShrink={0}>
                       Check Status
+                    </Button>
+                  </Flex>
+                  <Flex gap={2} align="center" mb={2}>
+                    <Button size="sm" leftIcon={<Files size={14} />} variant="outline" onClick={() => openArchivePdf("lab")} isDisabled={!currentReqno()}>
+                      Archive Lab PDF
+                    </Button>
+                    <Button size="sm" leftIcon={<Scan size={14} />} variant="outline" onClick={() => openArchivePdf("radiology")} isDisabled={!currentReqno()}>
+                      Archive Radiology PDF
                     </Button>
                   </Flex>
                   <Text fontSize="11px" fontWeight="600" color="var(--text-4)">

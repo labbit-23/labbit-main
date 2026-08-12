@@ -8,6 +8,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box,
+  Button,
+  HStack,
   Spinner,
   Stack,
   Text,
@@ -46,12 +48,29 @@ export default function PatientRadiology({ mrno }) {
     <Stack spacing={3}>
       {reports.map((r, i) => (
         <Box key={`${r.requisition_number}-${i}`} borderWidth="1px" borderColor="gray.200" borderRadius="md" p={3}>
-          <Text fontWeight="semibold" fontSize="sm">
-            {String(r.requested_at || '').slice(0, 10)} · {r.test_name || 'Report'}
-          </Text>
-          <Text fontSize="xs" color="gray.500" mb={2}>
-            {r.requisition_number}
-          </Text>
+          <HStack justify="space-between" align="start" gap={2} mb={2}>
+            <Box>
+              <Text fontWeight="semibold" fontSize="sm">
+                {String(r.requested_at || '').slice(0, 10)} · {r.test_name || 'Report'}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                {r.requisition_number}
+              </Text>
+            </Box>
+            {r.requisition_number ? (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  const reqno = encodeURIComponent(r.requisition_number);
+                  const testName = r.test_name ? `?test_name=${encodeURIComponent(r.test_name)}` : '';
+                  window.open(`/api/archive-reports/${reqno}/radiology-pdf${testName}`, '_blank');
+                }}
+              >
+                PDF
+              </Button>
+            ) : null}
+          </HStack>
           {r.findings_text ? (
             // findings_text is real HTML (Shivam's own WYSIWYG-authored
             // report bodies, diagnotech.wordolerep) -- sanitized SERVER-SIDE

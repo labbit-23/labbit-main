@@ -206,6 +206,13 @@ export default function PatientHistory({ mrno }) {
               <Text fontSize="xs" color="gray.400">{g.tests.length} tests</Text>
               <Button
                 size="xs"
+                variant="outline"
+                onClick={() => window.open(`/api/archive-reports/${encodeURIComponent(g.reqno)}/pdf`, '_blank')}
+              >
+                PDF
+              </Button>
+              <Button
+                size="xs"
                 variant="ghost"
                 onClick={() => setCollapsedReqnos((prev) => ({ ...prev, [g.reqno]: !prev[g.reqno] }))}
               >
