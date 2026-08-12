@@ -700,6 +700,8 @@ export default function CtoDashboardPage({
   const [pm2ActionMessage, setPm2ActionMessage] = useState("");
   const [pm2Error, setPm2Error] = useState("");
   const [pm2ReloadTick, setPm2ReloadTick] = useState(0);
+  const [pm2CopyMessage, setPm2CopyMessage] = useState("");
+  const pm2LogBoxRef = useRef(null);
   const [smartMrnoInput, setSmartMrnoInput] = useState("");
   const [showVpsRunbook, setShowVpsRunbook] = useState(false);
   const [themeMode, setThemeMode] = useState("dark");
@@ -959,6 +961,39 @@ export default function CtoDashboardPage({
     }
   }
 
+  function getPm2LogPlainText() {
+    if (pm2LogEntries.length > 0) {
+      return pm2LogEntries
+        .map((entry) => `${entry?.timestamp || "no-ts"} ${entry?.level || "INFO"} ${entry?.message || ""}`)
+        .join("\n");
+    }
+    return pm2LogText || "";
+  }
+
+  function selectAllPm2Logs() {
+    const node = pm2LogBoxRef.current;
+    if (!node || typeof window === "undefined") return;
+    const selection = window.getSelection?.();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  async function copyPm2Logs() {
+    const text = getPm2LogPlainText();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setPm2CopyMessage("Copied to clipboard");
+    } catch {
+      selectAllPm2Logs();
+      setPm2CopyMessage("Clipboard blocked — logs selected, press Cmd/Ctrl+C to copy");
+    }
+    setTimeout(() => setPm2CopyMessage(""), 3000);
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1216,11 +1251,18 @@ export default function CtoDashboardPage({
   }, []);
 
   const realServices = useMemo(() => {
-    return (latest.services || []).filter(
-      (service) =>
-        !String(service.service_key || "").startsWith("__") &&
-        isFreshService(service)
-    );
+    return (latest.services || [])
+      .filter((service) => !String(service.service_key || "").startsWith("__"))
+      .map((service) => {
+        if (isFreshService(service)) return service;
+        const lastSeen = service?.checked_at ? new Date(service.checked_at).toLocaleString() : "unknown";
+        return {
+          ...service,
+          status: "down",
+          message: `No update since ${lastSeen} — collector/host may be offline (was: ${service?.message || service?.status || "n/a"})`,
+          _stale: true
+        };
+      });
   }, [latest.services]);
 
   const vpsNodeOptions = useMemo(() => {
@@ -1376,7 +1418,7 @@ export default function CtoDashboardPage({
     );
 
     return [
-      { label: "Services", value: String(summary.total || 0), tone: "cyan.300", note: "Fresh services (last 10 min, excluding diagnostics)", filter: "" },
+      { label: "Services", value: String(summary.total || 0), tone: "cyan.300", note: "All monitored services (excluding diagnostics); stale ones count as down", filter: "" },
       { label: "Healthy", value: String(summary.healthy || 0), tone: "green.400", note: "Operating normally", filter: "healthy" },
       { label: "Degraded", value: String(summary.degraded || 0), tone: "yellow.300", note: "Slow or partially impaired", filter: "degraded" },
       { label: "Down", value: String(summary.down || 0), tone: "red.400", note: "Immediate attention required", filter: "down" },
@@ -1907,6 +1949,7 @@ export default function CtoDashboardPage({
     let hostLoadPerCorePct = null;
 
     for (const service of vpsServices) {
+      if (service._stale) continue;
       const payload = service?.payload || {};
       const cpu = extractPayloadMetric(payload, ["cpu", "cpu_pct", "cpu_percent", "cpu_usage_percent"]);
       if (Number.isFinite(cpu) && (maxCpu == null || cpu > maxCpu)) {
@@ -2130,8 +2173,8 @@ export default function CtoDashboardPage({
             </HStack>
               <HStack spacing={4} color={softText} fontSize="sm" flexWrap="wrap">
                 <HStack spacing={2}>
-                  <Box w={2.5} h={2.5} borderRadius="full" bg={heroStats[3].value !== "0" ? "red.400" : heroStats[2].value !== "0" ? "yellow.300" : "green.400"} />
-                  <Text>{heroStats[3].value !== "0" ? "Attention needed" : heroStats[2].value !== "0" ? "Degraded services present" : "All critical services healthy"}</Text>
+                  <Box w={2.5} h={2.5} borderRadius="full" bg={loading ? "gray.400" : heroStats[3].value !== "0" ? "red.400" : heroStats[2].value !== "0" ? "yellow.300" : "green.400"} />
+                  <Text>{loading ? "Loading status…" : heroStats[3].value !== "0" ? "Attention needed" : heroStats[2].value !== "0" ? "Degraded services present" : "All critical services healthy"}</Text>
                 </HStack>
               <Text color={faintText}>•</Text>
               <Text>{lastLoadedAt ? `Last updated ${lastLoadedAt}` : "Waiting for first sync"}</Text>
@@ -2144,7 +2187,7 @@ export default function CtoDashboardPage({
               {staleServices.length > 0 && (
                 <>
                   <Text color={faintText}>•</Text>
-                  <Text>{staleServices.length} stale service{staleServices.length > 1 ? "s" : ""} hidden</Text>
+                  <Text>{staleServices.length} stale service{staleServices.length > 1 ? "s" : ""} marked down</Text>
                 </>
               )}
             </HStack>
@@ -2746,10 +2789,10 @@ export default function CtoDashboardPage({
             border="1px solid rgba(251, 191, 36, 0.45)"
           >
             <Text fontSize="sm" color="yellow.200" fontWeight="700">
-              {staleServiceCount} stale service{staleServiceCount > 1 ? "s are" : " is"} excluded from the tiles (older than 10 minutes).
+              {staleServiceCount} stale service{staleServiceCount > 1 ? "s haven't" : " hasn't"} reported in over 10 minutes — counted as down until they check in again.
             </Text>
             <Text fontSize="xs" color={softText} mt={1}>
-              If this spikes, check collector ingest/network path. Fresh tiles can look healthy while stale services are hidden.
+              If this spikes, check the collector ingest/network path on the affected host.
             </Text>
           </Box>
         )}
@@ -3482,6 +3525,28 @@ export default function CtoDashboardPage({
                   </Button>
                   <Button
                     size="sm"
+                    variant="outline"
+                    borderColor={isDarkTheme ? "whiteAlpha.300" : "gray.400"}
+                    color={strongText}
+                    _hover={{ bg: isDarkTheme ? "whiteAlpha.100" : "gray.100" }}
+                    onClick={selectAllPm2Logs}
+                    isDisabled={pm2Loading || (!pm2LogText && pm2LogEntries.length === 0)}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    borderColor={isDarkTheme ? "whiteAlpha.300" : "gray.400"}
+                    color={strongText}
+                    _hover={{ bg: isDarkTheme ? "whiteAlpha.100" : "gray.100" }}
+                    onClick={copyPm2Logs}
+                    isDisabled={pm2Loading || (!pm2LogText && pm2LogEntries.length === 0)}
+                  >
+                    Copy
+                  </Button>
+                  <Button
+                    size="sm"
                     colorScheme="red"
                     variant="outline"
                     onClick={() => restartPm2App(pm2SelectedApp)}
@@ -3494,13 +3559,16 @@ export default function CtoDashboardPage({
               </HStack>
               {pm2Error && <Text fontSize="sm" color={isDarkTheme ? "red.200" : "red.600"} mb={2}>{pm2Error}</Text>}
               {pm2ActionMessage && <Text fontSize="sm" color={isDarkTheme ? "green.200" : "green.700"} mb={2}>{pm2ActionMessage}</Text>}
+              {pm2CopyMessage && <Text fontSize="sm" color={isDarkTheme ? "cyan.200" : "blue.600"} mb={2}>{pm2CopyMessage}</Text>}
               <Box
+                ref={pm2LogBoxRef}
                 p={3}
                 borderRadius="12px"
                 bg={isDarkTheme ? "rgba(5,10,20,0.9)" : "rgba(248,250,252,0.98)"}
                 border={panelBorder}
                 maxH="280px"
                 overflowY="auto"
+                userSelect="text"
               >
                 {pm2Loading && (
                   <Text fontSize="11px" color={softText}>Loading logs...</Text>
