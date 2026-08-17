@@ -2671,25 +2671,25 @@ export default function CtoDashboardPage({
             <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3} mb={3}>
               <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>
                 <Text fontSize="xs" color={mutedText} mb={1}>Overall Health</Text>
-                <Text fontSize="2xl" fontWeight="800" color={heroStats[3].value !== "0" ? "red.300" : heroStats[2].value !== "0" ? "yellow.300" : "green.300"}>
-                  {heroStats[3].value !== "0" ? "Action Needed" : heroStats[2].value !== "0" ? "Watch Closely" : "Healthy"}
+                <Text fontSize="2xl" fontWeight="800" color={loading ? "gray.400" : heroStats[3].value !== "0" ? "red.300" : heroStats[2].value !== "0" ? "yellow.300" : "green.300"}>
+                  {loading ? "Loading…" : heroStats[3].value !== "0" ? "Action Needed" : heroStats[2].value !== "0" ? "Watch Closely" : "Healthy"}
                 </Text>
                 <Text fontSize="xs" color={mutedText} mt={1}>
-                  {heroStats[3].value} down • {heroStats[2].value} degraded
+                  {loading ? "—" : `${heroStats[3].value} down • ${heroStats[2].value} degraded`}
                 </Text>
                 <Text fontSize="xs" color={mutedText} mt={1} noOfLines={1}>
-                  Down: {topDownServices.length ? topDownServices.join(", ") : "none"}
+                  Down: {loading ? "—" : topDownServices.length ? topDownServices.join(", ") : "none"}
                 </Text>
                 <Text fontSize="xs" color={mutedText} mt={1} noOfLines={1}>
-                  Degraded: {topDegradedServices.length ? topDegradedServices.join(", ") : "none"}
+                  Degraded: {loading ? "—" : topDegradedServices.length ? topDegradedServices.join(", ") : "none"}
                 </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(operationalSectionRef)}>
                 <Text fontSize="xs" color={mutedText} mb={1}>Healthy Services</Text>
-                <Text fontSize="2xl" fontWeight="800" color="green.300">{heroStats[1].value}/{heroStats[0].value}</Text>
+                <Text fontSize="2xl" fontWeight="800" color={loading ? "gray.400" : "green.300"}>{loading ? "…" : `${heroStats[1].value}/${heroStats[0].value}`}</Text>
                 <Text fontSize="xs" color={mutedText} mt={1}>Open service domains</Text>
                 <Text fontSize="xs" color={mutedText} mt={1} noOfLines={1}>
-                  Down: {topDownServices.length ? topDownServices.join(", ") : "none"}
+                  Down: {loading ? "—" : topDownServices.length ? topDownServices.join(", ") : "none"}
                 </Text>
               </Box>
               <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(vpsSectionRef)}>
@@ -2701,7 +2701,7 @@ export default function CtoDashboardPage({
               </Box>
               <Box p={4} borderRadius="16px" bg={cardBg} border={panelBorder} cursor="pointer" onClick={() => drillToSection(eventsSectionRef)}>
                 <Text fontSize="xs" color={mutedText} mb={1}>Open Events</Text>
-                <Text fontSize="2xl" fontWeight="800" color={managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>{managementMetrics.openEvents}</Text>
+                <Text fontSize="2xl" fontWeight="800" color={loading ? "gray.400" : managementMetrics.openEvents > 0 ? "orange.300" : "green.300"}>{loading ? "…" : managementMetrics.openEvents}</Text>
                 <Text fontSize="xs" color={mutedText} mt={1}>Incident queue</Text>
               </Box>
             </SimpleGrid>
