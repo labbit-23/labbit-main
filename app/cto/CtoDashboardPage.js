@@ -2264,7 +2264,7 @@ export default function CtoDashboardPage({
                   placement="top"
                   bg="gray.900"
                   color="white"
-                  label={`VPS Fleet: ${(vpsHealthAll.down || 0) > 0 ? `${vpsHealthAll.down} down` : (vpsHealthAll.degraded || 0) > 0 ? `${vpsHealthAll.degraded} degraded` : "healthy"} • ${vpsHealthAll.total || 0} services monitored`}
+                  label={`VPS Fleet: ${loading ? "loading" : (vpsHealthAll.down || 0) > 0 ? `${vpsHealthAll.down} down` : (vpsHealthAll.degraded || 0) > 0 ? `${vpsHealthAll.degraded} degraded` : "healthy"} • ${vpsHealthAll.total || 0} services monitored`}
                 >
                   <Flex
                     align="center"
@@ -3099,11 +3099,11 @@ export default function CtoDashboardPage({
                   </Button>
                 ))}
               </HStack>
-              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : vpsHealth.byStatus.degraded > 0 ? "degraded" : "healthy")} borderRadius="full" px={3} py={1} whiteSpace="nowrap">
-                {vpsHealth.byStatus.total} services
+              <Badge colorScheme={loading ? "gray" : statusColor(vpsHealth.byStatus.down > 0 ? "down" : vpsHealth.byStatus.degraded > 0 ? "degraded" : "healthy")} borderRadius="full" px={3} py={1} whiteSpace="nowrap">
+                {loading ? "Loading…" : `${vpsHealth.byStatus.total} services`}
               </Badge>
-              <Badge colorScheme={statusColor(vpsHealth.byStatus.down > 0 ? "down" : "healthy")} borderRadius="full" px={3} py={1} whiteSpace="nowrap">
-                {vpsHealth.byStatus.down > 0 ? `${vpsHealth.byStatus.down} down` : "No down service"}
+              <Badge colorScheme={loading ? "gray" : statusColor(vpsHealth.byStatus.down > 0 ? "down" : "healthy")} borderRadius="full" px={3} py={1} whiteSpace="nowrap">
+                {loading ? "…" : vpsHealth.byStatus.down > 0 ? `${vpsHealth.byStatus.down} down` : "No down service"}
               </Badge>
               {hasVpsIncident && (
                 <Badge colorScheme="red" borderRadius="full" px={3} py={1} whiteSpace="nowrap">

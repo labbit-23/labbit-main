@@ -283,6 +283,22 @@ function formatWhatsappNumberDisplay(value) {
   return raw.startsWith("+") ? `+${digits}` : `+${digits}`;
 }
 
+function safeShowNotification(title, options, onClick) {
+  if (typeof window === "undefined" || typeof Notification === "undefined") return;
+  try {
+    const note = new Notification(title, options);
+    if (onClick) note.onclick = onClick;
+  } catch {
+    // Mobile browsers (e.g. Chrome on Android) throw IllegalConstructor from `new Notification()`
+    // and require showNotification() via a ServiceWorkerRegistration instead.
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.showNotification(title, options))
+        .catch(() => {});
+    }
+  }
+}
+
 function decodeMessageEntities(value) {
   return String(value || "")
     .replace(/&nbsp;/gi, " ")
@@ -1217,11 +1233,10 @@ export default function WhatsAppDashboard() {
             const bodyText = delta > 1
               ? `${delta} new messages`
               : "New message received";
-            const note = new Notification(title, { body: bodyText, tag: `wa-${row.id}` });
-            note.onclick = () => {
+            safeShowNotification(title, { body: bodyText, tag: `wa-${row.id}` }, () => {
               window.focus();
               handleSelect(row);
-            };
+            });
           }
         });
       }
@@ -1437,10 +1452,9 @@ export default function WhatsAppDashboard() {
                   inboundNew.length > 1
                     ? `${inboundNew.length} new messages`
                     : String(inboundNew[0]?.message || "New message received").slice(0, 120);
-                const note = new Notification(title, { body: bodyText, tag: `wa-live-${phone}` });
-                note.onclick = () => {
+                safeShowNotification(title, { body: bodyText, tag: `wa-live-${phone}` }, () => {
                   window.focus();
-                };
+                });
               }
             }
             return dedupedNew.length > 0 ? [...prev, ...dedupedNew] : prev;
