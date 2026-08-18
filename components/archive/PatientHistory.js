@@ -117,29 +117,41 @@ export default function PatientHistory({ mrno }) {
   useEffect(() => {
     if (!mrno) return;
     let cancelled = false;
+    setRequisitions(null);
+    setResults(null);
+    setSelectedByReqno({});
+    setCollapsedReqnos({});
+    setExpandedParameters({});
+
     (async () => {
       try {
-        const [reqRes, allResults] = await Promise.all([
-          fetch(`/api/archive/patient/${encodeURIComponent(mrno)}/requisitions`),
-          fetchAllResults(mrno),
-        ]);
+        const reqRes = await fetch(`/api/archive/patient/${encodeURIComponent(mrno)}/requisitions`);
         if (!reqRes.ok) throw new Error('requisitions fetch failed');
         const reqData = await reqRes.json();
-        if (!cancelled) {
-          setRequisitions(reqData.requisitions || []);
-          setResults(allResults);
-          setSelectedByReqno({});
-          setCollapsedReqnos({});
-          setExpandedParameters({});
-        }
+        if (!cancelled) setRequisitions(reqData.requisitions || []);
       } catch (err) {
         if (!cancelled) {
           toast({ title: 'Archive history failed', description: err.message, status: 'error' });
           setRequisitions([]);
+        }
+      }
+    })();
+
+    // Results page through up to 50 requests and can take much longer than
+    // the requisitions fetch — run it independently so the tab (gated on
+    // `requisitions`) doesn't sit on the spinner waiting for it.
+    (async () => {
+      try {
+        const allResults = await fetchAllResults(mrno);
+        if (!cancelled) setResults(allResults);
+      } catch (err) {
+        if (!cancelled) {
+          toast({ title: 'Archive results failed', description: err.message, status: 'error' });
           setResults([]);
         }
       }
     })();
+
     return () => { cancelled = true; };
   }, [mrno, toast]);
 
@@ -314,7 +326,12 @@ export default function PatientHistory({ mrno }) {
                   </Button>
                 </HStack>
               </HStack>
-              {rowsForTest(g.reqno, selectedByReqno[g.reqno]).length > 0 ? (
+              {results === null ? (
+                <HStack spacing={2}>
+                  <Spinner size="xs" />
+                  <Text fontSize="sm" color="gray.500">Loading component results…</Text>
+                </HStack>
+              ) : rowsForTest(g.reqno, selectedByReqno[g.reqno]).length > 0 ? (
                 <Table size="sm">
                   <Thead>
                     <Tr><Th>Parameter</Th><Th>Value</Th><Th>Unit</Th><Th>Reference</Th></Tr>
