@@ -106,7 +106,7 @@ function PatientArchiveContent() {
     <RequireAuth roles={['admin', 'manager', 'director', 'director_ceo', 'consultant']}>
       <>
         <ShortcutBar />
-        <Container maxW="6xl" py={6}>
+        <Container maxW="6xl" pt="64px" pb={6}>
           <Heading size="md" mb={1}>Patient Archive</Heading>
           <Text fontSize="sm" color="gray.500" mb={5}>
             Historical Shivam data (read-only, pre-cutover). Not live NeoSoft data.
