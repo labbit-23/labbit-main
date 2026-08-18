@@ -30,11 +30,28 @@ function normalizedValue(value) {
   return String(value ?? '').trim().toUpperCase();
 }
 
+function decodeEntities(value) {
+  const el = document.createElement('textarea');
+  el.innerHTML = value;
+  return el.value;
+}
+
 function safeReferenceHtml(value) {
-  const raw = String(value || '').trim();
+  let raw = String(value || '').trim();
   if (!raw) return '';
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
     return stripTags(raw);
+  }
+
+  // Legacy Shivam data sometimes stores markup double-encoded, e.g. the
+  // literal text "&lt;br&gt;" instead of an actual <br> tag. Parsed as-is,
+  // that decodes to the visible characters "<br>" on screen instead of a
+  // line break. Unwrap one extra layer of entity-encoding when the decoded
+  // text still looks like escaped markup, so it renders as real HTML.
+  for (let i = 0; i < 3 && /&lt;\/?[a-z][^&]*?&gt;/i.test(raw); i += 1) {
+    const decoded = decodeEntities(raw);
+    if (decoded === raw) break;
+    raw = decoded;
   }
 
   const doc = new DOMParser().parseFromString(raw, 'text/html');
@@ -65,6 +82,30 @@ function ReferenceText({ row }) {
   );
 }
 
+async function fetchAllResults(mrno) {
+  // The archive API caps each page at 100 rows across the patient's whole
+  // history (newest-first), not per test/visit. A patient with several
+  // visits can exhaust that cap within the latest 1-2 requisitions, leaving
+  // older visits with zero result rows even though data exists — page
+  // through until the API reports no more rows.
+  const PAGE_SIZE = 100;
+  const MAX_PAGES = 50; // safety cap: 5,000 rows is far beyond any real patient history
+  const all = [];
+  let offset = 0;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const res = await fetch(
+      `/api/archive/patient/${encodeURIComponent(mrno)}/results?limit=${PAGE_SIZE}&offset=${offset}`
+    );
+    if (!res.ok) throw new Error('results fetch failed');
+    const data = await res.json();
+    const rows = data.results || [];
+    all.push(...rows);
+    if (!data?.pagination?.has_more || rows.length === 0) break;
+    offset += PAGE_SIZE;
+  }
+  return all;
+}
+
 export default function PatientHistory({ mrno }) {
   const [requisitions, setRequisitions] = useState(null);
   const [results, setResults] = useState(null);
@@ -78,17 +119,15 @@ export default function PatientHistory({ mrno }) {
     let cancelled = false;
     (async () => {
       try {
-        const [reqRes, resRes] = await Promise.all([
+        const [reqRes, allResults] = await Promise.all([
           fetch(`/api/archive/patient/${encodeURIComponent(mrno)}/requisitions`),
-          fetch(`/api/archive/patient/${encodeURIComponent(mrno)}/results`),
+          fetchAllResults(mrno),
         ]);
         if (!reqRes.ok) throw new Error('requisitions fetch failed');
-        if (!resRes.ok) throw new Error('results fetch failed');
         const reqData = await reqRes.json();
-        const resData = await resRes.json();
         if (!cancelled) {
           setRequisitions(reqData.requisitions || []);
-          setResults(resData.results || []);
+          setResults(allResults);
           setSelectedByReqno({});
           setCollapsedReqnos({});
           setExpandedParameters({});
