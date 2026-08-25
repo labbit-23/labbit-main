@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { getIronSession } from 'iron-session';
-import { ironOptions } from '@/lib/session'; // Adjust path if needed
+import { sessionOptionsForRemember, stampSessionLogin } from '@/lib/session'; // Adjust path if needed
 import crypto from 'crypto';
 import { supabase } from '@/lib/supabaseServer'; // Adjust path if needed
 
@@ -115,13 +115,7 @@ export async function POST(request) {
     const response = NextResponse.json(payload, { status: 200 });
 
     // Save full user data in session (including patients and executive)
-    const session = await getIronSession(request, response, {
-      ...ironOptions,
-      cookieOptions: {
-        ...ironOptions.cookieOptions,
-        maxAge: rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 6,
-      },
-    });
+    const session = await getIronSession(request, response, sessionOptionsForRemember(rememberMe));
 
     if (canUseExecutiveSession && !shouldPreferPatient) {
       const execType = (executive.type || '').trim().toLowerCase();
@@ -145,6 +139,7 @@ export async function POST(request) {
         patients: patients || [],
       };
     }
+    stampSessionLogin(session, rememberMe);
 
 
     await session.save();

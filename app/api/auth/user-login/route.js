@@ -3,7 +3,7 @@
 import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import bcrypt from "bcryptjs";
-import { ironOptions } from "@/lib/session";
+import { sessionOptionsForRemember, stampSessionLogin } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 
 export async function POST(req) {
@@ -149,13 +149,7 @@ export async function POST(req) {
     });
 
     // Create and save session with iron-session
-    const session = await getIronSession(req, res, {
-      ...ironOptions,
-      cookieOptions: {
-        ...ironOptions.cookieOptions,
-        maxAge: rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 6, // 30 days or 6 hours
-      },
-    });
+    const session = await getIronSession(req, res, sessionOptionsForRemember(rememberMe));
 
     session.user = {
       id: executive.id,
@@ -167,6 +161,7 @@ export async function POST(req) {
       roleKey: execType,          // <- actual role from DB (lowercased) <- for RequireAuth
       executiveType: execType,    // <- actual role from DB (lowercased) <- optional for legacy code
     };
+    stampSessionLogin(session, rememberMe);
 
 
     await session.save();

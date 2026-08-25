@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { ironOptions } from "@/lib/session";
+import { ironOptions, prepareSessionForSave } from "@/lib/session";
 
 export async function POST(request) {
   const authResponse = NextResponse.next();
@@ -22,6 +22,7 @@ export async function POST(request) {
   const session = await getIronSession(request, response, ironOptions);
   delete session.support_actor;
   delete session.support_patient_phone;
+  prepareSessionForSave(session);
   await session.save();
   return response;
 }

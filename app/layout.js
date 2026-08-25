@@ -3,6 +3,7 @@
 import './globals.css';
 import ChakraProviderClient from './ChakraProviderClient';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import SessionLifecycle from './components/SessionLifecycle';
 import { UserProvider } from './context/UserContext'; // Adjust the import path as necessary
 
 export const metadata = {
@@ -39,6 +40,7 @@ export default function RootLayout({ children }) {
       <body>
         <UserProvider>
           <ChakraProviderClient>
+            <SessionLifecycle />
             {children}
             <PwaInstallPrompt />
           </ChakraProviderClient>

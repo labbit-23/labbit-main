@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { ironOptions } from "@/lib/session";
+import { ironOptions, prepareSessionForSave } from "@/lib/session";
 
 function normalizePhone10(value) {
   const digits = String(value || "").replace(/\D/g, "");
@@ -53,6 +53,7 @@ export async function POST(request) {
   const session = await getIronSession(request, response, ironOptions);
   session.support_actor = supportActor;
   session.support_patient_phone = phone;
+  prepareSessionForSave(session);
   await session.save();
   return response;
 }
