@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import RequireAuth from "../../../components/RequireAuth";
 import ShortcutBar from "../../../components/ShortcutBar";
 
-const DEFAULT_PHONE = "919999000001";
+const DEFAULT_PHONE = "919949099249";
 const DEFAULT_NAME = "CTO Test";
 const STORAGE_PHONE_KEY = "cto_whatsapp_sim_phone";
 const STORAGE_NAME_KEY = "cto_whatsapp_sim_name";
@@ -216,6 +216,37 @@ function SimulatorPage() {
     }
   };
 
+  const handleLabitDeliverTest = async () => {
+    setError("");
+    setHint("");
+    setIsLoading(true);
+
+    try {
+      const response = await fetch("/api/cto/whatsapp-sim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          phone,
+          name,
+          action: "labit_deliver_test_dispatch"
+        })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.error || "Labit Core dispatch test failed");
+      }
+      setMessages(Array.isArray(body?.messages) ? body.messages : []);
+      setSessions(Array.isArray(body?.sessions) ? body.sessions : []);
+      const reqno = body?.labit_deliver?.job?.reqno || body?.labit_deliver?.result?.job_id || "queued";
+      setHint(`Labit Core dispatch ${reqno}`);
+    } catch (sendError) {
+      setError(sendError?.message || "Failed to run Labit Core dispatch test");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleReset = async () => {
     setError("");
     setHint("");
@@ -299,6 +330,9 @@ function SimulatorPage() {
             </div>
 
             <div className="wsim-actions">
+              <button type="button" className="is-primary" onClick={handleLabitDeliverTest} disabled={isLoading}>
+                Labit Core Dispatch Test
+              </button>
               <button type="button" className="is-secondary" onClick={() => loadTranscript()} disabled={isLoading}>
                 Refresh Transcript
               </button>
@@ -512,6 +546,11 @@ function SimulatorPage() {
           cursor: pointer;
           font: inherit;
           font-weight: 700;
+        }
+
+        .wsim-actions button.is-primary {
+          background: rgba(45, 212, 191, 0.24);
+          border: 1px solid rgba(45, 212, 191, 0.36);
         }
 
         .wsim-actions {

@@ -101,6 +101,11 @@ const AUTO_DISPATCH_METRIC_KEYS = [
   ...CRITICAL_DISPATCH_METRICS,
   ...DIAGNOSTIC_DISPATCH_METRICS,
 ];
+const LABIT_DELIVER_METRIC_KEYS = [
+  "labit_deliver_pipeline_summary",
+  "labit_deliver_queue_stall",
+  "labit_deliver_invalid_phone_jobs",
+];
 
 function worstStatus(statuses) {
   if (statuses.includes("down")) return "down";
@@ -1801,6 +1806,8 @@ export default function CtoDashboardPage({
     const botReportWaits = serviceByBaseKey.get("whatsapp_bot_report_waits_24h");
     const autoPipeline = serviceByBaseKey.get("auto_dispatch_pipeline_summary");
     const pipelinePayload = autoPipeline?.payload || {};
+    const coreDeliveryPipeline = serviceByBaseKey.get("labit_deliver_pipeline_summary");
+    const coreDeliveryPayload = coreDeliveryPipeline?.payload || {};
     const website = latest?.website_analytics || {};
     const openEvents = (eventsRows || []).filter((row) => String(row?.status || "open") !== "resolved").length;
     const positiveRate = typeof feedbackData?.summary?.positive_rate === "number"
@@ -1849,6 +1856,34 @@ export default function CtoDashboardPage({
         };
       });
     const autoDispatchByKey = Object.fromEntries(autoDispatchRows.map((row) => [row.key, row]));
+    const labitDeliverRows = LABIT_DELIVER_METRIC_KEYS
+      .map((key) => {
+        const service = serviceByBaseKey.get(key);
+        const payload = service?.payload || {};
+        const valueByKey = {
+          labit_deliver_pipeline_summary:
+            toFiniteInt(payload?.queued_jobs, 0) +
+            toFiniteInt(payload?.cooling_off_jobs, 0) +
+            toFiniteInt(payload?.retrying_jobs, 0) +
+            toFiniteInt(payload?.sending_jobs, 0),
+          labit_deliver_queue_stall: toFiniteInt(payload?.overdue_count, 0),
+          labit_deliver_invalid_phone_jobs: toFiniteInt(payload?.invalid_phone_failed_count, 0),
+        };
+        const labelByKey = {
+          labit_deliver_pipeline_summary: "Core Active Jobs",
+          labit_deliver_queue_stall: "Core Queue Stalls",
+          labit_deliver_invalid_phone_jobs: "Core Invalid Phone",
+        };
+        return {
+          key,
+          label: labelByKey[key] || service?.label || key,
+          value: service ? valueByKey[key] : null,
+          status: service?.status || "unknown",
+          message: service?.message || "No Core delivery monitor sample",
+          checkedAt: service?.checked_at || null,
+          serviceKey: service?.service_key || key,
+        };
+      });
     const autoDispatchSummary = {
       attentionSignals: autoDispatchRows.filter((row) => row.status === "down" || row.status === "degraded").length,
       queueDelays:
@@ -1895,6 +1930,22 @@ export default function CtoDashboardPage({
         scanApprovalPending: toFiniteInt(pipelinePayload?.radiology_pending_approval_tests, 0),
         labWaiting: toFiniteInt(pipelinePayload?.lab_waiting_tests, 0),
         scanWaiting: toFiniteInt(pipelinePayload?.radiology_waiting_tests, 0),
+      },
+      labitDeliverRows,
+      labitDeliverPipeline: {
+        sentToday: toFiniteInt(coreDeliveryPayload?.sent_today, 0),
+        sent24h: toFiniteInt(coreDeliveryPayload?.sent_24h, 0),
+        active:
+          toFiniteInt(coreDeliveryPayload?.queued_jobs, 0) +
+          toFiniteInt(coreDeliveryPayload?.cooling_off_jobs, 0) +
+          toFiniteInt(coreDeliveryPayload?.retrying_jobs, 0) +
+          toFiniteInt(coreDeliveryPayload?.sending_jobs, 0),
+        coolingOff: toFiniteInt(coreDeliveryPayload?.cooling_off_jobs, 0),
+        failed: toFiniteInt(coreDeliveryPayload?.failed_jobs, 0),
+        overdue: toFiniteInt(coreDeliveryPayload?.overdue_count, 0),
+        recentJobs: Array.isArray(coreDeliveryPayload?.recent_jobs) ? coreDeliveryPayload.recent_jobs : [],
+        status: coreDeliveryPipeline?.status || "unknown",
+        message: coreDeliveryPipeline?.message || "No Core delivery monitor sample",
       },
       autoDispatchSummary,
       autoDispatchIssues: autoDispatchSummary.attentionSignals,
@@ -2571,6 +2622,29 @@ export default function CtoDashboardPage({
                   </Box>
                 ))}
               </SimpleGrid>
+              <Box mt={3} p={3} borderRadius="12px" bg="rgba(20,184,166,0.08)" border="1px solid rgba(45,212,191,0.22)">
+                <HStack justify="space-between" align="flex-start" gap={3} flexWrap="wrap">
+                  <Box>
+                    <Text fontSize="xs" color={mutedText}>Labit Core Delivery</Text>
+                    <Text fontSize="xs" color={faintText}>{managementMetrics.labitDeliverPipeline.message}</Text>
+                  </Box>
+                  <StatusChip status={managementMetrics.labitDeliverPipeline.status} color={statusColor(managementMetrics.labitDeliverPipeline.status)} />
+                </HStack>
+                <SimpleGrid columns={{ base: 2, md: 4 }} spacing={2} mt={3}>
+                  {[
+                    { label: "Core Sent", value: managementMetrics.labitDeliverPipeline.sentToday, note: `${managementMetrics.labitDeliverPipeline.sent24h} in 24h` },
+                    { label: "Core Active", value: managementMetrics.labitDeliverPipeline.active, note: `${managementMetrics.labitDeliverPipeline.coolingOff} cooling` },
+                    { label: "Core Overdue", value: managementMetrics.labitDeliverPipeline.overdue, note: "30m threshold" },
+                    { label: "Core Failed", value: managementMetrics.labitDeliverPipeline.failed, note: "needs review" },
+                  ].map((item) => (
+                    <Box key={item.label} p={3} borderRadius="10px" bg={cardBg} border={panelBorder}>
+                      <Text fontSize="xs" color={mutedText}>{item.label}</Text>
+                      <Text fontWeight="800" fontSize="lg" color={strongText}>{item.value}</Text>
+                      <Text fontSize="xs" color={mutedText}>{item.note}</Text>
+                    </Box>
+                  ))}
+                </SimpleGrid>
+              </Box>
             </Box>
 
             <Box mt={3} p={4} borderRadius="16px" bg={cardBg} border={panelBorder}>

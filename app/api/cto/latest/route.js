@@ -1155,6 +1155,151 @@ async function loadAutoDispatchMetrics(labId) {
   ];
 }
 
+function labitDeliverConfig() {
+  const baseUrl = String(process.env.LABIT_DELIVER_BASE_URL || "").trim().replace(/\/+$/, "");
+  const token = String(process.env.LABIT_DELIVER_ADMIN_TOKEN || process.env.DELIVER_ADMIN_TOKEN || "").trim();
+  return { baseUrl, token };
+}
+
+async function fetchLabitDeliver(path, params = {}) {
+  const { baseUrl, token } = labitDeliverConfig();
+  if (!baseUrl || !token) {
+    return { unavailable: true, reason: "LABIT_DELIVER_BASE_URL/LABIT_DELIVER_ADMIN_TOKEN not configured" };
+  }
+
+  const url = new URL(`${baseUrl}${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "") url.searchParams.set(key, String(value));
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Internal-Token": token,
+    },
+    cache: "no-store",
+  });
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.detail || `labit-deliver ${response.status}`);
+  }
+  return payload;
+}
+
+async function loadLabitDeliverMetrics(labId) {
+  const checkedAt = new Date().toISOString();
+  const payload = await fetchLabitDeliver("/jobs", { limit: 500 });
+  if (payload?.unavailable) {
+    return [
+      buildMetricRow({
+        labId,
+        checkedAt,
+        serviceKey: "labit_deliver_health",
+        label: "Labit Core Delivery",
+        status: "unknown",
+        message: payload.reason,
+        payload
+      })
+    ];
+  }
+
+  const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+  const nowMs = Date.now();
+  const todayKey = istYmdKey(new Date());
+  const counts = {
+    total_jobs: jobs.length,
+    queued_jobs: 0,
+    cooling_off_jobs: 0,
+    retrying_jobs: 0,
+    sending_jobs: 0,
+    sent_jobs: 0,
+    sent_today: 0,
+    sent_24h: 0,
+    failed_jobs: 0,
+    invalid_phone_failed_count: 0,
+    overdue_count: 0,
+  };
+
+  for (const job of jobs) {
+    const status = String(job?.status || "").toLowerCase();
+    if (status === "queued") counts.queued_jobs += 1;
+    else if (status === "cooling_off") counts.cooling_off_jobs += 1;
+    else if (status === "retrying") counts.retrying_jobs += 1;
+    else if (status === "sending") counts.sending_jobs += 1;
+    else if (status === "sent") counts.sent_jobs += 1;
+    else if (status === "failed") {
+      counts.failed_jobs += 1;
+      if (String(job?.metadata?.last_error || job?.last_error || "").toUpperCase() === "INVALID_PHONE") {
+        counts.invalid_phone_failed_count += 1;
+      }
+    }
+
+    const sentAt = parseTimestamp(job?.sent_at || job?.metadata?.sent_at);
+    if (status === "sent" && sentAt) {
+      if (istYmdKey(sentAt) === todayKey) counts.sent_today += 1;
+      if (nowMs - sentAt.getTime() <= 24 * 60 * 60 * 1000) counts.sent_24h += 1;
+    }
+
+    const dueAt = parseTimestamp(job?.cooloff_until);
+    if (["queued", "cooling_off", "retrying"].includes(status) && dueAt && nowMs - dueAt.getTime() > 30 * 60 * 1000) {
+      counts.overdue_count += 1;
+    }
+  }
+
+  const activeQueue = counts.queued_jobs + counts.cooling_off_jobs + counts.retrying_jobs + counts.sending_jobs;
+  return [
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "labit_deliver_pipeline_summary",
+      label: "Labit Core Delivery Pipeline",
+      status: counts.failed_jobs > 0 || counts.overdue_count > 0 ? "degraded" : "healthy",
+      message: `${counts.sent_today} sent today, ${activeQueue} active, ${counts.failed_jobs} failed`,
+      payload: {
+        ...counts,
+        recent_jobs: jobs.slice(0, 12).map((job) => ({
+          id: job.id,
+          reqno: job.reqno,
+          kind: job.kind,
+          status: job.status,
+          patient_name: job.patient_name,
+          updated_at: job.updated_at,
+          cooloff_until: job.cooloff_until,
+        }))
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "labit_deliver_queue_stall",
+      label: "Labit Core Delivery Queue Stall",
+      status: counts.overdue_count > 0 ? "down" : "healthy",
+      message: counts.overdue_count > 0 ? `${counts.overdue_count} Core delivery jobs overdue` : "No overdue Core delivery jobs",
+      payload: {
+        overdue_count: counts.overdue_count,
+        threshold_minutes: 30,
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "labit_deliver_invalid_phone_jobs",
+      label: "Labit Core Invalid Phone Jobs",
+      status: counts.invalid_phone_failed_count > 0 ? "down" : "healthy",
+      message: `${counts.invalid_phone_failed_count} Core delivery jobs failed due to invalid phone`,
+      payload: {
+        invalid_phone_failed_count: counts.invalid_phone_failed_count,
+      }
+    })
+  ];
+}
+
 function getIstDayKey(value) {
   const parsed = parseTimestamp(value);
   if (!parsed || Number.isNaN(parsed.getTime())) return null;
@@ -1328,6 +1473,7 @@ export async function GET(request) {
     const rows = data || [];
     let whatsappMetrics = [];
     let autoDispatchMetrics = [];
+    let labitDeliverMetrics = [];
     let websiteAnalytics = null;
 
     try {
@@ -1343,13 +1489,30 @@ export async function GET(request) {
     }
 
     try {
+      labitDeliverMetrics = await loadLabitDeliverMetrics(labId);
+    } catch (deliverMetricError) {
+      console.error("[cto/latest] labit-deliver metrics error", deliverMetricError);
+      labitDeliverMetrics = [
+        buildMetricRow({
+          labId,
+          checkedAt: new Date().toISOString(),
+          serviceKey: "labit_deliver_health",
+          label: "Labit Core Delivery",
+          status: "degraded",
+          message: deliverMetricError?.message || "Could not load labit-deliver metrics",
+          payload: {}
+        })
+      ];
+    }
+
+    try {
       websiteAnalytics = await loadWebsiteAnalytics(labId);
     } catch (analyticsError) {
       console.error("[cto/latest] website analytics error", analyticsError);
     }
 
     const nowMs = Date.now();
-    const combinedRows = [...rows, ...whatsappMetrics, ...autoDispatchMetrics].map((row) => normalizeServiceStatus(row, nowMs));
+    const combinedRows = [...rows, ...whatsappMetrics, ...autoDispatchMetrics, ...labitDeliverMetrics].map((row) => normalizeServiceStatus(row, nowMs));
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;

@@ -17,6 +17,37 @@ function canAccessCto(user) {
   return user?.userType === "executive" && (user?.executiveType || "").toLowerCase() === "director";
 }
 
+async function callLabitDeliverTestDispatch({ phone, name }) {
+  const baseUrl = String(process.env.LABIT_DELIVER_BASE_URL || "").trim().replace(/\/+$/, "");
+  const token = String(process.env.LABIT_DELIVER_ADMIN_TOKEN || process.env.DELIVER_ADMIN_TOKEN || "").trim();
+  if (!baseUrl || !token) {
+    throw new Error("LABIT_DELIVER_BASE_URL and LABIT_DELIVER_ADMIN_TOKEN are required");
+  }
+
+  const reqno = `SIM-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}`;
+  const response = await fetch(`${baseUrl}/test/dispatch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "X-Internal-Token": token,
+    },
+    cache: "no-store",
+    body: JSON.stringify({
+      phone,
+      patient_name: name || "CTO Test",
+      reqno,
+      kind: "lab",
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.detail || `labit-deliver test dispatch failed (${response.status})`);
+  }
+  return payload;
+}
+
 function buildWebhookPayload({ phone, name, step }) {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const baseMessage = {
@@ -222,9 +253,28 @@ export async function POST(request) {
     const phone = String(body?.phone || "").trim();
     const name = String(body?.name || "CTO Test").trim();
     const step = String(body?.step || "").trim();
+    const action = String(body?.action || "").trim();
 
-    if (!phone || !step) {
+    if (!phone || (!step && action !== "labit_deliver_test_dispatch")) {
       return NextResponse.json({ error: "Missing phone or step" }, { status: 400 });
+    }
+
+    if (action === "labit_deliver_test_dispatch") {
+      const deliver = await callLabitDeliverTestDispatch({ phone, name });
+      let transcript = { sessions: [], messages: [] };
+      try {
+        transcript = await loadTranscript(phone);
+      } catch (transcriptError) {
+        console.error("[cto/whatsapp-sim] labit-deliver transcript load error", transcriptError);
+      }
+      return NextResponse.json(
+        {
+          ok: true,
+          labit_deliver: deliver,
+          ...transcript
+        },
+        { status: 200 }
+      );
     }
 
     const payload = buildWebhookPayload({ phone, name, step });
