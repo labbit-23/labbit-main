@@ -96,8 +96,22 @@ export async function POST(request) {
       }
     }
 
+    // Collapse duplicate service_key entries (e.g. a pm2 app running as a multi-instance
+    // cluster reports one row per instance). Last occurrence wins. Without this the
+    // cto_service_latest upsert fails with Postgres 21000 ("ON CONFLICT DO UPDATE command
+    // cannot affect row a second time") and the whole batch is rejected.
+    const servicesByKey = new Map();
+    for (const service of services) servicesByKey.set(service.service_key, service);
+    const deduped = [...servicesByKey.values()];
+    if (deduped.length !== services.length) {
+      console.warn("[cto/ingest] collapsed duplicate service_key rows", {
+        received: services.length,
+        deduped: deduped.length,
+      });
+    }
+
     // Keep DB write order deterministic across concurrent ingestors to reduce lock contention.
-    const servicesSorted = [...services].sort((a, b) => a.service_key.localeCompare(b.service_key));
+    const servicesSorted = [...deduped].sort((a, b) => a.service_key.localeCompare(b.service_key));
 
     const logRows = servicesSorted.map((service) => ({
       lab_id: labId,
