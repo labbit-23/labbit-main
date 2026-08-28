@@ -177,9 +177,10 @@ export async function POST(request) {
       }
     } else if (reportSource === "requisition_report") {
       const rawReqno = String(body?.reqno || "").trim();
+      const rawReqid = String(body?.reqid || "").trim();
       if (!rawReqno) return new Response("Requisition No is required.", { status: 400 });
       const statusByReqno = await getReportStatus(rawReqno);
-      const reqid = extractReqidFromStatus(statusByReqno);
+      const reqid = extractReqidFromStatus(statusByReqno) || rawReqid;
       if (!reqid) return new Response(`Could not find report mapping for requisition no ${rawReqno}.`, { status: 400 });
       documentUrl = getReportUrl(reqid, { reqno: rawReqno });
       if (!(await isReachablePdfDocument(documentUrl))) {
