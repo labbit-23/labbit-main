@@ -17,6 +17,18 @@ const DEFAULT_SDRC_LAB_ID = String(
 const DEFAULT_SDRC_COVER = "https://sdrc.in/assets/sdrc-services.png";
 const DEFAULT_SDRC_LOGO = "https://sdrc.in/assets/sdrc-logo.png";
 const NEOSOFT_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
+// User, 2026-08-30: trend reports must keep working after cutover, when
+// NEOSOFT_API_BASE_URL's source (Shivam/Oracle) stops receiving new data.
+// labit-deliver's own /trend-data/{mrno} facade (unauthenticated,
+// service-to-service, already deployed) proxies to labit-core's
+// patient_archive_service.previous_values_by_mrn -- the SAME
+// labit_core+Shivam-archive merge Consultant View's "Previous Reports" tab
+// already uses, so it's a strict superset of what NeoSoft alone provided
+// (old archived history AND new labit-core data together), not a narrower
+// replacement. LABIT_DELIVER_BASE_URL is already configured in production
+// today (used by app/api/internal/labit-deliver/_proxy.js for admin
+// monitoring) -- reusing it here, not introducing a new env var.
+const LABIT_DELIVER_BASE_URL = String(process.env.LABIT_DELIVER_BASE_URL || "").replace(/\/+$/, "");
 const TREND_FETCH_TIMEOUT_MS = Number(process.env.NEOSOFT_TIMEOUT_MS || 15000);
 const TREND_REPORT_DEFAULT_DESIGN_VARIANT = String(
   process.env.TREND_REPORT_DEFAULT_DESIGN_VARIANT ||
@@ -94,6 +106,15 @@ async function fetchSmartTrendPayload(mrno) {
   );
 
   const urls = [];
+  // Tried first: labit-deliver's /trend-data/{mrno} facade, a thin
+  // passthrough to labit-core's patient_archive_service.previous_values_by_mrn
+  // (the same labit_core+Shivam-archive merge Consultant View's "Previous
+  // Reports" tab uses) -- a strict superset of NeoSoft-only data, so it's
+  // preferred over the legacy fallbacks below rather than only used when
+  // they fail.
+  if (LABIT_DELIVER_BASE_URL) {
+    urls.push(`${LABIT_DELIVER_BASE_URL}/trend-data/${encodeURIComponent(cleanMrno)}`);
+  }
   if (pythonTemplate) urls.push(pythonTemplate.replace("{mrno}", encodeURIComponent(cleanMrno)));
   if (genericTemplate) urls.push(genericTemplate.replace("{mrno}", encodeURIComponent(cleanMrno)));
   if (NEOSOFT_BASE_URL) {
