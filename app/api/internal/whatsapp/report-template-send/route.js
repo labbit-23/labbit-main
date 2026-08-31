@@ -120,6 +120,19 @@ export async function POST(request) {
     const patientName = String(body?.patient_name || "").trim();
     const reportLabel = String(body?.report_label || "").trim();
     const reportSource = String(body?.report_source || "latest_report").trim().toLowerCase();
+    const sourceService = String(body?.source_service || "report_sender_worker").trim();
+    const sourceBackend = String(
+      body?.source_backend ||
+      body?.report_backend ||
+      process.env.REPORT_DELIVERY_SOURCE_BACKEND ||
+      ""
+    ).trim();
+    const serverTag = String(
+      body?.server_tag ||
+      body?.dispatch_server_tag ||
+      process.env.REPORT_DELIVERY_SERVER_TAG ||
+      ""
+    ).trim();
     const registeredPhoneRaw = String(body?.registered_phone || "").trim();
     const authorizationConfirmed = Boolean(body?.authorization_confirmed);
     const authorizationType = String(body?.authorization_type || "").trim();
@@ -202,7 +215,7 @@ export async function POST(request) {
       if (!rawReqid || !rawTestid) {
         return new Response("ReqID and TestID are required for outsourced report.", { status: 400 });
       }
-      documentUrl = getOutsourcedReportUrl(rawReqid, rawTestid);
+      documentUrl = getOutsourcedReportUrl(rawReqid, rawTestid, { reqno: rawReqno || undefined });
       if (!(await isReachablePdfDocument(documentUrl))) {
         return new Response(`Outsourced report PDF was not found for requisition ${rawReqno || rawReqid}.`, { status: 400 });
       }
@@ -255,7 +268,7 @@ export async function POST(request) {
         name: "Internal Worker",
         role: "system",
         userType: "service",
-        source_service: String(body?.source_service || "report_sender_worker")
+        source_service: sourceService || "report_sender_worker"
       },
       headerDocumentUrl: documentUrl,
       headerDocumentFilename: filename,
@@ -272,7 +285,7 @@ export async function POST(request) {
 
     await logReportDispatch({
       labId,
-      actorName: String(body?.source_service || "report_sender_worker"),
+      actorName: sourceService || "report_sender_worker",
       actorRole: "system",
       sourcePage: "report_dispatch",
       action: "send_whatsapp",
@@ -289,6 +302,9 @@ export async function POST(request) {
       requestPayload: {
         action: "send_report_template",
         report_source: reportSource,
+        source_service: sourceService || "report_sender_worker",
+        source_backend: sourceBackend || null,
+        server_tag: serverTag || null,
         document_url: documentUrl,
         registered_phone: registeredPhoneRaw || null,
         mrno: resolvedMrno,

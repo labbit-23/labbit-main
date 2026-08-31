@@ -42,7 +42,13 @@ function inferReportReqidFromUrl(url) {
   const raw = String(url || "").trim();
   if (!raw) return null;
   const match = raw.match(/\/(?:report|reports|radiologyreport)\/([^/?#]+)/i);
-  return match?.[1] ? decodeURIComponent(String(match[1]).trim()) : null;
+  if (match?.[1]) return decodeURIComponent(String(match[1]).trim());
+  try {
+    const parsed = new URL(raw);
+    return parsed.searchParams.get("reqid");
+  } catch {
+    return null;
+  }
 }
 
 function isReportLikeDocumentUrl(url) {
@@ -51,7 +57,8 @@ function isReportLikeDocumentUrl(url) {
     raw.includes("/report/") ||
     raw.includes("/reports/") ||
     raw.includes("/radiologyreport/") ||
-    raw.includes("/latest-report/")
+    raw.includes("/latest-report/") ||
+    raw.includes("/outsourced-report")
   );
 }
 
@@ -143,6 +150,18 @@ export async function POST(request) {
     const phone = String(body?.phone || body?.destination || body?.to || "").trim();
     const kind = normalizeKind(body);
     const sourceService = String(body?.source_service || body?.source || "internal-service").trim();
+    const sourceBackend = String(
+      body?.source_backend ||
+      body?.report_backend ||
+      process.env.REPORT_DELIVERY_SOURCE_BACKEND ||
+      ""
+    ).trim();
+    const serverTag = String(
+      body?.server_tag ||
+      body?.dispatch_server_tag ||
+      process.env.REPORT_DELIVERY_SERVER_TAG ||
+      ""
+    ).trim();
 
     if (!labId || !phone) {
       return NextResponse.json({ error: "Missing lab_id or phone" }, { status: 400 });
@@ -203,6 +222,8 @@ export async function POST(request) {
             providerMessageId: extractProviderMessageId(sendResult),
             requestPayload: {
               source_service: sourceService,
+              source_backend: sourceBackend || null,
+              server_tag: serverTag || null,
               document_url: documentUrl,
               ready_lab_test_keys: readyLabTestKeys
             },
@@ -231,6 +252,8 @@ export async function POST(request) {
             resultMessage: sendError?.message || "Unknown send error",
             requestPayload: {
               source_service: sourceService,
+              source_backend: sourceBackend || null,
+              server_tag: serverTag || null,
               document_url: documentUrl,
               ready_lab_test_keys: readyLabTestKeys
             },
