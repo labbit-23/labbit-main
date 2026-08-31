@@ -133,6 +133,7 @@ export async function POST(request) {
       process.env.REPORT_DELIVERY_SERVER_TAG ||
       ""
     ).trim();
+    const readyLabTestKeys = Array.isArray(body?.ready_lab_test_keys) ? body.ready_lab_test_keys : [];
     const registeredPhoneRaw = String(body?.registered_phone || "").trim();
     const authorizationConfirmed = Boolean(body?.authorization_confirmed);
     const authorizationType = String(body?.authorization_type || "").trim();
@@ -311,6 +312,7 @@ export async function POST(request) {
         reqid: resolvedReqid,
         reqno: resolvedReqno,
         testid: reportSource === "outsourced_report" ? String(body?.testid || "").trim() : null,
+        ready_lab_test_keys: readyLabTestKeys,
         template_name: templateName,
         template_language: languageCode
       },
