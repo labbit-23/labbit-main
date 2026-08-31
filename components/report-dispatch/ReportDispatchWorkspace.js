@@ -307,6 +307,37 @@ function parseMetadata(metadata) {
   return {};
 }
 
+function jobOrigin(job) {
+  const meta = parseMetadata(job?.metadata);
+  const raw = String(meta?.source_backend || meta?.report_origin || "").trim().toLowerCase();
+  if (raw === "core" || raw === "labit" || raw === "labit-core") return "labit_core";
+  if (raw === "legacy" || raw === "neosoft") return "shivam";
+  return raw || "shivam";
+}
+
+function originLabel(origin) {
+  if (origin === "labit_core") return "Core";
+  if (origin === "shivam_archive") return "Archive";
+  if (origin === "shivam") return "Shivam";
+  return origin ? origin.replaceAll("_", " ") : "Shivam";
+}
+
+function originColor(origin) {
+  if (origin === "labit_core") return "cyan";
+  if (origin === "shivam_archive") return "purple";
+  if (origin === "shivam") return "gray";
+  return "blue";
+}
+
+function JobOriginBadge({ job }) {
+  const origin = jobOrigin(job);
+  return (
+    <Badge colorScheme={originColor(origin)} borderRadius="md" textTransform="none">
+      {originLabel(origin)}
+    </Badge>
+  );
+}
+
 function humanizeSkipReason(reason) {
   const key = String(reason || "").trim().toLowerCase();
   if (!key) return "";
@@ -716,6 +747,7 @@ export default function ReportDispatchWorkspace({
           row?.is_paused ? "paused" : "active",
           row?.report_label,
           row?.last_error,
+          jobOrigin(row),
           historyText,
           historyCounts
         ].map((v) => String(v || "").toLowerCase()).join(" ");
@@ -744,7 +776,8 @@ export default function ReportDispatchWorkspace({
         extractProviderMessageId(row),
         row?.is_paused ? "paused" : "active",
         row?.report_label,
-        row?.last_error
+        row?.last_error,
+        jobOrigin(row)
       ].map((v) => String(v || "").toLowerCase()).join(" ");
       return hay.includes(q);
     });
@@ -806,6 +839,29 @@ export default function ReportDispatchWorkspace({
     const prevDaySent = autoSummary?.previous_days_sent_jobs ?? 0;
     return { totalJobs, pendingQueue, coolingOff, failedUnpaused, sentToday, prevDaySent };
   }, [autoJobs, autoSummary, monitorDateStats, selectedDate]);
+
+  const monitorOriginStats = useMemo(() => {
+    const fallback = { labit_core: 0, shivam_archive: 0, shivam: 0, unknown: 0, labit_core_sent: 0, shivam_archive_sent: 0 };
+    for (const row of Array.isArray(autoJobs) ? autoJobs : []) {
+      const origin = jobOrigin(row);
+      if (origin === "labit_core") fallback.labit_core += 1;
+      else if (origin === "shivam_archive") fallback.shivam_archive += 1;
+      else if (origin === "shivam") fallback.shivam += 1;
+      else fallback.unknown += 1;
+      if (String(row?.status || "").trim().toLowerCase() === "sent") {
+        if (origin === "labit_core") fallback.labit_core_sent += 1;
+        if (origin === "shivam_archive") fallback.shivam_archive_sent += 1;
+      }
+    }
+    return {
+      labit_core: Number(autoSummary?.labit_core_jobs ?? fallback.labit_core),
+      shivam_archive: Number(autoSummary?.shivam_archive_jobs ?? fallback.shivam_archive),
+      shivam: Number(autoSummary?.shivam_jobs ?? fallback.shivam),
+      unknown: Number(autoSummary?.unknown_origin_jobs ?? fallback.unknown),
+      labit_core_sent: Number(autoSummary?.labit_core_sent_jobs ?? fallback.labit_core_sent),
+      shivam_archive_sent: Number(autoSummary?.shivam_archive_sent_jobs ?? fallback.shivam_archive_sent),
+    };
+  }, [autoJobs, autoSummary]);
 
   const sentTodaySplit = useMemo(() => {
     const bounds = istDayBounds(selectedDate);
@@ -1910,6 +1966,16 @@ export default function ReportDispatchWorkspace({
                     Lab {sentTodaySplit.lab} • Scan {sentTodaySplit.radiology} • Both {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • Other ${sentTodaySplit.other}` : ""}
                   </Text>
                 </Box>
+                <Box p={2} borderWidth="2px" borderRadius="md"
+                  bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}
+                  borderColor="transparent"
+                >
+                  <Text fontSize="xs" opacity={0.7}>Core Queue</Text>
+                  <Text fontWeight="bold">{monitorOriginStats.labit_core}</Text>
+                  <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
+                    Sent {monitorOriginStats.labit_core_sent} • Archive {monitorOriginStats.shivam_archive}
+                  </Text>
+                </Box>
                 <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
                   bg={themeMode === "dark" ? "green.900" : "green.50"}
                   borderColor={autoStatusFilter === "sent" ? "green.400" : "transparent"}
@@ -2054,6 +2120,8 @@ export default function ReportDispatchWorkspace({
                   </Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Previous Days Sent</Text><Text fontWeight="bold">{autoSummary?.previous_days_sent_jobs ?? 0}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Outsourced Sent</Text><Text fontWeight="bold">{autoSummary?.outsourced_sent_jobs ?? 0}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}><Text fontSize="xs" opacity={0.7}>Core-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.labit_core}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Archive-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.shivam_archive}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Paused</Text><Text fontWeight="bold">{monitorDateStats.paused}</Text></Box>
                 </SimpleGrid>
               ) : null}
@@ -2170,9 +2238,12 @@ export default function ReportDispatchWorkspace({
                     return (
                       <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
                         <Flex justify="space-between" align="center" mb={1.5}>
-                          <Badge colorScheme={statusValue === "sent" ? "green" : statusValue === "failed" ? "red" : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying" ? "orange" : "blue"} borderRadius="md" px={2} textTransform="lowercase">
-                            {displayValue(statusValue)}
-                          </Badge>
+                          <HStack spacing={1}>
+                            <Badge colorScheme={statusValue === "sent" ? "green" : statusValue === "failed" ? "red" : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying" ? "orange" : "blue"} borderRadius="md" px={2} textTransform="lowercase">
+                              {displayValue(statusValue)}
+                            </Badge>
+                            <JobOriginBadge job={job} />
+                          </HStack>
                           <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Active")}</Badge>
                         </Flex>
                         <Text fontSize="xs" fontWeight="semibold">
@@ -2299,6 +2370,9 @@ export default function ReportDispatchWorkspace({
                             >
                               {displayValue(job?.reqno)}
                             </Text>
+                            <Box mt={1}>
+                              <JobOriginBadge job={job} />
+                            </Box>
                           </Td>
                           <Td w="13%">{displayValue(job?.patient_name)}</Td>
                           <Td w="10%">{displayValue(job?.phone)}</Td>
@@ -2429,7 +2503,10 @@ export default function ReportDispatchWorkspace({
                         return (
                           <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
                             <Flex justify="space-between" align="center" mb={1}>
-                              <Badge colorScheme="green" borderRadius="md" px={2} textTransform="lowercase">Sent</Badge>
+                              <HStack spacing={1}>
+                                <Badge colorScheme="green" borderRadius="md" px={2} textTransform="lowercase">Sent</Badge>
+                                <JobOriginBadge job={job} />
+                              </HStack>
                               <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
                             </Flex>
                             <Text fontSize="xs" fontWeight="semibold">
@@ -2471,7 +2548,10 @@ export default function ReportDispatchWorkspace({
                             return (
                               <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
                                 <Td><Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge></Td>
-                                <Td><Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text></Td>
+                                <Td>
+                                  <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
+                                  <Box mt={1}><JobOriginBadge job={job} /></Box>
+                                </Td>
                                 <Td>{displayValue(job?.patient_name)}</Td>
                                 <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
                                 <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
@@ -2505,7 +2585,10 @@ export default function ReportDispatchWorkspace({
                         return (
                           <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
                             <Flex justify="space-between" align="center" mb={1}>
-                              <Badge colorScheme="purple" borderRadius="md" px={2} textTransform="lowercase">Outsourced</Badge>
+                              <HStack spacing={1}>
+                                <Badge colorScheme="purple" borderRadius="md" px={2} textTransform="lowercase">Outsourced</Badge>
+                                <JobOriginBadge job={job} />
+                              </HStack>
                               <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
                             </Flex>
                             <Text fontSize="xs" fontWeight="semibold">
@@ -2545,7 +2628,10 @@ export default function ReportDispatchWorkspace({
                             return (
                               <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
                                 <Td><Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge></Td>
-                                <Td><Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text></Td>
+                                <Td>
+                                  <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
+                                  <Box mt={1}><JobOriginBadge job={job} /></Box>
+                                </Td>
                                 <Td><Text mono fontSize="xs">T{testid}</Text></Td>
                                 <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
                                 <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>

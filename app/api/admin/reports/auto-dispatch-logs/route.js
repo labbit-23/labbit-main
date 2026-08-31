@@ -52,6 +52,14 @@ function parseMaybeJson(value) {
   return null;
 }
 
+function jobOrigin(row) {
+  const meta = parseMaybeJson(row?.metadata) || {};
+  const raw = String(meta?.source_backend || meta?.report_origin || "").trim().toLowerCase();
+  if (raw === "core" || raw === "labit" || raw === "labit-core") return "labit_core";
+  if (raw === "legacy" || raw === "neosoft") return "shivam";
+  return raw || "shivam";
+}
+
 function extractProviderMessageIdFromJob(job) {
   const payload = parseMaybeJson(job?.provider_response);
   const id = String(
@@ -624,10 +632,21 @@ export async function GET(request) {
       risk_timeout_5xx_events: 0,
       sent_only_no_callback_jobs: 0,
       previous_days_sent_jobs: 0,
-      outsourced_sent_jobs: 0
+      outsourced_sent_jobs: 0,
+      labit_core_jobs: 0,
+      shivam_archive_jobs: 0,
+      shivam_jobs: 0,
+      unknown_origin_jobs: 0,
+      labit_core_sent_jobs: 0,
+      shivam_archive_sent_jobs: 0
     };
     for (const row of dateJobs) {
       const st = String(row?.status || "").trim().toLowerCase();
+      const origin = jobOrigin(row);
+      if (origin === "labit_core") summary.labit_core_jobs += 1;
+      else if (origin === "shivam_archive") summary.shivam_archive_jobs += 1;
+      else if (origin === "shivam") summary.shivam_jobs += 1;
+      else summary.unknown_origin_jobs += 1;
       if (st === "queued") summary.queued_jobs += 1;
       else if (st === "cooling_off") summary.cooling_off_jobs += 1;
       else if (st === "retrying") summary.retrying_jobs += 1;
@@ -683,8 +702,15 @@ export async function GET(request) {
             }
             const meta = parseMaybeJson(row?.metadata) || {};
             const src = String(meta?.report_source || "").trim().toLowerCase();
+            const origin = jobOrigin(row);
             if (src === "outsourced_report") {
               summary.outsourced_sent_jobs += 1;
+            }
+            if (origin === "labit_core") {
+              summary.labit_core_sent_jobs += 1;
+            }
+            if (origin === "shivam_archive") {
+              summary.shivam_archive_sent_jobs += 1;
             }
           }
 
