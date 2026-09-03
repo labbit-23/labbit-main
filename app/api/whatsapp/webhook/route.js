@@ -1083,6 +1083,13 @@ async function persistWebhookStatusEvents({ body, statusEvents }) {
         errorObj,
         statusTimestampIso: ts
       });
+
+      await reconcileAutoDispatchDeliveryFailure({
+        providerMessageId,
+        statusCode,
+        errorObj,
+        statusTimestampIso: ts
+      });
     } catch (err) {
       console.error("[status-callback] persist failed", {
         error: err?.message || String(err),
@@ -1094,6 +1101,118 @@ async function persistWebhookStatusEvents({ body, statusEvents }) {
 
 function isFailedDeliveryStatus(statusCode) {
   return String(statusCode || "").trim().toLowerCase() === "failed";
+}
+
+const AUTO_DISPATCH_JOBS_TABLE = "report_auto_dispatch_jobs";
+const AUTO_DISPATCH_EVENTS_TABLE = "report_auto_dispatch_events";
+const AUTO_DISPATCH_RETRY_DELAY_MS = 2 * 60 * 1000;
+
+// report_sender_worker marks a job "sent" as soon as WhatsApp's API synchronously
+// accepts it (HTTP 200 + message id). Actual delivery/media-upload success is only
+// known later via this async status webhook. Without this reconciliation, a job that
+// gets accepted then later fails (e.g. WA error 131053 "Media upload error") stays
+// stuck at status="sent" forever: never retried, invisible to every "Failed" dashboard
+// card (which all filter on job.status === "failed").
+async function reconcileAutoDispatchDeliveryFailure({
+  providerMessageId,
+  statusCode,
+  errorObj,
+  statusTimestampIso
+}) {
+  if (!providerMessageId || !isFailedDeliveryStatus(statusCode)) return;
+
+  try {
+    const { data: job, error: lookupError } = await supabase
+      .from(AUTO_DISPATCH_JOBS_TABLE)
+      .select("id, reqno, reqid, phone, status, attempt_count, max_attempts")
+      .eq("provider_response->>provider_message_id", providerMessageId)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.error("[status-callback] auto-dispatch job lookup failed", {
+        error: lookupError.message,
+        providerMessageId
+      });
+      return;
+    }
+    // Not every WhatsApp message comes from the auto-dispatch pipeline (manual sends,
+    // chat replies, etc.) — nothing to reconcile for those.
+    if (!job) return;
+
+    // Only act on jobs still sitting in "sent". If the worker already moved it on
+    // (retrying/failed/superseded by a follow-up) since this status event queued,
+    // leave it alone rather than clobber newer state.
+    if (String(job.status || "").toLowerCase() !== "sent") return;
+
+    const errorCode = errorObj?.code ?? null;
+    const errorTitle = String(errorObj?.title || errorObj?.message || "delivery_failed").trim();
+    const lastError = `WA_DELIVERY_FAILED: ${errorCode ?? "?"} ${errorTitle}`.trim();
+
+    const attempts = Number(job.attempt_count || 0);
+    const maxAttempts = Number(job.max_attempts || 5);
+    const terminal = attempts >= maxAttempts;
+    const nowIso = new Date().toISOString();
+
+    const patch = terminal
+      ? { status: "failed", last_error: lastError, next_attempt_at: null, updated_at: nowIso }
+      : {
+          status: "retrying",
+          last_error: lastError,
+          next_attempt_at: new Date(Date.now() + AUTO_DISPATCH_RETRY_DELAY_MS).toISOString(),
+          updated_at: nowIso
+        };
+
+    // Optimistic guard: only apply if the job is still "sent" at write time too,
+    // so we never race the worker into overwriting its own newer update.
+    const { data: updated, error: patchError } = await supabase
+      .from(AUTO_DISPATCH_JOBS_TABLE)
+      .update(patch)
+      .eq("id", job.id)
+      .eq("status", "sent")
+      .select("id")
+      .maybeSingle();
+
+    if (patchError) {
+      console.error("[status-callback] auto-dispatch job reconcile patch failed", {
+        error: patchError.message,
+        jobId: job.id,
+        providerMessageId
+      });
+      return;
+    }
+    if (!updated) return; // lost the race; worker already moved this job on
+
+    await supabase.from(AUTO_DISPATCH_EVENTS_TABLE).insert({
+      job_id: job.id,
+      reqno: job.reqno,
+      reqid: job.reqid,
+      phone: job.phone,
+      event_type: terminal ? "delivery_failed_terminal" : "delivery_failed_retry_scheduled",
+      message: `WhatsApp reported delivery failure via status webhook: ${lastError}`,
+      payload: {
+        provider_message_id: providerMessageId,
+        status_code: statusCode,
+        error: errorObj || null,
+        status_timestamp: statusTimestampIso || null,
+        attempt_count: attempts,
+        max_attempts: maxAttempts,
+        terminal
+      },
+      created_at: nowIso
+    });
+
+    console.log("[status-callback] auto-dispatch job reconciled", {
+      jobId: job.id,
+      reqno: job.reqno,
+      terminal,
+      providerMessageId
+    });
+  } catch (err) {
+    console.error("[status-callback] auto-dispatch reconcile exception", {
+      error: err?.message || String(err),
+      providerMessageId
+    });
+  }
 }
 
 function isDeliveryFailureAckCooldownActive(context = {}, nowMs = Date.now()) {
