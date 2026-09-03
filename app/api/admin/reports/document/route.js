@@ -11,10 +11,35 @@ import {
   getRoleKey,
 } from "@/lib/reportDispatchScope";
 
+function getStatusRowValue(row, ...keys) {
+  if (!row || typeof row !== "object") return null;
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null) return row[key];
+    const lowerKey = String(key).toLowerCase();
+    const match = Object.keys(row).find((candidate) => String(candidate).toLowerCase() === lowerKey);
+    if (match && row[match] !== undefined && row[match] !== null) return row[match];
+  }
+  return null;
+}
+
+// 2026-09-03: labit-core's report-status response (live since the Aug 30
+// cutover) puts reqid ONLY at the top level -- no test row carries
+// REQID/reqid at all. The old tests[]-only lookup below returned null for
+// every single reqno under this shape, breaking the Report Dispatch
+// workspace's "Try" action whenever only reqno was supplied ("Missing
+// reqid or resolvable reqno"). Check top-level first, matching the same
+// fallback report-template-send/route.js already uses.
 function extractReqidFromStatus(reportStatus) {
+  const topLevel = String(
+    getStatusRowValue(reportStatus, "REQID", "reqid", "REQ_ID", "req_id", "REQUISITIONID", "requisitionid") || ""
+  ).trim();
+  if (topLevel) return topLevel;
+
   const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
   for (const row of tests) {
-    const reqid = String(row?.REQID || row?.reqid || "").trim();
+    const reqid = String(
+      getStatusRowValue(row, "REQID", "reqid", "REQ_ID", "req_id", "REQUISITIONID", "requisitionid") || ""
+    ).trim();
     if (reqid) return reqid;
   }
   return null;
