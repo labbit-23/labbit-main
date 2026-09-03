@@ -87,18 +87,48 @@ function buildReportFilename(report) {
   return `SDRC_Report_${reqno}_${firstName}.pdf`;
 }
 
+// 2026-09-03: this fetch doubles as a send-time cache warm-up. labit-py's
+// /report/{reqid} now caches its rendered PDF for a short window (see
+// pdf_cache.py) -- this call renders it once, off WhatsApp's own fetch
+// timeout entirely, so that when WhatsApp's media-fetch bot requests the
+// same URL moments later (in sendTemplateMessage below) it hits a warm
+// cache instead of triggering its own cold, multi-second render. That's
+// what was causing WhatsApp error 131053 "Media upload error": the render
+// alone measured 6-8s+ with zero concurrent load, and nginx logs showed
+// WhatsApp's fetcher giving up (499) before a cold render finished.
+// Bounded with an explicit timeout so a stuck render fails this reachability
+// check (and the send, with a clear error) rather than hanging the request.
+const REPORT_REACHABILITY_TIMEOUT_MS = 30_000;
+
 async function isReachablePdfDocument(url) {
   if (!url) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REPORT_REACHABILITY_TIMEOUT_MS);
+  const startedAt = Date.now();
   try {
-    const response = await fetch(url, { method: "GET", redirect: "follow", cache: "no-store" });
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      cache: "no-store",
+      signal: controller.signal
+    });
     if (!response.ok) return false;
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (contentType.includes("application/pdf")) return true;
     const contentDisposition = String(response.headers.get("content-disposition") || "").toLowerCase();
     if (contentDisposition.includes(".pdf")) return true;
     return false;
-  } catch {
+  } catch (err) {
+    const timedOut = err?.name === "AbortError";
+    console.warn("[report-template-send] report reachability check failed", {
+      url,
+      timedOut,
+      durationMs: Date.now() - startedAt,
+      error: err?.message || String(err)
+    });
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
