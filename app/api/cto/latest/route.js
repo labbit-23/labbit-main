@@ -964,6 +964,18 @@ async function loadAutoDispatchMetrics(labId) {
   const pdfNotFoundFailedJobs = failedJobsDistinct.filter((job) =>
     /report pdf was not found/i.test(String(job?.last_error || ""))
   );
+  // Jobs WhatsApp's API accepted (status went to "sent") but that then failed
+  // asynchronously per the delivery-status webhook (see reconcileAutoDispatchDeliveryFailure
+  // in app/api/whatsapp/webhook/route.js). These only reach "failed" here once retries
+  // are exhausted; ones still retrying are tracked separately below.
+  const waDeliveryFailedJobs = failedJobsDistinct.filter((job) =>
+    /^WA_DELIVERY_FAILED:/i.test(String(job?.last_error || ""))
+  );
+  const waDeliveryRetryingJobs = jobsList.filter(
+    (job) =>
+      String(job?.status || "").toLowerCase() === "retrying" &&
+      /^WA_DELIVERY_FAILED:/i.test(String(job?.last_error || ""))
+  );
   const pipelineSummary = {
     total_jobs: 0,
     queued_jobs: 0,
@@ -1148,6 +1160,27 @@ async function loadAutoDispatchMetrics(labId) {
         samples: pdfNotFoundFailedJobs.slice(0, 20).map((j) => ({
           id: j.id,
           reqno: j.reqno,
+          updated_at_ist: j.updated_at ? IST_FORMATTER.format(new Date(j.updated_at)) : "n/a",
+        }))
+      }
+    }),
+    buildMetricRow({
+      labId,
+      checkedAt,
+      serviceKey: "auto_dispatch_wa_delivery_failed_jobs",
+      label: "WhatsApp Delivery Failures",
+      status: waDeliveryFailedJobs.length > 0 ? "down" : waDeliveryRetryingJobs.length > 0 ? "degraded" : "healthy",
+      message:
+        waDeliveryFailedJobs.length > 0
+          ? `${waDeliveryFailedJobs.length} jobs failed delivery today after retries exhausted; ${waDeliveryRetryingJobs.length} more auto-retrying`
+          : `No exhausted delivery failures today; ${waDeliveryRetryingJobs.length} jobs auto-retrying after a failed delivery`,
+      payload: {
+        failed_terminal_count: waDeliveryFailedJobs.length,
+        retrying_count: waDeliveryRetryingJobs.length,
+        samples: waDeliveryFailedJobs.slice(0, 20).map((j) => ({
+          id: j.id,
+          reqno: j.reqno,
+          last_error: j.last_error,
           updated_at_ist: j.updated_at ? IST_FORMATTER.format(new Date(j.updated_at)) : "n/a",
         }))
       }
