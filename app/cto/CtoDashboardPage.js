@@ -37,7 +37,7 @@ import {
 import { HelpCircle, RefreshCw, Server, MemoryStick, HardDrive, Layers, Cpu } from "lucide-react";
 import Link from "next/link";
 import ShortcutBar from "../../components/ShortcutBar";
-import { SophosWanCard } from "../../components/cto-dashboard/SophosWanCard";
+import { MirthControlCard } from "../../components/cto-dashboard/MirthControlCard";
 
 function StatusChip({ status, color }) {
   return (
@@ -3704,7 +3704,7 @@ export default function CtoDashboardPage({
               boxShadow="0 28px 80px rgba(0,0,0,0.22)"
             >
               <Heading size="md" mb={4}>Infrastructure Status</Heading>
-              <SophosWanCard monitoringApiUrl={process.env.NEXT_PUBLIC_MONITORING_API_URL || "http://100.65.63.54:5000"} />
+              <MirthControlCard />
             </Box>
 
             <Box
