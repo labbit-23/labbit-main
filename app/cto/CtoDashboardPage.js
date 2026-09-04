@@ -706,7 +706,7 @@ export default function CtoDashboardPage({
   const [showVpsRunbook, setShowVpsRunbook] = useState(false);
   const [themeMode, setThemeMode] = useState("dark");
   const [dashboardTab, setDashboardTab] = useState(defaultDashboardTab);
-  const [dashboardViewMode, setDashboardViewMode] = useState("simplified");
+  const [dashboardViewMode, setDashboardViewMode] = useState("advanced");
   const refreshRef = useRef(null);
   const vpsSectionRef = useRef(null);
   const operationalSectionRef = useRef(null);
