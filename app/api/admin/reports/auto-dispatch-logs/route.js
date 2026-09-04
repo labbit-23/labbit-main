@@ -527,6 +527,11 @@ export async function GET(request) {
     if (statusRows.length > 0) {
       const byMessageId = new Map();
       const byPhone = new Map();
+      // Earliest delivered-or-above event per message, separate from byMessageId's
+      // "current/highest status" -- once a message reaches "read", byMessageId
+      // overwrites `at` with the read timestamp, so it can't answer "how long did
+      // delivery itself take." This tracks that first delivered timestamp instead.
+      const firstDeliveredAtByMessageId = new Map();
       for (const row of statusRows || []) {
         const payload = parseMaybeJson(row?.payload);
         const eventAtIso = deriveStatusEventAtUtc(row);
@@ -550,6 +555,12 @@ export async function GET(request) {
           const currAt = parseUtcishDate(eventAtIso || row?.created_at)?.getTime() || 0;
           if (!prev || currRank > prevRank || (currRank === prevRank && currAt >= prevAt)) {
             byMessageId.set(messageId, { status: statusKey, at: eventAtIso || row?.created_at || null });
+          }
+          if (currRank >= deliveryRank("delivered")) {
+            const existingAt = firstDeliveredAtByMessageId.get(messageId);
+            if (!existingAt || currAt < existingAt) {
+              firstDeliveredAtByMessageId.set(messageId, currAt);
+            }
           }
         }
 
@@ -593,11 +604,17 @@ export async function GET(request) {
             delivery = null;
           }
         }
+        const firstDeliveredAtMs = providerMessageIdKey ? firstDeliveredAtByMessageId.get(providerMessageIdKey) : null;
+        const sentAtMs = parseUtcishDate(row?.sent_at)?.getTime() || null;
+        const deliveredLatencySeconds = (firstDeliveredAtMs && sentAtMs && firstDeliveredAtMs >= sentAtMs)
+          ? Math.round((firstDeliveredAtMs - sentAtMs) / 1000)
+          : null;
         return {
           ...row,
           provider_message_id: providerMessageId,
           delivery_status: delivery?.status || null,
           delivery_status_at: delivery?.at || null,
+          delivered_latency_seconds: deliveredLatencySeconds,
         };
       });
     }
@@ -669,7 +686,9 @@ export async function GET(request) {
       shivam_jobs: 0,
       unknown_origin_jobs: 0,
       labit_core_sent_jobs: 0,
-      shivam_archive_sent_jobs: 0
+      shivam_archive_sent_jobs: 0,
+      avg_delivery_latency_seconds: null,
+      delivery_latency_sample_count: 0
     };
     for (const row of dateJobs) {
       const st = String(row?.status || "").trim().toLowerCase();
@@ -772,6 +791,7 @@ export async function GET(request) {
               .order("created_at", { ascending: false })
               .limit(5000);
             const bestDelivery = new Map();
+            const firstDeliveredAtMs = new Map();
             for (const ev of sentDeliveryRows || []) {
               const payload = parseMaybeJson(ev?.payload);
               const statusKey = String(
@@ -784,6 +804,31 @@ export async function GET(request) {
               if (!prev || deliveryRank(statusKey) > deliveryRank(prev)) {
                 bestDelivery.set(msgId, statusKey);
               }
+              if (deliveryRank(statusKey) >= deliveryRank("delivered")) {
+                const evAtMs = parseUtcishDate(ev?.created_at)?.getTime();
+                if (Number.isFinite(evAtMs)) {
+                  const existing = firstDeliveredAtMs.get(msgId);
+                  if (!existing || evAtMs < existing) firstDeliveredAtMs.set(msgId, evAtMs);
+                }
+              }
+            }
+            // sent -> first-delivered latency, averaged across today's sent jobs that have
+            // both a sent_at and a delivered-or-above callback. Purely diagnostic (device/
+            // network-side on WhatsApp's end, nothing this pipeline controls) -- see the
+            // 2026-09-04 R202609040010 investigation this was built for.
+            const latencySamples = [];
+            for (const row of sentDayRows) {
+              const pid = normalizeMessageId(extractProviderMessageIdFromJob(row));
+              const sentAtMs = parseUtcishDate(row?.sent_at)?.getTime();
+              const deliveredAtMs = pid ? firstDeliveredAtMs.get(pid) : null;
+              if (Number.isFinite(sentAtMs) && Number.isFinite(deliveredAtMs) && deliveredAtMs >= sentAtMs) {
+                latencySamples.push((deliveredAtMs - sentAtMs) / 1000);
+              }
+            }
+            if (latencySamples.length > 0) {
+              const avgSeconds = latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length;
+              summary.avg_delivery_latency_seconds = Math.round(avgSeconds);
+              summary.delivery_latency_sample_count = latencySamples.length;
             }
             let readCount = 0;
             let deliveredCount = 0;

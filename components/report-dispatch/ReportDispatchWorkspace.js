@@ -347,6 +347,16 @@ function humanizeSkipReason(reason) {
   return key.replaceAll("_", " ");
 }
 
+function formatLatencyDuration(totalSeconds) {
+  const seconds = Number(totalSeconds);
+  if (!Number.isFinite(seconds) || seconds < 0) return "-";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${Math.round(seconds)}s`;
+}
+
 function reqDateFromReqno(reqno) {
   const raw = String(reqno || "").trim();
   const m = raw.match(/^(\d{4})(\d{2})(\d{2})/);
@@ -2125,6 +2135,17 @@ export default function ReportDispatchWorkspace({
                       <Text fontSize="xs" opacity={0.7}>Sent Only / No Callback</Text>
                     </Tooltip>
                     <Text fontWeight="bold">{autoSummary?.sent_only_no_callback_jobs ?? ((autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only) + (autoSummary?.delivery_unknown_jobs ?? monitorDateStats.unknown))}</Text>
+                    {Number.isFinite(autoSummary?.avg_delivery_latency_seconds) ? (
+                      <Tooltip
+                        label="Average time between our system sending and WhatsApp's first delivered-or-read callback, across today's sent jobs that got one. Device/network-side delay on WhatsApp's end (offline phone, poor signal, etc.) -- not something our pipeline controls or can explain further; WhatsApp gives no reason code for a normal delay like this."
+                        hasArrow
+                        openDelay={250}
+                      >
+                        <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
+                          avg delivery latency {formatLatencyDuration(autoSummary.avg_delivery_latency_seconds)} ({autoSummary?.delivery_latency_sample_count ?? 0} samples)
+                        </Text>
+                      </Tooltip>
+                    ) : null}
                   </Box>
                   <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
                     bg={themeMode === "dark" ? "blue.900" : "blue.50"}
@@ -2578,7 +2599,14 @@ export default function ReportDispatchWorkspace({
                             const canSendToRow = canAutoSendTo;
                             return (
                               <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
-                                <Td><Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge></Td>
+                                <Td>
+                                  <Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge>
+                                  {Number.isFinite(job?.delivered_latency_seconds) ? (
+                                    <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
+                                      +{formatLatencyDuration(job.delivered_latency_seconds)}
+                                    </Text>
+                                  ) : null}
+                                </Td>
                                 <Td>
                                   <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
                                   <Box mt={1}><JobOriginBadge job={job} /></Box>
@@ -2658,7 +2686,14 @@ export default function ReportDispatchWorkspace({
                             const mode = String(job?.metadata?.outsourced_mode || "").toLowerCase();
                             return (
                               <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
-                                <Td><Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge></Td>
+                                <Td>
+                                  <Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge>
+                                  {Number.isFinite(job?.delivered_latency_seconds) ? (
+                                    <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
+                                      +{formatLatencyDuration(job.delivered_latency_seconds)}
+                                    </Text>
+                                  ) : null}
+                                </Td>
                                 <Td>
                                   <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
                                   <Box mt={1}><JobOriginBadge job={job} /></Box>
