@@ -34,7 +34,7 @@ import {
   VStack,
   useDisclosure
 } from "@chakra-ui/react";
-import { HelpCircle, RefreshCw } from "lucide-react";
+import { HelpCircle, RefreshCw, Server, MemoryStick, HardDrive, Layers, Cpu } from "lucide-react";
 import Link from "next/link";
 import ShortcutBar from "../../components/ShortcutBar";
 import { SophosWanCard } from "../../components/cto-dashboard/SophosWanCard";
@@ -1657,28 +1657,30 @@ export default function CtoDashboardPage({
   // "All" is selected. vpsHostMetricModelsByNode (already used correctly by the
   // graph's dashed compare line) is properly split per node -- reuse that here so
   // the pills always show every node in vpsComparisonNodes without needing to toggle.
+  const vpsMetricDefs = useMemo(() => ([
+    { key: "memory", label: "Memory", unit: "%", icon: MemoryStick, warn: 70, critical: 85 },
+    { key: "disk", label: "Disk", unit: "%", icon: HardDrive, warn: 70, critical: 85 },
+    { key: "swap", label: "Swap", unit: "%", icon: Layers, warn: 15, critical: 30 },
+    { key: "load", label: "Load/Core", unit: "%", icon: Cpu, warn: 70, critical: 90 }
+  ]), []);
   const vpsHostCompactMetrics = useMemo(() => {
-    const metricDefs = [
-      { key: "memory", label: "Memory", unit: "%" },
-      { key: "disk", label: "Disk", unit: "%" },
-      { key: "swap", label: "Swap", unit: "%" },
-      { key: "load", label: "Load/Core", unit: "%" }
-    ];
-    const showNodeLabel = vpsComparisonNodes.length > 1;
-    const out = [];
-    for (const node of vpsComparisonNodes) {
-      for (const def of metricDefs) {
+    return vpsComparisonNodes.map((node) => ({
+      node,
+      metrics: vpsMetricDefs.map((def) => {
         const point = vpsHostMetricModelsByNode?.[node]?.[def.key]?.latestPoint;
-        out.push({
+        const value = Number.isFinite(point?.value) ? point.value : null;
+        const severity = value == null ? "unknown" : value >= def.critical ? "critical" : value >= def.warn ? "warn" : "ok";
+        return {
           key: `${node}-${def.key}`,
-          label: showNodeLabel ? `${node.toUpperCase()} ${def.label}` : def.label,
-          value: Number.isFinite(point?.value) ? `${Math.round(point.value)}${def.unit}` : "n/a",
+          label: def.label,
+          icon: def.icon,
+          severity,
+          value: value != null ? `${Math.round(value)}${def.unit}` : "n/a",
           at: point?.label || ""
-        });
-      }
-    }
-    return out;
-  }, [vpsComparisonNodes, vpsHostMetricModelsByNode]);
+        };
+      })
+    }));
+  }, [vpsComparisonNodes, vpsHostMetricModelsByNode, vpsMetricDefs]);
 
   const trendWow = useMemo(() => {
     const points = Array.isArray(trendWowData?.points) ? trendWowData.points : [];
@@ -3167,12 +3169,6 @@ export default function CtoDashboardPage({
                       Solid = {vpsComparisonNodes[0]?.toUpperCase()} | Dashed = {vpsComparisonNodes[1]?.toUpperCase()}
                     </Text>
                   )}
-                  {vpsHostCompactMetrics.map((item) => (
-                    <Box key={item.key} px={2.5} py={1.5} borderRadius="10px" bg={panelBg} border={panelBorder}>
-                      <Text fontSize="10px" color={mutedText} lineHeight="1.1">{item.label}</Text>
-                      <Text fontSize="sm" color={strongText} fontWeight="700" lineHeight="1.1">{item.value}</Text>
-                    </Box>
-                  ))}
                   <Button
                     size="xs"
                     variant={trendRange === "today" ? "solid" : "outline"}
@@ -3192,6 +3188,73 @@ export default function CtoDashboardPage({
                   </Button>
                 </HStack>
               </HStack>
+
+              <Stack spacing={3} mb={4}>
+                {vpsHostCompactMetrics.map(({ node, metrics }, nodeIndex) => {
+                  const accent = nodeIndex === 0 ? "#2dd4bf" : "#a78bfa";
+                  const worst = metrics.some((m) => m.severity === "critical")
+                    ? "critical"
+                    : metrics.some((m) => m.severity === "warn")
+                      ? "warn"
+                      : "ok";
+                  const severityColor = { ok: "#34d399", warn: "#fbbf24", critical: "#f87171", unknown: "#94a3b8" };
+                  return (
+                    <Box
+                      key={node}
+                      position="relative"
+                      overflow="hidden"
+                      borderRadius="14px"
+                      border={panelBorder}
+                      bg={panelBg}
+                      px={4}
+                      py={3}
+                      _before={{
+                        content: '""',
+                        position: "absolute",
+                        inset: 0,
+                        background: `radial-gradient(120% 140% at 0% 0%, ${accent}22 0%, transparent 60%)`,
+                        pointerEvents: "none"
+                      }}
+                    >
+                      <HStack spacing={2} mb={2.5} position="relative">
+                        <Box
+                          as={Server}
+                          size={16}
+                          color={accent}
+                          filter={`drop-shadow(0 0 4px ${accent}88)`}
+                        />
+                        <Text fontSize="sm" fontWeight="800" letterSpacing="0.02em" color={strongText}>
+                          {node.toUpperCase()}
+                        </Text>
+                        <Box w="6px" h="6px" borderRadius="full" bg={severityColor[worst]} boxShadow={`0 0 6px ${severityColor[worst]}`} />
+                        <Text fontSize="10px" color={faintText}>
+                          {worst === "ok" ? "nominal" : worst === "warn" ? "elevated" : "pressure high"}
+                        </Text>
+                      </HStack>
+                      <SimpleGrid columns={{ base: 2, sm: 4 }} spacing={2} position="relative">
+                        {metrics.map((m) => (
+                          <HStack
+                            key={m.key}
+                            spacing={2}
+                            px={2.5}
+                            py={2}
+                            borderRadius="10px"
+                            bg={isDarkTheme ? "whiteAlpha.50" : "blackAlpha.50"}
+                            borderLeft="3px solid"
+                            borderLeftColor={severityColor[m.severity]}
+                          >
+                            <Box as={m.icon} size={14} color={mutedText} flexShrink={0} />
+                            <Box>
+                              <Text fontSize="9px" color={mutedText} lineHeight="1.1">{m.label}</Text>
+                              <Text fontSize="sm" color={strongText} fontWeight="700" lineHeight="1.2">{m.value}</Text>
+                            </Box>
+                          </HStack>
+                        ))}
+                      </SimpleGrid>
+                    </Box>
+                  );
+                })}
+              </Stack>
 
               <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={3}>
                 {[
