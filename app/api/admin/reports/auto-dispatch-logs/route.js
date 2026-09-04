@@ -52,6 +52,28 @@ function parseMaybeJson(value) {
   return null;
 }
 
+// A GET .in(col, [...]) filter is embedded straight into the request URL --
+// Supabase's proxy in front of supabase.sdrc.in 502s once that gets too long
+// (confirmed live 2026-09-04: 120 message_id values OK, 147 failed). A busy
+// day's sent-count can cross that threshold, and the client returns no error
+// object to catch here, just silently empty `data` -- so every count/status
+// derived from it quietly reads as 0 instead of failing loudly. Chunk any
+// `.in()` filter whose value list could plausibly grow past ~100 entries.
+const IN_FILTER_CHUNK_SIZE = 60;
+async function fetchInChunks(queryBuilderFn, column, values) {
+  const rows = [];
+  for (let i = 0; i < values.length; i += IN_FILTER_CHUNK_SIZE) {
+    const chunk = values.slice(i, i + IN_FILTER_CHUNK_SIZE);
+    const { data, error } = await queryBuilderFn().in(column, chunk);
+    if (error) {
+      console.warn(`[auto-dispatch-logs] chunked .in(${column}) fetch failed`, error?.message || String(error));
+      continue;
+    }
+    if (Array.isArray(data)) rows.push(...data);
+  }
+  return rows;
+}
+
 function jobOrigin(row) {
   const meta = parseMaybeJson(row?.metadata) || {};
   const raw = String(meta?.source_backend || meta?.report_origin || "").trim().toLowerCase();
@@ -443,27 +465,31 @@ export async function GET(request) {
     if (providerIds.length > 0 || statusPhones.length > 0) {
       const rows = [];
       if (providerIds.length > 0) {
-        const { data } = await supabase
-          .from("whatsapp_messages")
-          .select("message_id,phone,payload,created_at")
-          .eq("direction", "status")
-          .gte("created_at", statusWindowStartIso)
-          .in("message_id", providerIds)
-          .order("created_at", { ascending: false })
-          .limit(5000);
-        if (Array.isArray(data)) rows.push(...data);
+        rows.push(...await fetchInChunks(
+          () => supabase
+            .from("whatsapp_messages")
+            .select("message_id,phone,payload,created_at")
+            .eq("direction", "status")
+            .gte("created_at", statusWindowStartIso)
+            .order("created_at", { ascending: false })
+            .limit(5000),
+          "message_id",
+          providerIds
+        ));
       }
       if (statusPhones.length > 0 && statusPhones.length <= 200) {
         const indiaPhones = statusPhones.map((p) => `91${p}`);
-        const { data } = await supabase
-          .from("whatsapp_messages")
-          .select("message_id,phone,payload,created_at")
-          .eq("direction", "status")
-          .gte("created_at", statusWindowStartIso)
-          .in("phone", indiaPhones)
-          .order("created_at", { ascending: false })
-          .limit(5000);
-        if (Array.isArray(data)) rows.push(...data);
+        rows.push(...await fetchInChunks(
+          () => supabase
+            .from("whatsapp_messages")
+            .select("message_id,phone,payload,created_at")
+            .eq("direction", "status")
+            .gte("created_at", statusWindowStartIso)
+            .order("created_at", { ascending: false })
+            .limit(5000),
+          "phone",
+          indiaPhones
+        ));
       }
       const dedup = new Map();
       for (const row of rows) {
@@ -782,14 +808,17 @@ export async function GET(request) {
           const uniqueSentProviderIds = [...new Set(sentProviderIds)];
           if (uniqueSentProviderIds.length > 0) {
             const deliveryWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-            const { data: sentDeliveryRows } = await supabase
-              .from("whatsapp_messages")
-              .select("message_id,payload,created_at")
-              .eq("direction", "status")
-              .gte("created_at", deliveryWindowStart)
-              .in("message_id", uniqueSentProviderIds.slice(0, 1000))
-              .order("created_at", { ascending: false })
-              .limit(5000);
+            const sentDeliveryRows = await fetchInChunks(
+              () => supabase
+                .from("whatsapp_messages")
+                .select("message_id,payload,created_at")
+                .eq("direction", "status")
+                .gte("created_at", deliveryWindowStart)
+                .order("created_at", { ascending: false })
+                .limit(5000),
+              "message_id",
+              uniqueSentProviderIds.slice(0, 2000)
+            );
             const bestDelivery = new Map();
             const firstDeliveredAtMs = new Map();
             for (const ev of sentDeliveryRows || []) {
