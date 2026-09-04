@@ -2139,7 +2139,7 @@ export default function CtoDashboardPage({
       className={themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}
       minH="100vh"
       bg={themeMode === "dark"
-        ? "radial-gradient(circle at top left, rgba(0, 195, 255, 0.18), transparent 28%), radial-gradient(circle at top right, rgba(255, 123, 67, 0.16), transparent 22%), linear-gradient(180deg, #0b1320 0%, #111827 50%, #0d1726 100%)"
+        ? "radial-gradient(circle at top left, rgba(170, 250, 240, 0.16), transparent 32%), radial-gradient(circle at bottom right, rgba(170, 250, 240, 0.08), transparent 38%), linear-gradient(180deg, #0a121c 0%, #141e28 50%, #0d1620 100%)"
         : "linear-gradient(180deg, #f8fafc 0%, #eef4f8 48%, #e8f0f4 100%)"}
       color={themeMode === "dark" ? "#f8fafc" : "#102033"}
       px={{ base: 4, md: 8 }}
@@ -2161,17 +2161,24 @@ export default function CtoDashboardPage({
         >
           <VStack align="flex-start" spacing={3} maxW="760px">
             <Badge
-              bg="rgba(29, 233, 182, 0.14)"
-              color="#7ef4d7"
+              bg="rgba(170, 250, 240, 0.14)"
+              color="#aafaf0"
               px={3}
               py={1}
               borderRadius="full"
               fontSize="0.72rem"
               letterSpacing="0.08em"
+              border="1px solid rgba(170, 250, 240, 0.25)"
             >
               {titleBadge}
             </Badge>
-            <Heading size="2xl" lineHeight="1.05" fontWeight="800">
+            <Heading
+              size="2xl"
+              lineHeight="1.05"
+              fontWeight="800"
+              bgGradient={themeMode === "dark" ? "linear(to-r, #f8fafc, #aafaf0)" : undefined}
+              bgClip={themeMode === "dark" ? "text" : undefined}
+            >
               Labit Operations
             </Heading>
             <Text color={softText} fontSize="sm">
