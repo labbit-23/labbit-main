@@ -316,7 +316,7 @@ function jobOrigin(job) {
 }
 
 function originLabel(origin) {
-  if (origin === "labit_core") return "Core";
+  if (origin === "labit_core") return "Labit";
   if (origin === "shivam_archive") return "Archive";
   if (origin === "shivam") return "Shivam";
   return origin ? origin.replaceAll("_", " ") : "Shivam";
@@ -761,7 +761,9 @@ export default function ReportDispatchWorkspace({
       ? rows
       : rows.filter((row) => !["sent", "cancelled"].includes(String(row?.status || "").trim().toLowerCase()));
     const status = String(autoStatusFilter || "").trim().toLowerCase();
-    const byStatus = !status ? byView : byView.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
+    const byStatus = status === "prev_day_reqno"
+      ? byView.filter((row) => Boolean(row?.is_previous_day_reqno))
+      : !status ? byView : byView.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
     const outsourced = String(outsourcedFilter || "all").trim().toLowerCase();
     const byOutsourced = !outsourced || outsourced === "all" ? byStatus : outsourced === "outsourced"
       ? byStatus.filter((row) => String((row?.metadata?.report_source) || "").toLowerCase() === "outsourced_report")
@@ -1242,7 +1244,12 @@ export default function ReportDispatchWorkspace({
       // by updated_at (which would be dominated by noise rows and miss sent jobs).
       const limit = (selectedDate && !skipDateScope) ? 2000 : Number(options?.limit || 120);
       const query = new URLSearchParams({ limit: String(limit) });
-      if (autoStatusFilter) query.set("status", autoStatusFilter);
+      // "prev_day_reqno" is a client-side derived filter (is_previous_day_reqno), not a
+      // real job status column value -- every such row is itself status="sent", so ask
+      // the API for that (keeps correct sent_at date-scoping server-side) and let the
+      // byStatus filter above narrow it down further on the client.
+      if (autoStatusFilter === "prev_day_reqno") query.set("status", "sent");
+      else if (autoStatusFilter) query.set("status", autoStatusFilter);
       if (selectedDate && !skipDateScope) query.set("selected_date", selectedDate);
       const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
@@ -1970,7 +1977,7 @@ export default function ReportDispatchWorkspace({
                   bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}
                   borderColor="transparent"
                 >
-                  <Text fontSize="xs" opacity={0.7}>Core Queue</Text>
+                  <Text fontSize="xs" opacity={0.7}>Labit Queue</Text>
                   <Text fontWeight="bold">{monitorOriginStats.labit_core}</Text>
                   <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
                     Sent {monitorOriginStats.labit_core_sent} • Archive {monitorOriginStats.shivam_archive}
@@ -2055,6 +2062,7 @@ export default function ReportDispatchWorkspace({
                     <option value="sent">sent</option>
                     <option value="failed">failed</option>
                     <option value="cancelled">cancelled</option>
+                    <option value="prev_day_reqno">sent (prev-day reqno)</option>
                   </Select>
                   <IconButton
                     type="button"
@@ -2118,9 +2126,30 @@ export default function ReportDispatchWorkspace({
                     </Tooltip>
                     <Text fontWeight="bold">{autoSummary?.sent_only_no_callback_jobs ?? ((autoSummary?.delivery_sent_only_jobs ?? monitorDateStats.sent_only) + (autoSummary?.delivery_unknown_jobs ?? monitorDateStats.unknown))}</Text>
                   </Box>
-                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "blue.900" : "blue.50"}><Text fontSize="xs" opacity={0.7}>Previous Days Sent</Text><Text fontWeight="bold">{autoSummary?.previous_days_sent_jobs ?? 0}</Text></Box>
+                  <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                    bg={themeMode === "dark" ? "blue.900" : "blue.50"}
+                    borderColor={autoStatusFilter === "prev_day_reqno" ? "pink.400" : "transparent"}
+                    _hover={{ borderColor: "pink.300" }}
+                    onClick={() => {
+                      const next = autoStatusFilter === "prev_day_reqno" ? "" : "prev_day_reqno";
+                      setAutoStatusFilter(next);
+                      if (next) setAutoViewFilter("all");
+                    }}
+                  >
+                    <Text fontSize="xs" opacity={0.7}>Previous Days Sent</Text>
+                    <Text fontWeight="bold">{autoSummary?.previous_days_sent_jobs ?? 0}</Text>
+                    <Tooltip
+                      label="Of the above: sent today for a requisition whose own test_date is an earlier day -- e.g. a partial-report reqno that only became fully ready and dispatched later (reconcile follow-up), not just a job row that sat in the queue overnight. Click to filter to just these."
+                      hasArrow
+                      openDelay={250}
+                    >
+                      <Text fontSize="10px" color={themeMode === "dark" ? "pink.200" : "pink.600"}>
+                        of which {autoSummary?.previous_day_reqno_sent_jobs ?? 0} prev-day reqno
+                      </Text>
+                    </Tooltip>
+                  </Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Outsourced Sent</Text><Text fontWeight="bold">{autoSummary?.outsourced_sent_jobs ?? 0}</Text></Box>
-                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}><Text fontSize="xs" opacity={0.7}>Core-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.labit_core}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}><Text fontSize="xs" opacity={0.7}>Labit-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.labit_core}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Archive-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.shivam_archive}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Paused</Text><Text fontWeight="bold">{monitorDateStats.paused}</Text></Box>
                 </SimpleGrid>
@@ -2243,6 +2272,7 @@ export default function ReportDispatchWorkspace({
                               {displayValue(statusValue)}
                             </Badge>
                             <JobOriginBadge job={job} />
+                            {job?.is_previous_day_reqno ? <Badge colorScheme="pink" borderRadius="md">Prev Day</Badge> : null}
                           </HStack>
                           <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Active")}</Badge>
                         </Flex>
@@ -2372,6 +2402,7 @@ export default function ReportDispatchWorkspace({
                             </Text>
                             <Box mt={1}>
                               <JobOriginBadge job={job} />
+                              {job?.is_previous_day_reqno ? <Badge ml={1} colorScheme="pink" borderRadius="md">Prev Day</Badge> : null}
                             </Box>
                           </Td>
                           <Td w="13%">{displayValue(job?.patient_name)}</Td>

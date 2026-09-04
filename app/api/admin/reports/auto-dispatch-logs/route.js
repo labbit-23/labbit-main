@@ -196,6 +196,31 @@ function parseSnapshotTests(job) {
   return Array.isArray(snap?.tests) ? snap.tests : [];
 }
 
+// IST calendar date (YYYY-MM-DD) a UTC-ish timestamp falls on, matching istDayRange's +5:30 offset.
+function istDateStringFromIso(value) {
+  const dt = parseUtcishDate(value);
+  if (!dt) return null;
+  const shifted = new Date(dt.getTime() + 5.5 * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function testDateFromSnapshot(row) {
+  const snap = parseMaybeJson(row?.last_status_snapshot);
+  const raw = String(snap?.test_date || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+// True only for a SENT job whose source requisition's own test_date predates the IST
+// calendar day it was actually dispatched on -- i.e. a genuine "sent for an earlier day's
+// requisition" case (partial->full follow-ups included), not just "job row created earlier".
+function isPreviousDayReqnoSend(row) {
+  if (String(row?.status || "").trim().toLowerCase() !== "sent") return false;
+  const testDate = testDateFromSnapshot(row);
+  const sentDate = istDateStringFromIso(row?.sent_at);
+  if (!testDate || !sentDate) return false;
+  return testDate < sentDate;
+}
+
 function summarizeReqnoHistory(rows) {
   const byReqno = new Map();
   for (const row of rows || []) {
@@ -577,6 +602,11 @@ export async function GET(request) {
       });
     }
 
+    enrichedJobs = enrichedJobs.map((row) => ({
+      ...row,
+      is_previous_day_reqno: isPreviousDayReqnoSend(row),
+    }));
+
     let events = [];
     if (jobId) {
       let eventsQuery = supabase
@@ -632,6 +662,7 @@ export async function GET(request) {
       risk_timeout_5xx_events: 0,
       sent_only_no_callback_jobs: 0,
       previous_days_sent_jobs: 0,
+      previous_day_reqno_sent_jobs: 0,
       outsourced_sent_jobs: 0,
       labit_core_jobs: 0,
       shivam_archive_jobs: 0,
@@ -685,7 +716,7 @@ export async function GET(request) {
       if (sentDayRange) {
         let sentDayQuery = supabase
           .from(JOBS_TABLE)
-          .select("reqno,metadata,created_at,provider_response")
+          .select("reqno,metadata,created_at,sent_at,last_status_snapshot,provider_response")
           .eq("status", "sent")
           .gte("sent_at", sentDayRange.startIso)
           .lt("sent_at", sentDayRange.endIso)
@@ -699,6 +730,14 @@ export async function GET(request) {
             const createdToday = rowCreatedAt && rowCreatedAt >= sentDayRange.startIso && rowCreatedAt < sentDayRange.endIso;
             if (!createdToday) {
               summary.previous_days_sent_jobs += 1;
+            }
+            // Distinct from previous_days_sent_jobs above (job-row age): this counts a
+            // requisition whose own test_date is an earlier IST day than the day it was
+            // actually dispatched -- e.g. a partial->full reconcile follow-up, where the
+            // follow-up job row itself is freshly created today and would otherwise look
+            // like an ordinary same-day send.
+            if (isPreviousDayReqnoSend({ ...row, status: "sent" })) {
+              summary.previous_day_reqno_sent_jobs += 1;
             }
             const meta = parseMaybeJson(row?.metadata) || {};
             const src = String(meta?.report_source || "").trim().toLowerCase();
