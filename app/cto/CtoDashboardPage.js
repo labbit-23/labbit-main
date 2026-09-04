@@ -1651,19 +1651,34 @@ export default function CtoDashboardPage({
     }
     return byNode;
   }, [vpsComparisonNodes, vpsHostSeriesByNode]);
+  // Per-node, not a single flat/averaged set -- vpsHost*Model above is built from
+  // trendData.host_points with no node filter (only applied when a single node is
+  // explicitly selected), so it silently mixes VPS1+VPS2 readings together whenever
+  // "All" is selected. vpsHostMetricModelsByNode (already used correctly by the
+  // graph's dashed compare line) is properly split per node -- reuse that here so
+  // the pills always show every node in vpsComparisonNodes without needing to toggle.
   const vpsHostCompactMetrics = useMemo(() => {
-    const rows = [
-      { key: "memory", label: "Memory", unit: "%", point: vpsHostMemoryModel.latestPoint },
-      { key: "disk", label: "Disk", unit: "%", point: vpsHostDiskModel.latestPoint },
-      { key: "swap", label: "Swap", unit: "%", point: vpsHostSwapModel.latestPoint },
-      { key: "load", label: "Load/Core", unit: "%", point: vpsHostLoadModel.latestPoint }
+    const metricDefs = [
+      { key: "memory", label: "Memory", unit: "%" },
+      { key: "disk", label: "Disk", unit: "%" },
+      { key: "swap", label: "Swap", unit: "%" },
+      { key: "load", label: "Load/Core", unit: "%" }
     ];
-    return rows.map((row) => ({
-      ...row,
-      value: Number.isFinite(row?.point?.value) ? `${Math.round(row.point.value)}${row.unit}` : "n/a",
-      at: row?.point?.label || ""
-    }));
-  }, [vpsHostDiskModel.latestPoint, vpsHostLoadModel.latestPoint, vpsHostMemoryModel.latestPoint, vpsHostSwapModel.latestPoint]);
+    const showNodeLabel = vpsComparisonNodes.length > 1;
+    const out = [];
+    for (const node of vpsComparisonNodes) {
+      for (const def of metricDefs) {
+        const point = vpsHostMetricModelsByNode?.[node]?.[def.key]?.latestPoint;
+        out.push({
+          key: `${node}-${def.key}`,
+          label: showNodeLabel ? `${node.toUpperCase()} ${def.label}` : def.label,
+          value: Number.isFinite(point?.value) ? `${Math.round(point.value)}${def.unit}` : "n/a",
+          at: point?.label || ""
+        });
+      }
+    }
+    return out;
+  }, [vpsComparisonNodes, vpsHostMetricModelsByNode]);
 
   const trendWow = useMemo(() => {
     const points = Array.isArray(trendWowData?.points) ? trendWowData.points : [];
