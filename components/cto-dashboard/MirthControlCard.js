@@ -1,16 +1,25 @@
 import React, { useState } from "react";
-import { Box, VStack, HStack, Text, Button, Input, useToast } from "@chakra-ui/react";
-import { Lock, Unlock, Cable, AlertTriangle } from "lucide-react";
+import { Box, VStack, HStack, Text, Button, Input, useToast, SimpleGrid, Badge } from "@chakra-ui/react";
+import { Lock, Unlock, Cable, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 // Replaces the Sophos WAN card in Infrastructure Status (2026-09-05, user:
 // "replace with Machine (Mirth) Data and control (gated control behind
-// passcodes)"). No live Mirth API integration exists yet -- see the
-// mirth-cto-dashboard-integration memory note -- so this is the gated shell:
-// passcode-verify against the server-only MIRTH_CONTROL_PASSCODE (never sent
-// to the client), unlocking to an honest "not wired up yet" placeholder
-// rather than fake data or controls. Swap the placeholder body for real
-// channel/queue data once that integration lands.
-export function MirthControlCard() {
+// passcodes)"). Passcode-verify against the server-only MIRTH_CONTROL_PASSCODE
+// (never sent to the client). `mirthServices` is the mirth_*-prefixed slice of
+// the page's own realServices (cto_service_latest rows) -- a local collector
+// ("neosoft-edge-1-local") already pushes real per-channel Mirth data here
+// (mirth_channel_metrics__local.payload.channels[]: name/state/received/sent/
+// errors/filtered/queued/success_rate_percent), confirmed live 2026-09-05.
+// No control actions exist yet (view-only) -- that's the actual follow-up
+// scope, see the mirth-cto-dashboard-integration memory note.
+function channelSeverity(ch) {
+  if (String(ch.state) === "unknown" || ch.status_code === 404) return "unknown";
+  if (Number(ch.errors) > 0) return "error";
+  if (Number(ch.queued) > 0) return "warn";
+  return "ok";
+}
+
+export function MirthControlCard({ mirthServices = [] }) {
   const [passcode, setPasscode] = useState("");
   const [unlocked, setUnlocked] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -90,27 +99,111 @@ export function MirthControlCard() {
           </VStack>
         </form>
       ) : (
-        <VStack spacing={2} align="stretch" position="relative">
-          <HStack
-            spacing={2}
-            bg="rgba(251, 191, 36, 0.1)"
-            border="1px solid rgba(251, 191, 36, 0.25)"
-            borderRadius="8px"
-            px={3}
-            py={2}
-          >
-            <Box as={AlertTriangle} size={14} color="#fbbf24" flexShrink={0} />
-            <Text fontSize="xs" color="whiteAlpha.800">
-              Unlocked, but no live Mirth channel/queue data source is wired up yet.
-              This panel is a placeholder for the machine-queue integration.
-            </Text>
-          </HStack>
-          <Text fontSize="xs" color="whiteAlpha.500">
-            Once the collector reports real channel data, per-machine queue
-            depths and controls will render here.
-          </Text>
-        </VStack>
+        <MirthUnlockedBody mirthServices={mirthServices} />
       )}
     </Box>
+  );
+}
+
+const severityColor = { ok: "#34d399", warn: "#fbbf24", error: "#f87171", unknown: "#94a3b8" };
+
+function MirthUnlockedBody({ mirthServices }) {
+  const metricsRow = mirthServices.find((s) => s.service_key === "mirth_channel_metrics__local");
+  const channels = Array.isArray(metricsRow?.payload?.channels) ? metricsRow.payload.channels : [];
+  const healthRows = mirthServices.filter((s) => s.service_key !== "mirth_channel_metrics__local");
+
+  if (!metricsRow && healthRows.length === 0) {
+    return (
+      <HStack
+        spacing={2}
+        bg="rgba(251, 191, 36, 0.1)"
+        border="1px solid rgba(251, 191, 36, 0.25)"
+        borderRadius="8px"
+        px={3}
+        py={2}
+      >
+        <Box as={AlertTriangle} size={14} color="#fbbf24" flexShrink={0} />
+        <Text fontSize="xs" color="whiteAlpha.800">
+          Unlocked, but no Mirth data has arrived from the collector yet.
+        </Text>
+      </HStack>
+    );
+  }
+
+  const sorted = [...channels].sort((a, b) => {
+    const rank = { error: 0, warn: 1, unknown: 2, ok: 3 };
+    return rank[channelSeverity(a)] - rank[channelSeverity(b)];
+  });
+
+  return (
+    <VStack spacing={2.5} align="stretch" position="relative">
+      {healthRows.length > 0 && (
+        <HStack spacing={2} flexWrap="wrap">
+          {healthRows.map((row) => (
+            <HStack
+              key={row.service_key}
+              spacing={1.5}
+              px={2}
+              py={1}
+              borderRadius="8px"
+              bg="rgba(255,255,255,0.04)"
+              border="1px solid rgba(255,255,255,0.08)"
+            >
+              <Box
+                as={row.status === "healthy" ? CheckCircle2 : XCircle}
+                size={12}
+                color={row.status === "healthy" ? "#34d399" : "#f87171"}
+              />
+              <Text fontSize="10px" color="whiteAlpha.800">{row.label || row.service_key}</Text>
+            </HStack>
+          ))}
+        </HStack>
+      )}
+      {channels.length > 0 && (
+        <VStack spacing={1.5} align="stretch" maxH="260px" overflowY="auto">
+          {sorted.map((ch) => {
+            const sev = channelSeverity(ch);
+            return (
+              <HStack
+                key={ch.channel_id}
+                spacing={2}
+                px={2.5}
+                py={1.5}
+                borderRadius="8px"
+                bg="rgba(255,255,255,0.03)"
+                borderLeft="3px solid"
+                borderLeftColor={severityColor[sev]}
+              >
+                <Text fontSize="xs" color="whiteAlpha.900" fontWeight="600" flex="1" noOfLines={1}>
+                  {ch.name}
+                </Text>
+                {sev === "unknown" ? (
+                  <Badge fontSize="9px" colorScheme="gray">no status</Badge>
+                ) : (
+                  <>
+                    <Text fontSize="10px" color="whiteAlpha.600">recv {ch.received ?? 0}</Text>
+                    <Text fontSize="10px" color="whiteAlpha.600">sent {ch.sent ?? 0}</Text>
+                    {Number(ch.queued) > 0 && (
+                      <Badge fontSize="9px" colorScheme="orange">queued {ch.queued}</Badge>
+                    )}
+                    {Number(ch.errors) > 0 && (
+                      <Badge fontSize="9px" colorScheme="red">errors {ch.errors}</Badge>
+                    )}
+                    <Badge fontSize="9px" colorScheme={sev === "ok" ? "green" : "gray"}>
+                      {ch.success_rate_percent ?? 0}%
+                    </Badge>
+                  </>
+                )}
+              </HStack>
+            );
+          })}
+        </VStack>
+      )}
+      {metricsRow?.checked_at && (
+        <Text fontSize="10px" color="whiteAlpha.500">
+          Last updated {new Date(metricsRow.checked_at).toLocaleTimeString()} · view-only for now
+        </Text>
+      )}
+    </VStack>
   );
 }

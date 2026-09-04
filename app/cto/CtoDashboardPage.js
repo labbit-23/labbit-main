@@ -3704,7 +3704,7 @@ export default function CtoDashboardPage({
               boxShadow="0 28px 80px rgba(0,0,0,0.22)"
             >
               <Heading size="md" mb={4}>Infrastructure Status</Heading>
-              <MirthControlCard />
+              <MirthControlCard mirthServices={realServices.filter((s) => String(s.service_key || "").startsWith("mirth_"))} />
             </Box>
 
             <Box
