@@ -271,8 +271,12 @@ export async function GET(request) {
   let trendDateBuckets = [];
   if (selectedMrno) {
     try {
-      const { getTrendDataByMrno } = await import("@/lib/neosoft/client");
-      const payload = await getTrendDataByMrno(selectedMrno);
+      const { fetchTrendPayloadByMrno } = await import("@/lib/trendReports/fetchTrendPayload");
+      const trendResult = await fetchTrendPayloadByMrno(selectedMrno);
+      if (trendResult.status !== "ok") {
+        throw new Error(trendResult.message || "no trend data");
+      }
+      const payload = trendResult.payload;
       const normalized = normalizeNeosoftTrendPayload(payload, {
         asOfDate: new Date().toISOString().slice(0, 10),
       });

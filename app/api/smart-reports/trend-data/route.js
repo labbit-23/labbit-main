@@ -4,6 +4,7 @@ import { normalizeNeosoftTrendPayload } from "@/lib/trendReports/normalizeNeosof
 import { evaluateTrendRules } from "@/lib/trendReports/ruleEngine";
 import { buildReportFacts } from "@/lib/trendReports/buildReportFacts";
 import { renderReportHtml } from "@/lib/trendReports/renderReportHtml";
+import { fetchTrendPayloadByMrno } from "@/lib/trendReports/fetchTrendPayload";
 
 function asText(value) {
   return String(value || "").trim();
@@ -16,20 +17,11 @@ const DEFAULT_SDRC_LAB_ID = String(
 ).trim();
 const DEFAULT_SDRC_COVER = "https://sdrc.in/assets/sdrc-services.png";
 const DEFAULT_SDRC_LOGO = "https://sdrc.in/assets/sdrc-logo.png";
-const NEOSOFT_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
-// User, 2026-08-30: trend reports must keep working after cutover, when
-// NEOSOFT_API_BASE_URL's source (Shivam/Oracle) stops receiving new data.
-// labit-deliver's own /trend-data/{mrno} facade (unauthenticated,
-// service-to-service, already deployed) proxies to labit-core's
-// patient_archive_service.previous_values_by_mrn -- the SAME
-// labit_core+Shivam-archive merge Consultant View's "Previous Reports" tab
-// already uses, so it's a strict superset of what NeoSoft alone provided
-// (old archived history AND new labit-core data together), not a narrower
-// replacement. LABIT_DELIVER_BASE_URL is already configured in production
-// today (used by app/api/internal/labit-deliver/_proxy.js for admin
-// monitoring) -- reusing it here, not introducing a new env var.
-const LABIT_DELIVER_BASE_URL = String(process.env.LABIT_DELIVER_BASE_URL || "").replace(/\/+$/, "");
-const TREND_FETCH_TIMEOUT_MS = Number(process.env.NEOSOFT_TIMEOUT_MS || 15000);
+// Trend data is fetched through lib/trendReports/fetchTrendPayload -- a
+// single shared client pointed at labit-py's /trend-data/{mrno} (which
+// proxies into labit-core's labit_core + Shivam-archive merge). No
+// labit-deliver hop and no NeoSoft /trend-report-* fallbacks: labit-py is
+// the one upstream.
 const TREND_REPORT_DEFAULT_DESIGN_VARIANT = String(
   process.env.TREND_REPORT_DEFAULT_DESIGN_VARIANT ||
   process.env.SMART_REPORT_DEFAULT_DESIGN_VARIANT ||
@@ -62,102 +54,53 @@ function boolFlag(value, fallback = false) {
   return fallback;
 }
 
-function hasUsablePayload(payload) {
-  if (Array.isArray(payload)) return payload.length > 0;
-  if (!payload || typeof payload !== "object") return false;
-  if (Array.isArray(payload?.table?.rows) && payload.table.rows.length > 0) return true;
-  if (Array.isArray(payload?.parameters) && payload.parameters.length > 0) return true;
-  if (Array.isArray(payload?.tests) && payload.tests.length > 0) return true;
-  if (Array.isArray(payload?.markers) && payload.markers.length > 0) return true;
-  if (Array.isArray(payload?.items) && payload.items.length > 0) return true;
-  return false;
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[ch]));
 }
 
-async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TREND_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`NeoSoft trend data timed out after ${TREND_FETCH_TIMEOUT_MS}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function fetchSmartTrendPayload(mrno) {
-  const cleanMrno = asText(mrno);
-  if (!cleanMrno) {
-    throw new Error("mrno is required");
-  }
-
-  const pythonTemplate = asText(
-    process.env.LABBIT_PY_TREND_DATA_URL_TEMPLATE ||
-    process.env.LABBIT_PY_GETTRENDSDATAAPI ||
-    process.env.LABBIT_PY_GET_TRENDS_DATA_API
-  );
-  const genericTemplate = asText(
-    process.env.NEOSOFT_TREND_DATA_URL_TEMPLATE ||
-    process.env.GETTRENDSDATAAPI ||
-    process.env.GET_TRENDS_DATA_API
-  );
-
-  const urls = [];
-  // Tried first: labit-deliver's /trend-data/{mrno} facade, a thin
-  // passthrough to labit-core's patient_archive_service.previous_values_by_mrn
-  // (the same labit_core+Shivam-archive merge Consultant View's "Previous
-  // Reports" tab uses) -- a strict superset of NeoSoft-only data, so it's
-  // preferred over the legacy fallbacks below rather than only used when
-  // they fail.
-  if (LABIT_DELIVER_BASE_URL) {
-    urls.push(`${LABIT_DELIVER_BASE_URL}/trend-data/${encodeURIComponent(cleanMrno)}`);
-  }
-  if (pythonTemplate) urls.push(pythonTemplate.replace("{mrno}", encodeURIComponent(cleanMrno)));
-  if (genericTemplate) urls.push(genericTemplate.replace("{mrno}", encodeURIComponent(cleanMrno)));
-  if (NEOSOFT_BASE_URL) {
-    urls.push(
-      `${NEOSOFT_BASE_URL}/trend-data/${encodeURIComponent(cleanMrno)}`,
-      `${NEOSOFT_BASE_URL}/trend-report-data/${encodeURIComponent(cleanMrno)}`,
-      `${NEOSOFT_BASE_URL}/trend-report-json/${encodeURIComponent(cleanMrno)}`
-    );
-  }
-
-  let lastError = null;
-  for (const endpoint of urls) {
-    try {
-      const res = await fetchWithTimeout(endpoint, {
-        cache: "no-store",
-        headers: { Accept: "application/json" }
-      });
-      if (res.status === 404) continue;
-      if (!res.ok) {
-        let detail = "";
-        try { detail = (await res.text()).slice(0, 240); } catch {}
-        lastError = new Error(`NeoSoft trend data failed: ${res.status}${detail ? ` | ${detail}` : ""}`);
-        continue;
-      }
-
-      const json = await res.json();
-      if (hasUsablePayload(json)) return json;
-      if (json && typeof json === "object" && hasUsablePayload(json.data)) return json.data;
-      if (
-        json &&
-        typeof json === "object" &&
-        json.standardized &&
-        Array.isArray(json.standardized.parameters) &&
-        json.standardized.parameters.length
-      ) {
-        return json.standardized;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error("NeoSoft trend data endpoint not reachable");
+// Rendered (200, not an error) when the upstream answered cleanly but the
+// patient has no trend history to report -- most often a rapid/walk-in MRN
+// (the 500000001-899999999 range) that labit-core deliberately treats as
+// non-trendable. A patient reaching this via a WhatsApp/portal link should
+// see a plain message, never a 500.
+function renderTrendUnavailableHtml({ mrno, message, brand }) {
+  const logo = asText(brand?.logo_url) || DEFAULT_SDRC_LOGO;
+  const labName = asText(brand?.lab_name) || "SDRC";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trend Report unavailable</title>
+<style>
+  @page { size: A4; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #f4f6f8; }
+  body { font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1f2933; }
+  .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px 20px; box-sizing: border-box; }
+  .card { background: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(20,30,40,.12); max-width: 460px; width: 100%; padding: 36px 32px; text-align: center; }
+  .card img { max-height: 46px; margin-bottom: 22px; }
+  h1 { font-size: 19px; margin: 0 0 10px; color: #141e28; }
+  p { margin: 8px 0; color: #52606d; }
+  .mrno { display: inline-block; margin-top: 14px; font-size: 12px; color: #7b8794; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <img src="${escapeHtml(logo)}" alt="${escapeHtml(labName)}" />
+      <h1>Trend report not available</h1>
+      <p>${escapeHtml(message)}</p>
+      <p class="mrno">MRN ${escapeHtml(mrno)}</p>
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
 async function resolveLabBrandAndFlag(labId) {
@@ -252,7 +195,38 @@ export async function GET(req) {
 
     const { smartReportEnabled, brand } = await resolveLabBrandAndFlag(labId);
 
-    const payload = await fetchSmartTrendPayload(mrno);
+    const download = boolFlag(url.searchParams.get("download"), false);
+
+    const trendResult = await fetchTrendPayloadByMrno(mrno);
+    if (trendResult.status !== "ok") {
+      const message = trendResult.message;
+      const unavailableHtml = renderTrendUnavailableHtml({ mrno, message, brand });
+      if (format === "pdf") {
+        try {
+          const pdf = await htmlToPdfBuffer(unavailableHtml);
+          return new NextResponse(pdf, {
+            status: 200,
+            headers: {
+              "content-type": "application/pdf",
+              "content-disposition": `${download ? "attachment" : "inline"}; filename=\"SDRC_Trend_Report_${mrno}.pdf\"`,
+              "cache-control": "no-store",
+              "x-trend-status": trendResult.reason || "unavailable"
+            }
+          });
+        } catch {
+          // fall through to HTML if the PDF renderer is unavailable
+        }
+      }
+      return new NextResponse(unavailableHtml, {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          "x-trend-status": trendResult.reason || "unavailable"
+        }
+      });
+    }
+    const payload = trendResult.payload;
     const normalized = normalizeNeosoftTrendPayload(payload, { asOfDate });
     const evaluation = evaluateTrendRules({ normalizedTrend: normalized, asOfDate });
     const envDesignVariant = normalizedDesignVariant(TREND_REPORT_DEFAULT_DESIGN_VARIANT, "");
@@ -279,7 +253,6 @@ export async function GET(req) {
     const html = renderReportHtml(facts);
 
     const baseName = `${resolvedReportMode === "trends" ? "SDRC_Trend_Report" : "SDRC_Smart_Trend"}_${mrno}`;
-    const download = boolFlag(url.searchParams.get("download"), false);
 
     if (format === "pdf") {
       try {
