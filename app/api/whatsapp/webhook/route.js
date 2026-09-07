@@ -1107,6 +1107,21 @@ const AUTO_DISPATCH_JOBS_TABLE = "report_auto_dispatch_jobs";
 const AUTO_DISPATCH_EVENTS_TABLE = "report_auto_dispatch_events";
 const AUTO_DISPATCH_RETRY_DELAY_MS = 2 * 60 * 1000;
 
+// WhatsApp delivery-failure codes where retrying the SAME message to the SAME
+// number cannot succeed — the recipient has no WhatsApp, blocked the business,
+// or is outside a window a re-send won't reopen. Retrying these 5× at 2-min
+// intervals (and the enqueue worker then re-creating the job every cycle) is
+// what produced the Sep-3 storm: 11 dead numbers, ~40 sends each = 439
+// "failures". Mark them failed on the first callback instead. 131053
+// ("Media upload error") is deliberately NOT here — that's a transient
+// PDF-fetch problem worth retrying.
+const PERMANENT_WA_DELIVERY_ERROR_CODES = new Set([
+  131026, // Message undeliverable (recipient can't receive)
+  131047, // Re-engagement message required (window closed)
+  131049, // Not delivered — healthy-ecosystem engagement limit
+  131050, // Recipient has stopped receiving messages from this business
+]);
+
 // report_sender_worker marks a job "sent" as soon as WhatsApp's API synchronously
 // accepts it (HTTP 200 + message id). Actual delivery/media-upload success is only
 // known later via this async status webhook. Without this reconciliation, a job that
@@ -1150,7 +1165,8 @@ async function reconcileAutoDispatchDeliveryFailure({
 
     const attempts = Number(job.attempt_count || 0);
     const maxAttempts = Number(job.max_attempts || 5);
-    const terminal = attempts >= maxAttempts;
+    const permanent = errorCode != null && PERMANENT_WA_DELIVERY_ERROR_CODES.has(Number(errorCode));
+    const terminal = permanent || attempts >= maxAttempts;
     const nowIso = new Date().toISOString();
 
     const patch = terminal
@@ -1187,7 +1203,11 @@ async function reconcileAutoDispatchDeliveryFailure({
       reqno: job.reqno,
       reqid: job.reqid,
       phone: job.phone,
-      event_type: terminal ? "delivery_failed_terminal" : "delivery_failed_retry_scheduled",
+      event_type: permanent
+        ? "delivery_failed_permanent"
+        : terminal
+          ? "delivery_failed_terminal"
+          : "delivery_failed_retry_scheduled",
       message: `WhatsApp reported delivery failure via status webhook: ${lastError}`,
       payload: {
         provider_message_id: providerMessageId,
@@ -1196,7 +1216,8 @@ async function reconcileAutoDispatchDeliveryFailure({
         status_timestamp: statusTimestampIso || null,
         attempt_count: attempts,
         max_attempts: maxAttempts,
-        terminal
+        terminal,
+        permanent
       },
       created_at: nowIso
     });
