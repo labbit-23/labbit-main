@@ -1139,7 +1139,7 @@ async function reconcileAutoDispatchDeliveryFailure({
   try {
     const { data: job, error: lookupError } = await supabase
       .from(AUTO_DISPATCH_JOBS_TABLE)
-      .select("id, reqno, reqid, phone, status, attempt_count, max_attempts")
+      .select("id, reqno, reqid, phone, status, attempt_count, max_attempts, provider_response, metadata")
       .eq("provider_response->>provider_message_id", providerMessageId)
       .maybeSingle();
 
@@ -1166,8 +1166,26 @@ async function reconcileAutoDispatchDeliveryFailure({
     const attempts = Number(job.attempt_count || 0);
     const maxAttempts = Number(job.max_attempts || 5);
     const permanent = errorCode != null && PERMANENT_WA_DELIVERY_ERROR_CODES.has(Number(errorCode));
-    const terminal = permanent || attempts >= maxAttempts;
     const nowIso = new Date().toISOString();
+
+    // The report went out via the cheap free-form "session document" route
+    // and delivery failed. Very often that just means the 24h customer-service
+    // window closed between the session check and the send — a TEMPLATE
+    // (different message class) would still land. So on the FIRST failure of a
+    // session-document send, always retry as a template, even for "permanent"
+    // codes, and record it as a cheap-route → template conversion attempt.
+    const jobMeta =
+      job.metadata && typeof job.metadata === "object" ? job.metadata : {};
+    const originalRoute = String(
+      job.provider_response?.dispatch_route || ""
+    ).toLowerCase();
+    const forceTemplateFromCheapRoute =
+      originalRoute === "session_document" &&
+      String(jobMeta.force_dispatch_route || "").toLowerCase() !== "template";
+
+    const terminal = forceTemplateFromCheapRoute
+      ? false
+      : permanent || attempts >= maxAttempts;
 
     const patch = terminal
       ? { status: "failed", last_error: lastError, next_attempt_at: null, updated_at: nowIso }
@@ -1175,7 +1193,10 @@ async function reconcileAutoDispatchDeliveryFailure({
           status: "retrying",
           last_error: lastError,
           next_attempt_at: new Date(Date.now() + AUTO_DISPATCH_RETRY_DELAY_MS).toISOString(),
-          updated_at: nowIso
+          updated_at: nowIso,
+          ...(forceTemplateFromCheapRoute
+            ? { metadata: { ...jobMeta, force_dispatch_route: "template" } }
+            : {})
         };
 
     // Optimistic guard: only apply if the job is still "sent" at write time too,
@@ -1203,12 +1224,16 @@ async function reconcileAutoDispatchDeliveryFailure({
       reqno: job.reqno,
       reqid: job.reqid,
       phone: job.phone,
-      event_type: permanent
-        ? "delivery_failed_permanent"
-        : terminal
-          ? "delivery_failed_terminal"
-          : "delivery_failed_retry_scheduled",
-      message: `WhatsApp reported delivery failure via status webhook: ${lastError}`,
+      event_type: forceTemplateFromCheapRoute
+        ? "cheap_route_failed_forced_template"
+        : permanent
+          ? "delivery_failed_permanent"
+          : terminal
+            ? "delivery_failed_terminal"
+            : "delivery_failed_retry_scheduled",
+      message: forceTemplateFromCheapRoute
+        ? `Session-document delivery failed (${lastError}); retrying as template`
+        : `WhatsApp reported delivery failure via status webhook: ${lastError}`,
       payload: {
         provider_message_id: providerMessageId,
         status_code: statusCode,
@@ -1217,7 +1242,9 @@ async function reconcileAutoDispatchDeliveryFailure({
         attempt_count: attempts,
         max_attempts: maxAttempts,
         terminal,
-        permanent
+        permanent,
+        original_route: originalRoute || null,
+        forced_route: forceTemplateFromCheapRoute ? "template" : null
       },
       created_at: nowIso
     });
