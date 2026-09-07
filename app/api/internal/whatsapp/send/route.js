@@ -191,6 +191,7 @@ export async function POST(request) {
       }
       const reportLikeDispatch = isReportLikeDocumentUrl(documentUrl);
       const dispatchStartedAt = Date.now();
+      let documentProviderMessageId = null;
 
       try {
         const sendResult = await sendDocumentMessage({
@@ -201,6 +202,7 @@ export async function POST(request) {
           caption: String(body?.caption || ""),
           sender
         });
+        documentProviderMessageId = extractProviderMessageId(sendResult);
 
         if (reportLikeDispatch) {
           const readyLabTestKeys = Array.isArray(body?.ready_lab_test_keys) ? body.ready_lab_test_keys : [];
@@ -265,7 +267,18 @@ export async function POST(request) {
       }
 
       await touchSession(session.id);
-      return NextResponse.json({ success: true, ok: true, kind: "document" }, { status: 200 });
+      return NextResponse.json(
+        {
+          success: true,
+          ok: true,
+          kind: "document",
+          // Callers (report_sender_worker) need this to record on the
+          // dispatch job so the delivery-status webhook can reconcile a
+          // later failure — same contract as the template branch.
+          provider_message_id: documentProviderMessageId || null
+        },
+        { status: 200 }
+      );
     }
 
     const templateParams = Array.isArray(body?.template_params)
