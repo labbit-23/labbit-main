@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
+import { extractProviderMessageId, fetchDeliveryStatusByMessageId } from "@/lib/deliveryStatus";
 
 // GET /api/internal/delivery-status-summary?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
 //
 // Service-to-service read for labit-core's MD Dashboard: an AGGREGATE (sent/
 // delivered/read/failed job counts) over report_auto_dispatch_jobs for a date
-// range, one query, called ONCE per dashboard render -- NOT per-requisition.
+// range, ONE endpoint call per dashboard render -- NOT per-requisition.
 //
 // Director, 2026-09-09: "Aggregates... can't they come from labit-main as
 // well?... The Dashboard calls it, pulls it, like CEO Dashboard of Main now
@@ -15,9 +16,19 @@ import { supabase } from "@/lib/supabaseServer";
 // and folded into a much larger admin payload (risk/latency analysis etc).
 // This is a lean, purpose-built sibling: date-RANGE (not single day),
 // x-internal-token-authed (matches delivery-status/[reqno]'s own pattern, not
-// a browser session), and scoped to only the counts a dashboard card needs --
-// same underlying table and field semantics (status, delivery_status), no new
-// computation invented.
+// a browser session).
+//
+// 2026-09-09 FIXED (first version 500'd live): delivery_status/
+// delivery_status_at are NOT raw columns on report_auto_dispatch_jobs --
+// confirmed the hard way (labit-core's fetch_main_delivery_status_summary
+// returned {"available": false, "error": "column
+// report_auto_dispatch_jobs.delivery_status does not exist"} against real
+// production data the moment this shipped). lib/deliveryStatus.js's
+// getDeliveryStatusForReqno() computes them per-job by extracting a
+// provider_message_id from provider_response, then joining against
+// whatsapp_messages (direction='status') -- reuses that exact same shared
+// logic here (now exported) rather than inventing a second, divergent
+// implementation of the same lookup.
 //
 // Called live, not cached, same posture as delivery-status/[reqno] -- a
 // dashboard render is exactly the "ask fresh" case, not a background job.
@@ -47,11 +58,9 @@ function istRangeBounds(dateFrom, dateTo) {
 }
 
 const JOBS_TABLE = "report_auto_dispatch_jobs";
-// Supabase's proxy 502s on an overlong request URL -- confirmed live
-// elsewhere in this codebase (auto-dispatch-logs/route.js's own comment,
-// 147 message_id values failed) -- but this endpoint only ever does a plain
-// range .gte/.lt scan, no .in() list, so that specific limit doesn't apply
-// here; PAGE_SIZE just paginates a wide date range's row count safely.
+// Same reasoning as auto-dispatch-logs/route.js's own comment: paginate a
+// wide date range's row count safely rather than trust a single unbounded
+// SELECT.
 const PAGE_SIZE = 1000;
 
 export async function GET(request) {
@@ -72,32 +81,36 @@ export async function GET(request) {
     return NextResponse.json({ error: "date_from (YYYY-MM-DD) is required" }, { status: 400 });
   }
 
-  const summary = {
-    date_from: dateFrom,
-    date_to: dateTo,
-    total_jobs: 0,
-    queued_jobs: 0,
-    cooling_off_jobs: 0,
-    retrying_jobs: 0,
-    sent_jobs: 0,
-    failed_jobs: 0,
-    // Mutually exclusive buckets for a sent job, by its BEST known delivery
-    // signal -- read implies delivered, so a read job is counted only in
-    // read_jobs, never double-counted into delivered_only_jobs too.
-    // ever_delivered_jobs (read_jobs + delivered_only_jobs) mirrors
-    // lib/deliveryStatus.js's own everDelivered semantics for a caller that
-    // just wants one "reached the patient's phone" number.
-    read_jobs: 0,
-    delivered_only_jobs: 0,
-    sent_only_jobs: 0,
-  };
-
   try {
+    // Pass 1: pull every job in range (status + provider_response, the
+    // field extractProviderMessageId reads) and tally the plain-column
+    // status buckets while we're at it.
+    const jobs = [];
+    const summary = {
+      date_from: dateFrom,
+      date_to: dateTo,
+      total_jobs: 0,
+      queued_jobs: 0,
+      cooling_off_jobs: 0,
+      retrying_jobs: 0,
+      sent_jobs: 0,
+      failed_jobs: 0,
+      // Mutually exclusive buckets for a sent job, by its BEST known
+      // delivery signal -- read implies delivered, so a read job is
+      // counted only in read_jobs, never double-counted into
+      // delivered_only_jobs too. ever_delivered_jobs (read_jobs +
+      // delivered_only_jobs) mirrors lib/deliveryStatus.js's own
+      // everDelivered semantics for a caller that just wants one "reached
+      // the patient's phone" number.
+      read_jobs: 0,
+      delivered_only_jobs: 0,
+      sent_only_jobs: 0,
+    };
     let from = 0;
     for (;;) {
       const { data: rows, error } = await supabase
         .from(JOBS_TABLE)
-        .select("status, delivery_status")
+        .select("status, provider_response")
         .gte("created_at", range.startIso)
         .lt("created_at", range.endIso)
         .range(from, from + PAGE_SIZE - 1);
@@ -111,13 +124,29 @@ export async function GET(request) {
         else if (status === "retrying") summary.retrying_jobs += 1;
         else if (status === "sent") summary.sent_jobs += 1;
         else if (status === "failed") summary.failed_jobs += 1;
-        const deliveryStatus = String(row.delivery_status || "");
-        if (deliveryStatus === "read") summary.read_jobs += 1;
-        else if (deliveryStatus === "delivered") summary.delivered_only_jobs += 1;
-        else if (status === "sent") summary.sent_only_jobs += 1;
+        jobs.push(row);
       }
       if (rows.length < PAGE_SIZE) break;
       from += PAGE_SIZE;
+    }
+
+    // Pass 2: real delivered/read status, same shared lookup
+    // getDeliveryStatusForReqno() uses for a single reqno -- extract each
+    // sent job's provider_message_id, batch-fetch their actual WhatsApp
+    // status rows, then classify the same way that function does.
+    const providerIds = Array.from(
+      new Set(jobs.map(extractProviderMessageId).filter(Boolean))
+    );
+    const statusByMessageId = await fetchDeliveryStatusByMessageId(providerIds);
+    for (const job of jobs) {
+      const status = String(job.status || "");
+      if (status !== "sent") continue;
+      const providerMessageId = extractProviderMessageId(job);
+      const delivery = providerMessageId ? statusByMessageId.get(providerMessageId) : null;
+      const deliveryStatus = delivery?.status || "sent";
+      if (deliveryStatus === "read") summary.read_jobs += 1;
+      else if (deliveryStatus === "delivered") summary.delivered_only_jobs += 1;
+      else summary.sent_only_jobs += 1;
     }
     summary.ever_delivered_jobs = summary.read_jobs + summary.delivered_only_jobs;
     return NextResponse.json({ available: true, ...summary }, { status: 200 });
