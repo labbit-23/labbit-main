@@ -2359,7 +2359,17 @@ export default function ReportDispatchWorkspace({
                             <JobOriginBadge job={job} />
                             {job?.is_previous_day_reqno ? <Badge colorScheme="pink" borderRadius="md">Prev Day</Badge> : null}
                           </HStack>
-                          <Badge colorScheme={job?.is_paused ? "orange" : "green"}>{job?.is_paused ? "Paused" : (String(job?.status || "").toLowerCase() === "sent" ? deriveDeliveryStatus(job).toUpperCase() : "Active")}</Badge>
+                          <Badge colorScheme={job?.is_paused ? "orange" : statusValue === "skipped" ? "gray" : statusValue === "failed" ? "red" : "green"}>
+                            {job?.is_paused
+                              ? "Paused"
+                              : statusValue === "sent"
+                                ? deriveDeliveryStatus(job).toUpperCase()
+                                : statusValue === "skipped"
+                                  ? "Skipped"
+                                  : statusValue === "failed"
+                                    ? "Failed"
+                                    : "Active"}
+                          </Badge>
                         </Flex>
                         <Text fontSize="xs" fontWeight="semibold">
                           <Text
@@ -2529,6 +2539,10 @@ export default function ReportDispatchWorkspace({
                                 </Badge>
                                 <Text fontSize="10px" mt={0.5}>{formatIstDateTime(job?.delivery_status_at, { naiveTz: "utc" })}</Text>
                               </Box>
+                            ) : String(job?.status || "").toLowerCase() === "skipped" ? (
+                              <Badge colorScheme="gray">Skipped</Badge>
+                            ) : String(job?.status || "").toLowerCase() === "failed" ? (
+                              <Badge colorScheme="red">Failed</Badge>
                             ) : (
                               <Badge colorScheme="yellow">Active</Badge>
                             )}
