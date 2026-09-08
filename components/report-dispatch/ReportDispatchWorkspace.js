@@ -1727,6 +1727,21 @@ export default function ReportDispatchWorkspace({
       : null;
 
   const statusReqno = displayValue(status?.reqno || reqnoInput || activeMeta?.reqno);
+  // Confidential referring org: reports/bills must never reach the patient, by
+  // any channel. This screen's PDF fetch goes through labit-py, which refuses
+  // a confidential requisition — so dispatch/print here won't work. Staff use
+  // the core app (Labit → Delivery) for these.
+  const confidentialBlocked = (() => {
+    const s = status || {};
+    const ls = s.live_status || {};
+    const denialText = [
+      s.dispatch_denial_code, ls.dispatch_denial_code,
+      s.dispatch_denial_reason, ls.dispatch_denial_reason,
+      s.decision?.reason, ls.decision?.reason
+    ].map((x) => String(x || "").toUpperCase()).join(" ");
+    const allowed = ls.dispatch_allowed ?? s.dispatch_allowed;
+    return denialText.includes("SOURCE_CONFIDENTIAL") || denialText.includes("CONFIDENTIAL_DO_NOT_SEND") || allowed === false;
+  })();
   const statusPatient = displayValue(status?.live_status?.patient_name || activeMeta?.patient_name);
   const statusPhone = displayValue(status?.live_status?.patient_phone || activeMeta?.phoneno);
   const statusMrno = displayValue(status?.live_status?.mrno || activeMeta?.mrno);
@@ -1882,6 +1897,19 @@ export default function ReportDispatchWorkspace({
                 bodyPx={3}
                 bodyPy={3}
               >
+                {confidentialBlocked ? (
+                  <Box mb={3} p={2} borderRadius="md" borderWidth="1px" borderColor="orange.400"
+                    bg="orange.50" _dark={{ bg: "orange.900", borderColor: "orange.500" }}>
+                    <Text fontSize="xs" fontWeight="700" color="orange.700" _dark={{ color: "orange.200" }}>
+                      Confidential referring org — do not send to the patient
+                    </Text>
+                    <Text fontSize="11px" color="orange.700" _dark={{ color: "orange.200" }} mt={0.5}>
+                      Reports and bills for this org must not reach the patient by any channel.
+                      Dispatch and print for this requisition in the core app (Labit → Delivery),
+                      not from this screen — PDF fetch here is blocked for confidential requisitions.
+                    </Text>
+                  </Box>
+                ) : null}
                 <SimpleGrid columns={2} spacing={3} mb={2}>
                   <DataCell label="Patient" value={statusPatient} />
                   <DataCell label="Phone" value={statusPhone} mono />
