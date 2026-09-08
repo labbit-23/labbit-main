@@ -211,6 +211,19 @@ function deriveDeliveryStatus(job) {
   return "queued";
 }
 
+function dispatchRouteForJob(job) {
+  // report_sender_worker stamps provider_response.dispatch_route on every
+  // sent job -- "template" (a Meta template send, billed) or
+  // "session_document" (the free-form 24h-window document send, cheap/free).
+  // Older jobs sent before that stamp existed have neither -> "unknown".
+  const pr = job?.provider_response;
+  const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
+  const route = String(payload?.dispatch_route || "").trim().toLowerCase();
+  if (route === "session_document") return "freeform";
+  if (route === "template") return "template";
+  return "unknown";
+}
+
 function extractProviderMessageId(job) {
   const pr = job?.provider_response;
   const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
@@ -900,6 +913,22 @@ export default function ReportDispatchWorkspace({
       else if (hasLab) out.lab += 1;
       else if (hasRad) out.radiology += 1;
       else out.other += 1;
+    }
+    return out;
+  }, [autoJobs, selectedDate]);
+
+  const sentTodayRouteSplit = useMemo(() => {
+    const bounds = istDayBounds(selectedDate);
+    const rows = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
+      const st = String(row?.status || "").trim().toLowerCase();
+      if (st !== "sent") return false;
+      if (!bounds) return true;
+      const sentMs = row?.sent_at ? new Date(row.sent_at).getTime() : null;
+      return Number.isFinite(sentMs) && sentMs >= bounds.start && sentMs < bounds.end;
+    });
+    const out = { template: 0, freeform: 0, unknown: 0 };
+    for (const row of rows) {
+      out[dispatchRouteForJob(row)] += 1;
     }
     return out;
   }, [autoJobs, selectedDate]);
@@ -2022,10 +2051,10 @@ export default function ReportDispatchWorkspace({
                   bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}
                   borderColor="transparent"
                 >
-                  <Text fontSize="xs" opacity={0.7}>Labit Queue</Text>
-                  <Text fontWeight="bold">{monitorOriginStats.labit_core}</Text>
+                  <Text fontSize="xs" opacity={0.7}>Sent {selectedDate === dayjs().format("YYYY-MM-DD") ? "(today)" : `(${selectedDate})`} by route</Text>
+                  <Text fontWeight="bold">{sentTodayRouteSplit.template} / {sentTodayRouteSplit.freeform}</Text>
                   <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
-                    Sent {monitorOriginStats.labit_core_sent} • Archive {monitorOriginStats.shivam_archive}
+                    Template {sentTodayRouteSplit.template} • Free-form {sentTodayRouteSplit.freeform}{sentTodayRouteSplit.unknown > 0 ? ` • Unknown ${sentTodayRouteSplit.unknown}` : ""}
                   </Text>
                 </Box>
                 <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
