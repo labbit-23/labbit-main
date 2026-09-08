@@ -9,7 +9,8 @@ import {
   getReportStatus,
   getReportStatusByReqid,
   getReportUrl,
-  getTrendReportUrl
+  getTrendReportUrl,
+  updateDeliveryStatus
 } from "@/lib/neosoft/client";
 import { lookupReportSelection } from "@/lib/neosoft/reportSelection";
 import { sendDocumentMessage, sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp/sender";
@@ -616,6 +617,30 @@ export async function POST(request) {
           durationMs: Date.now() - templateDispatchStartedAt,
           documentUrl
         });
+
+        // Director-reported (2026-09-08): mirror the automated sender's
+        // delivery-status callback so a manual RESEND updates the same
+        // real delivery signal Time Motion reads (see updateDeliveryStatus
+        // doc comment in lib/neosoft/client.js). Never blocks or fails the
+        // resend itself -- the WhatsApp send already succeeded and is
+        // already logged above; this is a best-effort mirror of that fact.
+        if (resolvedReqno) {
+          try {
+            await updateDeliveryStatus({
+              reqno: resolvedReqno,
+              status: "S",
+              channel: "whatsapp",
+              message: "Manual resend via Admin WhatsApp report tools",
+              scope: "all",
+              testids: resolvedTestid ? [resolvedTestid] : null
+            });
+          } catch (deliveryStatusError) {
+            console.error("[admin-report-tools] updateDeliveryStatus failed", {
+              reqno: resolvedReqno,
+              error: deliveryStatusError?.message || String(deliveryStatusError)
+            });
+          }
+        }
       } catch (sendError) {
         await logReportDispatch({
           labId: targetLabId,
