@@ -214,7 +214,14 @@ function deriveDeliveryStatus(job) {
 function extractProviderMessageId(job) {
   const pr = job?.provider_response;
   const payload = typeof pr === "string" ? (() => { try { return JSON.parse(pr); } catch { return null; } })() : pr;
-  const direct = String(payload?.provider_message_id || "").trim();
+  const wa = payload?.whatsapp && typeof payload.whatsapp === "object" ? payload.whatsapp : null;
+  const direct = String(
+    payload?.provider_message_id ||
+      wa?.provider_message_id ||
+      wa?.provider_response?.messages?.[0]?.id ||
+      wa?.messages?.[0]?.id ||
+      ""
+  ).trim();
   if (direct) return direct;
   const nested = String(payload?.provider_response?.messages?.[0]?.id || "").trim();
   if (nested) return nested;

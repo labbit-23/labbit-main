@@ -84,8 +84,17 @@ function jobOrigin(row) {
 
 function extractProviderMessageIdFromJob(job) {
   const payload = parseMaybeJson(job?.provider_response);
+  // report_sender_worker wraps the send response as
+  // provider_response = { whatsapp: <response>, provider_message_id, dispatch_route, ... }.
+  // Older jobs stored the response flat. Check both, plus the deep
+  // whatsapp.provider_response.messages[0].id, or delivery-status joins
+  // (and the failure webhook) silently match nothing.
+  const wa = payload?.whatsapp && typeof payload.whatsapp === "object" ? payload.whatsapp : null;
   const id = String(
     payload?.provider_message_id ||
+      wa?.provider_message_id ||
+      wa?.provider_response?.messages?.[0]?.id ||
+      wa?.messages?.[0]?.id ||
       payload?.provider_response?.messages?.[0]?.id ||
       payload?.id ||
       payload?.message_id ||
@@ -98,8 +107,12 @@ function extractProviderMessageIdFromJob(job) {
 function extractProviderMessageIdFromAny(value) {
   const payload = parseMaybeJson(value);
   if (!payload || typeof payload !== "object") return null;
+  const wa = payload?.whatsapp && typeof payload.whatsapp === "object" ? payload.whatsapp : null;
   const direct = String(
     payload?.provider_message_id ||
+      wa?.provider_message_id ||
+      wa?.provider_response?.messages?.[0]?.id ||
+      wa?.messages?.[0]?.id ||
       payload?.provider_response?.messages?.[0]?.id ||
       payload?.message_id ||
       payload?.id ||
