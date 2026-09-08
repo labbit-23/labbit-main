@@ -614,8 +614,13 @@ export async function GET(request) {
         const providerMessageId = providerIdByJobId.get(Number(row?.id)) || extractProviderMessageIdFromJob(row);
         const providerMessageIdKey = normalizeMessageId(providerMessageId);
         let delivery = providerMessageIdKey ? byMessageId.get(providerMessageIdKey) : null;
-        if (!delivery && !providerMessageIdKey) {
-          // Fallback correlation: same phone, first statuses after sent_at (or created_at).
+        if (!delivery) {
+          // Fallback correlation: same phone, first statuses after sent_at.
+          // Runs whenever the id match came up empty -- not only when there is
+          // no id at all. The aggregator returns one message_id synchronously
+          // but Meta's status webhooks frequently carry a different id for the
+          // same message, so an id that resolves but matches no status row is
+          // just as useless as no id.
           const p10 = phoneLast10(row?.phone);
           const candidates = p10 ? (byPhone.get(p10) || []) : [];
           const sentTs = new Date(row?.sent_at || row?.updated_at || row?.created_at || 0).getTime();
@@ -774,7 +779,7 @@ export async function GET(request) {
       if (sentDayRange) {
         let sentDayQuery = supabase
           .from(JOBS_TABLE)
-          .select("reqno,metadata,created_at,sent_at,last_status_snapshot,provider_response")
+          .select("reqno,phone,metadata,created_at,sent_at,last_status_snapshot,provider_response")
           .eq("status", "sent")
           .gte("sent_at", sentDayRange.startIso)
           .lt("sent_at", sentDayRange.endIso)
@@ -819,20 +824,39 @@ export async function GET(request) {
             .map((id) => String(id).trim())
             .filter(Boolean);
           const uniqueSentProviderIds = [...new Set(sentProviderIds)];
-          if (uniqueSentProviderIds.length > 0) {
+          const sentPhones10 = [...new Set(sentDayRows.map((r) => phoneLast10(r?.phone)).filter(Boolean))];
+          const sentPhonesIndia = sentPhones10.map((p) => `91${p}`);
+          if (uniqueSentProviderIds.length > 0 || sentPhones10.length > 0) {
             const deliveryWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-            const sentDeliveryRows = await fetchInChunks(
-              () => supabase
-                .from("whatsapp_messages")
-                .select("message_id,payload,created_at")
-                .eq("direction", "status")
-                .gte("created_at", deliveryWindowStart)
-                .order("created_at", { ascending: false })
-                .limit(5000),
-              "message_id",
-              uniqueSentProviderIds.slice(0, 2000)
-            );
+            const sentDeliveryRows = [];
+            if (uniqueSentProviderIds.length > 0) {
+              sentDeliveryRows.push(...await fetchInChunks(
+                () => supabase
+                  .from("whatsapp_messages")
+                  .select("message_id,phone,payload,created_at")
+                  .eq("direction", "status")
+                  .gte("created_at", deliveryWindowStart)
+                  .order("created_at", { ascending: false })
+                  .limit(5000),
+                "message_id",
+                uniqueSentProviderIds.slice(0, 2000)
+              ));
+            }
+            if (sentPhonesIndia.length > 0 && sentPhonesIndia.length <= 400) {
+              sentDeliveryRows.push(...await fetchInChunks(
+                () => supabase
+                  .from("whatsapp_messages")
+                  .select("message_id,phone,payload,created_at")
+                  .eq("direction", "status")
+                  .gte("created_at", deliveryWindowStart)
+                  .order("created_at", { ascending: false })
+                  .limit(5000),
+                "phone",
+                sentPhonesIndia.slice(0, 400)
+              ));
+            }
             const bestDelivery = new Map();
+            const byPhoneDelivery = new Map();  // phone10 -> [{status, atMs}]
             const firstDeliveredAtMs = new Map();
             for (const ev of sentDeliveryRows || []) {
               const payload = parseMaybeJson(ev?.payload);
@@ -840,20 +864,40 @@ export async function GET(request) {
                 payload?.status || payload?.raw_status?.status || payload?.statuses?.[0]?.status || ""
               ).trim().toLowerCase();
               if (!statusKey) continue;
+              const evAtMs = parseUtcishDate(ev?.created_at)?.getTime();
+              const p10 = phoneLast10(ev?.phone || payload?.recipient_id);
+              if (p10 && Number.isFinite(evAtMs)) {
+                if (!byPhoneDelivery.has(p10)) byPhoneDelivery.set(p10, []);
+                byPhoneDelivery.get(p10).push({ status: statusKey, atMs: evAtMs });
+              }
               const msgId = normalizeMessageId(ev?.message_id);
               if (!msgId) continue;
               const prev = bestDelivery.get(msgId);
               if (!prev || deliveryRank(statusKey) > deliveryRank(prev)) {
                 bestDelivery.set(msgId, statusKey);
               }
-              if (deliveryRank(statusKey) >= deliveryRank("delivered")) {
-                const evAtMs = parseUtcishDate(ev?.created_at)?.getTime();
-                if (Number.isFinite(evAtMs)) {
-                  const existing = firstDeliveredAtMs.get(msgId);
-                  if (!existing || evAtMs < existing) firstDeliveredAtMs.set(msgId, evAtMs);
-                }
+              if (deliveryRank(statusKey) >= deliveryRank("delivered") && Number.isFinite(evAtMs)) {
+                const existing = firstDeliveredAtMs.get(msgId);
+                if (!existing || evAtMs < existing) firstDeliveredAtMs.set(msgId, evAtMs);
               }
             }
+
+            // id first, then same-phone / first-status-after-sent. The aggregator's
+            // synchronous id and Meta's webhook id often differ for one message.
+            const resolveDelivery = (row) => {
+              const pid = normalizeMessageId(extractProviderMessageIdFromJob(row));
+              const byId = pid ? bestDelivery.get(pid) : null;
+              if (byId) return byId;
+              const p10 = phoneLast10(row?.phone);
+              const sentTs = parseUtcishDate(row?.sent_at)?.getTime();
+              if (!p10 || !Number.isFinite(sentTs)) return null;
+              let best = null;
+              for (const c of byPhoneDelivery.get(p10) || []) {
+                if (c.atMs < sentTs - 30_000 || c.atMs > sentTs + 12 * 60 * 60 * 1000) continue;
+                if (!best || deliveryRank(c.status) >= deliveryRank(best)) best = c.status;
+              }
+              return best;
+            };
             // sent -> first-delivered latency, averaged across today's sent jobs that have
             // both a sent_at and a delivered-or-above callback. Purely diagnostic (device/
             // network-side on WhatsApp's end, nothing this pipeline controls) -- see the
@@ -876,11 +920,11 @@ export async function GET(request) {
             let deliveredCount = 0;
             let sentOnlyCount = 0;
             for (const row of sentDayRows) {
-              const pid = normalizeMessageId(extractProviderMessageIdFromJob(row));
-              const ds = pid ? (bestDelivery.get(pid) || null) : null;
+              const ds = resolveDelivery(row);
               if (ds === "read") readCount += 1;
               else if (ds === "delivered") deliveredCount += 1;
-              else if (pid) sentOnlyCount += 1;
+              else if (ds === "sent") sentOnlyCount += 1;
+              // else: no delivered/read/sent callback correlated -> delivery_unknown_jobs
             }
             summary.delivery_read_jobs = readCount;
             summary.delivery_delivered_jobs = deliveredCount;
