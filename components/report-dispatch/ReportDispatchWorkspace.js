@@ -44,6 +44,7 @@ import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
 import { ActionBtn, DataCell, DeptChip, PageHeader, Pane, ReadyBar, SegmentedControl, StatusPill } from "@/components/ui";
+import { humanizeDeliveryError } from "@/lib/whatsapp/deliveryErrors";
 
 const ADMIN_THEME_STORAGE_KEY = "labbit-admin-dashboard-theme";
 const DAILY_PAGE_SIZE = 10;
@@ -482,7 +483,7 @@ function buildWhyText(job) {
   const reportLabel = String(job?.report_label || "").trim().toLowerCase();
   const isPartial = reportLabel.includes("partial");
 
-  if (displayValue(job?.last_error) !== "-") return displayValue(job?.last_error);
+  if (displayValue(job?.last_error) !== "-") return humanizeDeliveryError(job?.last_error);
 
   if (status === "cooling_off") {
     const parts = [];

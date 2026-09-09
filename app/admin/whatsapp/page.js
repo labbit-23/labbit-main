@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/app/context/UserContext";
 import ShortcutBar from "@/components/ShortcutBar";
+import { humanizeDeliveryError } from "@/lib/whatsapp/deliveryErrors";
 
 const APP_LOGO = process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png";
 const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Labit";
@@ -3870,15 +3871,16 @@ export default function WhatsAppDashboard() {
                           {String(row?.provider_message_id || "-")}
                         </td>
                         <td>
-                          {String(
-                            row?.last_error ||
-                            row?.state_hint ||
-                            row?.last_event_message ||
-                            row?.result_message ||
-                            row?.comment ||
-                            row?.remarks ||
-                            "-"
-                          )}
+                          {row?.last_error
+                            ? humanizeDeliveryError(row.last_error)
+                            : String(
+                                row?.state_hint ||
+                                row?.last_event_message ||
+                                row?.result_message ||
+                                row?.comment ||
+                                row?.remarks ||
+                                "-"
+                              )}
                         </td>
                       </tr>
                     ))}
