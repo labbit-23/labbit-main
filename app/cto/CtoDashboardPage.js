@@ -3606,7 +3606,7 @@ export default function CtoDashboardPage({
                     onClick={() => setPm2ReloadTick((v) => v + 1)}
                     isLoading={pm2Loading}
                   >
-                    Refresh
+                    Refresh Logs
                   </Button>
                   <Button
                     size="sm"
