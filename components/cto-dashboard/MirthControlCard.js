@@ -108,6 +108,7 @@ export function MirthControlCard({ mirthServices = [] }) {
 const severityColor = { ok: "#34d399", warn: "#fbbf24", error: "#f87171", unknown: "#94a3b8" };
 
 function MirthUnlockedBody({ mirthServices }) {
+  const [showLegacy, setShowLegacy] = useState(false);
   const metricsRow = mirthServices.find((s) => s.service_key === "mirth_channel_metrics__local");
   const channels = Array.isArray(metricsRow?.payload?.channels) ? metricsRow.payload.channels : [];
   const healthRows = mirthServices.filter((s) => s.service_key !== "mirth_channel_metrics__local");
@@ -130,8 +131,14 @@ function MirthUnlockedBody({ mirthServices }) {
     );
   }
 
-  const sorted = [...channels].sort((a, b) => {
-    const rank = { error: 0, warn: 1, unknown: 2, ok: 3 };
+  // "unknown"/404 entries are legacy Shivam channels still in the collector's
+  // list but deleted/renamed in Mirth (confirmed with the user 2026-09-05) --
+  // not a real health problem, so keep them out of the live-machine list
+  // entirely rather than sorting them in among real channels.
+  const activeChannels = channels.filter((ch) => channelSeverity(ch) !== "unknown");
+  const legacyChannels = channels.filter((ch) => channelSeverity(ch) === "unknown");
+  const sorted = [...activeChannels].sort((a, b) => {
+    const rank = { error: 0, warn: 1, ok: 2 };
     return rank[channelSeverity(a)] - rank[channelSeverity(b)];
   });
 
@@ -159,45 +166,70 @@ function MirthUnlockedBody({ mirthServices }) {
           ))}
         </HStack>
       )}
-      {channels.length > 0 && (
+      {sorted.length > 0 && (
         <VStack spacing={1.5} align="stretch" maxH="260px" overflowY="auto">
           {sorted.map((ch) => {
             const sev = channelSeverity(ch);
             return (
               <HStack
                 key={ch.channel_id}
-                spacing={2}
+                spacing={2.5}
                 px={2.5}
                 py={1.5}
                 borderRadius="8px"
                 bg="rgba(255,255,255,0.03)"
-                borderLeft="3px solid"
-                borderLeftColor={severityColor[sev]}
               >
+                <Box
+                  w="9px"
+                  h="9px"
+                  borderRadius="full"
+                  flexShrink={0}
+                  bg={severityColor[sev]}
+                  boxShadow={`0 0 8px ${severityColor[sev]}`}
+                />
                 <Text fontSize="xs" color="whiteAlpha.900" fontWeight="600" flex="1" noOfLines={1}>
                   {ch.name}
                 </Text>
-                {sev === "unknown" ? (
-                  <Badge fontSize="9px" colorScheme="gray">no status</Badge>
-                ) : (
-                  <>
-                    <Text fontSize="10px" color="whiteAlpha.600">recv {ch.received ?? 0}</Text>
-                    <Text fontSize="10px" color="whiteAlpha.600">sent {ch.sent ?? 0}</Text>
-                    {Number(ch.queued) > 0 && (
-                      <Badge fontSize="9px" colorScheme="orange">queued {ch.queued}</Badge>
-                    )}
-                    {Number(ch.errors) > 0 && (
-                      <Badge fontSize="9px" colorScheme="red">errors {ch.errors}</Badge>
-                    )}
-                    <Badge fontSize="9px" colorScheme={sev === "ok" ? "green" : "gray"}>
-                      {ch.success_rate_percent ?? 0}%
-                    </Badge>
-                  </>
+                <Text fontSize="10px" color="whiteAlpha.600">recv {ch.received ?? 0}</Text>
+                <Text fontSize="10px" color="whiteAlpha.600">sent {ch.sent ?? 0}</Text>
+                {Number(ch.queued) > 0 && (
+                  <Badge fontSize="9px" colorScheme="orange">queued {ch.queued}</Badge>
                 )}
+                {Number(ch.errors) > 0 && (
+                  <Badge fontSize="9px" colorScheme="red">errors {ch.errors}</Badge>
+                )}
+                <Badge fontSize="9px" colorScheme={sev === "ok" ? "green" : "gray"}>
+                  {ch.success_rate_percent ?? 0}%
+                </Badge>
               </HStack>
             );
           })}
         </VStack>
+      )}
+      {legacyChannels.length > 0 && (
+        <Box>
+          <Text
+            as="button"
+            type="button"
+            onClick={() => setShowLegacy((v) => !v)}
+            fontSize="10px"
+            color="whiteAlpha.500"
+            textDecoration="underline"
+            cursor="pointer"
+          >
+            {showLegacy ? "Hide" : "Show"} {legacyChannels.length} legacy Shivam channel{legacyChannels.length === 1 ? "" : "s"} (inactive)
+          </Text>
+          {showLegacy && (
+            <VStack spacing={1} align="stretch" mt={1.5}>
+              {legacyChannels.map((ch) => (
+                <HStack key={ch.channel_id} spacing={2} px={2.5} py={1} opacity={0.5}>
+                  <Box w="7px" h="7px" borderRadius="full" bg={severityColor.unknown} flexShrink={0} />
+                  <Text fontSize="11px" color="whiteAlpha.700" noOfLines={1}>{ch.name}</Text>
+                </HStack>
+              ))}
+            </VStack>
+          )}
+        </Box>
       )}
       {metricsRow?.checked_at && (
         <Text fontSize="10px" color="whiteAlpha.500">
