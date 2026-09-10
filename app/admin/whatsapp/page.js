@@ -861,6 +861,19 @@ export default function WhatsAppDashboard() {
   const [sentReportsSearch, setSentReportsSearch] = useState("");
   const [isLoadingSentReports, setIsLoadingSentReports] = useState(false);
   const [sentReportsError, setSentReportsError] = useState("");
+  // "Sent Jobs" tabs, user 2026-09-10: "reuse that sent reports to sent jobs
+  // and have a tab for each type" -- "reports"/"special"/"outsourced" filter
+  // the SAME auto-dispatch-logs fetch client-side (all report_auto_dispatch_jobs
+  // sends for the date come back together); "requisition_bill" is a distinct
+  // fetch against patient-message-job-logs (a different table entirely --
+  // patient_message_jobs sends have no report_auto_dispatch_jobs row at all).
+  const SENT_JOBS_TABS = [
+    { key: "reports", label: "Reports" },
+    { key: "special", label: "Special Reports" },
+    { key: "outsourced", label: "Outsourced" },
+    { key: "requisition_bill", label: "Requisition Bill", jobKey: "requisition_welcome" },
+  ];
+  const [sentJobsTab, setSentJobsTab] = useState("reports");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -2043,28 +2056,35 @@ export default function WhatsAppDashboard() {
     setShowReportTemplateModal(true);
   };
 
-  const loadSentReports = async (dateValue = sentReportsDate) => {
+  const loadSentReports = async (dateValue = sentReportsDate, tabKey = sentJobsTab) => {
     setSentReportsError("");
     setIsLoadingSentReports(true);
     try {
-      const query = new URLSearchParams({
-        status: "sent",
-        selected_date: String(dateValue || istTodayYmd()),
-        limit: "300"
-      });
-      const response = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, {
-        credentials: "include",
-        cache: "no-store"
-      });
+      const tab = SENT_JOBS_TABS.find((t) => t.key === tabKey) || SENT_JOBS_TABS[0];
+      const selectedDate = String(dateValue || istTodayYmd());
+      let response;
+      if (tab.jobKey) {
+        const query = new URLSearchParams({ selected_date: selectedDate, job_key: tab.jobKey, limit: "300" });
+        response = await fetch(`/api/admin/reports/patient-message-job-logs?${query.toString()}`, {
+          credentials: "include",
+          cache: "no-store"
+        });
+      } else {
+        const query = new URLSearchParams({ status: "sent", selected_date: selectedDate, limit: "300" });
+        response = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, {
+          credentials: "include",
+          cache: "no-store"
+        });
+      }
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || "Failed to load sent reports");
+        throw new Error(text || "Failed to load sent jobs");
       }
       const json = await response.json();
       setSentReportsRows(Array.isArray(json?.jobs) ? json.jobs : []);
     } catch (err) {
       setSentReportsRows([]);
-      setSentReportsError(err?.message || "Failed to load sent reports");
+      setSentReportsError(err?.message || "Failed to load sent jobs");
     } finally {
       setIsLoadingSentReports(false);
     }
@@ -2072,13 +2092,42 @@ export default function WhatsAppDashboard() {
 
   const openSentReportsModal = async () => {
     setShowSentReportsModal(true);
-    await loadSentReports(sentReportsDate);
+    await loadSentReports(sentReportsDate, sentJobsTab);
   };
+
+  const switchSentJobsTab = async (tabKey) => {
+    setSentJobsTab(tabKey);
+    await loadSentReports(sentReportsDate, tabKey);
+  };
+
+  // "reports"/"special"/"outsourced" all come from the SAME auto-dispatch-logs
+  // fetch (that endpoint has no concept of these sub-types) -- split client-side
+  // by report_source/report_label, same signals resolve_job_report_label /
+  // deriveDeliveryStatus already use elsewhere in this file. "requisition_bill"'s
+  // rows are already exactly what was fetched (a distinct endpoint/tab), so no
+  // further split needed there.
+  const tabFilteredSentReportsRows = useMemo(() => {
+    const rows = Array.isArray(sentReportsRows) ? sentReportsRows : [];
+    if (sentJobsTab === "requisition_bill") return rows;
+    return rows.filter((row) => {
+      const rawMeta = row?.metadata;
+      const meta = (rawMeta && typeof rawMeta === "object")
+        ? rawMeta
+        : (() => { try { return JSON.parse(rawMeta || "{}"); } catch { return {}; } })();
+      const reportSource = String(meta?.report_source || "").trim().toLowerCase();
+      const label = String(row?.report_label || "").trim().toLowerCase();
+      const isOutsourced = reportSource === "outsourced_report";
+      const isSpecial = label === "special report" || isOutsourced;
+      if (sentJobsTab === "outsourced") return isOutsourced;
+      if (sentJobsTab === "special") return isSpecial;
+      return !isSpecial;
+    });
+  }, [sentReportsRows, sentJobsTab]);
 
   const filteredSentReportsRows = useMemo(() => {
     const q = String(sentReportsSearch || "").trim().toLowerCase();
-    if (!q) return sentReportsRows;
-    return (Array.isArray(sentReportsRows) ? sentReportsRows : []).filter((row) => {
+    if (!q) return tabFilteredSentReportsRows;
+    return tabFilteredSentReportsRows.filter((row) => {
       const reasonText = String(
         row?.last_error ||
         row?.state_hint ||
@@ -3114,9 +3163,9 @@ export default function WhatsAppDashboard() {
                   type="button"
                   className="wa-ownerSearchOpenBtn"
                   onClick={openSentReportsModal}
-                  title="View sent reports for selected date"
+                  title="View sent jobs (reports, special, outsourced, requisition bill) for selected date"
                 >
-                  Sent Reports
+                  Sent Jobs
                 </button>
               </div>
 
@@ -3794,9 +3843,9 @@ export default function WhatsAppDashboard() {
 
       {showSentReportsModal && (
         <div className="wa-modalBackdrop" role="presentation" onClick={() => !isLoadingSentReports && setShowSentReportsModal(false)}>
-          <div className="wa-modalCard wa-modalCard--wide" role="dialog" aria-modal="true" aria-label="Sent reports list" onClick={(event) => event.stopPropagation()}>
+          <div className="wa-modalCard wa-modalCard--wide" role="dialog" aria-modal="true" aria-label="Sent jobs list" onClick={(event) => event.stopPropagation()}>
             <div className="wa-modalHeader">
-              <strong>Sent Reports</strong>
+              <strong>Sent Jobs</strong>
               <button
                 type="button"
                 className="wa-modalClose"
@@ -3806,6 +3855,21 @@ export default function WhatsAppDashboard() {
               >
                 ×
               </button>
+            </div>
+            <div className="wa-tabs" role="tablist" aria-label="Sent job type">
+              {SENT_JOBS_TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={sentJobsTab === tab.key}
+                  className={sentJobsTab === tab.key ? "is-active" : ""}
+                  onClick={() => switchSentJobsTab(tab.key)}
+                  disabled={isLoadingSentReports}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
             <div className="wa-modalLookupRow">
               <input
@@ -3818,7 +3882,7 @@ export default function WhatsAppDashboard() {
               <button
                 type="button"
                 className="wa-modalLookupBtn"
-                onClick={() => loadSentReports(sentReportsDate)}
+                onClick={() => loadSentReports(sentReportsDate, sentJobsTab)}
                 disabled={isLoadingSentReports}
               >
                 {isLoadingSentReports ? "Loading..." : "Load"}
@@ -3837,7 +3901,7 @@ export default function WhatsAppDashboard() {
             {sentReportsError ? <div className="wa-modalError">{sentReportsError}</div> : null}
             <div className="wa-sentReportsTableWrap">
               {filteredSentReportsRows.length === 0 && !isLoadingSentReports ? (
-                <div className="wa-empty">No sent reports for this date.</div>
+                <div className="wa-empty">No sent {SENT_JOBS_TABS.find((t) => t.key === sentJobsTab)?.label.toLowerCase() || "jobs"} for this date.</div>
               ) : (
                 <table className="wa-sentReportsTable">
                   <thead>
