@@ -109,6 +109,7 @@ export async function GET(request) {
     const jobs = (Array.isArray(data) ? data : []).map((row) => ({
       id: `pmj_${row.id}`,
       reqno: row.reqno,
+      reqid: row.reqid,
       phone: row.phone,
       patient_name: null,
       report_label: row.report_type,

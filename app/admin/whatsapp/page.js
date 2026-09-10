@@ -3917,37 +3917,55 @@ export default function WhatsAppDashboard() {
                       <th>Delivery At (IST)</th>
                       <th>Message ID</th>
                       <th>Reason / Comment</th>
+                      <th>View</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSentReportsRows.map((row) => (
-                      <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
-                        <td><strong>{String(row?.reqno || "-")}</strong></td>
-                        <td>{String(row?.reqno || "").slice(0, 8) || "-"}</td>
-                        <td>{String(row?.patient_name || "-")}</td>
-                        <td>{String(row?.phone || "-")}</td>
-                        <td>{String(row?.report_label || "-")}</td>
-                        <td>{String(row?.status || "-")}</td>
-                        <td>{normalizeDeliveryStatus(row?.delivery_status)}</td>
-                        <td>{formatMessageTime(row?.sent_at || row?.updated_at)}</td>
-                        <td>{formatMessageTime(row?.delivery_status_at)}</td>
-                        <td title={String(row?.provider_message_id || "")}>
-                          {String(row?.provider_message_id || "-")}
-                        </td>
-                        <td>
-                          {row?.last_error
-                            ? humanizeDeliveryError(row.last_error)
-                            : String(
-                                row?.state_hint ||
-                                row?.last_event_message ||
-                                row?.result_message ||
-                                row?.comment ||
-                                row?.remarks ||
-                                "-"
-                              )}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredSentReportsRows.map((row) => {
+                      // Freshest-as-of-viewing, not a snapshot of what the patient
+                      // actually received (Meta caches the PDF bytes at send time --
+                      // see [[report-delivery-status-vocabulary]] memory). User,
+                      // 2026-09-10: "still worth hooking up" despite that caveat.
+                      const viewQuery = new URLSearchParams({ reqid: String(row?.reqid || ""), mode: "preview" });
+                      if (row?.reqno) viewQuery.set("reqno", String(row.reqno));
+                      if (sentJobsTab === "requisition_bill") viewQuery.set("kind", "ebill");
+                      const viewUrl = row?.reqid ? `/api/admin/reports/document?${viewQuery.toString()}` : null;
+                      return (
+                        <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
+                          <td><strong>{String(row?.reqno || "-")}</strong></td>
+                          <td>{String(row?.reqno || "").slice(0, 8) || "-"}</td>
+                          <td>{String(row?.patient_name || "-")}</td>
+                          <td>{String(row?.phone || "-")}</td>
+                          <td>{String(row?.report_label || "-")}</td>
+                          <td>{String(row?.status || "-")}</td>
+                          <td>{normalizeDeliveryStatus(row?.delivery_status)}</td>
+                          <td>{formatMessageTime(row?.sent_at || row?.updated_at)}</td>
+                          <td>{formatMessageTime(row?.delivery_status_at)}</td>
+                          <td title={String(row?.provider_message_id || "")}>
+                            {String(row?.provider_message_id || "-")}
+                          </td>
+                          <td>
+                            {row?.last_error
+                              ? humanizeDeliveryError(row.last_error)
+                              : String(
+                                  row?.state_hint ||
+                                  row?.last_event_message ||
+                                  row?.result_message ||
+                                  row?.comment ||
+                                  row?.remarks ||
+                                  "-"
+                                )}
+                          </td>
+                          <td>
+                            {viewUrl ? (
+                              <a href={viewUrl} target="_blank" rel="noreferrer" title="Opens the current version of this document, not a snapshot of what was sent">
+                                View
+                              </a>
+                            ) : "-"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

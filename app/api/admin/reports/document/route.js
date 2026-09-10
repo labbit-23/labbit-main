@@ -1,7 +1,7 @@
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
-import { getLabReportUrl, getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
+import { getDocumentUrl, getLabReportUrl, getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
 import { logReportDispatch } from "@/lib/reportDispatchLogs";
 import {
   canUseReportDispatch,
@@ -74,6 +74,11 @@ export async function GET(request) {
       : "plain";
     const printtype = String(url.searchParams.get("printtype") || "1").trim() === "0" ? 0 : 1;
     const testids = String(url.searchParams.get("testids") || "").trim() || null;
+    // Non-report transactional documents (e-bill/bill/estimate/receipt) --
+    // "Sent Jobs" View link for the Requisition Bill tab (2026-09-10), same
+    // DOCUMENT_KINDS registry the patient_message_jobs framework's attachment
+    // already points at. `kind` bypasses the report_scope switch below entirely.
+    const kind = String(url.searchParams.get("kind") || "").trim().toLowerCase();
 
     if (!reqid && reqno) {
       try {
@@ -110,7 +115,9 @@ export async function GET(request) {
       header_mode: isPlain ? "plain" : "default",
       without_header_background: isPlain ? "true" : "false"
     };
-    const reportUrl = reportScope === "all"
+    const reportUrl = kind
+      ? getDocumentUrl(kind, reqid)
+      : reportScope === "all"
       ? getReportUrl(reqid, {
           reqno,
           printtype,
@@ -128,7 +135,7 @@ export async function GET(request) {
             printtype,
             ...commonFlags
           });
-    const reportType = reportScope === "lab" ? "lab" : reportScope === "radiology" ? "radiology" : "combined";
+    const reportType = kind || (reportScope === "lab" ? "lab" : reportScope === "radiology" ? "radiology" : "combined");
 
     const upstream = await fetch(reportUrl, { method: "GET", cache: "no-store" });
     const bytes = await upstream.arrayBuffer();
@@ -175,7 +182,7 @@ export async function GET(request) {
 
     const fileReq = safeFilenamePart(reqno || reqid || "REPORT", "REPORT");
     const filePatient = safeFilenamePart(patientName || "PATIENT", "PATIENT");
-    const scopePart = safeFilenamePart(reportScope.toUpperCase(), "ALL");
+    const scopePart = safeFilenamePart((kind || reportScope).toUpperCase(), "ALL");
     const fileName = `${fileReq} ${filePatient} ${scopePart}.pdf`;
     const disposition =
       mode === "download"
