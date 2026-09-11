@@ -300,7 +300,13 @@ export async function POST(request) {
       templateName,
       languageCode: String(body?.language_code || "en"),
       templateParams,
-      sender
+      sender,
+      // Authentication-category templates with a Copy Code button need a
+      // separate button component -- see sendTemplateMessage's own comment.
+      // Caller opts in explicitly (copy_code_value) rather than this route
+      // guessing from template_name, since only the caller knows the
+      // template's actual approved button configuration.
+      copyCodeValue: body?.copy_code_value || body?.copyCodeValue || null
     });
     await touchSession(session.id);
 
