@@ -371,12 +371,10 @@
             "Whole Body DEXA Scan"
           ],
           "home_collection": false,
-          "sample_report_url": "/assets/reports/sample-fitness-body-composition-report.pdf",
+          "sample_report_url": "/dexa-body-composition",
           "key_inclusions": [
-            "Insulin Resistance - Fasting (HOMA)",
-            "Vitamin D (25-OH)",
-            "Vitamin B12",
-            "Full Body DEXA Scan"
+            "DEXA Whole Body Composition Analysis",
+            "Fitness Profile (gender specific)"
           ]
         }
       ]
