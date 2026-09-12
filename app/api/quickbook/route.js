@@ -137,7 +137,6 @@ function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
   const candidate =
     botFlow?.report_notify_number ||
     templates?.report_notify_number ||
-    lab?.alternate_whatsapp_number ||
     lab?.internal_whatsapp_number ||
     "";
   return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
@@ -333,7 +332,7 @@ async function sendInternalBookingRequestNotify({
         .maybeSingle(),
       supabaseServer
         .from("labs")
-        .select("name,alternate_whatsapp_number,internal_whatsapp_number")
+        .select("name,internal_whatsapp_number")
         .eq("id", labId)
         .maybeSingle()
     ]);

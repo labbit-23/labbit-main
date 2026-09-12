@@ -1291,7 +1291,7 @@ async function fetchLabById(labId) {
   try {
     const { data } = await supabase
       .from("labs")
-      .select("id,name,alternate_whatsapp_number,internal_whatsapp_number")
+      .select("id,name,internal_whatsapp_number")
       .eq("id", labId)
       .maybeSingle();
     return data || null;
@@ -1344,7 +1344,6 @@ function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
   const candidate =
     botFlow?.report_notify_number ||
     templates?.report_notify_number ||
-    lab?.alternate_whatsapp_number ||
     lab?.internal_whatsapp_number ||
     "";
   return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
@@ -2953,7 +2952,6 @@ export async function POST(req) {
     const reportNotifyNumber =
       botFlowConfig?.report_notify_number ||
       templates?.report_notify_number ||
-      lab.alternate_whatsapp_number ||
       lab.internal_whatsapp_number;
 
     if (

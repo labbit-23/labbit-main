@@ -40,7 +40,6 @@ function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
   const candidate =
     botFlow?.report_notify_number ||
     templates?.report_notify_number ||
-    lab?.alternate_whatsapp_number ||
     lab?.internal_whatsapp_number ||
     "";
   return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
@@ -76,7 +75,7 @@ export async function POST(request) {
         .maybeSingle(),
       supabase
         .from("labs")
-        .select("name,alternate_whatsapp_number,internal_whatsapp_number")
+        .select("name,internal_whatsapp_number")
         .eq("id", labId)
         .maybeSingle()
     ]);
@@ -85,7 +84,7 @@ export async function POST(request) {
     const notifyPhone = resolveInternalNotifyPhone({ templates, lab: labRow || null });
     if (!notifyPhone) {
       return NextResponse.json(
-        { error: "No internal notify number configured for this lab (bot_flow.report_notify_number / labs.internal_whatsapp_number / labs.alternate_whatsapp_number)" },
+        { error: "No internal notify number configured for this lab (bot_flow.report_notify_number / labs.internal_whatsapp_number)" },
         { status: 422 }
       );
     }
