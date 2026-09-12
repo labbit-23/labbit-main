@@ -80,6 +80,20 @@ function formatMessageTime(value) {
   });
 }
 
+// Reqno format is "R" + YYYYMMDD + a daily counter (e.g. "R202609120010"
+// = 2026-09-12, #0010). The date is embedded, not a separate field the
+// patient-message-job-logs source returns -- previously this was rendered
+// via reqno.slice(0, 8), which drops the "R" prefix and the last digit of
+// the day, producing garbage like "R2026091" for "R202609120010".
+function reqnoDate(reqno) {
+  const m = String(reqno || "").match(/^R(\d{4})(\d{2})(\d{2})/);
+  if (!m) return "-";
+  const [, y, mo, d] = m;
+  const parsed = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString([], { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" });
+}
+
 function normalizeDeliveryStatus(value) {
   const key = String(value || "").trim().toLowerCase();
   if (!key) return "queued";
@@ -3933,7 +3947,7 @@ export default function WhatsAppDashboard() {
                       return (
                         <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
                           <td><strong>{String(row?.reqno || "-")}</strong></td>
-                          <td>{String(row?.reqno || "").slice(0, 8) || "-"}</td>
+                          <td>{reqnoDate(row?.reqno)}</td>
                           <td>{String(row?.patient_name || "-")}</td>
                           <td>{String(row?.phone || "-")}</td>
                           <td>{String(row?.report_label || "-")}</td>
