@@ -43,6 +43,7 @@ import { FaWhatsapp } from "react-icons/fa";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
+import SetHalfDaysModal from "@/components/report-dispatch/SetHalfDaysModal";
 import { ActionBtn, DataCell, DeptChip, PageHeader, Pane, ReadyBar, SegmentedControl, StatusPill } from "@/components/ui";
 import { humanizeDeliveryError } from "@/lib/whatsapp/deliveryErrors";
 
@@ -634,6 +635,7 @@ export default function ReportDispatchWorkspace({
   const autoEventsModal = useDisclosure();
   const pushTemplateModal = useDisclosure();
   const outsourcedModal = useDisclosure();
+  const halfDaysModal = useDisclosure();
   const bulkConfirmDialog = useDisclosure();
 
   const phoneCacheRef = useRef(new Map());
@@ -1857,6 +1859,15 @@ export default function ReportDispatchWorkspace({
                         flexShrink={0}
                       >
                         List Requisitions
+                      </Button>
+                      <Button
+                        size="sm"
+                        leftIcon={<Clock size={14} />}
+                        variant="outline"
+                        onClick={halfDaysModal.onOpen}
+                        flexShrink={0}
+                      >
+                        Set Half Days
                       </Button>
                       <Text fontSize="xs" color="var(--text-3)" whiteSpace="nowrap">
                         {(Array.isArray(dailyRows) ? dailyRows.length : 0)} cached
@@ -3210,6 +3221,8 @@ export default function ReportDispatchWorkspace({
           });
         }}
       />
+
+      <SetHalfDaysModal isOpen={halfDaysModal.isOpen} onClose={halfDaysModal.onClose} />
     </Box>
   );
 }
