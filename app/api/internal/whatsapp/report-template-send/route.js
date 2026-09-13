@@ -8,6 +8,46 @@ import {
   getReportUrl,
   getTrendReportUrl
 } from "@/lib/neosoft/client";
+
+// 2026-09-13: this route's trend_report branch called the LEGACY
+// getTrendReportUrl ({labit-py}/trend-report/{mrno}) unconditionally --
+// its only caller (SendReportTemplateModal.js, staff's manual "Send Report
+// Template" admin UI) was therefore never getting the new Trends v2
+// pipeline (app/api/smart-reports/trend-data) even after
+// WHATSAPP_USE_NEW_TRENDS_REPORT/the patient-identity and empty-data-guard
+// fixes landed -- same env-flag-gated resolution as
+// lib/whatsapp/engine.js's resolveTrendReportDocumentUrl/
+// buildExecutiveTrendReportDocumentUrl, duplicated here (not imported --
+// engine.js is bot-flow-specific and pulls in unrelated session/context
+// plumbing) so both send paths agree on which trend pipeline is live.
+function isNewTrendsReportEnabled() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.WHATSAPP_USE_NEW_TRENDS_REPORT || "").trim());
+}
+
+function resolveTrendDesignVariant() {
+  const raw = String(
+    process.env.TREND_REPORT_DEFAULT_DESIGN_VARIANT ||
+      process.env.SMART_REPORT_DEFAULT_DESIGN_VARIANT ||
+      "executive"
+  ).trim().toLowerCase();
+  return raw === "basic" || raw === "executive" ? raw : "executive";
+}
+
+function resolveTrendReportDocumentUrl(mrno, labId) {
+  if (!isNewTrendsReportEnabled()) return getTrendReportUrl(mrno);
+  const base = String(process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!base) return getTrendReportUrl(mrno);
+  const params = new URLSearchParams({
+    mrno: String(mrno || "").trim(),
+    format: "pdf",
+    report_mode: "trends",
+    design_variant: resolveTrendDesignVariant()
+  });
+  if (labId) params.set("lab_id", String(labId).trim());
+  return `${base}/api/smart-reports/trend-data?${params.toString()}`;
+}
 import { lookupReportSelection } from "@/lib/neosoft/reportSelection";
 import { sendTemplateMessage } from "@/lib/whatsapp/sender";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
@@ -234,7 +274,7 @@ export async function POST(request) {
     } else if (reportSource === "trend_report") {
       const rawMrno = String(body?.mrno || "").trim();
       if (!rawMrno) return new Response("MRNO is required for trend report.", { status: 400 });
-      documentUrl = getTrendReportUrl(rawMrno);
+      documentUrl = resolveTrendReportDocumentUrl(rawMrno, labId);
       if (!(await isReachablePdfDocument(documentUrl))) {
         return new Response(`Trend report PDF was not found for MRNO ${rawMrno}.`, { status: 400 });
       }
