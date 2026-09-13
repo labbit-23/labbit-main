@@ -29,16 +29,26 @@ function normalizeTestRows(reportStatus) {
       const testid = String(rowValue(row, "TESTID", "testid") || "").trim();
       const testName = String(rowValue(row, "TESTNM", "testnm", "TEST_NAME", "test_name") || "").trim();
       const reportStatusValue = String(rowValue(row, "REPORT_STATUS", "report_status") || "").trim().toUpperCase();
+      const deptid = String(rowValue(row, "DEPTID", "deptid") || "").trim().toUpperCase();
       const approvedFlg = String(rowValue(row, "APPROVEDFLG", "approvedflg") || "").trim();
       return {
         reqid,
         testid,
         test_name: testName || testid || "-",
         report_status: reportStatusValue,
+        deptid,
         approved_flg: approvedFlg
       };
     })
-    .filter((row) => row.reqid && row.testid && row.report_status === "OUTSOURCED" && row.approved_flg === "1");
+    // User, 2026-09-13: "OUTSOURCED and SPECIAL are the same, surface them
+    // uniformly" -- this table only ever matched literal REPORT_STATUS ===
+    // "OUTSOURCED", so an approved SPECIAL TESTS-department test (deptid
+    // DPT00033, e.g. iPTH) never appeared here at all, same gap already
+    // fixed correctly on the labit-py side (dispatch_context.py's own
+    // report_status=="OUTSOURCED" or deptid=="DPT00033" check) but never
+    // ported to this route.
+    .filter((row) => row.reqid && row.testid && row.approved_flg === "1" &&
+      (row.report_status === "OUTSOURCED" || row.deptid === "DPT00033"));
 }
 
 function routeHintForMode(mode) {

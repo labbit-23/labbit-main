@@ -1997,7 +1997,7 @@ export default function ReportDispatchWorkspace({
                   <ActionBtn compact icon={<LayoutList size={14} />}   label="Summary"          variant="summary"    onClick={openSmartSummary} disabled={!hasStatus || !canSmartTrends} />
                   <ActionBtn compact icon={<Clock size={14} />}        label="Pending"          variant="pending"    onClick={() => openDocument("all", { printtype: "0" })} disabled={!hasStatus || !currentReqid() || !hasLab} />
                   {ENABLE_OUTSOURCED_MANUAL_DISPATCH ? (
-                    <ActionBtn compact icon={<Package size={14} />}    label="Outsourced"       variant="outsourced" onClick={openOutsourcedModal} disabled={!hasStatus || !currentReqno()} />
+                    <ActionBtn compact icon={<Package size={14} />}    label="Special/Outs."    variant="outsourced" onClick={openOutsourcedModal} disabled={!hasStatus || !currentReqno()} />
                   ) : null}
                 </SimpleGrid>
               </Pane>
@@ -3110,7 +3110,7 @@ export default function ReportDispatchWorkspace({
       <Modal isOpen={outsourcedModal.isOpen} onClose={outsourcedModal.onClose} size="5xl" isCentered>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Outsourced Reports: {statusReqno}</ModalHeader>
+          <ModalHeader>Special / Outsourced Reports: {statusReqno}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             {outsourcedError ? (
@@ -3145,7 +3145,7 @@ export default function ReportDispatchWorkspace({
                   ) : null}
                   {!outsourcedLoading && outsourcedRows.length === 0 ? (
                     <Tr>
-                      <Td colSpan={6}>No outsourced approved tests found.</Td>
+                      <Td colSpan={6}>No approved special or outsourced tests found.</Td>
                     </Tr>
                   ) : null}
                   {outsourcedRows.map((row) => {
