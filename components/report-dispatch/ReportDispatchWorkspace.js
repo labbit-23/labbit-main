@@ -82,6 +82,22 @@ function yesNo(value) {
   return "No";
 }
 
+// User, 2026-09-13: "OUTSOURCED and SPECIAL are the same, surface them
+// uniformly in sent and in dispatch jobs." A special-report-labeled job
+// (report_label==="special report", e.g. SPECIAL TESTS-department tests
+// like iPTH, Double Marker -- see py_utils resolve_job_report_label's
+// 2026-09-09 fix) and a genuine outsourced job (metadata.report_source===
+// "outsourced_report") were already treated as one bucket on the Sent Jobs
+// tab (admin/whatsapp/page.js) but NOT here -- this workspace only ever
+// filtered/badged "Outsourced", leaving special-labeled jobs with no
+// marker at all. Same predicate as that page's isSpecial, reused here so
+// both surfaces agree on what counts.
+function isSpecialOrOutsourced(row) {
+  const label = String(row?.report_label || "").trim().toLowerCase();
+  const reportSource = String(row?.metadata?.report_source || "").trim().toLowerCase();
+  return label === "special report" || reportSource === "outsourced_report";
+}
+
 function friendlyOutsourcedMode(value) {
   const mode = String(value || "").trim().toLowerCase();
   if (mode === "attached_base" || mode === "attached_qr") return "PDF Attachment";
@@ -799,8 +815,8 @@ export default function ReportDispatchWorkspace({
       : !status ? byView : byView.filter((row) => String(row?.status || "").trim().toLowerCase() === status);
     const outsourced = String(outsourcedFilter || "all").trim().toLowerCase();
     const byOutsourced = !outsourced || outsourced === "all" ? byStatus : outsourced === "outsourced"
-      ? byStatus.filter((row) => String((row?.metadata?.report_source) || "").toLowerCase() === "outsourced_report")
-      : byStatus.filter((row) => String((row?.metadata?.report_source) || "").toLowerCase() !== "outsourced_report");
+      ? byStatus.filter(isSpecialOrOutsourced)
+      : byStatus.filter((row) => !isSpecialOrOutsourced(row));
     const filtered = byOutsourced.filter((row) => {
       const hay = [
         row?.reqno,
@@ -1347,11 +1363,7 @@ export default function ReportDispatchWorkspace({
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const allJobs = Array.isArray(json?.jobs) ? json.jobs : [];
-      const outsourcedOnly = allJobs.filter((job) => {
-        const meta = job?.metadata && typeof job.metadata === "object" ? job.metadata : {};
-        return String(meta.report_source || "").trim() === "outsourced_report";
-      });
-      setOutsourcedSentRows(outsourcedOnly);
+      setOutsourcedSentRows(allJobs.filter(isSpecialOrOutsourced));
       return true;
     } catch (err) {
       setOutsourcedSentRows([]);
@@ -2121,7 +2133,7 @@ export default function ReportDispatchWorkspace({
                   </ButtonGroup>
                   <Select size="sm" maxW="180px" borderRadius="md" value={outsourcedFilter} onChange={(e) => setOutsourcedFilter(e.target.value)}>
                     <option value="all">All report types</option>
-                    <option value="outsourced">Outsourced only</option>
+                    <option value="outsourced">Special / Outsourced only</option>
                     <option value="regular">Regular only</option>
                   </Select>
                   <Button
@@ -2245,7 +2257,7 @@ export default function ReportDispatchWorkspace({
                       </Text>
                     </Tooltip>
                   </Box>
-                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Outsourced Sent</Text><Text fontWeight="bold">{autoSummary?.outsourced_sent_jobs ?? 0}</Text></Box>
+                  <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Special / Outsourced Sent</Text><Text fontWeight="bold">{autoSummary?.outsourced_sent_jobs ?? 0}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}><Text fontSize="xs" opacity={0.7}>Labit-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.labit_core}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "purple.900" : "purple.50"}><Text fontSize="xs" opacity={0.7}>Archive-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.shivam_archive}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "gray.800" : "gray.50"}><Text fontSize="xs" opacity={0.7}>Paused</Text><Text fontWeight="bold">{monitorDateStats.paused}</Text></Box>
@@ -2719,23 +2731,24 @@ export default function ReportDispatchWorkspace({
               {monitorOpen && (
               <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
                 <Flex align="center" justify="space-between" mb={2}>
-                  <Text fontWeight="semibold" fontSize="sm">Outsourced Sent</Text>
+                  <Text fontWeight="semibold" fontSize="sm">Special / Outsourced Sent</Text>
                   <Badge colorScheme="purple">{outsourcedSentRows.length}</Badge>
                 </Flex>
                 {outsourcedSentLoading ? (
-                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading outsourced reports...</Text>
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading special/outsourced reports...</Text>
                 ) : outsourcedSentRows.length === 0 ? (
-                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No outsourced tests sent for selected date.</Text>
+                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No special or outsourced tests sent for selected date.</Text>
                 ) : (
                   isMobileViewport ? (
                     <Box>
                       {outsourcedSentRows.map((job) => {
                         const jobId = String(job?.id || "");
+                        const isOutsourced = String(job?.metadata?.report_source || "").trim().toLowerCase() === "outsourced_report";
                         return (
                           <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
                             <Flex justify="space-between" align="center" mb={1}>
                               <HStack spacing={1}>
-                                <Badge colorScheme="purple" borderRadius="md" px={2} textTransform="lowercase">Outsourced</Badge>
+                                <Badge colorScheme="purple" borderRadius="md" px={2} textTransform="lowercase">{isOutsourced ? "Outsourced" : "Special"}</Badge>
                                 <JobOriginBadge job={job} />
                               </HStack>
                               <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
@@ -2744,8 +2757,12 @@ export default function ReportDispatchWorkspace({
                               <Text as="span" fontWeight="bold" cursor="pointer" userSelect="text" onClick={() => handleReqnoClick(job)}>
                                 {displayValue(job?.reqno)}
                               </Text>
-                              {" • "}
-                              <Text as="span" fontSize="xs" color="gray.500">T{displayValue((job?.metadata?.outsourced_testid || "").replace(/^T/, ""))}</Text>
+                              {isOutsourced ? (
+                                <>
+                                  {" • "}
+                                  <Text as="span" fontSize="xs" color="gray.500">T{displayValue((job?.metadata?.outsourced_testid || "").replace(/^T/, ""))}</Text>
+                                </>
+                              ) : null}
                             </Text>
                             <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)}</Text>
                             <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
@@ -2761,6 +2778,7 @@ export default function ReportDispatchWorkspace({
                         <Thead>
                           <Tr>
                             <Th>Delivery Status</Th>
+                            <Th>Type</Th>
                             <Th>REQNO</Th>
                             <Th>Test ID</Th>
                             <Th>Phone</Th>
@@ -2772,6 +2790,7 @@ export default function ReportDispatchWorkspace({
                           {outsourcedSentRows.map((job) => {
                             const jobId = String(job?.id || "");
                             const deliveryStatus = deriveDeliveryStatus(job);
+                            const isOutsourced = String(job?.metadata?.report_source || "").trim().toLowerCase() === "outsourced_report";
                             const testid = (job?.metadata?.outsourced_testid || "").replace(/^T/, "");
                             const mode = String(job?.metadata?.outsourced_mode || "").toLowerCase();
                             return (
@@ -2784,14 +2803,15 @@ export default function ReportDispatchWorkspace({
                                     </Text>
                                   ) : null}
                                 </Td>
+                                <Td><Badge colorScheme="purple" borderRadius="md" fontSize="xs" textTransform="lowercase">{isOutsourced ? "outsourced" : "special"}</Badge></Td>
                                 <Td>
                                   <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
                                   <Box mt={1}><JobOriginBadge job={job} /></Box>
                                 </Td>
-                                <Td><Text mono fontSize="xs">T{testid}</Text></Td>
+                                <Td><Text mono fontSize="xs">{isOutsourced ? `T${testid}` : "-"}</Text></Td>
                                 <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
                                 <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
-                                <Td><Badge colorScheme="orange" borderRadius="md" fontSize="xs" textTransform="lowercase">{mode || "base"}</Badge></Td>
+                                <Td>{isOutsourced ? <Badge colorScheme="orange" borderRadius="md" fontSize="xs" textTransform="lowercase">{mode || "base"}</Badge> : <Text fontSize="xs">-</Text>}</Td>
                               </Tr>
                             );
                           })}

@@ -804,8 +804,13 @@ export async function GET(request) {
             }
             const meta = parseMaybeJson(row?.metadata) || {};
             const src = String(meta?.report_source || "").trim().toLowerCase();
+            const label = String(row?.report_label || "").trim().toLowerCase();
             const origin = jobOrigin(row);
-            if (src === "outsourced_report") {
+            // User, 2026-09-13: "OUTSOURCED and SPECIAL are the same, surface
+            // them uniformly" -- same isSpecialOrOutsourced predicate as the
+            // Report Dispatch workspace UI, so this tile's count matches
+            // what the "Special / Outsourced Sent" panel actually lists.
+            if (src === "outsourced_report" || label === "special report") {
               summary.outsourced_sent_jobs += 1;
             }
             if (origin === "labit_core") {

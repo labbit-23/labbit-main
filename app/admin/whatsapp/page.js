@@ -876,15 +876,23 @@ export default function WhatsAppDashboard() {
   const [isLoadingSentReports, setIsLoadingSentReports] = useState(false);
   const [sentReportsError, setSentReportsError] = useState("");
   // "Sent Jobs" tabs, user 2026-09-10: "reuse that sent reports to sent jobs
-  // and have a tab for each type" -- "reports"/"special"/"outsourced" filter
+  // and have a tab for each type" -- "reports"/"special_outsourced" filter
   // the SAME auto-dispatch-logs fetch client-side (all report_auto_dispatch_jobs
   // sends for the date come back together); "requisition_bill" is a distinct
   // fetch against patient-message-job-logs (a different table entirely --
   // patient_message_jobs sends have no report_auto_dispatch_jobs row at all).
+  //
+  // User, 2026-09-13: "OUTSOURCED and SPECIAL are the same, surface them
+  // uniformly" -- every metadata.report_source==="outsourced_report" job was
+  // ALREADY included under the "special" tab's isSpecial check (see below),
+  // so a genuine outsourced send always showed up in both tabs at once --
+  // two places to look for the same thing, not two real categories. Merged
+  // into one tab; the underlying isSpecial predicate (label==="special
+  // report" OR outsourced_report) is unchanged, just no longer also exposed
+  // as a second, overlapping tab.
   const SENT_JOBS_TABS = [
     { key: "reports", label: "Reports" },
-    { key: "special", label: "Special Reports" },
-    { key: "outsourced", label: "Outsourced" },
+    { key: "special_outsourced", label: "Special / Outsourced" },
     { key: "requisition_bill", label: "Requisition Bill", jobKey: "requisition_welcome" },
   ];
   const [sentJobsTab, setSentJobsTab] = useState("reports");
@@ -2132,8 +2140,7 @@ export default function WhatsAppDashboard() {
       const label = String(row?.report_label || "").trim().toLowerCase();
       const isOutsourced = reportSource === "outsourced_report";
       const isSpecial = label === "special report" || isOutsourced;
-      if (sentJobsTab === "outsourced") return isOutsourced;
-      if (sentJobsTab === "special") return isSpecial;
+      if (sentJobsTab === "special_outsourced") return isSpecial;
       return !isSpecial;
     });
   }, [sentReportsRows, sentJobsTab]);
