@@ -1228,6 +1228,21 @@ async function loadPatientAppMetrics(labId) {
     return [];
   }
 
+  // 2026-09-13: same live-query hop for the sparkline's day-bucketed
+  // history -- best-effort, a failure here must not blank the single-line
+  // stats card above (payload.daily simply stays undefined and the
+  // frontend renders without a sparkline).
+  let daily = null;
+  try {
+    const dailyResp = await fetch(`${base}/internal/patient-app-stats/daily?days=30`, {
+      headers: { "x-internal-token": token },
+      cache: "no-store"
+    });
+    if (dailyResp.ok) daily = await dailyResp.json();
+  } catch (error) {
+    console.error("[cto/latest] patient app daily stats fetch error", error);
+  }
+
   const checkedAt = new Date().toISOString();
   return [
     {
@@ -1240,7 +1255,7 @@ async function loadPatientAppMetrics(labId) {
       source: "labit-core-live",
       latency_ms: null,
       message: `${stats.logins_today} logins today (${stats.otp_logins_today} OTP, ${stats.passkey_logins_today} passkey), ${stats.active_sessions} active sessions, ${stats.unique_patients_7d} unique patients (7d)`,
-      payload: stats,
+      payload: { ...stats, daily: daily?.points || null },
       updated_at: checkedAt
     }
   ];

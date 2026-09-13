@@ -358,6 +358,36 @@ function isWhatsappMetric(service) {
   return service?.category === "whatsapp" || String(baseKey || "").startsWith("whatsapp_bot_");
 }
 
+// 2026-09-13: labit_patient_usage's payload.daily (see loadPatientAppMetrics
+// -> labit-core's GET /internal/patient-app-stats/daily) carries real
+// day-bucketed login history -- a small inline sparkline here, same "which
+// service" pattern isWhatsappMetric already uses.
+function isPatientUsageMetric(service) {
+  return service?.service_key === "labit_patient_usage";
+}
+
+function PatientUsageSparkline({ points = [], width = 96, height = 26 }) {
+  const values = points.map((p) => Number(p?.logins) || 0);
+  if (!values.length) return null;
+  const max = Math.max(1, ...values);
+  const stepX = values.length > 1 ? width / (values.length - 1) : 0;
+  const toY = (v) => height - (v / max) * (height - 4) - 2;
+  const linePath = values
+    .map((v, i) => `${i === 0 ? "M" : "L"} ${(i * stepX).toFixed(1)} ${toY(v).toFixed(1)}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
+  const lastX = (values.length - 1) * stepX;
+  const lastY = toY(values[values.length - 1]);
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Daily logins, last 30 days">
+      <path d={areaPath} fill="#7ef4d7" opacity="0.16" />
+      <path d={linePath} fill="none" stroke="#7ef4d7" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lastX} cy={lastY} r="2" fill="#7ef4d7" />
+    </svg>
+  );
+}
+
 function toFiniteInt(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? Math.round(num) : fallback;
@@ -3850,7 +3880,14 @@ export default function CtoDashboardPage({
                               <Text fontSize="sm" flex="1" minW={0} noOfLines={1}>
                                 {iconForService(service)} {service.label || service.service_key}
                               </Text>
-                              {isWhatsappMetric(service) ? (
+                              {isPatientUsageMetric(service) ? (
+                                <HStack flexShrink={0} spacing={2}>
+                                  <PatientUsageSparkline points={service?.payload?.daily || []} />
+                                  <Text fontSize="xs" color="whiteAlpha.700" whiteSpace="nowrap">
+                                    {toFiniteInt(service?.payload?.logins_today)} today
+                                  </Text>
+                                </HStack>
+                              ) : isWhatsappMetric(service) ? (
                                 <Box flexShrink={0} minW={0} maxW="54%">
                                   {formatWhatsappMetricValue(service).map((line, index) => (
                                     <Text

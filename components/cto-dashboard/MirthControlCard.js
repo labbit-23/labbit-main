@@ -1,17 +1,22 @@
-import React, { useState } from "react";
-import { Box, VStack, HStack, Text, Button, Input, useToast, SimpleGrid, Badge } from "@chakra-ui/react";
-import { Lock, Unlock, Cable, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import React from "react";
+import { Box, VStack, HStack, Text, SimpleGrid, Badge } from "@chakra-ui/react";
+import { Cable, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 // Replaces the Sophos WAN card in Infrastructure Status (2026-09-05, user:
-// "replace with Machine (Mirth) Data and control (gated control behind
-// passcodes)"). Passcode-verify against the server-only MIRTH_CONTROL_PASSCODE
-// (never sent to the client). `mirthServices` is the mirth_*-prefixed slice of
-// the page's own realServices (cto_service_latest rows) -- a local collector
-// ("neosoft-edge-1-local") already pushes real per-channel Mirth data here
-// (mirth_channel_metrics__local.payload.channels[]: name/state/received/sent/
-// errors/filtered/queued/success_rate_percent), confirmed live 2026-09-05.
-// No control actions exist yet (view-only) -- that's the actual follow-up
-// scope, see the mirth-cto-dashboard-integration memory note.
+// "replace with Machine (Mirth) Data and control"). `mirthServices` is the
+// mirth_*-prefixed slice of the page's own realServices (cto_service_latest
+// rows) -- a local collector ("neosoft-edge-1-local") already pushes real
+// per-channel Mirth data here (mirth_channel_metrics__local.payload.
+// channels[]: name/state/received/sent/errors/filtered/queued/
+// success_rate_percent), confirmed live 2026-09-05.
+// 2026-09-13, user: "Ungate since its a login iron session" -- this whole
+// page already sits behind RequireAuth(roles: director/director_ceo)
+// (app/cto/page.js), an iron-session-backed login; the separate
+// MIRTH_CONTROL_PASSCODE prompt was redundant defense-in-depth on an
+// already-authenticated, role-restricted page. Removed -- view-only Mirth
+// status now shows directly. No control actions exist yet (view-only) --
+// that's the actual follow-up scope, see the mirth-cto-dashboard-integration
+// memory note.
 function channelSeverity(ch) {
   if (String(ch.state) === "unknown" || ch.status_code === 404) return "unknown";
   if (Number(ch.errors) > 0) return "error";
@@ -20,40 +25,6 @@ function channelSeverity(ch) {
 }
 
 export function MirthControlCard({ mirthServices = [] }) {
-  const [passcode, setPasscode] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const toast = useToast();
-
-  async function handleUnlock(e) {
-    e.preventDefault();
-    if (!passcode.trim()) return;
-    setVerifying(true);
-    try {
-      const res = await fetch("/api/internal/mirth-control/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode })
-      });
-      const body = await res.json().catch(() => ({}));
-      if (res.ok && body?.ok) {
-        setUnlocked(true);
-      } else {
-        toast({
-          status: "error",
-          title: "Access denied",
-          description: body?.error || "Incorrect passcode",
-          duration: 3000
-        });
-        setPasscode("");
-      }
-    } catch {
-      toast({ status: "error", title: "Could not verify passcode", duration: 3000 });
-    } finally {
-      setVerifying(false);
-    }
-  }
-
   return (
     <Box
       borderRadius="14px"
@@ -73,34 +44,9 @@ export function MirthControlCard({ mirthServices = [] }) {
       <HStack spacing={2} mb={3} position="relative">
         <Box as={Cable} size={16} color="#aafaf0" filter="drop-shadow(0 0 4px #aafaf088)" />
         <Text fontWeight="700" fontSize="sm" color="whiteAlpha.950">Machine Data (Mirth)</Text>
-        <Box as={unlocked ? Unlock : Lock} size={13} color="whiteAlpha.600" ml="auto" />
       </HStack>
 
-      {!unlocked ? (
-        <form onSubmit={handleUnlock}>
-          <VStack spacing={2} align="stretch" position="relative">
-            <Text fontSize="xs" color="whiteAlpha.700">
-              Control is passcode-gated. Enter it to view/manage machine channels.
-            </Text>
-            <HStack>
-              <Input
-                type="password"
-                size="sm"
-                placeholder="Passcode"
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                bg="rgba(11,19,32,0.6)"
-                borderColor="whiteAlpha.200"
-              />
-              <Button size="sm" colorScheme="teal" type="submit" isLoading={verifying}>
-                Unlock
-              </Button>
-            </HStack>
-          </VStack>
-        </form>
-      ) : (
-        <MirthUnlockedBody mirthServices={mirthServices} />
-      )}
+      <MirthUnlockedBody mirthServices={mirthServices} />
     </Box>
   );
 }
@@ -125,7 +71,7 @@ function MirthUnlockedBody({ mirthServices }) {
       >
         <Box as={AlertTriangle} size={14} color="#fbbf24" flexShrink={0} />
         <Text fontSize="xs" color="whiteAlpha.800">
-          Unlocked, but no Mirth data has arrived from the collector yet.
+          No Mirth data has arrived from the collector yet.
         </Text>
       </HStack>
     );
