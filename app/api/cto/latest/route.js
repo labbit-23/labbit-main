@@ -1194,6 +1194,58 @@ function getIstDayKey(value) {
   return IST_DAY_FORMATTER.format(parsed);
 }
 
+// Director, 2026-09-13: "Also build an endpoint here to check web
+// logins, visitors, etc., stats and so on" (labit-patient, the patient
+// app) -- clarified that app has no staff/admin auth or DB access of
+// its own, so this lives here instead, reusing the CTO Dashboard rather
+// than a new one. First version pushed a snapshot into
+// cto_service_latest on an hourly timer; director caught that as
+// unnecessary ("It didnt need ingests though I thought, just core data
+// would ahve been enough, no?") -- correct, this mirrors
+// loadAutoDispatchMetrics/loadWhatsappBotMetrics instead: a LIVE call at
+// dashboard-render time, no ingest/staleness. The one difference from
+// those two is the data itself lives in labit_core's own RLS-protected
+// schema (not a `public` Supabase table labit-main can read directly),
+// so this is one internal HTTP hop to labit-core's own
+// GET /internal/patient-app-stats (app/routers/patient_app_stats.py)
+// instead of a direct Supabase query.
+async function loadPatientAppMetrics(labId) {
+  if (!labId) return [];
+  const base = (process.env.LABIT_CORE_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
+  const token = process.env.PATIENT_APP_STATS_INTERNAL_TOKEN || "";
+  if (!token) return [];
+
+  let stats;
+  try {
+    const resp = await fetch(`${base}/internal/patient-app-stats`, {
+      headers: { "x-internal-token": token },
+      cache: "no-store"
+    });
+    if (!resp.ok) return [];
+    stats = await resp.json();
+  } catch (error) {
+    console.error("[cto/latest] patient app stats fetch error", error);
+    return [];
+  }
+
+  const checkedAt = new Date().toISOString();
+  return [
+    {
+      lab_id: labId,
+      service_key: "labit_patient_usage",
+      category: "labit-patient",
+      label: "Patient App Usage",
+      status: "healthy",
+      checked_at: checkedAt,
+      source: "labit-core-live",
+      latency_ms: null,
+      message: `${stats.logins_today} logins today (${stats.otp_logins_today} OTP, ${stats.passkey_logins_today} passkey), ${stats.active_sessions} active sessions, ${stats.unique_patients_7d} unique patients (7d)`,
+      payload: stats,
+      updated_at: checkedAt
+    }
+  ];
+}
+
 async function loadWebsiteAnalytics(labId) {
   if (!supabase) return null;
 
@@ -1361,6 +1413,7 @@ export async function GET(request) {
     const rows = data || [];
     let whatsappMetrics = [];
     let autoDispatchMetrics = [];
+    let patientAppMetrics = [];
     let websiteAnalytics = null;
 
     try {
@@ -1376,13 +1429,19 @@ export async function GET(request) {
     }
 
     try {
+      patientAppMetrics = await loadPatientAppMetrics(labId);
+    } catch (patientAppMetricError) {
+      console.error("[cto/latest] patient app metrics error", patientAppMetricError);
+    }
+
+    try {
       websiteAnalytics = await loadWebsiteAnalytics(labId);
     } catch (analyticsError) {
       console.error("[cto/latest] website analytics error", analyticsError);
     }
 
     const nowMs = Date.now();
-    const combinedRows = [...rows, ...whatsappMetrics, ...autoDispatchMetrics].map((row) => normalizeServiceStatus(row, nowMs));
+    const combinedRows = [...rows, ...whatsappMetrics, ...autoDispatchMetrics, ...patientAppMetrics].map((row) => normalizeServiceStatus(row, nowMs));
     const summary = combinedRows.reduce(
       (acc, row) => {
         acc.total += 1;

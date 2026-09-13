@@ -306,6 +306,12 @@ function domainTitleForService(service) {
   if (category === "python" || category === "neosoft" || key === "labbit_health" || category === "app") {
     return "Core Platform";
   }
+  // labit-patient's usage stats (logins/active sessions/unique patients --
+  // see labit-core's scripts/report_patient_app_usage_to_cto.py), 2026-09-13.
+  // Was falling into the generic "Other" bucket before this -- a raw
+  // 📦-icon card with no domain grouping is a poor first impression for
+  // a metric the director specifically asked to see.
+  if (category === "labit-patient") return "Patient App";
   return "Other";
 }
 
@@ -329,6 +335,7 @@ function iconForDomainTitle(title) {
     "Machine Interfacing": "🔗",
     "App Servers": "🖥️",
     "Core Platform": "🧠",
+    "Patient App": "📱",
     Other: "📦"
   };
   return iconByDomain[title] || "📦";
