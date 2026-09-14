@@ -324,30 +324,17 @@ const exportVisitsImage = async () => {
     setLoading(true);
     setErrorMsg("");
     try {
-      const todayKey = dayjs().format("YYYY-MM-DD");
-      const [
-        { data: visitsData, error: visitsError },
-        { data: futureVisitsData, error: futureVisitsError },
-      ] = await Promise.all([
-        supabase
-          .from("visits")
-          .select(`
-            *,
-            patient:patient_id(id, name, phone),
-            executive:executive_id(id, name, email, lab_id),
-            lab:lab_id(id, name),
-            time_slot:time_slot(id, slot_name, start_time, end_time)
-          `)
-          .eq("visit_date", selectedDate)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("visits")
-          .select("visit_date, executive_id, status")
-          .gte("visit_date", todayKey),
-      ]);
+      // visits now has RLS enabled (2026-09-14) -- browser can no longer
+      // query it via the anon key. See
+      // app/api/internal/visits/admin-list/route.js.
+      const listUrl = new URL("/api/internal/visits/admin-list", window.location.origin);
+      listUrl.searchParams.set("date", selectedDate);
+      const listRes = await fetch(listUrl.toString());
+      const listBody = await listRes.json().catch(() => ({}));
+      if (!listRes.ok) throw new Error(listBody?.error || "Failed to load data");
 
-      if (visitsError) throw visitsError;
-      if (futureVisitsError) throw futureVisitsError;
+      const visitsData = listBody.visits;
+      const futureVisitsData = listBody.futureVisits;
 
       setVisits(visitsData || []);
       const unassignedFutureVisits = (futureVisitsData || []).filter(

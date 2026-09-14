@@ -107,15 +107,17 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId: propHvE
     setLoadingVisits(true);
     setActiveVisits([]);
     try {
-      const { data, error } = await supabase
-        .from("visits")
-        .select(
-          "id, visit_date, status, time_slot, time_slot:time_slot(slot_name, start_time, end_time)"
-        )
-        .eq("patient_id", patientId)
-        .filter("status", "not.in", "(completed,canceled)")
-        .order("visit_date", { ascending: false });
-      if (error) throw error;
+      // visits now has RLS enabled (2026-09-14) -- browser can no longer
+      // query it via the anon key. /api/visits already exists (service
+      // role) and returns everything this needs plus more; filter the
+      // completed/canceled ones out here instead of duplicating a new
+      // server-side query shape.
+      const res = await fetch(`/api/visits?patient_id=${encodeURIComponent(patientId)}`);
+      const body = await res.json().catch(() => ([]));
+      if (!res.ok) throw new Error(body?.error || "Failed to load active visits");
+      const data = (Array.isArray(body) ? body : []).filter(
+        (v) => !["completed", "canceled"].includes(v.status)
+      );
       setActiveVisits(data || []);
     } catch (err) {
       toast({ title: "Error loading active visits", description: err.message, status: "error" });
@@ -137,22 +139,23 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId: propHvE
     }
     setCreatingVisit(true);
     try {
-      const { data, error } = await supabase
-        .from("visits")
-        .insert([
-          {
-            patient_id: selectedPatient.id,
-            visit_date: visitDate,
-            time_slot: selectedSlotId,
-            executive_id: hvExecutiveId,
-            status: "assigned",
-          },
-        ])
-        .select(
-          "*, patient:patient_id(name, phone), time_slot:time_slot(id, slot_name, start_time, end_time)"
-        )
-        .single();
-      if (error) throw error;
+      // visits now has RLS enabled (2026-09-14) -- browser can no longer
+      // insert via the anon key. /api/visits' POST already does this (plus
+      // SMS notifications/activity logging), same route YourDayView.js's
+      // PUT already uses for status updates.
+      const res = await fetch("/api/visits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patient_id: selectedPatient.id,
+          visit_date: visitDate,
+          time_slot: selectedSlotId,
+          executive_id: hvExecutiveId,
+          status: "assigned",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to create visit");
 
       toast({ title: "Visit created and assigned to you", status: "success" });
       onSelectVisit(data); // Pass the new visit up for details tab

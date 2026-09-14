@@ -9,7 +9,6 @@ import {
 } from "@chakra-ui/react";
 import { Bike, CheckCircle, MapPin, Navigation, Phone, Plus, Receipt, Search, TestTubes, UserPlus } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
-import { supabase } from "../../lib/supabaseClient";
 import { useUser } from "../context/UserContext";
 import PatientsTab from "../components/PatientsTab";
 import TestPackageSelector from "../../components/TestPackageSelector";
@@ -186,28 +185,18 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   const fetchVisits = useCallback(async () => {
     if (!executiveId) return;
     try {
-      let query = supabase
-        .from("visits")
-        .select(`
-          id, status, visit_date, address, notes, executive_id,
-          time_slot (slot_name, start_time, end_time),
-          patient:patient_id (
-            id, name, phone,
-            addresses:patient_addresses (
-              id, address_line, area, city, lat, lng, is_default
-            )
-          )
-        `)
-        .gte("visit_date", viewDate)
-        .lte("visit_date", isToday ? tomorrow : viewDate);
-
-      query = isToday
-        ? query.or(`executive_id.eq.${executiveId},executive_id.is.null`)
-        : query.eq("executive_id", executiveId);
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setVisits(data || []);
+      // visits now has RLS enabled (2026-09-14) -- browser can no longer
+      // query it via the anon key. See
+      // app/api/internal/visits/active/route.js.
+      const visitsUrl = new URL("/api/internal/visits/active", window.location.origin);
+      visitsUrl.searchParams.set("hv_executive_id", executiveId);
+      visitsUrl.searchParams.set("range_start", viewDate);
+      visitsUrl.searchParams.set("range_end", isToday ? tomorrow : viewDate);
+      visitsUrl.searchParams.set("include_unassigned", isToday ? "true" : "false");
+      const res = await fetch(visitsUrl.toString());
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Could not load visits");
+      setVisits(body.data || []);
     } catch (err) {
       toast({ title: "Could not load visits", status: "error", duration: 2500 });
     } finally {
@@ -321,11 +310,15 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
           body: JSON.stringify({ lat: coords.lat, lng: coords.lng }),
         });
       } else {
-        // No patient address — update the visit's own lat/lng so future booking can inherit it
-        await supabase
-          .from("visits")
-          .update({ lat: coords.lat, lng: coords.lng })
-          .eq("id", visit.id);
+        // No patient address — update the visit's own lat/lng so future
+        // booking can inherit it. visits now has RLS enabled (2026-09-14)
+        // -- browser can no longer write it via the anon key. See
+        // app/api/internal/visits/[id]/geo/route.js.
+        await fetch(`/api/internal/visits/${visit.id}/geo`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat: coords.lat, lng: coords.lng }),
+        });
       }
     } catch {
       // non-fatal — still advance
@@ -372,10 +365,12 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
     testModal.onOpen();
     setLoadingTests(true);
     try {
-      const { data } = await supabase
-        .from("visit_details")
-        .select("test_id")
-        .eq("visit_id", visit.id);
+      // visit_details now has RLS enabled (2026-09-14) -- browser can no
+      // longer query it via the anon key. See
+      // app/api/internal/visit-details/route.js.
+      const res = await fetch(`/api/internal/visit-details?visit_id=${encodeURIComponent(visit.id)}`);
+      const body = await res.json().catch(() => ({}));
+      const data = body.data;
       const loaded = new Set((data || []).map(d => d.test_id).filter(Boolean));
       originalTestIds.current = loaded;
       setVisitTestIds(new Set(loaded));
@@ -391,19 +386,17 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
       const toRemove = [...orig].filter(id => !visitTestIds.has(id));
       const toAdd    = [...visitTestIds].filter(id => !orig.has(id));
 
-      if (toRemove.length) {
-        const { error } = await supabase
-          .from("visit_details")
-          .delete()
-          .eq("visit_id", visit.id)
-          .in("test_id", toRemove);
-        if (error) throw error;
-      }
-      if (toAdd.length) {
-        const { error } = await supabase
-          .from("visit_details")
-          .insert(toAdd.map(id => ({ visit_id: visit.id, test_id: id, package_id: null })));
-        if (error) throw error;
+      // visit_details now has RLS enabled (2026-09-14) -- browser can no
+      // longer write it via the anon key. See
+      // app/api/internal/visit-details/route.js.
+      if (toRemove.length || toAdd.length) {
+        const res = await fetch("/api/internal/visit-details", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visit_id: visit.id, add: toAdd, remove: toRemove }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body?.error || "Failed to save tests");
       }
       originalTestIds.current = new Set(visitTestIds);
       toast({ title: "Tests saved", status: "success", duration: 2000 });
@@ -1302,13 +1295,13 @@ function VisitDetailSheet({ visit, muted }) {
   const [logLoading, setLogLoading] = useState(true);
 
   useEffect(() => {
-    supabase
-      .from("visit_activity_log")
-      .select("created_at, old_value, new_value")
-      .eq("visit_id", visit.id)
-      .in("activity_type", ["visit_update", "visit_created"])
-      .order("created_at", { ascending: true })
-      .then(({ data }) => {
+    // visit_activity_log now has RLS enabled (2026-09-14) -- browser can no
+    // longer query it via the anon key. See
+    // app/api/internal/visit-activity-log/route.js.
+    fetch(`/api/internal/visit-activity-log?visit_id=${encodeURIComponent(visit.id)}`)
+      .then((r) => r.json())
+      .then((body) => {
+        const data = body.data;
         const changes = (data || []).filter(
           e => e.new_value?.status && e.new_value.status !== e.old_value?.status
         );

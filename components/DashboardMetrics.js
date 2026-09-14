@@ -57,71 +57,21 @@ export default function DashboardMetrics({ hvExecutiveId, date, collectionCentre
             });
           }
         } else {
-          // Existing visits KPIs for admin or executive
-          const baseFilter = (query) =>
-            query
-              .eq("visit_date", queryDate)
-              .not("status", "eq", "disabled"); // Exclude disabled visits
+          // visits now has RLS enabled (2026-09-14) -- browser can no
+          // longer count it via the anon key. See
+          // app/api/internal/visits/kpis/route.js.
+          const kpiUrl = new URL("/api/internal/visits/kpis", window.location.origin);
+          kpiUrl.searchParams.set("date", queryDate);
+          if (hvExecutiveId) kpiUrl.searchParams.set("hv_executive_id", hvExecutiveId);
+          const kpiRes = await fetch(kpiUrl.toString());
+          const kpiBody = await kpiRes.json().catch(() => ({}));
+          if (!kpiRes.ok) throw new Error(kpiBody.error || "Error fetching metrics");
 
-          const totalQuery = baseFilter(
-            supabase.from("visits").select("id", { count: "exact", head: true })
-          );
-
-          let assignedQuery = baseFilter(
-            supabase.from("visits").select("id", { count: "exact", head: true })
-          );
-
-          if (hvExecutiveId) {
-            assignedQuery = assignedQuery.eq("executive_id", hvExecutiveId);
-          } else {
-            assignedQuery = assignedQuery.not("executive_id", "is", null);
-          }
-
-          const completedQuery = baseFilter(
-            supabase
-              .from("visits")
-              .select("id", { count: "exact", head: true })
-              .eq("status", "completed")
-          );
-
-          const pendingQuery = baseFilter(
-            supabase
-              .from("visits")
-              .select("id", { count: "exact", head: true })
-              .eq("status", "pending")
-          );
-
-          const unassignedQuery = baseFilter(
-            supabase
-              .from("visits")
-              .select("id", { count: "exact", head: true })
-              .is("executive_id", null)
-          );
-
-          const [
-            { count: totalCount, error: totalErr },
-            { count: assignedCount, error: assignedErr },
-            { count: completedCount, error: completedErr },
-            { count: pendingCount, error: pendingErr },
-            { count: unassignedCount, error: unassignedErr },
-          ] = await Promise.all([
-            totalQuery,
-            assignedQuery,
-            completedQuery,
-            pendingQuery,
-            unassignedQuery,
-          ]);
-
-          if (totalErr || assignedErr || completedErr || pendingErr || unassignedErr) {
-            throw new Error(
-              totalErr?.message ||
-                assignedErr?.message ||
-                completedErr?.message ||
-                pendingErr?.message ||
-                unassignedErr?.message ||
-                "Error fetching metrics"
-            );
-          }
+          const totalCount = kpiBody.total;
+          const assignedCount = kpiBody.assigned;
+          const completedCount = kpiBody.completed;
+          const pendingCount = kpiBody.pending;
+          const unassignedCount = kpiBody.unassigned;
 
           if (!cancelled) {
             setMetrics({

@@ -118,9 +118,13 @@ const VisitBillingPanel = forwardRef(function VisitBillingPanel({
         .order("lab_test_name", { ascending: true }),
       supabase.from("packages")
         .select("id, name, price, package_items(item_id)"),
-      supabase.from("visit_details")
-        .select("test_id")
-        .eq("visit_id", visitId),
+      // visit_details now has RLS enabled (2026-09-14) -- browser can no
+      // longer query it via the anon key. See
+      // app/api/internal/visit-details/route.js.
+      fetch(`/api/internal/visit-details?visit_id=${encodeURIComponent(visitId)}`)
+        .then((r) => r.json())
+        .then((body) => ({ data: body.data, error: body.error ? { message: body.error } : null }))
+        .catch((error) => ({ data: null, error })),
     ]).then(([testsRes, pkgRes, selRes]) => {
       let tests = testsRes.error ? [] : (testsRes.data || []).filter(t => {
         const dept = String(t.department || "").toLowerCase();
@@ -249,16 +253,17 @@ const VisitBillingPanel = forwardRef(function VisitBillingPanel({
       const orig     = originalIds.current;
       const toRemove = [...orig].filter(id => !selectedIds.has(id));
       const toAdd    = [...selectedIds].filter(id => !orig.has(id));
-      if (toRemove.length) {
-        const { error } = await supabase.from("visit_details").delete()
-          .eq("visit_id", visitId).in("test_id", toRemove);
-        if (error) throw error;
-      }
-      if (toAdd.length) {
-        const { error } = await supabase.from("visit_details").insert(
-          toAdd.map(id => ({ visit_id: visitId, test_id: id, package_id: null }))
-        );
-        if (error) throw error;
+      // visit_details now has RLS enabled (2026-09-14) -- browser can no
+      // longer write it via the anon key. See
+      // app/api/internal/visit-details/route.js.
+      if (toRemove.length || toAdd.length) {
+        const res = await fetch("/api/internal/visit-details", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visit_id: visitId, add: toAdd, remove: toRemove }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body?.error || "Failed to save estimate");
       }
       originalIds.current = new Set(selectedIds);
       // Persist discount for this patient

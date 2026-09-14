@@ -241,44 +241,17 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
       const rangeStart = addDays(selectedDate, -7);
       const rangeEnd = addDays(selectedDate, 1);
 
-      const { data, error } = await supabase
-        .from("visits")
-        .select(`
-          id,
-          patient_id,
-          visit_date,
-          time_slot (slot_name, start_time, end_time),
-          address,
-          status,
-          executive_id,
-          notes,
-          prescription,
-          patient:patient_id(
-            id,
-            name,
-            phone,
-            addresses:patient_addresses(
-              id,
-              label,
-              pincode,
-              address_line,
-              lat,
-              lng,
-              is_default,
-              city,
-              state,
-              country,
-              area
-            )
-          ),
-          executive:executive_id(name)
-        `)
-        .gte("visit_date", rangeStart)
-        .lte("visit_date", rangeEnd)
-        .or(`executive_id.eq.${hvExecutiveId},executive_id.is.null`);
-
-      if (error) throw error;
-      setVisits(data || []);
+      // visits now has RLS enabled (2026-09-14) -- browser can no longer
+      // query it (with these nested embeds) via the anon key. See
+      // app/api/internal/visits/active/route.js.
+      const activeUrl = new URL("/api/internal/visits/active", window.location.origin);
+      activeUrl.searchParams.set("hv_executive_id", hvExecutiveId);
+      activeUrl.searchParams.set("range_start", rangeStart);
+      activeUrl.searchParams.set("range_end", rangeEnd);
+      const res = await fetch(activeUrl.toString());
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to load visits");
+      setVisits(body.data || []);
     } catch (error) {
       setErrorMsg("Failed to load visits.");
       toast({

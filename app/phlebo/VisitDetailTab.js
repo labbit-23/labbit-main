@@ -147,11 +147,13 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
   const fetchVisitSelections = async () => {
     setLoadingDetails(true);
     try {
-      const { data, error } = await supabase
-        .from("visit_details")
-        .select("test_id, package_id")
-        .eq("visit_id", visit.id);
-      if (error) throw error;
+      // visit_details now has RLS enabled (2026-09-14) -- browser can no
+      // longer query it via the anon key. See
+      // app/api/internal/visit-details/route.js.
+      const res = await fetch(`/api/internal/visit-details?visit_id=${encodeURIComponent(visit.id)}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Failed to load visit details");
+      const data = body.data;
 
       const selections = new Set();
       (data || []).forEach((item) => {
@@ -183,27 +185,16 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
 
     setLoadingDetails(true);
     try {
-      const { error: delError } = await supabase
-        .from("visit_details")
-        .delete()
-        .eq("visit_id", visit.id);
-      if (delError) throw delError;
-
-      const inserts = [];
-      selectedTestIds.forEach((id) => {
-        inserts.push({
-          visit_id: visit.id,
-          test_id: id,
-          package_id: null,
-        });
+      // visit_details now has RLS enabled (2026-09-14) -- browser can no
+      // longer write it via the anon key. See
+      // app/api/internal/visit-details/route.js.
+      const res = await fetch("/api/internal/visit-details", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visit_id: visit.id, replace: [...selectedTestIds] }),
       });
-
-      if (inserts.length) {
-        const { error: insError } = await supabase
-          .from("visit_details")
-          .insert(inserts);
-        if (insError) throw insError;
-      }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Failed to save tests/packages");
 
       toast({
         title: "Tests/packages saved successfully",
@@ -273,20 +264,25 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
     if (!makeListMatches.length) { closeMakeList(); return; }
     setMakeListLoading(true);
     try {
-      // Load existing to avoid duplicates
-      const { data: existing } = await supabase
-        .from("visit_details")
-        .select("test_id")
-        .eq("visit_id", visit.id);
-      const existingIds = new Set((existing || []).map(r => r.test_id).filter(Boolean));
+      // Load existing to avoid duplicates. visit_details now has RLS
+      // enabled (2026-09-14) -- browser can no longer read/write it via
+      // the anon key. See app/api/internal/visit-details/route.js.
+      const existingRes = await fetch(`/api/internal/visit-details?visit_id=${encodeURIComponent(visit.id)}`);
+      const existingBody = await existingRes.json().catch(() => ({}));
+      const existingIds = new Set((existingBody.data || []).map(r => r.test_id).filter(Boolean));
 
-      const toInsert = makeListMatches
+      const toAdd = makeListMatches
         .filter(t => !existingIds.has(t.id))
-        .map(t => ({ visit_id: visit.id, test_id: t.id, package_id: null }));
+        .map(t => t.id);
 
-      if (toInsert.length) {
-        const { error } = await supabase.from("visit_details").insert(toInsert);
-        if (error) throw error;
+      if (toAdd.length) {
+        const res = await fetch("/api/internal/visit-details", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visit_id: visit.id, add: toAdd }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body?.error || "Failed to save tests");
       }
 
       toast({ title: `${makeListMatches.length} test(s) added`, status: "success" });

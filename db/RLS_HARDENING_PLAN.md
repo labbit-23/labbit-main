@@ -195,3 +195,50 @@ add the GUC-keyed policy, migrate, verify with the same curl-with-anon-key
 check used in phases 1–2, then move to the next tranche. No UI/UX change at
 any step — the frontend components keep calling what looks like the same
 data shape, just through `/api/...` instead of Supabase directly.
+
+## Tranche 2 — done, verified live (2026-09-14)
+
+`visits`, `visit_details`, `visit_activity_log`. All 7 anon-key call sites
+migrated: `ActiveVisitsTab.js`, `app/admin/page.js`, `PatientLookupTab.js`
+(reused the existing `/api/visits` route rather than duplicating it),
+`YourDayView.js` (5 operations across 2 tables, plus a new single-purpose
+`visits/[id]/geo` route — deliberately NOT `/api/visits`' PUT, which does
+activity-log inserts and notification checks unwanted for what's meant to
+be a silent, best-effort GPS ping), `DashboardMetrics.js`,
+`VisitDetailTab.js`, `VisitBillingPanel.js`. New shared routes:
+`visits/active`, `visits/admin-list`, `visits/kpis`, `visit-details` (one
+flexible PUT supporting both "replace all" and "add/remove diff" — covers
+three different callers' existing patterns without three different
+routes), `visit-activity-log`.
+
+GUC policies mirror tranche 1's shape — `visits` has its own `lab_id`
+directly; `visit_details`/`visit_activity_log` are EXISTS-scoped through
+`visits`. Verified: anon key gets `[]` on all three; `labit_main_rw` under
+`mode=all` sees real rows (2712 visits / 4 visit_details / 232
+visit_activity_log). The new routes also read `executives`/`labs`/
+`visit_time_slots` (plain SELECT, no RLS on those yet — out of scope for
+this tranche) via `labit_main_rw`, which has none of Supabase's default
+anon/authenticated grants — needed an explicit `GRANT SELECT` on each,
+also verified readable.
+
+**Closed alongside tranche 2**: real `lab_id` scoping gaps, evidence-
+checked per row rather than blanket-assumed — `public.labs` already has a
+second real tenant, "Yapral - Physiotherapy", with 3 live visits, so
+nothing here was "just assign everything to SDRC":
+- `executives`: 8/17 had `lab_id` NULL. One was literally named "Yapral"
+  (type `b2b`) — backfilled to Yapral's lab_id; the other 7 (real SDRC
+  staff) to SDRC's.
+- `visits`: 1/2712 had `lab_id` NULL — its executive already had
+  `lab_id`=SDRC, backfilled to match.
+- `quickbookings`: had no `lab_id` column at all (this doc's own §2 TODO,
+  and `docs/rls-draft.sql`'s original flagged gap, never fixed until now).
+  Added the column; of 232 rows, the 52 with a linked `visit_id` all
+  resolved to SDRC, zero to Yapral — backfilled all 232 to SDRC on that
+  evidence.
+See `db/migrations/20260914_lab_id_scoping_gaps.sql` for the full record.
+
+**Tranche 3 — not started.** Remaining: `lab_tests`, `packages`,
+`quickbookings`, `sample_pickups`, `whatsapp_messages`, `visit_statuses`,
+`visit_time_slots`. `executives`/`labs`/`visit_time_slots` now have a
+plain GRANT to `labit_main_rw` (needed by tranche 2's routes) but no RLS/
+policy yet.
