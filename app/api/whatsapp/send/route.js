@@ -2,7 +2,14 @@
 // File: app/api/whatsapp/send/route.js
 // ==============================
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabaseClient";
+// Was the anon-key client -- reads labs_apis.auth_details, which holds a
+// live WhatsApp API key in plaintext. RLS hardening 2026-09-14 found this
+// was the only anon-key call site touching labs_apis anywhere in the repo
+// (the real send path, lib/whatsapp/sender.js, already used supabaseServer)
+// and this route itself has zero callers in the codebase -- but repointing
+// to the service-role client instead of deleting, in case something
+// external still hits this URL directly.
+import { supabase } from "@/lib/supabaseServer";
 
 export async function POST(req) {
   try {

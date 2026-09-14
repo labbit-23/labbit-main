@@ -1,0 +1,23 @@
+-- RLS hardening, phase 2, first item: labs_apis.
+--
+-- labs_apis.auth_details is a live WhatsApp API credential (auth_details.
+-- api_key), currently readable in plaintext by anyone with the public
+-- anon key via PostgREST -- confirmed live 2026-09-14, same exposure class
+-- as phase 1 (see 20260914_rls_phase1_deny_by_default.sql), just scoped
+-- out of that pass pending this audit.
+--
+-- Audit result: the ONLY anon-key call site touching labs_apis anywhere
+-- in labit-main was app/api/whatsapp/send/route.js -- a dead route with
+-- zero callers in the codebase (grepped; the real send path is
+-- lib/whatsapp/sender.js, which already used the service-role client).
+-- That route was repointed to the service-role client in the same pass
+-- (commit alongside this migration), so after this migration labs_apis
+-- has zero legitimate anon/authenticated consumers -- same deny-by-default
+-- reasoning as phase 1, not a per-tenant policy (no real traffic to scope
+-- a policy around).
+--
+-- Confirmed unaffected: the bot/report-sending pipeline (lib/whatsapp/
+-- sender.js, app/api/quickbook/route.js, py_utils report_sender worker)
+-- all read labs_apis via the service-role key (BYPASSRLS), never anon.
+
+alter table public.labs_apis enable row level security;

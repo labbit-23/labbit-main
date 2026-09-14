@@ -76,12 +76,12 @@ export default function PatientLookupTab({ onSelectVisit, hvExecutiveId: propHvE
     setSelectedPatient(null);
     setActiveVisits([]);
     try {
-      const { data, error } = await supabase
-        .from("patients")
-        .select("id, name, phone")
-        .ilike("phone", `%${phone.trim()}%`)
-        .limit(10);
-      if (error) throw error;
+      // patients now has RLS enabled (2026-09-14) -- browser can no longer
+      // query it via the anon key. See app/api/internal/patients/search.
+      const res = await fetch(`/api/internal/patients/search?phone=${encodeURIComponent(phone.trim())}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Search failed");
+      const data = body.data;
       setResults(data || []);
       if (!data || data.length === 0) {
         toast({ title: "No patients found", status: "info" });

@@ -312,10 +312,14 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
     try {
       const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
       if (def?.id) {
-        await supabase
-          .from("patient_addresses")
-          .update({ lat: coords.lat, lng: coords.lng })
-          .eq("id", def.id);
+        // patient_addresses now has RLS enabled (2026-09-14) -- browser can
+        // no longer write it via the anon key. See
+        // app/api/internal/patient-addresses/[id]/route.js.
+        await fetch(`/api/internal/patient-addresses/${def.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat: coords.lat, lng: coords.lng }),
+        });
       } else {
         // No patient address — update the visit's own lat/lng so future booking can inherit it
         await supabase
