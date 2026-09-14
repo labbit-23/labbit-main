@@ -257,6 +257,17 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
   };
 
   const submitDemographics = async () => {
+    // Disabled 2026-09-14 (director: "Disable the Update Demographics path
+    // for now. Labit Core can do it itself.") -- server route now returns
+    // 410 too; this stops the UI from even attempting the round trip.
+    toast({
+      title: "Demographics update disabled",
+      description: "Edit the patient directly in labit-core instead.",
+      status: "warning"
+    });
+    return;
+
+    // eslint-disable-next-line no-unreachable
     if (!isEditMode) {
       toast({
         title: "Enable edit mode",
@@ -393,7 +404,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
     }
     setSyncLoading(true);
     try {
-      const url = `/api/admin/shivam/pricelist-sync?lab_id=${encodeURIComponent(effectiveLabId)}`;
+      const url = `/api/admin/live-sync/pricelist-sync?lab_id=${encodeURIComponent(effectiveLabId)}`;
       const res = dryRun
         ? await fetch(url, { cache: "no-store" })
         : await fetch(url, {
@@ -435,7 +446,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
       <Box borderWidth="1px" borderColor={panelBorder} bg={panelBg} borderRadius="lg" p={4}>
         <Heading size="md" mb={1}>Shivam Tools</Heading>
         <Text fontSize="sm" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.600"}>
-          Controlled updates for Shivam demographics and one-way price sync (NeoSoft to Supabase).
+          Controlled updates for Shivam demographics and one-way Live Sync price sync (labit-core to Supabase).
         </Text>
       </Box>
 
@@ -728,7 +739,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                   {syncResult ? (
                     <Stack spacing={2} pt={2}>
                       <HStack flexWrap="wrap">
-                        <Badge colorScheme="blue">Shivam Price: {syncResult?.upstream_rows || 0}</Badge>
+                        <Badge colorScheme="blue">Live Sync Price: {syncResult?.upstream_rows || 0}</Badge>
                         <Badge colorScheme="purple">Website Price: {syncResult?.local_rows || 0}</Badge>
                         <Badge colorScheme="green">Matched: {syncResult?.matched_count || 0}</Badge>
                         <Badge colorScheme="orange">Increased: {syncResult?.to_update || 0}</Badge>
@@ -777,7 +788,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                           <Th>Code</Th>
                           <Th>Test Name</Th>
                           <Th isNumeric>Website Price</Th>
-                          <Th isNumeric>Shivam Price</Th>
+                          <Th isNumeric>Live Sync Price</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -821,7 +832,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                           <Th>Code</Th>
                           <Th>Test Name</Th>
                           <Th isNumeric>Website Price</Th>
-                          <Th isNumeric>Shivam Price</Th>
+                          <Th isNumeric>Live Sync Price</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -851,7 +862,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                         <Tr>
                           <Th>Code</Th>
                           <Th>Test Name</Th>
-                          <Th isNumeric>Shivam Price</Th>
+                          <Th isNumeric>Live Sync Price</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -1202,7 +1213,7 @@ export default function ShivamToolsTab({ labs = [], themeMode = "light", rolePer
                     <Tr>
                       <Th>Code</Th>
                       <Th isNumeric>Website Price</Th>
-                      <Th isNumeric>Shivam Price</Th>
+                      <Th isNumeric>Live Sync Price</Th>
                     </Tr>
                   </Thead>
                   <Tbody>

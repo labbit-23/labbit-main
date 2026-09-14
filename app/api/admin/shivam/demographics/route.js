@@ -152,6 +152,20 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  // Disabled 2026-09-14 (director: "Disable the Update Demographics path
+  // for now. Labit Core can do it itself, Shivam had no way so we used
+  // APIs to extend that functionality.") -- this route existed only
+  // because Shivam's own webform had no write path for patient
+  // demographics; labit-core's own patient master (labit_core.patient,
+  // already the Live Sync source of truth as of tonight) can be edited
+  // directly there instead. Left in place, not deleted, in case this needs
+  // to come back -- GET (read/lookup) is untouched.
+  return NextResponse.json(
+    { error: "Demographics update via Shivam is disabled. Edit the patient directly in labit-core." },
+    { status: 410 }
+  );
+
+  // eslint-disable-next-line no-unreachable
   let user = null;
   let roleKey = "viewer";
   try {

@@ -102,84 +102,55 @@ export async function GET(req) {
       return NextResponse.json({ patients: enrichedPatients }, { status: 200 });
     }
 
-    // Step 2: Patient not found locally, lookup externally
-    const { data: apiConfig, error: apiError } = await supabase
-      .from('labs_apis')
-      .select('base_url, auth_details, templates')
-      .eq('lab_id', defaultLab.id)
-      .eq('api_name', 'external_patient_lookup')
-      .single();
+    // Step 2: Patient not found locally, look up in labit-core's patient
+    // master (47,182 migrated from Shivam, schema/006_patient.sql) --
+    // replaces the old live NeoSoft webform call (2026-09-14, director:
+    // "decouple from shivam and move to core"). See labit-core's
+    // app/routers/patient_lookup_internal.py for why this specific route
+    // (not shivam-archive, not labit-core's existing /api/search) and the
+    // live-verified phone coverage (99.4%, not the ~7% a stale schema
+    // comment claimed).
+    const coreBaseURL = (process.env.LABIT_CORE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+    const coreToken = process.env.PATIENT_LOOKUP_INTERNAL_TOKEN;
 
-    if (apiError || !apiConfig) {
-      return NextResponse.json({ error: "Default lab external patient API config missing" }, { status: 500 });
+    if (!coreToken) {
+      return NextResponse.json({ error: "PATIENT_LOOKUP_INTERNAL_TOKEN not configured" }, { status: 500 });
     }
 
-    const baseURL = apiConfig.base_url;
-    const apiKey = apiConfig.auth_details?.apikey;
+    const coreRes = await fetch(
+      `${coreBaseURL}/internal/patients/search?phone=${encodeURIComponent(cleanPhone)}`,
+      { headers: { "X-Internal-Token": coreToken, Accept: "application/json" } }
+    );
 
-    if (!baseURL || !apiKey) {
-      return NextResponse.json({ error: "External API URL or key missing" }, { status: 500 });
+    if (!coreRes.ok) {
+      const text = await coreRes.text();
+      return NextResponse.json({ error: text }, { status: coreRes.status });
     }
 
-    const fieldMap = apiConfig.templates?.field_map || {
-      name: "FNAME",
-      dob: "DOB",
-      gender: "SEX",
-      email: "EMAIL",
-      mrn: "MRN",
-      address_line: ["DISTRICTNEW", "STATENEW", "PINCODE"],
-      pincode: "PINCODE",
-      external_key: "CREGNO"
-    };
+    const coreData = await coreRes.json();
+    const patientsArray = Array.isArray(coreData?.patients) ? coreData.patients : [];
 
-    const dataParam = encodeURIComponent(JSON.stringify([{ phone: cleanPhone }]));
-    const url = `${baseURL}&data=${dataParam}`;
-
-    const apiRes = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
-      },
-    });
-
-    if (!apiRes.ok) {
-      const text = await apiRes.text();
-      return NextResponse.json({ error: text }, { status: apiRes.status });
-    }
-
-    const data = await apiRes.json();
-
-    let patientsArray = [];
-    if (Array.isArray(data)) {
-      patientsArray = data;
-    } else if (data.patients && Array.isArray(data.patients)) {
-      patientsArray = data.patients;
-    } else if (data.name || data[fieldMap.name]) {
-      patientsArray = [data];
-    }
-
-    const normalized = patientsArray.map(p => {
-      const genderValue = p[fieldMap.gender] ?? '';
-      const mappedGender = mapGender(genderValue, genderMap);
-
-      return {
-        id: null,
-        name: p[fieldMap.name]?.trim() || 'Unknown Patient',
-        phone: cleanPhone,
-        dob: p[fieldMap.dob]?.split(' ')[0] || '',
-        gender: mappedGender,
-        email: p[fieldMap.email] || '',
-        mrn: p[fieldMap.mrn] || '',
-        address_line: Array.isArray(fieldMap.address_line)
-          ? fieldMap.address_line.map(k => p[k]).filter(Boolean).join(', ')
-          : '',
-        pincode: p[fieldMap.pincode] || '',
-        lat: null,
-        lng: null,
-        external_key: p[fieldMap.external_key] || '',
-        source: labName,
-      };
-    });
+    const normalized = patientsArray.map(p => ({
+      id: null, // labit_core.patient.id, NOT a public.patients id -- do not
+                // use this to write into public.patient_addresses etc.
+                // until the planned consolidation (public_patient_id bridge)
+                // actually happens. Same contract the old NeoSoft path used.
+      name: (p.name || '').trim() || 'Unknown Patient',
+      phone: cleanPhone,
+      dob: p.dob || '',
+      gender: mapGender(p.sex || '', genderMap),
+      email: p.email || '',
+      mrn: p.mrn || '',
+      address_line: p.address || '',
+      pincode: '', // labit_core.patient has one free-text address field,
+                   // no separate pincode -- unlike the old NeoSoft shape.
+      lat: null,
+      lng: null,
+      external_key: p.mrn || '', // mrn IS the Shivam cregno (schema/006's
+                                  // own comment) -- same identity the old
+                                  // CREGNO field carried.
+      source: labName,
+    }));
 
     return NextResponse.json({ patients: normalized }, { status: 200 });
   } catch (err) {

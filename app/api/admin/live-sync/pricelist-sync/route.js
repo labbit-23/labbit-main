@@ -2,8 +2,31 @@ import { NextResponse } from "next/server";
 import { checkPermission, deny, getSessionUser } from "@/lib/uac/authz";
 import { resolvePrimaryLabId } from "@/lib/uac/policy";
 import { supabase } from "@/lib/supabaseServer";
-import { getShivamPriceList } from "@/lib/neosoft/client";
 import { writeAuditLog } from "@/lib/audit/logger";
+
+// Live Sync: labit-core's own catalog/price master is the source of truth
+// for this website's lab_tests catalog going forward (director, 2026-09-14:
+// "decouple from shivam and move to core... its a sync FROM core to main.
+// Its ok. We'll review dry runs etc."). Replaces the old getShivamPriceList
+// call (lib/neosoft/client.js, → live NeoSoft webform) with labit-py's new
+// /live-sync/pricelist proxy (→ labit-core's GET /api/catalog/
+// price-list-export, see that function's own docstring in
+// labit-core/app/services/catalog_service.py for the active/patient_visible
+// field additions made alongside this route).
+const LIVE_SYNC_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
+
+async function fetchLiveSyncPriceList() {
+  if (!LIVE_SYNC_BASE_URL) {
+    throw new Error("NEOSOFT_API_BASE_URL is not defined (used as the labit-py base URL for Live Sync)");
+  }
+  const res = await fetch(`${LIVE_SYNC_BASE_URL}/live-sync/pricelist`, { cache: "no-store" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Live Sync pricelist fetch failed: ${res.status} ${text.slice(0, 500)}`);
+  }
+  const body = await res.json();
+  return Array.isArray(body?.items) ? body.items : [];
+}
 
 function clean(value) {
   const text = String(value ?? "").trim();
@@ -20,63 +43,25 @@ function asPrice(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeUpstreamRows(payload) {
-  const candidates = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.tests)
-      ? payload.tests
-      : Array.isArray(payload?.items)
-        ? payload.items
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : [];
-
-  return candidates
-    .map((row) => {
-      const activeRaw = row?.active ?? row?.ACTIVE ?? row?.is_active ?? row?.IS_ACTIVE;
-      const activeText = String(activeRaw ?? "").trim().toLowerCase();
-      const isActive =
-        activeRaw === undefined ||
-        activeRaw === null ||
-        activeText === "" ||
-        ["1", "true", "y", "yes", "active"].includes(activeText);
-
-      return {
-        internal_code: normalizeCode(
-          row?.internal_code ??
-            row?.test_code ??
-            row?.code ??
-            row?.TCODE ??
-            row?.TESTCODE ??
-            row?.TEST_CODE
-        ),
-        lab_test_name: clean(
-          row?.lab_test_name ??
-            row?.test_name ??
-            row?.name ??
-            row?.TESTNM ??
-            row?.TESTNAME ??
-            row?.TEST_NAME
-        ),
-        price: asPrice(row?.price ?? row?.rate ?? row?.amount ?? row?.PRICE ?? row?.RATE),
-        is_active: isActive
-      };
-    })
-    .filter((row) => row.is_active)
-    .filter((row) => row.internal_code && row.price !== null);
+function asBool(value) {
+  return value === true || value === "true" || value === 1 || value === "1";
 }
 
-function sampleRawRows(payload) {
-  const candidates = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.tests)
-      ? payload.tests
-      : Array.isArray(payload?.items)
-        ? payload.items
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : [];
-  return Array.isArray(candidates) ? candidates.slice(0, 5) : [];
+function normalizeUpstreamRows(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((row) => ({
+      internal_code: normalizeCode(row?.internal_code),
+      lab_test_name: clean(row?.lab_test_name),
+      price: asPrice(row?.price),
+      is_active: asBool(row?.active),
+      patient_visible: asBool(row?.patient_visible)
+    }))
+    // Deliberately NOT filtering out inactive rows here (unlike the old
+    // Shivam version) -- an inactive-but-still-priced upstream row is
+    // exactly what tells the diff to deactivate the local copy. Only
+    // dropping rows with no code/price at all, which carry no usable
+    // signal either way.
+    .filter((row) => row.internal_code && row.price !== null);
 }
 
 async function fetchSupabaseLabTests(labId) {
@@ -88,7 +73,7 @@ async function fetchSupabaseLabTests(labId) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("lab_tests")
-      .select("id, lab_id, internal_code, lab_test_name, price, is_active")
+      .select("id, lab_id, internal_code, lab_test_name, price, is_active, is_patient_visible")
       .eq("lab_id", labId)
       .not("internal_code", "is", null)
       .range(from, to);
@@ -127,25 +112,38 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
         lab_test_name: upstream.lab_test_name || null,
         local_price: null,
         upstream_price: upstream.price,
+        local_active: null,
+        upstream_active: upstream.is_active,
+        local_patient_visible: null,
+        upstream_patient_visible: upstream.patient_visible,
         status: "missing_local",
         delta: null
       });
       continue;
     }
-    if (local.price === upstream.price) {
+
+    const priceChanged = local.price !== upstream.price;
+    const activeChanged = Boolean(local.is_active) !== upstream.is_active;
+    const visibleChanged = Boolean(local.is_patient_visible) !== upstream.patient_visible;
+    const isReduction = priceChanged && Number.isFinite(local.price) && Number.isFinite(upstream.price) && upstream.price < local.price;
+
+    if (!priceChanged && !activeChanged && !visibleChanged) {
       matchedCount += 1;
       comparisonRows.push({
         internal_code: upstream.internal_code,
         lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
         local_price: local.price,
         upstream_price: upstream.price,
+        local_active: local.is_active,
+        upstream_active: upstream.is_active,
+        local_patient_visible: local.is_patient_visible,
+        upstream_patient_visible: upstream.patient_visible,
         status: "matched",
         delta: 0
       });
       continue;
     }
-    changedCount += 1;
-    const isReduction = Number.isFinite(local.price) && Number.isFinite(upstream.price) && upstream.price < local.price;
+
     if (isReduction && !allowReduction) {
       blockedReductionCount += 1;
       comparisonRows.push({
@@ -153,25 +151,39 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
         lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
         local_price: local.price,
         upstream_price: upstream.price,
+        local_active: local.is_active,
+        upstream_active: upstream.is_active,
+        local_patient_visible: local.is_patient_visible,
+        upstream_patient_visible: upstream.patient_visible,
         status: "blocked_reduction",
         delta: upstream.price - local.price
       });
       continue;
     }
+
+    changedCount += 1;
     diff.push({
       id: local.id,
       internal_code: upstream.internal_code,
       lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
       old_price: local.price,
-      new_price: upstream.price
+      new_price: upstream.price,
+      old_active: local.is_active,
+      new_active: upstream.is_active,
+      old_patient_visible: local.is_patient_visible,
+      new_patient_visible: upstream.patient_visible
     });
     comparisonRows.push({
       internal_code: upstream.internal_code,
       lab_test_name: local.lab_test_name || upstream.lab_test_name || null,
       local_price: local.price,
       upstream_price: upstream.price,
+      local_active: local.is_active,
+      upstream_active: upstream.is_active,
+      local_patient_visible: local.is_patient_visible,
+      upstream_patient_visible: upstream.patient_visible,
       status: "changed",
-      delta: upstream.price - local.price
+      delta: priceChanged ? upstream.price - local.price : 0
     });
   }
 
@@ -201,6 +213,8 @@ async function applyDiff(diff) {
       .from("lab_tests")
       .update({
         price: row.new_price,
+        is_active: row.new_active,
+        is_patient_visible: row.new_patient_visible,
         updated_at: new Date().toISOString()
       })
       .eq("id", row.id);
@@ -237,21 +251,20 @@ export async function GET(request) {
     }
 
     const url = new URL(request.url);
-    const debug = url.searchParams.get("debug") === "1";
+    const compareLimit = Math.max(50, Math.min(2000, Number(url.searchParams.get("compare_limit") || 400)));
 
-    const [upstreamPayload, localRows] = await Promise.all([
-      getShivamPriceList({ labId }),
+    const [upstreamItems, localRows] = await Promise.all([
+      fetchLiveSyncPriceList(),
       fetchSupabaseLabTests(labId)
     ]);
-    const upstreamRows = normalizeUpstreamRows(upstreamPayload);
-    const compareLimit = Math.max(50, Math.min(2000, Number(url.searchParams.get("compare_limit") || 400)));
+    const upstreamRows = normalizeUpstreamRows(upstreamItems);
     const { diff, missingInSupabase, matchedCount, changedCount, blockedReductionCount, comparisonRows } = buildDiff(
       upstreamRows,
       localRows,
       { allowReduction: false }
     );
 
-    const response = {
+    return NextResponse.json({
       ok: true,
       mode: "preview",
       lab_id: labId,
@@ -264,28 +277,10 @@ export async function GET(request) {
       missing_in_supabase: missingInSupabase,
       sample_changes: diff.slice(0, 50),
       comparison_rows: comparisonRows.slice(0, compareLimit)
-    };
-
-    if (debug) {
-      const rawSamples = sampleRawRows(upstreamPayload);
-      response.debug = {
-        upstream_payload_type: Array.isArray(upstreamPayload) ? "array" : typeof upstreamPayload,
-        upstream_payload_keys:
-          upstreamPayload && typeof upstreamPayload === "object" && !Array.isArray(upstreamPayload)
-            ? Object.keys(upstreamPayload).slice(0, 20)
-            : [],
-        raw_sample_count: rawSamples.length,
-        raw_sample_keys: rawSamples[0] && typeof rawSamples[0] === "object" ? Object.keys(rawSamples[0]) : [],
-        raw_samples: rawSamples,
-        normalized_samples: upstreamRows.slice(0, 5),
-        local_sample_codes: localRows.slice(0, 5).map((row) => row.internal_code)
-      };
-    }
-
-    return NextResponse.json(response);
+    });
   } catch (error) {
     return NextResponse.json(
-      { error: error?.message || "Failed to preview Shivam price sync" },
+      { error: error?.message || "Failed to preview Live Sync price sync" },
       { status: 500 }
     );
   }
@@ -314,11 +309,11 @@ export async function POST(request) {
       return NextResponse.json({ error: "lab_id is required" }, { status: 400 });
     }
 
-    const [upstreamPayload, localRows] = await Promise.all([
-      getShivamPriceList({ labId }),
+    const [upstreamItems, localRows] = await Promise.all([
+      fetchLiveSyncPriceList(),
       fetchSupabaseLabTests(labId)
     ]);
-    const upstreamRows = normalizeUpstreamRows(upstreamPayload);
+    const upstreamRows = normalizeUpstreamRows(upstreamItems);
     const { diff, missingInSupabase, matchedCount, changedCount, blockedReductionCount, comparisonRows } = buildDiff(
       upstreamRows,
       localRows,
@@ -353,7 +348,11 @@ export async function POST(request) {
                 internal_code: row.internal_code,
                 lab_test_name: row.lab_test_name || null,
                 old_price: row.local_price,
-                new_price: row.upstream_price
+                new_price: row.upstream_price,
+                old_active: row.local_active,
+                new_active: row.upstream_active,
+                old_patient_visible: row.local_patient_visible,
+                new_patient_visible: row.upstream_patient_visible
               };
             })
             .filter((row) => row.id)
@@ -365,7 +364,7 @@ export async function POST(request) {
       request,
       user,
       roleKey,
-      action: "shivam.pricelist.sync",
+      action: "live_sync.pricelist.sync",
       entityType: "lab_tests",
       entityId: labId,
       labId,
@@ -403,7 +402,7 @@ export async function POST(request) {
       request,
       user,
       roleKey,
-      action: "shivam.pricelist.sync",
+      action: "live_sync.pricelist.sync",
       entityType: "lab_tests",
       entityId: null,
       status: "error",
@@ -412,7 +411,7 @@ export async function POST(request) {
       }
     });
     return NextResponse.json(
-      { error: error?.message || "Failed to sync Shivam pricelist" },
+      { error: error?.message || "Failed to sync Live Sync pricelist" },
       { status: 500 }
     );
   }
