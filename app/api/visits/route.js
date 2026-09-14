@@ -516,6 +516,15 @@ export async function POST(request) {
     delete visitData.force_assign;
     delete visitData.location_text;
 
+    // 2026-09-14: default lab_id server-side rather than trusting every
+    // caller to send one -- PatientLookupTab.js's quick-create-visit flow
+    // never has, and never will unless its UI grows a lab picker; the
+    // boundary is the right place to fix this once, not per caller.
+    if (!visitData.lab_id) {
+      const defaultLabId = String(process.env.DEFAULT_LAB_ID || "").trim();
+      if (defaultLabId) visitData.lab_id = defaultLabId;
+    }
+
     if (shouldPromoteToBooked({
       explicitStatus: hasExplicitStatus,
       statusValue: visitData.status,

@@ -237,8 +237,17 @@ export async function POST(request) {
     }
 
     const externalKey = String(externalProfile?.external_key || "").trim();
-    if (patient?.id && externalKey && chatSession.lab_id) {
-      await savePatientExternalKey(patient.id, chatSession.lab_id, externalKey);
+    // 2026-09-14: used to skip this entirely when externalKey was empty --
+    // a brand-new patient with no legacy/NeoSoft match never got scoped to
+    // any lab at all. lab_id is what matters for scoping; external_key is
+    // optional metadata. savePatientExternalKey itself now defaults labId
+    // if chatSession.lab_id is somehow unset, so only patient.id gates this.
+    if (patient?.id) {
+      // `|| undefined` (not left as a bare possibly-null value) so
+      // savePatientExternalKey's own labId default parameter actually
+      // triggers -- JS default params only fire on undefined, never null,
+      // and a DB-sourced NULL lab_id arrives here as JS null.
+      await savePatientExternalKey(patient.id, chatSession.lab_id || undefined, externalKey || null);
     }
 
     await supabase
