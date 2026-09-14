@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Box, VStack, HStack, Text, SimpleGrid, Badge } from "@chakra-ui/react";
 import { Cable, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 

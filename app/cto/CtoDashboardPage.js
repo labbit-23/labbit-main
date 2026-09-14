@@ -366,8 +366,16 @@ function isPatientUsageMetric(service) {
   return service?.service_key === "labit_patient_usage";
 }
 
-function PatientUsageSparkline({ points = [], width = 96, height = 26 }) {
-  const values = points.map((p) => Number(p?.logins) || 0);
+function PatientUsageSparkline({ points, width = 96, height = 26 }) {
+  // `points` can legitimately be null (app/api/cto/latest/route.js sets
+  // payload.daily: null when the daily-history fetch fails/is unconfigured)
+  // -- a default PARAMETER only covers undefined, never null, so
+  // `points = []` above silently did nothing for the real failure case and
+  // the .map() below threw, crashing the whole page (not just this card).
+  // Live, 2026-09-14: "CTO Page ... Application Error: client side
+  // exception."
+  const safePoints = Array.isArray(points) ? points : [];
+  const values = safePoints.map((p) => Number(p?.logins) || 0);
   if (!values.length) return null;
   const max = Math.max(1, ...values);
   const stepX = values.length > 1 ? width / (values.length - 1) : 0;
