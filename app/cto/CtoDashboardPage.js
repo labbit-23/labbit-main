@@ -2183,6 +2183,17 @@ export default function CtoDashboardPage({
     <Box
       className={themeMode === "dark" ? "dashboard-theme-dark" : "dashboard-theme-light"}
       minH="100vh"
+      // 2026-09-15: "Lot of the cards extend to beyond the screen viewport" --
+      // this page has several inner Flex/Grid rows (the Priority Issues
+      // strip, various card grids) whose children carry fixed minW values;
+      // without a hard backstop here, any of those pushing wider than its
+      // own container drags the WHOLE PAGE wider instead of clipping,
+      // since nothing upstream of them constrained horizontal growth.
+      // overflowX="hidden" here only affects the page itself -- any inner
+      // element that already declares its own overflowX="auto" (the
+      // Priority Issues row on desktop) still scrolls normally within its
+      // own bounds; this just stops the page body from following it.
+      overflowX="hidden"
       bg={themeMode === "dark"
         ? "radial-gradient(circle at top left, rgba(170, 250, 240, 0.16), transparent 32%), radial-gradient(circle at bottom right, rgba(170, 250, 240, 0.08), transparent 38%), linear-gradient(180deg, #0a121c 0%, #141e28 50%, #0d1620 100%)"
         : "linear-gradient(180deg, #f8fafc 0%, #eef4f8 48%, #e8f0f4 100%)"}
