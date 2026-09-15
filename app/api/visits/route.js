@@ -25,7 +25,8 @@ const VISIT_SELECT_WITH_GEO = `
   lat,
   lng,
   time_slot:time_slot (
-    slot_name
+    slot_name,
+    start_time
   ),
   status,
   notes,
@@ -44,7 +45,8 @@ const VISIT_SELECT_NO_GEO = `
   visit_date,
   address,
   time_slot:time_slot (
-    slot_name
+    slot_name,
+    start_time
   ),
   status,
   notes,
@@ -186,6 +188,28 @@ function shouldPromoteToBooked({ explicitStatus, statusValue, previousStatus, pr
 
   const isNewAssignment = !previousExecutiveId && !!effectiveExecutiveId;
   return isNewAssignment || prevStatus === "unassigned" || !prevStatus;
+}
+
+// Director, 2026-09-15: re-enabling the patient "on the way" ping for
+// in_progress, but only "if visit time is +- 30 min so we know its
+// realtime" -- the original problem wasn't the notification itself, it
+// was that phlebos mark status late/early and the message reads as stale
+// or plain wrong by the time it lands. Gating on proximity to the
+// scheduled slot is a proxy for "this status change actually reflects
+// what's happening right now", not a guess at phlebo intent.
+const IN_PROGRESS_NOTIFY_WINDOW_MINUTES = 30;
+
+function isWithinScheduledWindow(visitDate, startTime, windowMinutes = IN_PROGRESS_NOTIFY_WINDOW_MINUTES) {
+  if (!visitDate || !startTime) return false;
+  // Explicit +05:30 offset, not a bare date-time string -- visit_date/
+  // start_time are IST wall-clock values, and a bare "YYYY-MM-DDTHH:mm:ss"
+  // string is parsed in whatever timezone the Node process happens to run
+  // in (commonly UTC on a VPS), which would silently shift this by 5.5
+  // hours and make the window check wrong rather than just imprecise.
+  const scheduled = new Date(`${visitDate}T${startTime}+05:30`);
+  if (Number.isNaN(scheduled.getTime())) return false;
+  const diffMinutes = Math.abs(Date.now() - scheduled.getTime()) / 60000;
+  return diffMinutes <= windowMinutes;
 }
 
 async function getNotifyRolesForStatus(statusCode) {
@@ -793,11 +817,20 @@ export async function PUT(request) {
       data.executive?.phone;
 
     if (statusChanged) {
+      // in_progress ("Start travel"/"Start visit") is only a trustworthy
+      // "technician is on the way now" signal if the phlebo actually
+      // clicked it near the scheduled slot -- outside that window it's
+      // more likely a late/early status catch-up than real-time activity,
+      // so skip the patient ping (staff still get notified as configured).
+      const patientNotifyAllowed =
+        data.status !== "in_progress" ||
+        isWithinScheduledWindow(data.visit_date, data.time_slot?.start_time);
+
       await notifyRolesForVisit({
         visitId: data.id,
         statusCode: data.status,
         notifyRoles,
-        sendPatient: true,
+        sendPatient: patientNotifyAllowed,
         sendPhlebo: Boolean(data.executive_id && data.executive?.phone),
         patientTemplateKey: "booking_status",
         patientStatusLabel: data.status,
