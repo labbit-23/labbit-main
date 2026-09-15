@@ -142,7 +142,22 @@ function MirthUnlockedBody({ mirthServices }) {
                   <Badge fontSize="9px" colorScheme="orange">queued {ch.queued}</Badge>
                 )}
                 {Number(ch.errors) > 0 && (
-                  <Badge fontSize="9px" colorScheme="red">errors {ch.errors}</Badge>
+                  <>
+                    {/* 2026-09-15: "The Reds are not really stopped channels
+                    like the status suggests" -- a red dot + 0% next to a
+                    channel reads as "this is dead", but Mirth's own state
+                    (started/stopped/paused) is a separate thing from error
+                    rate and was never shown here. Every channel below is
+                    still actively started -- it's receiving and failing
+                    to process, not sitting idle. Spelling that out so the
+                    red badge can't be misread as "needs a restart" when
+                    the real problem is upstream (bad data, a downstream
+                    system rejecting it, etc). */}
+                    <Badge fontSize="9px" colorScheme={String(ch.state).toLowerCase() === "started" ? "blue" : "gray"}>
+                      {String(ch.state).toLowerCase() === "started" ? "running" : (ch.state || "unknown state")}
+                    </Badge>
+                    <Badge fontSize="9px" colorScheme="red">errors {ch.errors}</Badge>
+                  </>
                 )}
                 <Badge fontSize="9px" colorScheme={sev === "ok" ? "green" : "gray"}>
                   {ch.success_rate_percent ?? 0}%
