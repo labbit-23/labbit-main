@@ -152,8 +152,16 @@ production, both directions:
   resolution → `/api/internal/whatsapp/report-template-send` → actual
   delivery.
 
-`DTMF=3,1` (schedules) remains a deliberate no-op pending the
-`sdrc_schedule` table (Sequencing step 2, not started).
+`DTMF=3,1` (schedules) remains a deliberate no-op pending the schedule
+table + endpoint. Director, 2026-09-16: this is being built in
+`labit-core` (not `labit-main`) -- matches the role split in
+`LABIT_BUILD_REFERENCE.md`: which doctor visits SDRC on which days is
+SDRC-specific operational data (same category as catalog/billing/results),
+not tenant-hub data. Once `labit-core` exposes an endpoint for it, this
+webhook's `3,1` branch calls it over HTTP (same pattern as the existing
+`1,1`/`2,1` branches calling `/api/internal/whatsapp/report-template-send`)
+and formats a short WhatsApp text reply -- no new data model needed on
+this side.
 
 ## Test script
 
