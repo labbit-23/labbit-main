@@ -138,3 +138,60 @@ webhook + a handful of calls into already-existing send functions.
    rest.
 3. Send the IVR menu text (below) to Bonvoice support in parallel with
    either — it's their side to configure, not blocked by this app's build.
+
+## Status: Phase 1 core shipped and verified live (2026-09-16)
+
+`POST /api/webhooks/bonvoice-ivr` is deployed. Verified end-to-end against
+production, both directions:
+- `DTMF=0` → logged as `logged_only`, no WhatsApp action (correct — direct
+  transfer is Bonvoice's own PBX routing, not something this webhook
+  triggers).
+- `DTMF=1,1` (real test call, real phone) → `action_taken: sent_latest_report`,
+  `whatsapp_status: sent` — a real WhatsApp document landed on the test
+  number. Full chain confirmed: webhook → `lookupReports()` phone
+  resolution → `/api/internal/whatsapp/report-template-send` → actual
+  delivery.
+
+`DTMF=3,1` (schedules) remains a deliberate no-op pending the
+`sdrc_schedule` table (Sequencing step 2, not started).
+
+## Test script
+
+Reads the webhook token from an environment variable — **never hardcode
+the real token into this file**, it's committed to git. Set it once per
+shell:
+
+```bash
+export BONVOICE_WEBHOOK_TOKEN="<the real token, from .env.production, not typed into any tracked file>"
+BASE_URL="https://lab.sdrc.in/api/webhooks/bonvoice-ivr"
+TEST_PHONE="919949099249"   # swap for whichever number you want to test against
+
+send_test() {
+  local dtmf="$1" call_id="$2"
+  curl -s -X POST "${BASE_URL}?token=${BONVOICE_WEBHOOK_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"SourceNumber\":\"${TEST_PHONE}\",\"DestinationNumber\":\"4843518123\",\"DataSource\":\"Bonvoice\",\"callType\":\"2\",\"callID\":\"${call_id}\",\"Direction\":\"Inbound\",\"DTMF\":\"${dtmf}\",\"StartTime\":\"2026-01-01 10:00:00\",\"EndTime\":\"2026-01-01 10:01:00\"}"
+  echo
+}
+
+# Safe, log-only paths -- no WhatsApp send, safe to run anytime:
+send_test "0"      "TEST-$(date +%s)-transfer"
+send_test "1,2,0"  "TEST-$(date +%s)-report-no-wa"
+send_test "2,2,0"  "TEST-$(date +%s)-trend-no-wa"
+send_test "3,1"    "TEST-$(date +%s)-schedule"   # confirms the no-op, not implemented yet
+
+# REAL SEND paths -- these deliver an actual WhatsApp message to
+# $TEST_PHONE. Only run against a number you're OK receiving a message on:
+send_test "1,1"    "TEST-$(date +%s)-latest-report"
+send_test "2,1"    "TEST-$(date +%s)-trend-report"   # will show trend_report_no_mrno if that phone has no mrno on file
+
+# Check what actually happened for the most recent call:
+#   ssh root@supabase.sdrc.in "docker exec -i supabase-db psql -U postgres -d postgres -Atc \"
+#     select call_id, source_number, dtmf, action_taken, whatsapp_status, created_at
+#     from public.ivr_call_log order by created_at desc limit 5;\""
+```
+
+Bad/missing token still returns `{"ok":true}` (per the spec's "always 200"
+rule) but logs as `action_taken: rejected_bad_token` server-side — check
+`ivr_call_log` (or `pm2 logs labbit-frontend`) to actually confirm a test
+call was accepted, don't rely on the HTTP status alone.
