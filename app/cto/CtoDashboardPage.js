@@ -298,7 +298,15 @@ function domainTitleForService(service) {
     category === "mirth" ||
     category === "orthanc" ||
     key === "orthanc_main" ||
-    key.startsWith("mirth_")
+    key.startsWith("mirth_") ||
+    // 2026-09-17: DICOM Export (CR) worker's health check -- category
+    // "python" would otherwise fall into the generic "Core Platform"
+    // bucket below. Director wants it grouped alongside Mirth (both are
+    // machine/radiology-integration concerns) -- matched on key/label
+    // pattern rather than an exact service_key, since the collector side
+    // isn't deployed yet and the precise key string may still change.
+    key.includes("dicom_export") ||
+    String(service?.label || "").toLowerCase().includes("dicom export")
   ) {
     return "Machine Interfacing";
   }
