@@ -13,6 +13,15 @@ import { writeAuditLog } from "@/lib/audit/logger";
 // price-list-export, see that function's own docstring in
 // labit-core/app/services/catalog_service.py for the active/patient_visible
 // field additions made alongside this route).
+//
+// Director, 2026-09-20: "same sync code we need to sync tests to SDRC's
+// price list in labit-main which will also give insights to which tests
+// to surface (first) most common, most popular etc." Upstream now also
+// carries `patient_popular` (core's schema/904, already real-curated via
+// the same name-match backfill 903 used for patient_visible) -- written
+// into BOTH `is_most_common` and `is_most_popular` on lab_tests, since
+// those are the two separate columns this table already had for what
+// core tracks as one single curation flag.
 const LIVE_SYNC_BASE_URL = String(process.env.NEOSOFT_API_BASE_URL || "").replace(/\/+$/, "");
 
 async function fetchLiveSyncPriceList() {
@@ -54,7 +63,8 @@ function normalizeUpstreamRows(items) {
       lab_test_name: clean(row?.lab_test_name),
       price: asPrice(row?.price),
       is_active: asBool(row?.active),
-      patient_visible: asBool(row?.patient_visible)
+      patient_visible: asBool(row?.patient_visible),
+      patient_popular: asBool(row?.patient_popular)
     }))
     // Deliberately NOT filtering out inactive rows here (unlike the old
     // Shivam version) -- an inactive-but-still-priced upstream row is
@@ -73,7 +83,7 @@ async function fetchSupabaseLabTests(labId) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("lab_tests")
-      .select("id, lab_id, internal_code, lab_test_name, price, is_active, is_patient_visible")
+      .select("id, lab_id, internal_code, lab_test_name, price, is_active, is_patient_visible, is_most_common, is_most_popular")
       .eq("lab_id", labId)
       .not("internal_code", "is", null)
       .range(from, to);
@@ -116,6 +126,8 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
         upstream_active: upstream.is_active,
         local_patient_visible: null,
         upstream_patient_visible: upstream.patient_visible,
+        local_patient_popular: null,
+        upstream_patient_popular: upstream.patient_popular,
         status: "missing_local",
         delta: null
       });
@@ -125,9 +137,12 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
     const priceChanged = local.price !== upstream.price;
     const activeChanged = Boolean(local.is_active) !== upstream.is_active;
     const visibleChanged = Boolean(local.is_patient_visible) !== upstream.patient_visible;
+    const popularChanged =
+      Boolean(local.is_most_common) !== upstream.patient_popular ||
+      Boolean(local.is_most_popular) !== upstream.patient_popular;
     const isReduction = priceChanged && Number.isFinite(local.price) && Number.isFinite(upstream.price) && upstream.price < local.price;
 
-    if (!priceChanged && !activeChanged && !visibleChanged) {
+    if (!priceChanged && !activeChanged && !visibleChanged && !popularChanged) {
       matchedCount += 1;
       comparisonRows.push({
         internal_code: upstream.internal_code,
@@ -138,6 +153,8 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
         upstream_active: upstream.is_active,
         local_patient_visible: local.is_patient_visible,
         upstream_patient_visible: upstream.patient_visible,
+        local_patient_popular: Boolean(local.is_most_common) || Boolean(local.is_most_popular),
+        upstream_patient_popular: upstream.patient_popular,
         status: "matched",
         delta: 0
       });
@@ -155,6 +172,8 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
         upstream_active: upstream.is_active,
         local_patient_visible: local.is_patient_visible,
         upstream_patient_visible: upstream.patient_visible,
+        local_patient_popular: Boolean(local.is_most_common) || Boolean(local.is_most_popular),
+        upstream_patient_popular: upstream.patient_popular,
         status: "blocked_reduction",
         delta: upstream.price - local.price
       });
@@ -171,7 +190,9 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
       old_active: local.is_active,
       new_active: upstream.is_active,
       old_patient_visible: local.is_patient_visible,
-      new_patient_visible: upstream.patient_visible
+      new_patient_visible: upstream.patient_visible,
+      old_patient_popular: Boolean(local.is_most_common) || Boolean(local.is_most_popular),
+      new_patient_popular: upstream.patient_popular
     });
     comparisonRows.push({
       internal_code: upstream.internal_code,
@@ -182,6 +203,8 @@ function buildDiff(upstreamRows, localRows, { allowReduction = false } = {}) {
       upstream_active: upstream.is_active,
       local_patient_visible: local.is_patient_visible,
       upstream_patient_visible: upstream.patient_visible,
+      local_patient_popular: Boolean(local.is_most_common) || Boolean(local.is_most_popular),
+      upstream_patient_popular: upstream.patient_popular,
       status: "changed",
       delta: priceChanged ? upstream.price - local.price : 0
     });
@@ -215,6 +238,8 @@ async function applyDiff(diff) {
         price: row.new_price,
         is_active: row.new_active,
         is_patient_visible: row.new_patient_visible,
+        is_most_common: row.new_patient_popular,
+        is_most_popular: row.new_patient_popular,
         updated_at: new Date().toISOString()
       })
       .eq("id", row.id);
@@ -352,7 +377,9 @@ export async function POST(request) {
                 old_active: row.local_active,
                 new_active: row.upstream_active,
                 old_patient_visible: row.local_patient_visible,
-                new_patient_visible: row.upstream_patient_visible
+                new_patient_visible: row.upstream_patient_visible,
+                old_patient_popular: row.local_patient_popular,
+                new_patient_popular: row.upstream_patient_popular
               };
             })
             .filter((row) => row.id)
