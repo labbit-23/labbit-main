@@ -11,13 +11,41 @@ prior relationship to any lab opens the app, discovers/compares labs and
 tests, and books — confirmed director framing, 2026-09-20 ("Consumer
 marketplace, any patient picks any lab").
 
-Platform: web/PWA first (fastest path, reuses the existing Next.js
-stack), native iOS/Android (real App Store/Play Store listings, not just
-an installable PWA) as an explicit later phase — director, 2026-09-20:
-"I personally prefer apps to be available as an option between a web app
-and a proper download from the App/Play Stores." The Provider Contract
-and backend must stay platform-agnostic from day one so native isn't a
-rewrite later.
+Platform: director, 2026-09-20: "I personally prefer apps to be
+available as an option between a web app and a proper download from the
+App/Play Stores" -- then, once native-vs-web sequencing was proposed:
+"Can the webapp not run in a container wrapper from the app store and
+keep things simple so we push features equally in all tree [three]
+directions?" Settled on **one web app codebase, wrapped via Capacitor
+(or equivalent) into real iOS/Android binaries**, not a separate native
+rewrite and not a bare WebView-pointed-at-a-URL wrapper either:
+
+- Capacitor bundles the built web assets INTO the native binary (not a
+  live remote URL in a WebView) and bridges native APIs -- push
+  notifications, GPS, camera -- through plugins. This is what lets it
+  pass App Store review as a genuine app (Apple's "minimum functionality"
+  guideline rejects thin website wrappers; a Capacitor app with real
+  native touches like push notifications clears that bar routinely).
+- Because it's one codebase, there is no "web first, native later"
+  phase -- every feature ships to web/iOS/Android together. The Provider
+  Contract and backend still need to stay platform-agnostic (no
+  browser-only assumptions), but that was already true for other
+  reasons (§1).
+- Native plugin surface worth planning for early since it changes what's
+  possible: push notifications (a second channel alongside WhatsApp for
+  status updates -- report_ready, collector_en_route, etc.), camera
+  (prescription photo upload, already a web feature per
+  `patient_catalog_service.py`'s search-autocomplete note -- becomes
+  higher-quality via native camera access), and GPS (home-visit
+  flows, gap D below, get more reliable native geolocation than a
+  mobile browser's).
+- Next.js specifically: Capacitor wraps a static/bundled export, not a
+  live server-rendered app -- needs the patient-app's pages built as a
+  static-exportable bundle (API calls still hit the tenant hub over the
+  network same as today; only page rendering needs to be static-
+  exportable). Worth confirming early since it constrains some Next.js
+  patterns (no server components that require a live Node server at
+  request time for the wrapped pages).
 
 ## 1. What the reference doc already gives us for free
 
@@ -86,24 +114,32 @@ resolve these:
    (§1-2 above) — same as reference doc step 1, higher stakes now.
    Platform-agnostic: no assumption the caller is a browser (so native
    can consume the same contract later without a rewrite).
-2. **New repo scaffold** (web/PWA, Next.js) — patient signup/auth with
-   zero required provider link (gap C), talks only to the tenant hub,
-   never a provider core directly (already the rule in §1's diagram).
-3. **Provider directory + geographic reach** (gaps A, D) — lives in
+2. **New repo scaffold** — one Next.js codebase, built static-exportable
+   from the start (so the later Capacitor wrap isn't a retrofit),
+   patient signup/auth with zero required provider link (gap C), talks
+   only to the tenant hub, never a provider core directly (already the
+   rule in §1's diagram).
+3. **Capacitor wrap, early** — get the iOS/Android shells building and
+   store-submittable (even near-empty) as soon as the scaffold exists,
+   not as a late add-on. Confirms the static-export constraint holds
+   before real features accumulate on top of it, and means every step
+   below ships to all three surfaces together, per director's "push
+   features equally in all three directions."
+4. **Provider directory + geographic reach** (gaps A, D) — lives in
    `labit-main`, needed before search means anything.
-4. **Cross-provider catalog search/comparison** (gap B) — the first
+5. **Cross-provider catalog search/comparison** (gap B) — the first
    genuinely new patient-facing feature; this is the moment the app
    stops being "SDRC's app with a login screen" and starts being a real
    marketplace.
-5. **Booking + payment** — reference doc gaps #2 (address/intake, reuse
+6. **Booking + payment** — reference doc gaps #2 (address/intake, reuse
    `patient_addresses` as already planned) and #3 (payment confirmation),
    now blocked on the payment/settlement decision in §3 above.
-6. **Native app** (iOS/Android, real store listings) — built against the
-   same Provider Contract and tenant-hub APIs from steps 1-5; not started
-   until the web version's flows are validated, per director preference
-   for "web app and a proper download" as two real options, not native
-   built blind ahead of a proven flow.
-7. **Proximity-ranked home-visit assignment, nomenclature cleanup,
+7. **Native-plugin features** (push notifications as a second status
+   channel alongside WhatsApp, native camera for prescription upload,
+   native GPS for home-visit flows) — layered on once the core flow
+   (steps 4-6) works, since they enhance rather than gate the first
+   working marketplace flow.
+8. **Proximity-ranked home-visit assignment, nomenclature cleanup,
    requisition-automation policy** — unchanged from reference doc §5
    steps 5-7, just later in this sequence since they're not on the
    critical path to a first working marketplace flow.
