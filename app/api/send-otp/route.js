@@ -130,6 +130,32 @@ export async function POST(request) {
     return NextResponse.json({ error: "Missing lab ID" }, { status: 400 });
   }
 
+  // Security review, 2026-09-20 (Labit App session): this route is
+  // public by design (needed to log in before any session exists), but
+  // had NO rate limit -- every request costs a real SMS, so it was an
+  // open spam/cost vector on any phone number. DB-backed (not in-memory)
+  // so the throttle holds even if this process restarts or ever runs as
+  // more than one instance -- reuses otp_codes, no new table/dependency.
+  const RATE_LIMIT_WINDOW_MINUTES = 10;
+  const RATE_LIMIT_MAX_REQUESTS = 3;
+  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000).toISOString();
+  const { count: recentOtpCount, error: rateLimitError } = await supabase
+    .from('otp_codes')
+    .select('id', { count: 'exact', head: true })
+    .eq('phone', phone)
+    .gte('created_at', windowStart);
+
+  if (rateLimitError) {
+    console.error('OTP rate-limit check failed:', rateLimitError);
+    return NextResponse.json({ error: 'Failed to generate OTP' }, { status: 500 });
+  }
+  if ((recentOtpCount || 0) >= RATE_LIMIT_MAX_REQUESTS) {
+    return NextResponse.json(
+      { error: 'Too many OTP requests for this number. Please wait before trying again.' },
+      { status: 429 }
+    );
+  }
+
   // Generate 6-digit OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
 

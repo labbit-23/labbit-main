@@ -1,12 +1,27 @@
 // /app/api/patient-labs/route.js
 import { NextResponse } from "next/server";
 import { supabase } from '@/lib/supabaseServer';
+import { allowRequest } from '@/lib/inMemoryRateLimit';
 
+// Security review, 2026-09-20 (Labit App session): this route is a
+// phone -> is-a-registered-patient + lab-membership oracle, callable
+// anonymously. Only caller found is app/login/page.js's pre-auth lab
+// lookup, so it genuinely can't require a session (that would break
+// login). Read-only and doesn't cost money like send-sms/send-otp, so
+// rate limiting (not blocking) is the right mitigation -- see
+// lib/inMemoryRateLimit.js for the honest caveats on this approach.
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const phone = searchParams.get('phone');
   if (!phone) {
     return NextResponse.json({ error: "Missing phone parameter" }, { status: 400 });
+  }
+
+  if (!allowRequest(`patient-labs:${phone}`, 5, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      { error: 'Too many requests for this number. Please wait before trying again.' },
+      { status: 429 }
+    );
   }
 
   try {

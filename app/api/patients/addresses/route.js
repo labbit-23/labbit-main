@@ -1,9 +1,26 @@
 // File: /app/api/patients/addresses/route.js
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseServer';
+import { deny, getSessionUser } from '@/lib/uac/authz';
+
+// Security review, 2026-09-20 (Labit App session): this route had no
+// auth check at all -- GET returned any patient's home addresses given
+// just a patient_id, POST could upsert (including hijacking an existing
+// address row onto a different patient_id via the same `id`). Only
+// callers found are staff booking/patient-record components
+// (ModularPatientModal, AddressManager, VisitModal_, SharedPatientModal_,
+// AddressCard) -- all browser-session-based, no specific permission
+// gate exists for plain address CRUD today, so this requires a valid
+// staff session only (matching the getSessionUser-only precedent used
+// elsewhere, e.g. app/api/visits/route.js) rather than inventing a new
+// permission that could lock out staff who don't have it. labit-app (the
+// new patient-facing client) does not call this route.
 
 // GET: List patient addresses
 export async function GET(request) {
+  const user = await getSessionUser(request);
+  if (!user) return deny('Not authenticated', 401);
+
   const url = new URL(request.url);
   const patient_id = url.searchParams.get('patient_id');
 
@@ -34,6 +51,9 @@ export async function GET(request) {
 
 // POST: Upsert patient addresses — respects is_default and includes area
 export async function POST(request) {
+  const user = await getSessionUser(request);
+  if (!user) return deny('Not authenticated', 401);
+
   try {
     const body = await request.json();
     const { patient_id, addresses } = body;

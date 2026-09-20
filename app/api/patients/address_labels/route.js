@@ -2,8 +2,18 @@
 
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseServer';
+import { deny, getSessionUser } from '@/lib/uac/authz';
 
+// Security review, 2026-09-20 -- see app/api/patients/addresses/route.js
+// for the full finding; same fix. Also note: without patient_id this
+// returns the distinct label vocabulary across ALL patients org-wide
+// (an autocomplete suggestion list, e.g. "Home"/"Office") -- low-value
+// info on its own, but gated the same way for consistency since it reads
+// from the same patient_addresses table.
 export async function GET(request) {
+  const user = await getSessionUser(request);
+  if (!user) return deny('Not authenticated', 401);
+
   try {
     const url = new URL(request.url);
     const patient_id = url.searchParams.get('patient_id');

@@ -1,8 +1,15 @@
 // File: /app/api/patients/addresses/set_default/route.js
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseServer';
+import { deny, getSessionUser } from '@/lib/uac/authz';
 
+// Security review, 2026-09-20 -- see app/api/patients/addresses/route.js
+// for the full finding; same fix (staff session required, no new
+// permission invented).
 export async function POST(request) {
+  const user = await getSessionUser(request);
+  if (!user) return deny('Not authenticated', 401);
+
   try {
     const { patient_id, address_id } = await request.json();
 

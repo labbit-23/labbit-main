@@ -1,8 +1,15 @@
 //app/api/patients/addresses/[id]/route.js
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseServer';
+import { deny, getSessionUser } from '@/lib/uac/authz';
 
+// Security review, 2026-09-20 -- see app/api/patients/addresses/route.js
+// for the full finding; same fix (staff session required, no new
+// permission invented).
 export async function DELETE(request, { params }) {
+  const user = await getSessionUser(request);
+  if (!user) return deny('Not authenticated', 401);
+
   const { id } = params;
 
   const url = new URL(request.url);
