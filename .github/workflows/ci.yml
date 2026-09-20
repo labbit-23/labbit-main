@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Unit tests (lib/appAuth)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  lint:
+    name: Lint (non-blocking -- see comment)
+    runs-on: ubuntu-latest
+    # This repo had no eslint config until 2026-09-20's security review
+    # added one, and turning it up found 89 pre-existing findings (35
+    # errors) across files this review didn't touch or review. Reporting
+    # only, not blocking merges, until those are triaged separately --
+    # see the review's own report for which look like real bugs
+    # (conditional React hooks in particular) vs. style nits.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    # Placeholder, non-secret values -- verified locally (2026-09-20)
+    # that `next build` completes with these (no real network calls
+    # happen at build time, just module-level env-var presence checks).
+    # Deliberately NOT using real repo secrets here: this job only
+    # proves the app still compiles, never touches a real backend, and
+    # keeping it secret-free means a PR from anyone can run it safely.
+    env:
+      BONVOICE_WEBHOOK_TOKEN: ci-placeholder
+      CLICKUP_API_TOKEN: ci-placeholder
+      CLICKUP_LIST_ID_DEFAULT: ci-placeholder
+      CLICKUP_LIST_ID_QUICKBOOK: ci-placeholder
+      CLICKUP_LIST_ID_REPORTS: ci-placeholder
+      CTO_INGEST_TOKEN: ci-placeholder
+      DEFAULT_LAB_ID: ci-placeholder
+      LABBIT_PY_SHIVAM_DEMOGRAPHICS_GET_URL_TEMPLATE: https://ci-placeholder.invalid
+      LABBIT_PY_SHIVAM_DEMOGRAPHICS_UPDATE_URL: https://ci-placeholder.invalid
+      LABBIT_PY_SHIVAM_PRICELIST_URL: https://ci-placeholder.invalid
+      LABBIT_PY_TREND_DATA_URL_TEMPLATE: https://ci-placeholder.invalid
+      LABIT_DELIVER_ADMIN_TOKEN: ci-placeholder
+      LABIT_DELIVER_BASE_URL: https://ci-placeholder.invalid
+      LABIT_MAIN_PG_DSN: ci-placeholder
+      NEOSOFT_API_BASE_URL: https://ci-placeholder.invalid
+      NEXTBILLION_API_KEY: ci-placeholder
+      NEXT_PUBLIC_ENABLE_OUTSOURCED_MANUAL_DISPATCH: ci-placeholder
+      NEXT_PUBLIC_KIOSK_FEEDBACK_TIMEOUT_SECONDS: ci-placeholder
+      NEXT_PUBLIC_NEXTBILLION_API_KEY: ci-placeholder
+      NEXT_PUBLIC_PATIENT_LOOKUP_KEY: ci-placeholder
+      NEXT_PUBLIC_PATIENT_LOOKUP_URL: https://ci-placeholder.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.invalid
+      PUBLIC_BASE_URL: https://ci-placeholder.invalid
+      REPORT_KIOSK_BARCODE: ci-placeholder
+      REPORT_KIOSK_PASSWORD: ci-placeholder
+      REPORT_KIOSK_TEST_PATIENT: ci-placeholder
+      REPORT_KIOSK_USERNAME: ci-placeholder
+      SECRET_COOKIE_PASSWORD: ci-placeholder
+      SMS_API_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+      TREND_REPORT_DEFAULT_DESIGN_VARIANT: ci-placeholder
+      WEBHOOK_SECRET: ci-placeholder
+      WHATSAPP_DEV_ENDPOINT: ci-placeholder
+      WHATSAPP_MEDIA_TOKEN: ci-placeholder
+      WHATSAPP_MEDIA_URL: https://ci-placeholder.invalid
+      WHATSAPP_USE_NEW_TRENDS_REPORT: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build

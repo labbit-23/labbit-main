@@ -5,6 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "lint": "eslint .",
+    "test": "node --import ./tests/register-aliases.mjs --test tests/*.test.mjs",
     "sync:health-packages": "node scripts/sync-health-packages.mjs",
     "bot:test": "node scripts/test-whatsapp-bot.mjs",
     "deploy:vps:frontend": "bash scripts/deploy-vps-frontend.sh"
@@ -36,5 +38,9 @@
   },
   "overrides": {
     "postcss": "8.5.10"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.25"
   }
 }
