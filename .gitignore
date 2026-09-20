@@ -25,3 +25,14 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+
+# Security review, 2026-09-20 (Labit App session): patient PII export
+# files (MRN/name/phone/package) were tracked in git -- removed from the
+# tree, DPDP compliance issue. Blocked here so a future export never gets
+# committed again; still present in git history pre-this-commit, which
+# is a separate, deliberate decision (history rewrite) not made here.
+campaign.csv
+campaign2.csv
+campaign.xls
+campaign.xlsx
+output.csv
