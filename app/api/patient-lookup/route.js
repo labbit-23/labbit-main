@@ -1,6 +1,21 @@
 // File: /app/api/patient-lookup/route.js
 import { NextResponse } from "next/server";
 import { supabase } from '../../../lib/supabaseServer';
+import { allowRequest } from '@/lib/inMemoryRateLimit';
+
+// Security review, 2026-09-21: this route had NO auth check at all --
+// given just a phone number, anyone got back full patient PII (name,
+// DOB, gender, email, MRN, address, lat/lng) from either the local
+// `patients` table or labit-core's patient master. Worse than the
+// 2026-09-20 patient-labs finding (which only ever returned lab IDs),
+// and its impact just went from "core lookup 500s immediately" to
+// "actually returns core PII" the same day this was found, once
+// PATIENT_LOOKUP_INTERNAL_TOKEN got configured on both sides (it was
+// missing entirely -- see git log for that fix). Can't require a
+// session -- only caller with a legitimate anonymous need is
+// login/page.js's pre-OTP lookup -- so rate-limited the same way
+// patient-labs is (lib/inMemoryRateLimit.js, same honest per-process
+// caveats documented there).
 
 // Gender map supporting both raw codes and mapped letters for compatibility
 const genderMap = {
@@ -37,6 +52,13 @@ export async function GET(req) {
 
   if (cleanPhone.length < 10 || cleanPhone.length > 13) {
     return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
+  }
+
+  if (!allowRequest(`patient-lookup:${cleanPhone}`, 5, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      { error: "Too many requests for this number. Please wait before trying again." },
+      { status: 429 }
+    );
   }
 
   try {
