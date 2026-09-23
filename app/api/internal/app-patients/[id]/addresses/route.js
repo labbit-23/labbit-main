@@ -42,17 +42,28 @@ export async function POST(request, { params }) {
   const area = body?.area ? String(body.area).trim() : null;
 
   try {
-    const { count } = await supabase
+    // Bug caught live 2026-09-24: address_index was COUNT(*) of existing
+    // rows, assuming a gap-free 0,1,2... sequence -- collides under
+    // unique_patient_address_index the moment a row was ever deleted, or
+    // (as happened here) an app account got wrongly re-pointed at an
+    // existing labit-main patient with its own pre-existing address at
+    // index 1 while COUNT(*) was still 1 (=> tried index 1 again). MAX+1
+    // is correct for "next free slot" regardless of gaps; COUNT is not.
+    const { data: existing, error: countErr } = await supabase
       .from("patient_addresses")
-      .select("id", { count: "exact", head: true })
-      .eq("patient_id", patientId);
-    const isFirst = !count;
+      .select("address_index")
+      .eq("patient_id", patientId)
+      .order("address_index", { ascending: false })
+      .limit(1);
+    if (countErr) throw countErr;
+    const isFirst = !existing?.length;
+    const nextIndex = isFirst ? 0 : existing[0].address_index + 1;
 
     const { data, error } = await supabase
       .from("patient_addresses")
       .insert([{
         patient_id: patientId, label, address_line: addressLine, pincode, area, lat, lng,
-        is_default: isFirst || !!body?.isDefault, address_index: count || 0,
+        is_default: isFirst || !!body?.isDefault, address_index: nextIndex,
       }])
       .select("id, label, address_line, pincode, area, lat, lng, is_default")
       .single();
