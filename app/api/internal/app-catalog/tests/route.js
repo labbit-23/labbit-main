@@ -13,6 +13,13 @@ import { supabase } from "@/lib/supabaseServer";
 // never a guessed or zero price. Turnaround and fasting are not in this table,
 // so they are not returned (the contract marks them nullable).
 //
+// home_collection is real and matters: director, 2026-09-24, asked how to
+// tell home-visit vs centre-visit tests apart -- this table already has the
+// answer (same column sdrc-website's own cart advisory already reads,
+// CartRequestPanel.js's hasCenterOnlyTests). Confirmed live, 2026-09-24:
+// 348 of 703 active+patient-visible tests have home_collection=false --
+// not an edge case, nearly half the catalog.
+//
 // Auth: its own dedicated shared secret (APP_HUB_INTERNAL_TOKEN), not
 // LABIT_CORE_INTERNAL_TOKEN -- one compromised integration should not hand
 // over every other one.
@@ -48,7 +55,7 @@ export async function GET(request) {
 
   let query = supabase
     .from("lab_tests")
-    .select("internal_code, lab_test_name, price, is_most_popular")
+    .select("internal_code, lab_test_name, price, is_most_popular, home_collection")
     .eq("lab_id", DEFAULT_SDRC_LAB_ID)
     .eq("is_active", true)
     .eq("is_patient_visible", true)
@@ -72,6 +79,10 @@ export async function GET(request) {
       price: Number(r.price),
       patientVisible: true,
       patientPopular: !!r.is_most_popular,
+      // null means "not recorded" (the column itself allows null) --
+      // never default a missing value to true, since that would silently
+      // promise home collection for a test that actually needs a centre visit.
+      homeCollectionAvailable: r.home_collection === null ? null : !!r.home_collection,
     })),
   });
 }
