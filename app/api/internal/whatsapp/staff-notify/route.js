@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { toCanonicalIndiaPhone } from "@/lib/phone";
-import { sendTextMessage } from "@/lib/whatsapp/sender";
+import { sendTemplateMessage, sendTextMessage } from "@/lib/whatsapp/sender";
 
 // Generic "flag this for a human" free-text notify to the lab's internal
 // WhatsApp number. Same phone-resolution shape as quickbook's own
@@ -60,10 +60,17 @@ export async function POST(request) {
     const body = await request.json();
     const labId = String(body?.lab_id || process.env.DEFAULT_LAB_ID || "").trim();
     const text = String(body?.text || "").trim();
+    const templateName = String(body?.template_name || body?.templateName || "").trim();
+    const templateParams = Array.isArray(body?.template_params)
+      ? body.template_params
+      : Array.isArray(body?.templateParams)
+        ? body.templateParams
+        : [];
+    const languageCode = String(body?.language_code || body?.languageCode || "en").trim();
     const sourceService = String(body?.source_service || "internal-service").trim();
 
-    if (!labId || !text) {
-      return NextResponse.json({ error: "Missing lab_id or text" }, { status: 400 });
+    if (!labId || (!text && !templateName)) {
+      return NextResponse.json({ error: "Missing lab_id and (text or template_name)" }, { status: 400 });
     }
 
     const [{ data: apiRow }, { data: labRow }] = await Promise.all([
@@ -89,15 +96,32 @@ export async function POST(request) {
       );
     }
 
-    const sendResult = await sendTextMessage({
-      labId,
-      phone: notifyPhone,
-      text,
-      sender: { id: null, name: sourceService || "System", role: "system", userType: "service" }
-    });
+    const sender = { id: null, name: sourceService || "System", role: "system", userType: "service" };
+
+    // A template send is required here whenever the internal number hasn't
+    // messaged the bot in the last 24h (the common case for an unattended
+    // infra alert firing at 3am) -- free text outside that session window is
+    // silently rejected by the Cloud API. Callers that know they're inside
+    // an active session (e.g. labit-core's "request a printed copy" reply
+    // flow, the first caller here) can still pass plain `text`.
+    const sendResult = templateName
+      ? await sendTemplateMessage({
+          labId,
+          phone: notifyPhone,
+          templateName,
+          languageCode,
+          templateParams,
+          sender
+        })
+      : await sendTextMessage({
+          labId,
+          phone: notifyPhone,
+          text,
+          sender
+        });
 
     return NextResponse.json(
-      { success: true, ok: true, notified_phone: notifyPhone, provider_response: sendResult },
+      { success: true, ok: true, notified_phone: notifyPhone, kind: templateName ? "template" : "text", provider_response: sendResult },
       { status: 200 }
     );
   } catch (err) {
