@@ -1090,6 +1090,12 @@ async function persistWebhookStatusEvents({ body, statusEvents }) {
         errorObj,
         statusTimestampIso: ts
       });
+
+      await reconcileRequisitionWelcomeDeliveryFailure({
+        providerMessageId,
+        statusCode,
+        errorObj
+      });
     } catch (err) {
       console.error("[status-callback] persist failed", {
         error: err?.message || String(err),
@@ -1257,6 +1263,72 @@ async function reconcileAutoDispatchDeliveryFailure({
     });
   } catch (err) {
     console.error("[status-callback] auto-dispatch reconcile exception", {
+      error: err?.message || String(err),
+      providerMessageId
+    });
+  }
+}
+
+const LABIT_CORE_BASE_URL = String(process.env.LABIT_CORE_BASE_URL || "").replace(/\/+$/, "");
+const DELIVER_INTERNAL_TOKEN = process.env.DELIVER_INTERNAL_TOKEN || "";
+
+// requisition_welcome ("requisition_bill" template) is sent within minutes
+// of registration -- a delivery failure on it is a strong EARLY predictor
+// that the eventual REPORT send to the same number will also fail, days
+// later, after the patient has left. User, 2026-09-24: "we know reports
+// will fail too, so we better show the front desk a notification to
+// update the phone number... Whilst the patient is still in the centre."
+// Flags labit-core's requisition.notes via the new internal endpoint so
+// front desk (Requisitions list) and Sampling (samples board) both see it
+// live, via the phone_delivery_flagged derived column those already
+// return. Unlike reconcileAutoDispatchDeliveryFailure (report_auto_dispatch_jobs,
+// regular report sends), this correlates against report_dispatch_logs --
+// where the patient_message_jobs framework (lib/patientMessageJobs) logs
+// every requisition_welcome send.
+async function reconcileRequisitionWelcomeDeliveryFailure({
+  providerMessageId,
+  statusCode,
+  errorObj
+}) {
+  if (!providerMessageId || !isFailedDeliveryStatus(statusCode)) return;
+  if (!LABIT_CORE_BASE_URL || !DELIVER_INTERNAL_TOKEN) return;
+
+  try {
+    const { data: log, error: lookupError } = await supabase
+      .from("report_dispatch_logs")
+      .select("reqno, reqid, phone, report_type")
+      .eq("actor_name", "patient_message_jobs")
+      .eq("provider_message_id", providerMessageId)
+      .eq("status", "success")
+      .maybeSingle();
+
+    if (lookupError) {
+      console.error("[status-callback] requisition_welcome lookup failed", {
+        error: lookupError.message,
+        providerMessageId
+      });
+      return;
+    }
+    // Not every failed status event is a requisition_welcome send -- nothing
+    // to flag for those (reports, bot replies, other campaigns).
+    if (!log?.reqno) return;
+
+    const reason = `${log.report_type || "requisition_welcome"} delivery failed${
+      errorObj?.message ? `: ${errorObj.message}` : ""
+    }`;
+    const resp = await fetch(`${LABIT_CORE_BASE_URL}/internal/dispatch/mark-phone-delivery-failed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Token": DELIVER_INTERNAL_TOKEN },
+      body: JSON.stringify({ reqno: log.reqno, phone: log.phone || "", reason })
+    });
+    if (!resp.ok) {
+      console.error("[status-callback] mark-phone-delivery-failed call failed", {
+        status: resp.status,
+        reqno: log.reqno
+      });
+    }
+  } catch (err) {
+    console.error("[status-callback] requisition_welcome reconcile exception", {
       error: err?.message || String(err),
       providerMessageId
     });
