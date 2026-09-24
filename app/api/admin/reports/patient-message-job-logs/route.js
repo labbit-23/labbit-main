@@ -14,6 +14,7 @@ import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 import { canUseReportDispatch } from "@/lib/reportDispatchScope";
 import { hasPermission } from "@/lib/uac/policy";
+import { buildDeliveryIndex, resolveDelivery, phoneLast10 } from "@/lib/whatsappDeliveryStatus";
 
 const LOGS_TABLE = "report_dispatch_logs";
 const ACTOR_NAME = "patient_message_jobs";
@@ -102,23 +103,57 @@ export async function GET(request) {
     if (error) {
       return new Response(error.message || "Failed to load patient message job logs", { status: 500 });
     }
+    const rows = Array.isArray(data) ? data : [];
+
+    // The "Delivery" column (app/admin/whatsapp/page.js) reads row.delivery_status
+    // /row.delivery_status_at directly -- report_auto_dispatch_jobs rows get those
+    // written back by report_sender_worker's webhook handler, but report_dispatch_logs
+    // rows (this route's source) never do, so it silently defaulted to "queued"
+    // forever regardless of actual WhatsApp status. Same webhook correlation the
+    // activity route already does (buildDeliveryIndex/resolveDelivery against
+    // whatsapp_messages), just applied here too.
+    let statusRows = [];
+    if (rows.length > 0) {
+      const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      const phones = [...new Set(rows.map((r) => `91${phoneLast10(r.phone)}`).filter((p) => p.length === 12))];
+      const { data: st } = await supabase
+        .from("whatsapp_messages")
+        .select("message_id,phone,payload,created_at")
+        .eq("direction", "status")
+        .gte("created_at", since)
+        .in("phone", phones.slice(0, 400))
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      statusRows = Array.isArray(st) ? st : [];
+    }
+    const deliveryIdx = buildDeliveryIndex(statusRows);
 
     // Normalized to the same field names the Sent Reports/Jobs table already
     // renders (reqno, phone, report_label, status, sent_at, provider_message_id,
     // last_error) so the frontend needs no per-source branching.
-    const jobs = (Array.isArray(data) ? data : []).map((row) => ({
-      id: `pmj_${row.id}`,
-      reqno: row.reqno,
-      reqid: row.reqid,
-      phone: row.phone,
-      patient_name: null,
-      report_label: row.report_type,
-      status: row.status === "success" ? "sent" : row.status,
-      sent_at: row.status === "success" ? row.created_at : null,
-      updated_at: row.created_at,
-      provider_message_id: row.provider_message_id || null,
-      last_error: row.status !== "success" ? (row.result_message || "patient_message_job send failed") : null,
-    }));
+    const jobs = rows.map((row) => {
+      const sentAt = row.status === "success" ? row.created_at : null;
+      const failed = row.status !== "success";
+      const ds = failed ? null : resolveDelivery(
+        { providerMessageId: row.provider_message_id, phone: row.phone, sentAt },
+        deliveryIdx
+      );
+      return {
+        id: `pmj_${row.id}`,
+        reqno: row.reqno,
+        reqid: row.reqid,
+        phone: row.phone,
+        patient_name: null,
+        report_label: row.report_type,
+        status: row.status === "success" ? "sent" : row.status,
+        sent_at: sentAt,
+        updated_at: row.created_at,
+        provider_message_id: row.provider_message_id || null,
+        last_error: failed ? (row.result_message || "patient_message_job send failed") : null,
+        delivery_status: failed ? "failed" : (ds || "sent"),
+        delivery_status_at: null,
+      };
+    });
 
     return NextResponse.json({ jobs, count: Number(count || 0), scoped_lab_ids: labIds }, { status: 200 });
   } catch (error) {
