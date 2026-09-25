@@ -143,7 +143,15 @@ function visitPin(visit) {
 // "~24 min · 14 km" -- drive time from the phlebo's current position (Ola,
 // server-side, free tier). Absent when there's no pin or no location fix.
 function etaText(eta) {
-  return eta ? `~${eta.minutes} min · ${eta.km} km` : "";
+  if (!eta) return "";
+  return `${eta.approx ? "≈" : "~"}${eta.minutes} min · ${eta.km} km${eta.approx ? " (area)" : ""}`;
+}
+
+function visitStop(visit) {
+  const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
+  const pin = visitPin(visit);
+  if (pin) return { id: visit.id, ...pin };
+  return def?.pincode || def?.area ? { id: visit.id, pincode: def.pincode, area: def.area } : null;
 }
 
 function displayAddress(visit) {
@@ -255,7 +263,7 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   // ── ETA (today only, visits with a saved pin) ─────────────────────────────
   const [etas, setEtas] = useState({});
   const etaStops = isToday
-    ? sorted.map(v => ({ id: v.id, ...visitPin(v) })).filter(s => s.lat != null)
+    ? sorted.map(visitStop).filter(Boolean)
     : [];
   const etaFor = (v) => (["booked", "assigned", "accepted", "pending"].includes(norm(v.status)) ? etas[v.id] : undefined);
   const etaKey = etaStops.map(s => s.id).join(",");
