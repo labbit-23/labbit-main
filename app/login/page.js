@@ -629,7 +629,7 @@ export default function LoginPage() {
               <HStack spacing={3}>
                 <Image src="/logo.png" alt="Labit Logo" boxSize="54px" borderRadius="lg" />
                 <Heading color="teal.700" fontWeight="extrabold" fontSize="2xl" letterSpacing="wider">
-                  Labit Login
+                  Labit Hub Login
                 </Heading>
               </HStack>
             </Link>
