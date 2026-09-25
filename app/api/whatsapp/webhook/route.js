@@ -3950,7 +3950,12 @@ export async function POST(req) {
           }
         }
         if (result.sendReportActionsMenu) {
-          await wait(4000);
+          // 2026-09-25: was wait(4000) with no documented reason -- shortened
+          // to match the other explicit inter-message pacing delay in this
+          // file (wait(350), :3725), not removed outright, in case the
+          // longer gap existed for WhatsApp message-ordering rather than UX
+          // pacing (undocumented, so kept conservative rather than dropped).
+          await wait(500);
           await sendReportPostDownloadMenu({
             labId: session.lab_id,
             phone
