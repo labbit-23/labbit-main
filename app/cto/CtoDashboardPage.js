@@ -1823,7 +1823,7 @@ export default function CtoDashboardPage({
 
   const keySystemStatuses = useMemo(() => {
     const services = realServices;
-    return keySystems.map((system) => {
+    return keySystems.flatMap((system) => {
       const matches = services.filter((service) => {
         const parsed = parseServiceKey(service.service_key);
         return system.service_keys.includes(parsed.fullKey) || system.service_keys.includes(parsed.baseKey);
@@ -1845,7 +1845,30 @@ export default function CtoDashboardPage({
         sourceMatches[0] ||
         null;
 
-      return {
+      // Director, 2026-09-25: "we need separate statuses of the 2 WANs, not
+      // 1 status overall" -- one combined light for a multilink firewall
+      // hides exactly the case that matters most (one ISP down, the other
+      // still up). One tile per wans[] entry instead of one for the whole
+      // check, each with its own light and its own drill-through (same
+      // primaryServiceKey -- the detail payload has both anyway). Falls
+      // back to the single combined tile if wans[] isn't present (e.g. the
+      // firewall/SNMP itself is unreachable).
+      const wans = Array.isArray(primaryMatch?.payload?.wans) ? primaryMatch.payload.wans : null;
+      if (wans && wans.length > 0) {
+        return wans.map((wan) => ({
+          ...system,
+          label: wan.name || wan.interface || system.label,
+          status: wan.link_up ? "healthy" : "down",
+          latency_ms: null,
+          message: [wan.ip && `IP ${wan.ip}`, wan.gateway && `GW ${wan.gateway}`]
+            .filter(Boolean)
+            .join(" • ") || primaryMatch?.message || "No data yet",
+          matchCount: sourceMatches.length,
+          primaryServiceKey: primaryMatch?.service_key || "",
+        }));
+      }
+
+      return [{
         ...system,
         status,
         latency_ms: isWhatsappMetric(primaryMatch) ? null : primaryMatch?.latency_ms,
@@ -1855,7 +1878,7 @@ export default function CtoDashboardPage({
             : primaryMatch?.message || "No data yet",
         matchCount: sourceMatches.length,
         primaryServiceKey: primaryMatch?.service_key || "",
-      };
+      }];
     });
   }, [realServices]);
 
