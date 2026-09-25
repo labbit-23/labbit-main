@@ -64,6 +64,13 @@ function statusColor(status) {
 
 const keySystems = [
   { service_keys: ["labbit_health"], label: "Labit" },
+  // Director, 2026-09-25: "deserves its own status light right on top
+  // alongside VPS and Bot etc" -- was previously buried as a single line
+  // in the generic "Other" services list even though sophos_firewall
+  // started reporting real live data today (2026-09-24). Keeping WAN
+  // internet connectivity for the physical centre is at least as
+  // foundational as any of the other key systems here.
+  { service_keys: ["sophos_firewall"], label: "Sophos WAN" },
   { service_keys: ["whatsapp_bot_activity", "whatsapp_bot_response_sla_1m", "whatsapp_bot_chats_24h", "whatsapp_bot_reports_24h", "whatsapp_bot_last_report"], label: "WhatsApp Bot" },
   { service_keys: ["supabase_main"], label: "Supabase" },
   { service_keys: ["oracle_db"], label: "Oracle DB" },

@@ -120,10 +120,19 @@ function MirthUnlockedBody({ mirthServices }) {
               <HStack
                 key={ch.channel_id}
                 spacing={2.5}
+                rowGap={1}
                 px={2.5}
                 py={1.5}
                 borderRadius="8px"
                 bg="rgba(255,255,255,0.03)"
+                // Director, 2026-09-25: "pills in the same row hiding channel
+                // names" on mobile -- this row packs 3-5 fixed-width badges
+                // (recv/sent/queued/state/errors/success%) alongside the name
+                // at flex="1", so on a narrow screen the badges win and the
+                // name shrinks to nothing. flexWrap + flexBasis:100% on the
+                // name (mobile only) forces the name onto its own full-width
+                // line, wrapping the badges below it instead of squeezing it.
+                flexWrap="wrap"
               >
                 <Box
                   w="9px"
@@ -133,7 +142,13 @@ function MirthUnlockedBody({ mirthServices }) {
                   bg={severityColor[sev]}
                   boxShadow={`0 0 8px ${severityColor[sev]}`}
                 />
-                <Text fontSize="xs" color="whiteAlpha.900" fontWeight="600" flex="1" noOfLines={1}>
+                <Text
+                  fontSize="xs"
+                  color="whiteAlpha.900"
+                  fontWeight="600"
+                  flex={{ base: "1 1 100%", md: "1" }}
+                  noOfLines={1}
+                >
                   {ch.name}
                 </Text>
                 <Text fontSize="10px" color="whiteAlpha.600">recv {ch.received ?? 0}</Text>

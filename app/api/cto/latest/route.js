@@ -237,9 +237,19 @@ function computeBotResponseSla({ rows = [], nowMs }) {
     ? Math.max(0, Math.round((nowMs - lastInboundDate.getTime()) / (60 * 1000)))
     : null;
 
+  // Director, 2026-09-25: WhatsApp Bot key-system tile was "mostly yellow" --
+  // a single late reply or no-reply out of however many inbound messages in
+  // the last hour flipped this straight to "down" (shown as degraded on the
+  // top tile). For real patient volume, at least one message needing a
+  // slower human handoff per hour is normal operation, not an incident --
+  // this made the tile a near-permanent false alarm. Switched to a
+  // breach-rate threshold: an occasional late/no reply among many healthy
+  // ones no longer trips it; only a real, majority-of-messages breakdown
+  // does.
   let status = "unknown";
   if (total > 0) {
-    status = breachCount > 0 || timeoutCount > 0 ? "down" : "healthy";
+    const issueRate = (breachCount + timeoutCount) / total;
+    status = issueRate > 0.5 ? "down" : issueRate > 0.2 ? "degraded" : "healthy";
   }
 
   return {
