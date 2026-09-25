@@ -135,6 +135,17 @@ function mapsUrl(visit) {
   return null;
 }
 
+function visitPin(visit) {
+  const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
+  return def?.lat && def?.lng ? { lat: Number(def.lat), lng: Number(def.lng) } : null;
+}
+
+// "~24 min · 14 km" -- drive time from the phlebo's current position (Ola,
+// server-side, free tier). Absent when there's no pin or no location fix.
+function etaText(eta) {
+  return eta ? `~${eta.minutes} min · ${eta.km} km` : "";
+}
+
 function displayAddress(visit) {
   if (visit.address) return visit.address;
   const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
@@ -240,6 +251,40 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   // After 5 PM with today all done → promote tomorrow's first visit as the hero
   const tomorrowHero  = !current && isAfter5pm ? (tomorrowSorted[0] || null) : null;
   const tomorrowRest  = tomorrowHero ? tomorrowSorted.slice(1) : tomorrowSorted;
+
+  // ── ETA (today only, visits with a saved pin) ─────────────────────────────
+  const [etas, setEtas] = useState({});
+  const etaStops = isToday
+    ? sorted.map(v => ({ id: v.id, ...visitPin(v) })).filter(s => s.lat != null)
+    : [];
+  const etaFor = (v) => (["booked", "assigned", "accepted", "pending"].includes(norm(v.status)) ? etas[v.id] : undefined);
+  const etaKey = etaStops.map(s => s.id).join(",");
+  useEffect(() => {
+    if (!etaKey || !("geolocation" in navigator)) { setEtas({}); return; }
+    let cancelled = false;
+    async function refresh() {
+      const origin = await new Promise((resolve) =>
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+          () => resolve(null),
+          { timeout: 6000, maximumAge: 60000 }
+        )
+      );
+      if (!origin || cancelled) return;
+      try {
+        const res = await fetch("/api/internal/routing/eta", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ origin, stops: etaStops }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setEtas(body.etas || {});
+      } catch { /* ETA is a nicety; the cards work without it */ }
+    }
+    refresh();
+    const t = setInterval(refresh, 3 * 60_000); // every 3 min, not every 60s poll
+    return () => { cancelled = true; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etaKey]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -490,6 +535,7 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
         {current ? (
           <CurrentCard
             visit={current}
+            eta={etaFor(current)}
             isDark={isDark}
             isLoading={advancingId === current.id}
             onAdvance={() => advanceVisit(current)}
@@ -588,6 +634,7 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
                   {i > 0 && <Box h="1px" bg={softDiv} />}
                   <UpcomingRow
                     visit={v}
+                    eta={etaFor(v)}
                     isDark={isDark}
                     isLoading={advancingId === v.id}
                     text={text} muted={muted}
@@ -909,7 +956,7 @@ function ToolbarBtn({ icon, label, onClick, isDark, accent }) {
 
 // ── CurrentCard ───────────────────────────────────────────────────────────────
 
-function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, onViewDraw, surface, text, muted, borderC }) {
+function CurrentCard({ visit, eta, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, onViewDraw, surface, text, muted, borderC }) {
   const status    = norm(visit.status);
   const label     = actionLabel(status);
   const scheme    = actionScheme(status);
@@ -985,6 +1032,11 @@ function CurrentCard({ visit, isDark, isLoading, onAdvance, onNavigate, onContac
               Address
             </Text>
             <Text fontSize="14px" fontWeight="500" color={text} lineHeight="1.4">{addr}</Text>
+            {eta && (
+              <Text fontSize="12px" fontWeight="600" color="var(--accent-ink)" mt="4px">
+                {etaText(eta)} from you
+              </Text>
+            )}
           </Box>
         ) : null}
 
@@ -1187,7 +1239,7 @@ function TomorrowHeroCard({ visit, isDark, surface, text, muted, borderC, onNavi
 
 // ── UpcomingRow ───────────────────────────────────────────────────────────────
 
-function UpcomingRow({ visit, isDark, isLoading, onStart, onTap, text, muted }) {
+function UpcomingRow({ visit, eta, isDark, isLoading, onStart, onTap, text, muted }) {
   const time = slotTime(visit.time_slot?.slot_name);
   const addr = displayAddress(visit);
   const [armed, setArmed] = useState(false);
@@ -1211,6 +1263,7 @@ function UpcomingRow({ visit, isDark, isLoading, onStart, onTap, text, muted }) 
           {visit.patient?.name}
         </Text>
         <Text fontSize="12px" color={muted} noOfLines={1}>{addr || "—"}</Text>
+        {eta && <Text fontSize="11px" fontWeight="600" color="var(--accent-ink)">{etaText(eta)}</Text>}
       </Box>
       <Button
         h="32px" px={3} flexShrink={0}
