@@ -5,6 +5,23 @@ import { supabase } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 
+// Mirrors app/api/whatsapp/webhook/route.js's PERMANENT_WA_DELIVERY_ERROR_CODES --
+// keep these two lists in sync. These are recipient-side/data problems (bad or
+// unreachable number, recipient blocked the business, engagement limit) that
+// exhaust retries into the SAME job.status="failed" bucket as a genuine technical
+// failure (e.g. 131053 media upload error). Director, 2026-09-25: "volume delivery
+// failures should be unrelated to incorrect phones" -- one patient's wrong/dead
+// number is routine, expected friction (same category as the separately-tracked
+// Invalid Phone Jobs metric), not a signal that the send PIPELINE is broken.
+// Excluded from the pipeline-health severity below; still counted and shown so
+// nothing is silently hidden.
+const RECIPIENT_SIDE_WA_DELIVERY_ERROR_CODES = new Set([
+  131026, // Message undeliverable (recipient can't receive)
+  131047, // Re-engagement message required (window closed)
+  131049, // Not delivered — healthy-ecosystem engagement limit
+  131050, // Recipient has stopped receiving messages from this business
+]);
+
 const WAIT_FOR_EXECUTIVE_TEXT = "please wait, our executive will reach out to help you shortly";
 const REPORT_WAIT_TEXT = "thank you. our team will verify and send your report shortly";
 const IST_FORMATTER = new Intl.DateTimeFormat("en-IN", {
@@ -981,6 +998,16 @@ async function loadAutoDispatchMetrics(labId) {
   const waDeliveryFailedJobs = failedJobsDistinct.filter((job) =>
     /^WA_DELIVERY_FAILED:/i.test(String(job?.last_error || ""))
   );
+  function waDeliveryErrorCode(job) {
+    const match = /^WA_DELIVERY_FAILED:\s*(\d+)/i.exec(String(job?.last_error || ""));
+    return match ? Number(match[1]) : null;
+  }
+  const waDeliveryFailedJobsRecipientSide = waDeliveryFailedJobs.filter((job) =>
+    RECIPIENT_SIDE_WA_DELIVERY_ERROR_CODES.has(waDeliveryErrorCode(job))
+  );
+  const waDeliveryFailedJobsTechnical = waDeliveryFailedJobs.filter(
+    (job) => !RECIPIENT_SIDE_WA_DELIVERY_ERROR_CODES.has(waDeliveryErrorCode(job))
+  );
   const waDeliveryRetryingJobs = jobsList.filter(
     (job) =>
       String(job?.status || "").toLowerCase() === "retrying" &&
@@ -1179,13 +1206,24 @@ async function loadAutoDispatchMetrics(labId) {
       checkedAt,
       serviceKey: "auto_dispatch_wa_delivery_failed_jobs",
       label: "WhatsApp Delivery Failures",
-      status: waDeliveryFailedJobs.length > 0 ? "down" : waDeliveryRetryingJobs.length > 0 ? "degraded" : "healthy",
+      // Severity is driven by TECHNICAL failures only (pipeline health) -- a
+      // recipient's bad/dead number or blocked-business status doesn't mean our
+      // send mechanism is broken. Small absolute threshold, not "any > 0": one
+      // media-upload hiccup a day is normal; a real incident is several.
+      status:
+        waDeliveryFailedJobsTechnical.length > 2
+          ? "down"
+          : waDeliveryFailedJobsTechnical.length > 0 || waDeliveryRetryingJobs.length > 0
+            ? "degraded"
+            : "healthy",
       message:
-        waDeliveryFailedJobs.length > 0
-          ? `${waDeliveryFailedJobs.length} jobs failed delivery today after retries exhausted; ${waDeliveryRetryingJobs.length} more auto-retrying`
-          : `No exhausted delivery failures today; ${waDeliveryRetryingJobs.length} jobs auto-retrying after a failed delivery`,
+        waDeliveryFailedJobsTechnical.length > 0
+          ? `${waDeliveryFailedJobsTechnical.length} technical delivery failures today after retries exhausted (${waDeliveryFailedJobsRecipientSide.length} more recipient-side: bad/blocked number, not a pipeline issue); ${waDeliveryRetryingJobs.length} auto-retrying`
+          : `No technical delivery failures today (${waDeliveryFailedJobsRecipientSide.length} recipient-side: bad/blocked number, not a pipeline issue); ${waDeliveryRetryingJobs.length} jobs auto-retrying`,
       payload: {
         failed_terminal_count: waDeliveryFailedJobs.length,
+        failed_technical_count: waDeliveryFailedJobsTechnical.length,
+        failed_recipient_side_count: waDeliveryFailedJobsRecipientSide.length,
         retrying_count: waDeliveryRetryingJobs.length,
         samples: waDeliveryFailedJobs.slice(0, 20).map((j) => ({
           id: j.id,
