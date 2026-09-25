@@ -3950,12 +3950,11 @@ export async function POST(req) {
           }
         }
         if (result.sendReportActionsMenu) {
-          // 2026-09-25: was wait(4000) with no documented reason -- shortened
-          // to match the other explicit inter-message pacing delay in this
-          // file (wait(350), :3725), not removed outright, in case the
-          // longer gap existed for WhatsApp message-ordering rather than UX
-          // pacing (undocumented, so kept conservative rather than dropped).
-          await wait(500);
+          // Gives the PDF time to actually land before the follow-up menu
+          // arrives (user, 2026-09-25) -- not a UX-pacing nicety, don't
+          // shorten this without confirming WhatsApp/provider delivery
+          // timing can tolerate it.
+          await wait(4000);
           await sendReportPostDownloadMenu({
             labId: session.lab_id,
             phone
