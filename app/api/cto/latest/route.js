@@ -1174,7 +1174,15 @@ async function loadAutoDispatchMetrics(labId) {
       checkedAt,
       serviceKey: "auto_dispatch_invalid_phone_jobs",
       label: "Invalid Phone Jobs",
-      status: invalidPhoneFailedJobs.length > 0 ? "down" : "healthy",
+      // Director, 2026-09-25: same class as WhatsApp Delivery Failures above --
+      // a bad phone number is a NeoSoft/registration data-entry issue, not a
+      // sign our pipeline is broken (memory already documents 2 persistent
+      // known-bad numbers as a standing baseline, which made this metric
+      // structurally red regardless of anything actually being wrong).
+      // Threshold instead of any>0; front desk already gets its own
+      // phone-delivery-flag notification per requisition (2026-09-24) so
+      // nothing is silently missed even at "healthy" here.
+      status: invalidPhoneFailedJobs.length > 5 ? "down" : invalidPhoneFailedJobs.length > 0 ? "degraded" : "healthy",
       message: `${invalidPhoneFailedJobs.length} failed jobs due to invalid phone`,
       payload: {
         invalid_phone_failed_count: invalidPhoneFailedJobs.length,
