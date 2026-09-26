@@ -155,6 +155,20 @@ function shouldEscalateToFirstFloor({ labReady, labTotal, radiologyReady, radiol
   return pendingLab > 0 || pendingRadiology > 0;
 }
 
+const K = {
+  plum: "#8A6BA3", plumStrong: "#6B4F82", plumSoft: "#F1EBF5", plumLine: "#D8C9E3", plumInk: "#4A3358",
+  text: "#15181C", text2: "#525860", text3: "#878D94", line: "#E6E8EB", bg: "#F6F7F8",
+  okSoft: "#ECF5EF", okInk: "#2F6B49", warnSoft: "#F8F1E2", warnInk: "#7A5A23"
+};
+const CARD = {
+  bg: "white",
+  border: `1px solid ${K.line}`,
+  borderRadius: "24px",
+  boxShadow: "0 1px 2px rgba(21,24,28,0.05), 0 12px 32px rgba(21,24,28,0.08)"
+};
+const PRIMARY_BTN = { bg: K.plum, color: "white", _hover: { bg: K.plumStrong }, _active: { bg: K.plumStrong }, _disabled: { bg: K.line, color: K.text3, cursor: "not-allowed", _hover: { bg: K.line } } };
+const OUTLINE_BTN = { bg: "white", color: K.plumStrong, border: `2px solid ${K.plumLine}`, _hover: { bg: K.plumSoft }, _disabled: { opacity: 0.45, cursor: "not-allowed", _hover: { bg: "white" } } };
+
 const printBounce = keyframes`
   0%, 100% { transform: translateY(0px); opacity: 0.9; }
   50% { transform: translateY(-2px); opacity: 1; }
@@ -626,26 +640,38 @@ export default function ReportDispatchKioskPage() {
     return () => window.removeEventListener("keydown", onLoginScannerKey);
   }, [authenticated]);
 
-  const renderStepScan = () => (
-    <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 5, md: 6 }} maxW="900px" w="100%">
-      <Text fontSize="sm" color="gray.700" fontWeight="semibold" mb={1}>Step 1 of 3</Text>
-      <Flex justify="center" mb={5}>
-        <Image
-          src={labMeta.logo_url}
-          alt={`${labMeta.name || "Lab"} logo`}
-          h={{ base: "84px", md: "110px" }}
-          maxW="80%"
-          objectFit="contain"
-        />
+  const readyTone = showFirstFloorWarning ? "warn" : "ok";
+  const StatTile = ({ label, ready, total }) => (
+    <Box flex={1} bg={K.bg} border={`1px solid ${K.line}`} borderRadius="18px" p={4}>
+      <Text fontSize="md" color={K.text2} fontWeight="medium">{label}</Text>
+      <Flex align="baseline" gap={2} mt={1}>
+        <Text fontSize="4xl" fontWeight="semibold" color={K.plumInk} lineHeight="1">{ready}</Text>
+        <Text fontSize="xl" color={K.text3}>of {total} ready</Text>
       </Flex>
-      <Heading size="lg" mb={4}>{text.scan_title}</Heading>
-      <Flex gap={2} wrap="wrap" mb={4}>
+      <Progress value={total ? Math.round((ready / total) * 100) : 0} mt={3} h="8px" borderRadius="full" bg={K.line} sx={{ "& > div": { background: K.plum } }} />
+    </Box>
+  );
+  const PrintIcon = () => (
+    <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
+      <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
+    </Box>
+  );
+
+  const renderStepScan = () => (
+    <Box {...CARD} p={{ base: 6, md: 10 }} maxW="720px" w="100%" mt={{ base: 2, md: 8 }}>
+      <Flex direction="column" align="center" textAlign="center" mb={6}>
+        <Image src={labMeta.logo_url} alt={`${labMeta.name || "Lab"} logo`} h={{ base: "48px", md: "60px" }} maxW="60%" objectFit="contain" opacity={0.95} mb={5} />
+        <Heading fontSize={{ base: "2xl", md: "3xl" }} fontWeight="semibold" color={K.text} letterSpacing="-0.01em">{text.scan_title}</Heading>
+      </Flex>
+      <Flex gap={2} wrap="wrap" justify="center" mb={6}>
         {LANGUAGE_OPTIONS.map((option) => (
           <Button
             key={option.code}
-            size="sm"
-            variant={lang === option.code ? "solid" : "outline"}
-            colorScheme={lang === option.code ? "teal" : "gray"}
+            size="md"
+            borderRadius="full"
+            px={5}
+            fontWeight="medium"
+            {...(lang === option.code ? PRIMARY_BTN : { bg: "white", color: K.text2, border: `1px solid ${K.line}`, _hover: { bg: K.plumSoft } })}
             onClick={() => {
               setLang(option.code);
               setTimeout(() => scanInputRef.current?.focus(), 40);
@@ -661,7 +687,7 @@ export default function ReportDispatchKioskPage() {
           e.preventDefault();
           const parsed = parseScanValue(scanValue);
           setReqidValue(parsed.reqid);
-            if (parsed.reqid) {
+          if (parsed.reqid) {
             handleScanSubmit(parsed.reqid);
           } else {
             setNotice("Invalid QR code. Please rescan.");
@@ -681,249 +707,155 @@ export default function ReportDispatchKioskPage() {
             placeholder="Waiting for scan…"
             aria-label="QR code on your bill"
             name="kiosk-barcode-scan"
-            h="72px"
+            h="68px"
             fontSize="xl"
+            textAlign="center"
             borderWidth="2px"
-            bg="rgba(255,255,255,0.72)"
-            color="var(--text)"
-            borderColor="var(--border-strong)"
-            _placeholder={{ color: "var(--text-3)" }}
-            _hover={{ borderColor: "var(--accent)" }}
-            _focusVisible={{
-              borderColor: "var(--accent)",
-              boxShadow: "0 0 0 2px var(--accent-line)"
-            }}
+            borderRadius="16px"
+            bg="white"
+            color={K.text}
+            borderColor={K.plumLine}
+            _placeholder={{ color: K.text3 }}
+            _hover={{ borderColor: K.plum }}
+            _focusVisible={{ borderColor: K.plum, boxShadow: `0 0 0 3px ${K.plumSoft}` }}
             inputMode="text"
             {...NO_AUTOFILL_TEXT_PROPS}
           />
         </FormControl>
-        <Button mt={4} size="lg" h="72px" w="100%" colorScheme="teal" type="submit" isLoading={loading} fontSize="xl">
+        <Button mt={4} h="68px" w="100%" borderRadius="16px" type="submit" isLoading={loading} fontSize="xl" fontWeight="semibold" {...PRIMARY_BTN}>
           {text.continue}
         </Button>
       </form>
-      {reqid ? (
-        <Text mt={4} fontWeight="semibold" fontSize="lg">
-          REQID: <Text as="span" color="var(--accent-strong)">{reqid}</Text>
-        </Text>
-      ) : null}
     </Box>
   );
 
   const renderStepDispatch = () => (
-    <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(15, 23, 42, 0.28)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
-      <Text fontSize="sm" color="var(--text-2)" fontWeight="semibold" mb={1}>Step 2 of 3</Text>
-      <Heading size="lg" mb={3}>{text.dispatch_title}</Heading>
-
-      <Stack spacing={2} mb={3}>
-        {patientName ? <Text fontSize="xl" color="var(--text)">Patient: <strong>{patientName}</strong></Text> : null}
-        {testDateDisplay ? <Text fontSize="xl" color="var(--text)">Test Date: <strong>{testDateDisplay}</strong></Text> : null}
-        <Text fontSize="xl">
-          Status: <Badge colorScheme={decisionTone} fontSize="md" px={3} py={1} textTransform="none" borderRadius="full">{getStatusLabel(statusBody?.live_status?.overall_status)}</Badge>
-        </Text>
-        <Text fontSize="xl" color="var(--text)">Ready Lab Reports: {statusBody?.live_status?.lab_ready || 0}/{statusBody?.live_status?.lab_total || 0}</Text>
-        <Text fontSize="xl" color="var(--text)">Ready Scan Reports: {statusBody?.live_status?.radiology_ready || 0}/{statusBody?.live_status?.radiology_total || 0}</Text>
-        <Progress value={readinessPct} borderRadius="full" colorScheme={decisionTone} h="9px" />
-        <Text color="var(--text-2)" fontSize="xl">{getPatientDecisionMessage(decision)}</Text>
-      </Stack>
-
-      <Flex gap={3} direction={{ base: "column", md: "row" }}>
-        <Box flex={1}>
-          <Button
-            colorScheme="teal"
-            size="lg"
-            h="80px"
-            w="100%"
-            fontSize="lg"
-            onClick={() => handlePrintScope("lab")}
-            isLoading={loading}
-            isDisabled={!hasLabReady}
-          >
-            <Flex align="center" gap={3}>
-              <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
-                <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
-                <Box
-                  position="absolute"
-                  left="4px"
-                  top="-1px"
-                  w="14px"
-                  h="8px"
-                  borderRadius="2px"
-                  bg="whiteAlpha.900"
-                  animation={`${paperFeed} 1.2s ease-in-out infinite`}
-                />
-              </Box>
-              <Text>{text.print_lab}</Text>
-            </Flex>
-          </Button>
-          <Text mt={1} fontSize="xs" color="var(--text-2)" textAlign="center">Blood work / lab tests</Text>
+    <Box {...CARD} p={{ base: 5, md: 8 }} maxW="980px" w="100%" mt={{ base: 1, md: 4 }}>
+      <Flex justify="space-between" align="flex-start" wrap="wrap" gap={2} mb={5}>
+        <Box>
+          <Text fontSize="md" color={K.text3} fontWeight="medium">{text.dispatch_title}</Text>
+          <Heading fontSize={{ base: "2xl", md: "3xl" }} fontWeight="semibold" color={K.text} letterSpacing="-0.01em">
+            {patientName ? `Hello, ${patientName}` : "Hello"}
+          </Heading>
         </Box>
-        <Box flex={1}>
-          <Button
-            colorScheme="teal"
-            variant="solid"
-            size="lg"
-            h="80px"
-            w="100%"
-            fontSize="lg"
-            onClick={() => handlePrintScope("radiology")}
-            isLoading={loading}
-            isDisabled={!hasRadiologyReady}
-            bg="var(--accent-strong)"
-            color="white"
-            border="1px solid var(--accent-ink)"
-            _hover={{ bg: "var(--accent-ink)" }}
-          >
-            <Flex align="center" gap={3}>
-              <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
-                <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
-                <Box
-                  position="absolute"
-                  left="4px"
-                  top="-1px"
-                  w="14px"
-                  h="8px"
-                  borderRadius="2px"
-                  bg="whiteAlpha.900"
-                  animation={`${paperFeed} 1.2s ease-in-out infinite`}
-                />
-              </Box>
-              <Text>{text.load_scan}</Text>
-            </Flex>
-          </Button>
-          <Text mt={1} fontSize="xs" color="var(--text-2)" textAlign="center">X-Ray / scan reports</Text>
-        </Box>
-        <Box flex={1}>
-          <Button
-            colorScheme="teal"
-            size="lg"
-            h="80px"
-            w="100%"
-            fontSize="lg"
-            onClick={() => handlePrintScope("all")}
-            isLoading={loading}
-            isDisabled={!hasLabReady && !hasRadiologyReady}
-          >
-            <Flex align="center" gap={3}>
-              <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
-                <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
-                <Box
-                  position="absolute"
-                  left="4px"
-                  top="-1px"
-                  w="14px"
-                  h="8px"
-                  borderRadius="2px"
-                  bg="whiteAlpha.900"
-                  animation={`${paperFeed} 1.2s ease-in-out infinite`}
-                />
-              </Box>
-              <Text>{text.print_all}</Text>
-            </Flex>
-          </Button>
-          <Text mt={1} fontSize="xs" color="var(--text-2)" textAlign="center">Lab + scan combined</Text>
-        </Box>
+        {testDateDisplay ? (
+          <Box bg={K.plumSoft} color={K.plumInk} borderRadius="full" px={4} py={1.5} fontSize="md" fontWeight="medium">{testDateDisplay}</Box>
+        ) : null}
       </Flex>
 
-      <Box mt={2} p={2} borderRadius="10px" bg="rgba(255,255,255,0.55)" border="1px solid rgba(15,23,42,0.12)">
-        <Text fontSize="sm" fontWeight="semibold" color="var(--text)" mb={1}>Before Print</Text>
-        <Text fontSize="xs" color="var(--text-2)">
-          Lab: {labReadyCount}/{labTotalCount} ready ({Math.max(0, labTotalCount - labReadyCount)} pending) •
-          Scan: {radiologyReadyCount}/{radiologyTotalCount} ready ({Math.max(0, radiologyTotalCount - radiologyReadyCount)} pending)
-        </Text>
-      </Box>
+      <Flex
+        align="center"
+        gap={3}
+        bg={readyTone === "ok" ? K.okSoft : K.warnSoft}
+        color={readyTone === "ok" ? K.okInk : K.warnInk}
+        borderRadius="16px"
+        px={5}
+        py={4}
+        mb={4}
+        fontSize="xl"
+        fontWeight="medium"
+      >
+        <Text as="span" fontSize="2xl">{readyTone === "ok" ? "✓" : "!"}</Text>
+        <Text>{getStatusLabel(statusBody?.live_status?.overall_status)}</Text>
+      </Flex>
+      <Text color={K.text2} fontSize="lg" mb={4}>{getPatientDecisionMessage(decision)}</Text>
+
+      <Flex gap={4} mb={6} direction={{ base: "column", md: "row" }}>
+        <StatTile label="Lab reports" ready={labReadyCount} total={labTotalCount} />
+        {radiologyTotalCount > 0 ? <StatTile label="Scan reports" ready={radiologyReadyCount} total={radiologyTotalCount} /> : null}
+      </Flex>
+
+      <Flex gap={3} direction={{ base: "column", md: "row" }}>
+        {radiologyTotalCount > 0 ? (
+          <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("all")} isLoading={loading} isDisabled={!hasLabReady && !hasRadiologyReady} {...PRIMARY_BTN}>
+            <Flex align="center" gap={3}><PrintIcon /><Text>{text.print_all}</Text></Flex>
+          </Button>
+        ) : null}
+        <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("lab")} isLoading={loading} isDisabled={!hasLabReady} {...(radiologyTotalCount > 0 ? OUTLINE_BTN : PRIMARY_BTN)}>
+          <Flex align="center" gap={3}><PrintIcon /><Text>{text.print_lab}</Text></Flex>
+        </Button>
+        {radiologyTotalCount > 0 ? (
+          <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("radiology")} isLoading={loading} isDisabled={!hasRadiologyReady} {...OUTLINE_BTN}>
+            <Flex align="center" gap={3}><PrintIcon /><Text>{text.load_scan}</Text></Flex>
+          </Button>
+        ) : null}
+      </Flex>
 
       {showFirstFloorWarning ? (
-        <Alert status="warning" mt={5} borderRadius="lg" fontSize="lg">
-          <AlertIcon />
-          Please go to the First Floor using the dedicated elevator.
-        </Alert>
+        <Flex mt={5} align="center" gap={3} bg={K.warnSoft} color={K.warnInk} borderRadius="16px" px={5} py={4} fontSize="lg">
+          <Text as="span" fontSize="xl">ⓘ</Text>
+          <Text>Please go to the First Floor using the dedicated elevator.</Text>
+        </Flex>
       ) : null}
-
     </Box>
   );
 
   const renderStepFeedback = () => (
-    <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
-      <Text fontSize="sm" color="gray.500" mb={1}>Step 3 of 3</Text>
-      <Heading size="lg" mb={1}>{text.feedback_title}</Heading>
-      <Text color="gray.600" mb={3}>{text.feedback_subtitle}</Text>
-      {(patientName || testDate) ? (
-        <Text mb={4} color="gray.700">
-          {patientName ? `Patient: ${patientName}` : ""}{patientName && testDate ? " • " : ""}{testDate ? `Test Date: ${testDate}` : ""}
-        </Text>
-      ) : null}
+    <Box {...CARD} p={{ base: 5, md: 8 }} maxW="760px" w="100%" mt={{ base: 1, md: 4 }}>
+      <Heading fontSize={{ base: "2xl", md: "3xl" }} fontWeight="semibold" color={K.text} letterSpacing="-0.01em" mb={1}>{text.feedback_title}</Heading>
+      <Text color={K.text2} fontSize="lg" mb={5}>{text.feedback_subtitle}</Text>
 
       {lastPrintInstruction ? (
-        <Alert status="success" borderRadius="md" mb={4}>
-          <AlertIcon />
-          {lastPrintInstruction}
-        </Alert>
+        <Flex align="center" gap={3} bg={K.okSoft} color={K.okInk} borderRadius="16px" px={5} py={3} mb={4} fontSize="lg">
+          <Text as="span" fontSize="xl">✓</Text><Text>{lastPrintInstruction}</Text>
+        </Flex>
       ) : null}
 
-      <Alert status="info" borderRadius="md" mb={4}>
-        <AlertIcon />
-        Returning to scan screen in {feedbackCountdown}s
-      </Alert>
-
       <form onSubmit={handleFeedbackSubmit}>
-        <FormControl mb={2}>
-          <FormLabel fontWeight="bold">Rating</FormLabel>
-          <Flex gap={2} wrap="wrap">
-            {[1, 2, 3, 4, 5].map((value) => (
-              (() => {
-                const active = rating >= value;
-                const scheme =
-                  value <= 2 ? "red" :
-                    value === 3 ? "orange" :
-                      value === 4 ? "yellow" : "green";
-                return (
-                  <Button
-                    key={value}
-                    type="button"
-                    h="58px"
-                    minW="58px"
-                    fontSize="2xl"
-                    colorScheme={active ? scheme : "gray"}
-                    variant={active ? "solid" : "outline"}
-                    onClick={() => {
-                      setRating(value);
-                      markFeedbackInteraction();
-                    }}
-                    transform={active ? "translateY(-2px)" : "none"}
-                    transition="all 0.15s ease"
-                  >
-                    {active ? "★" : "☆"}
-                  </Button>
-                );
-              })()
-            ))}
-          </Flex>
-        </FormControl>
-        <FormControl mb={3}>
-          <FormLabel fontWeight="bold">Feedback</FormLabel>
-          <Textarea
-            value={feedback}
-            onChange={(e) => {
-              setFeedback(e.target.value);
-              markFeedbackInteraction();
-            }}
-            minH="110px"
-            fontSize="md"
-            placeholder="Tell us your experience"
-            inputMode="text"
-            name="kiosk-feedback"
-            {...NO_AUTOFILL_TEXT_PROPS}
-            onFocus={markFeedbackInteraction}
-          />
-        </FormControl>
+        <Flex gap={2} mb={4} justify="center">
+          {[1, 2, 3, 4, 5].map((value) => {
+            const active = rating >= value;
+            return (
+              <Button
+                key={value}
+                type="button"
+                h="68px"
+                minW="68px"
+                borderRadius="full"
+                fontSize="3xl"
+                bg={active ? K.plum : "white"}
+                color={active ? "white" : K.plumLine}
+                border={`2px solid ${active ? K.plum : K.plumLine}`}
+                _hover={{ bg: active ? K.plumStrong : K.plumSoft }}
+                onClick={() => {
+                  setRating(value);
+                  markFeedbackInteraction();
+                }}
+                aria-label={`${value} star`}
+              >
+                {active ? "★" : "☆"}
+              </Button>
+            );
+          })}
+        </Flex>
+        <Textarea
+          value={feedback}
+          onChange={(e) => {
+            setFeedback(e.target.value);
+            markFeedbackInteraction();
+          }}
+          minH="110px"
+          fontSize="lg"
+          borderRadius="16px"
+          borderWidth="2px"
+          borderColor={K.plumLine}
+          _focusVisible={{ borderColor: K.plum, boxShadow: `0 0 0 3px ${K.plumSoft}` }}
+          mb={4}
+          placeholder="Tell us your experience"
+          inputMode="text"
+          name="kiosk-feedback"
+          {...NO_AUTOFILL_TEXT_PROPS}
+          onFocus={markFeedbackInteraction}
+        />
         <Flex gap={3} direction={{ base: "column", md: "row" }}>
-          <Button type="submit" size="lg" h="54px" flex={1} colorScheme="teal" isLoading={loading} isDisabled={rating < 1 || rating > 5}>
+          <Button type="submit" h="64px" flex={1} borderRadius="16px" fontSize="lg" fontWeight="semibold" isLoading={loading} isDisabled={rating < 1 || rating > 5} {...PRIMARY_BTN}>
             {text.save_feedback}
           </Button>
-          <Button size="lg" h="54px" flex={1} variant="outline" onClick={resetSession}>
+          <Button h="64px" flex={1} borderRadius="16px" fontSize="lg" fontWeight="semibold" onClick={resetSession} {...OUTLINE_BTN}>
             {text.next_patient}
           </Button>
         </Flex>
+        <Text mt={4} textAlign="center" color={K.text3} fontSize="md">Returning to the start in {feedbackCountdown}s</Text>
       </form>
     </Box>
   );
@@ -932,125 +864,61 @@ export default function ReportDispatchKioskPage() {
     <Box
       h="100dvh"
       overflow="hidden"
-      p={{ base: 2, md: 3 }}
       position="relative"
-      bgImage='linear-gradient(125deg, rgba(20, 14, 28, 0.48), rgba(20, 14, 28, 0.38)), url("/assets/whatsapp/sdrc_banner.png")'
+      bg={K.bg}
+      bgImage='linear-gradient(rgba(246,247,248,0.72), rgba(246,247,248,0.86)), url("/assets/whatsapp/sdrc_banner.png")'
       bgSize="cover"
       bgPosition="center"
-      bgRepeat="no-repeat"
     >
-      <Box
-        position="absolute"
-        inset="0"
-        pointerEvents="none"
-        bg='radial-gradient(circle at 52% 52%, rgba(0,0,0,0.28), transparent 66%)'
-      />
-      <Flex
-        position="absolute"
-        right={{ base: 3, md: 5 }}
-        bottom={{ base: 2, md: 3 }}
-        zIndex={2}
-        align="center"
-        gap={2}
-        pl={3}
-        pr={1}
-        py={0}
-        borderRadius="full"
-        bg="white"
-        pointerEvents="none"
-      >
-        <Text fontSize="xs" color="var(--text-2)" letterSpacing="0.02em">Powered by</Text>
-        <Image src="/logo.png" alt="Labit" h="34px" objectFit="contain" />
-      </Flex>
-      <Box maxW="1280px" mx="auto" h="100%" display="flex" flexDirection="column" position="relative" zIndex={1}>
-        <Flex
-          align="center"
-          justify="space-between"
-          mb={3}
-          bg="rgba(255,255,255,0.9)"
-          border="1px solid rgba(15,23,42,0.12)"
-          borderRadius="16px"
-          p={{ base: 2, md: 2.5 }}
-          boxShadow="0 10px 28px rgba(2, 8, 23, 0.18)"
-        >
+      <Flex direction="column" h="100%" position="relative" zIndex={1}>
+        <Flex align="center" justify="space-between" bg="white" borderBottom={`1px solid ${K.line}`} px={{ base: 4, md: 8 }} h={{ base: "64px", md: "76px" }} flexShrink={0}>
           <Flex align="center" gap={3}>
-            <Image
-              src="/SDRC_logo.png"
-              alt="SDRC logo"
-              h={{ base: "40px", md: "48px" }}
-              objectFit="contain"
-            />
-            <Box>
-              <Heading size="md" color="var(--text)" letterSpacing="-0.02em">Report Dispatch Kiosk</Heading>
-              <Text color="gray.700" fontSize="sm">{labMeta.name || "Lab"}</Text>
+            <Image src="/labit-logo.png" alt="Labit" h={{ base: "36px", md: "44px" }} objectFit="contain" />
+            <Box borderLeft={`1px solid ${K.line}`} pl={3}>
+              <Text color={K.text} fontSize="lg" fontWeight="semibold" lineHeight="1.2">Report Dispatch Kiosk</Text>
+              <Text color={K.text2} fontSize="sm">{labMeta.name || "Lab"}</Text>
             </Box>
           </Flex>
-          <Flex align="center" gap={3}>
-            {authenticated ? (
-              <Button
-                type="button"
-                variant="solid"
-                bg="white"
-                color="var(--accent-ink)"
-                _hover={{ bg: "whiteAlpha.900" }}
-                fontSize="md"
-                h="42px"
-                minW="104px"
-                onClick={resetSession}
-                title="Home"
-              >
-                ⌂ Home
-              </Button>
-            ) : null}
-            {authenticated && phase === "feedback" ? (
-              <Badge bg="var(--warn-soft)" color="var(--warn-ink)" px={3} py={2} borderRadius="full" fontSize="sm">
-                Returning Home in {feedbackCountdown}s
-              </Badge>
-            ) : null}
-            <Badge bg={authenticated ? "var(--success-soft)" : "var(--warn-soft)"} color={authenticated ? "var(--success-ink)" : "var(--warn-ink)"} px={3} py={1} borderRadius="full" fontSize="sm">
-              {authenticated ? "🔒" : "🔓"}
-            </Badge>
-          </Flex>
+          {authenticated ? (
+            <Button type="button" onClick={resetSession} h="46px" px={6} borderRadius="full" fontSize="md" fontWeight="medium" {...OUTLINE_BTN}>
+              ⌂ Home
+            </Button>
+          ) : null}
         </Flex>
 
         {notice && phase !== "feedback" ? (
-          <Alert status="info" borderRadius="lg" mb={5} bg="rgba(255,255,255,0.9)">
-            <AlertIcon />
-            {notice}
-          </Alert>
+          <Flex mx="auto" mt={4} maxW="720px" w="calc(100% - 32px)" align="center" gap={3} bg={K.warnSoft} color={K.warnInk} borderRadius="16px" px={5} py={3} fontSize="lg">
+            <Text as="span" fontSize="xl">ⓘ</Text><Text>{notice}</Text>
+          </Flex>
         ) : null}
 
-        <Flex justify="center" align="flex-start" flex="1" minH={0}>
+        <Flex justify="center" align="flex-start" flex="1" minH={0} px={{ base: 3, md: 6 }} pt={2} overflowY="auto">
           {phase === "scan" && authenticated ? renderStepScan() : null}
           {phase === "dispatch" && authenticated ? renderStepDispatch() : null}
           {phase === "feedback" && authenticated ? renderStepFeedback() : null}
         </Flex>
-      </Box>
+
+      </Flex>
 
       <Modal isOpen={!authenticated} onClose={() => {}} isCentered closeOnEsc={false} closeOnOverlayClick={false}>
-        <ModalOverlay backdropFilter="blur(2px)" />
-        <ModalContent borderRadius="2xl" mx={4} bg="rgba(255,255,255,0.92)" backdropFilter="blur(18px) saturate(160%)" border="1px solid rgba(255,255,255,0.75)">
-          <ModalBody p={6}>
-            <Flex justify="center" mb={3}>
-              <Image
-                src="/SDRC_logo.png"
-                alt="SDRC logo"
-                boxSize="84px"
-                objectFit="contain"
-              />
+        <ModalOverlay bg="rgba(246,247,248,0.7)" backdropFilter="blur(6px)" />
+        <ModalContent {...CARD} mx={4} maxW="460px">
+          <ModalBody p={8}>
+            <Flex justify="center" mb={5}>
+              <Image src="/SDRC_logo.png" alt="SDRC" h="64px" objectFit="contain" />
             </Flex>
-            <Heading size="md" mb={4}>Kiosk Login</Heading>
+            <Heading fontSize="2xl" fontWeight="semibold" color={K.text} textAlign="center" mb={5}>Kiosk sign in</Heading>
             <form onSubmit={handleAuth}>
               <FormControl mb={3}>
-                <FormLabel>Username</FormLabel>
-                <Input value={username} onChange={(e) => setUsername(e.target.value)} h="54px" />
+                <FormLabel color={K.text2}>Username</FormLabel>
+                <Input value={username} onChange={(e) => setUsername(e.target.value)} h="54px" borderRadius="14px" borderWidth="2px" borderColor={K.plumLine} _focusVisible={{ borderColor: K.plum, boxShadow: `0 0 0 3px ${K.plumSoft}` }} />
               </FormControl>
-              <FormControl mb={4}>
-                <FormLabel>Password</FormLabel>
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} h="54px" />
+              <FormControl mb={5}>
+                <FormLabel color={K.text2}>Password</FormLabel>
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} h="54px" borderRadius="14px" borderWidth="2px" borderColor={K.plumLine} _focusVisible={{ borderColor: K.plum, boxShadow: `0 0 0 3px ${K.plumSoft}` }} />
               </FormControl>
-              <Button type="submit" colorScheme="teal" w="100%" h="58px" isLoading={loading}>
-                Login
+              <Button type="submit" w="100%" h="58px" borderRadius="14px" fontSize="lg" fontWeight="semibold" isLoading={loading} {...PRIMARY_BTN}>
+                Sign in
               </Button>
             </form>
           </ModalBody>
@@ -1058,22 +926,13 @@ export default function ReportDispatchKioskPage() {
       </Modal>
 
       {isPrinting ? (
-        <Box
-          position="fixed"
-          inset="0"
-          bg="rgba(10, 20, 35, 0.58)"
-          zIndex={1500}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-          p={6}
-        >
-          <Box bg="white" borderRadius="xl" p={8} maxW="520px" w="100%" textAlign="center" boxShadow="2xl">
-            <Spinner size="xl" color="var(--accent)" thickness="4px" mb={4} />
-            <Heading size="md" mb={2}>Preparing Print</Heading>
-            <Text color="gray.700">Please wait while your report is sent to printer.</Text>
+        <Flex position="fixed" inset="0" bg="rgba(246,247,248,0.85)" backdropFilter="blur(6px)" zIndex={1500} align="center" justify="center" p={6}>
+          <Box {...CARD} p={10} maxW="520px" w="100%" textAlign="center">
+            <Spinner size="xl" color={K.plum} thickness="4px" mb={4} />
+            <Heading fontSize="2xl" fontWeight="semibold" color={K.text} mb={2}>Preparing your reports</Heading>
+            <Text color={K.text2} fontSize="lg">Please wait while they are sent to the printer.</Text>
           </Box>
-        </Box>
+        </Flex>
       ) : null}
     </Box>
   );
