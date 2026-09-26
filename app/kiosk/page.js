@@ -97,11 +97,12 @@ const STEP_TEXT = {
   }
 };
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+// The QR holds a URL ending in the requisition UUID; a bare UUID is also accepted.
 function parseScanValue(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return { reqid: "" };
-  const [reqidRaw] = text.split("|"); // legacy barcodes carry "|password"; ignored
-  return { reqid: String(reqidRaw || "").trim() };
+  const match = String(raw || "").trim().match(UUID_RE);
+  return { reqid: match ? match[0].toLowerCase() : "" };
 }
 
 function parseKioskLoginScan(raw) {

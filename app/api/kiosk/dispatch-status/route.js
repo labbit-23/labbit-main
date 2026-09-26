@@ -16,7 +16,7 @@ export async function GET(request) {
     const reqid = String(url.searchParams.get("reqid") || "").trim();
     if (!reqid) return new Response("Missing reqid", { status: 400 });
     // Requisition ids are non-sequential UUIDs, so possession of the barcode is the credential.
-    if (!/^[A-Za-z0-9-]{4,64}$/.test(reqid)) return new Response("Invalid reqid", { status: 400 });
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqid)) return new Response("Invalid reqid", { status: 400 });
 
     const proxyUrl = new URL("/api/admin/reports/dispatch-status", request.url);
     proxyUrl.searchParams.set("reqid", reqid);
