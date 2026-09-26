@@ -2,54 +2,6 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { kioskIronOptions } from "@/lib/kioskSession";
-import { getReportStatusByReqid } from "@/lib/neosoft/client";
-
-function rowValue(row, ...keys) {
-  if (!row || typeof row !== "object") return null;
-  for (const key of keys) {
-    if (row[key] !== undefined && row[key] !== null) return row[key];
-    const lowered = String(key).toLowerCase();
-    const matched = Object.keys(row).find((candidate) => String(candidate).toLowerCase() === lowered);
-    if (matched && row[matched] !== undefined && row[matched] !== null) return row[matched];
-  }
-  return null;
-}
-
-function extractReqPassword(reportStatus) {
-  const topLevel = String(
-    rowValue(
-      reportStatus,
-      "REQ_PASSWORD",
-      "req_password",
-      "REQPASSWORD",
-      "reqpassword",
-      "PWD",
-      "pwd",
-      "PASSWORD",
-      "password"
-    ) || ""
-  ).trim();
-  if (topLevel) return topLevel;
-
-  const tests = Array.isArray(reportStatus?.tests) ? reportStatus.tests : [];
-  for (const row of tests) {
-    const candidate = String(
-      rowValue(
-        row,
-        "REQ_PASSWORD",
-        "req_password",
-        "REQPASSWORD",
-        "reqpassword",
-        "PWD",
-        "pwd",
-        "PASSWORD",
-        "password"
-      ) || ""
-    ).trim();
-    if (candidate) return candidate;
-  }
-  return "";
-}
 
 export async function GET(request) {
   try {
@@ -62,18 +14,9 @@ export async function GET(request) {
 
     const url = new URL(request.url);
     const reqid = String(url.searchParams.get("reqid") || "").trim();
-    const password = String(url.searchParams.get("password") || "").trim();
     if (!reqid) return new Response("Missing reqid", { status: 400 });
-    if (!password) return new Response("Missing password", { status: 400 });
-
-    const upstream = await getReportStatusByReqid(reqid);
-    const upstreamPassword = extractReqPassword(upstream);
-    if (!upstreamPassword) {
-      return new Response("Upstream req-password missing", { status: 502 });
-    }
-    if (upstreamPassword !== password) {
-      return new Response("Invalid requisition password", { status: 403 });
-    }
+    // Requisition ids are non-sequential UUIDs, so possession of the barcode is the credential.
+    if (!/^[A-Za-z0-9-]{4,64}$/.test(reqid)) return new Response("Invalid reqid", { status: 400 });
 
     const proxyUrl = new URL("/api/admin/reports/dispatch-status", request.url);
     proxyUrl.searchParams.set("reqid", reqid);

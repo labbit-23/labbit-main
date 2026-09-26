@@ -13,6 +13,8 @@ const AUTH_ERROR_PATHS = new Set([
   "/api/auth/reset-password",
 ]);
 
+const isKioskPath = () => window.location.pathname.startsWith("/kiosk");
+
 function isSameOriginApi(input) {
   const rawUrl =
     typeof input === "string"
@@ -41,6 +43,7 @@ export default function SessionLifecycle() {
       if (
         response.status === 401 &&
         window.location.pathname !== "/login" &&
+        !isKioskPath() &&
         isSameOriginApi(input)
       ) {
         router.replace("/login");
@@ -57,7 +60,7 @@ export default function SessionLifecycle() {
   useEffect(() => {
     function touch() {
       const now = Date.now();
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || isKioskPath()) return;
       if (inFlight.current || now - lastTouchAt.current < TOUCH_INTERVAL_MS) return;
 
       inFlight.current = true;

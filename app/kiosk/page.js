@@ -99,12 +99,9 @@ const STEP_TEXT = {
 
 function parseScanValue(raw) {
   const text = String(raw || "").trim();
-  if (!text) return { reqid: "", password: "" };
-  const [reqidRaw, passwordRaw] = text.split("|");
-  return {
-    reqid: String(reqidRaw || "").trim(),
-    password: String(passwordRaw || "").trim()
-  };
+  if (!text) return { reqid: "" };
+  const [reqidRaw] = text.split("|"); // legacy barcodes carry "|password"; ignored
+  return { reqid: String(reqidRaw || "").trim() };
 }
 
 function parseKioskLoginScan(raw) {
@@ -130,7 +127,7 @@ function estimatePdfPageCountFromBuffer(buffer) {
 }
 
 function getDecisionTone(mode) {
-  if (mode === "allow_full" || mode === "try_pending_print_once") return "blue";
+  if (mode === "allow_full" || mode === "try_pending_print_once") return "teal";
   if (mode === "manual_review") return "orange";
   return "gray";
 }
@@ -145,8 +142,10 @@ function getPatientDecisionMessage(decision) {
 
 function getStatusLabel(status) {
   const code = String(status || "").trim().toUpperCase();
-  if (code === "FULL_REPORT") return "All Reports are Ready! 👍";
-  return String(status || "Not Loaded");
+  if (code === "FULL_REPORT") return "All reports are ready";
+  if (code === "PARTIAL_REPORT") return "Some reports are ready";
+  if (code === "NO_REPORT" || code === "PENDING") return "Reports not ready yet";
+  return String(status || "Not loaded").replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 }
 
 function shouldEscalateToFirstFloor({ labReady, labTotal, radiologyReady, radiologyTotal }) {
@@ -173,7 +172,6 @@ export default function ReportDispatchKioskPage() {
   const [password, setPassword] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [scanValue, setScanValue] = useState("");
-  const [scanSecret, setScanSecret] = useState("");
   const [reqidValue, setReqidValue] = useState("");
   const [statusBody, setStatusBody] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -338,19 +336,15 @@ export default function ReportDispatchKioskPage() {
     await authenticateKiosk(username, password);
   }
 
-  async function handleScanSubmit(targetReqid, targetPassword = "") {
+  async function handleScanSubmit(targetReqid) {
     setLoading(true);
     setNotice("");
     setStatusBody(null);
     try {
       const resolvedReqid = String(targetReqid || reqid || "").trim();
-      const resolvedPassword = String(targetPassword || scanSecret || "").trim();
-      if (!resolvedReqid || !resolvedPassword) throw new Error("Invalid barcode. Please rescan.");
+      if (!resolvedReqid) throw new Error("Invalid barcode. Please rescan.");
 
-      const params = new URLSearchParams({
-        reqid: resolvedReqid,
-        password: resolvedPassword
-      });
+      const params = new URLSearchParams({ reqid: resolvedReqid });
       const res = await fetch(`/api/kiosk/dispatch-status?${params.toString()}`, {
         cache: "no-store",
         headers: { "x-report-source": "kiosk" }
@@ -510,7 +504,6 @@ export default function ReportDispatchKioskPage() {
   function resetSession() {
     scanBufferRef.current = "";
     setScanValue("");
-    setScanSecret("");
     setReqidValue("");
     setStatusBody(null);
     setRating(0);
@@ -573,9 +566,8 @@ export default function ReportDispatchKioskPage() {
         const parsed = parseScanValue(scanned);
         setScanValue(scanned);
         setReqidValue(parsed.reqid);
-        setScanSecret(parsed.password);
         if (parsed.reqid) {
-          handleScanSubmit(parsed.reqid, parsed.password);
+          handleScanSubmit(parsed.reqid);
         } else {
           setNotice("Invalid barcode. Please rescan.");
         }
@@ -634,7 +626,7 @@ export default function ReportDispatchKioskPage() {
   }, [authenticated]);
 
   const renderStepScan = () => (
-    <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 5, md: 6 }} maxW="900px" w="100%">
+    <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 5, md: 6 }} maxW="900px" w="100%">
       <Text fontSize="sm" color="gray.700" fontWeight="semibold" mb={1}>Step 1 of 3</Text>
       <Flex justify="center" mb={4}>
         <Box
@@ -660,7 +652,7 @@ export default function ReportDispatchKioskPage() {
             key={option.code}
             size="sm"
             variant={lang === option.code ? "solid" : "outline"}
-            colorScheme={lang === option.code ? "blue" : "gray"}
+            colorScheme={lang === option.code ? "teal" : "gray"}
             onClick={() => {
               setLang(option.code);
               setTimeout(() => scanInputRef.current?.focus(), 40);
@@ -676,16 +668,15 @@ export default function ReportDispatchKioskPage() {
           e.preventDefault();
           const parsed = parseScanValue(scanValue);
           setReqidValue(parsed.reqid);
-          setScanSecret(parsed.password);
-          if (parsed.reqid) {
-            handleScanSubmit(parsed.reqid, parsed.password);
+            if (parsed.reqid) {
+            handleScanSubmit(parsed.reqid);
           } else {
             setNotice("Invalid barcode. Please rescan.");
           }
         }}
       >
         <FormControl>
-          <FormLabel fontWeight="bold" fontSize="lg" color="#0f172a">Scan Barcode</FormLabel>
+          <FormLabel fontWeight="bold" fontSize="lg" color="var(--text)">Scan Barcode</FormLabel>
           <Input
             ref={scanInputRef}
             size="lg"
@@ -701,51 +692,51 @@ export default function ReportDispatchKioskPage() {
             fontSize="xl"
             borderWidth="2px"
             bg="rgba(255,255,255,0.72)"
-            color="#0b1220"
-            borderColor="rgba(15, 23, 42, 0.35)"
-            _placeholder={{ color: "rgba(30, 41, 59, 0.72)" }}
-            _hover={{ borderColor: "rgba(15, 23, 42, 0.48)" }}
+            color="var(--text)"
+            borderColor="var(--border-strong)"
+            _placeholder={{ color: "var(--text-3)" }}
+            _hover={{ borderColor: "var(--accent)" }}
             _focusVisible={{
-              borderColor: "#0f172a",
-              boxShadow: "0 0 0 1px #0f172a"
+              borderColor: "var(--accent)",
+              boxShadow: "0 0 0 2px var(--accent-line)"
             }}
             inputMode="text"
             {...NO_AUTOFILL_TEXT_PROPS}
           />
         </FormControl>
-        <Button mt={4} size="lg" h="72px" w="100%" colorScheme="blue" type="submit" isLoading={loading} fontSize="xl">
+        <Button mt={4} size="lg" h="72px" w="100%" colorScheme="teal" type="submit" isLoading={loading} fontSize="xl">
           {text.continue}
         </Button>
       </form>
       {reqid ? (
         <Text mt={4} fontWeight="semibold" fontSize="lg">
-          REQID: <Text as="span" color="blue.700">{reqid}</Text>
+          REQID: <Text as="span" color="var(--accent-strong)">{reqid}</Text>
         </Text>
       ) : null}
     </Box>
   );
 
   const renderStepDispatch = () => (
-    <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(15, 23, 42, 0.28)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
-      <Text fontSize="sm" color="#334155" fontWeight="semibold" mb={1}>Step 2 of 3</Text>
+    <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(15, 23, 42, 0.28)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
+      <Text fontSize="sm" color="var(--text-2)" fontWeight="semibold" mb={1}>Step 2 of 3</Text>
       <Heading size="lg" mb={3}>{text.dispatch_title}</Heading>
 
       <Stack spacing={2} mb={3}>
-        {patientName ? <Text fontSize="md" color="#0f172a">Patient: <strong>{patientName}</strong></Text> : null}
-        {testDateDisplay ? <Text fontSize="md" color="#0f172a">Test Date: <strong>{testDateDisplay}</strong></Text> : null}
-        <Text fontSize="md">
-          Status: <Badge colorScheme={decisionTone}>{getStatusLabel(statusBody?.live_status?.overall_status)}</Badge>
+        {patientName ? <Text fontSize="xl" color="var(--text)">Patient: <strong>{patientName}</strong></Text> : null}
+        {testDateDisplay ? <Text fontSize="xl" color="var(--text)">Test Date: <strong>{testDateDisplay}</strong></Text> : null}
+        <Text fontSize="xl">
+          Status: <Badge colorScheme={decisionTone} fontSize="md" px={3} py={1} textTransform="none" borderRadius="full">{getStatusLabel(statusBody?.live_status?.overall_status)}</Badge>
         </Text>
-        <Text fontSize="md" color="#0f172a">Ready Lab Reports: {statusBody?.live_status?.lab_ready || 0}/{statusBody?.live_status?.lab_total || 0}</Text>
-        <Text fontSize="md" color="#0f172a">Ready Scan Reports: {statusBody?.live_status?.radiology_ready || 0}/{statusBody?.live_status?.radiology_total || 0}</Text>
+        <Text fontSize="xl" color="var(--text)">Ready Lab Reports: {statusBody?.live_status?.lab_ready || 0}/{statusBody?.live_status?.lab_total || 0}</Text>
+        <Text fontSize="xl" color="var(--text)">Ready Scan Reports: {statusBody?.live_status?.radiology_ready || 0}/{statusBody?.live_status?.radiology_total || 0}</Text>
         <Progress value={readinessPct} borderRadius="full" colorScheme={decisionTone} h="9px" />
-        <Text color="#1e293b" fontSize="md">{getPatientDecisionMessage(decision)}</Text>
+        <Text color="var(--text-2)" fontSize="xl">{getPatientDecisionMessage(decision)}</Text>
       </Stack>
 
       <Flex gap={3} direction={{ base: "column", md: "row" }}>
         <Box flex={1}>
           <Button
-            colorScheme="blue"
+            colorScheme="teal"
             size="lg"
             h="80px"
             w="100%"
@@ -771,7 +762,7 @@ export default function ReportDispatchKioskPage() {
               <Text>{text.print_lab}</Text>
             </Flex>
           </Button>
-          <Text mt={1} fontSize="xs" color="#1e293b" textAlign="center">Blood work / lab tests</Text>
+          <Text mt={1} fontSize="xs" color="var(--text-2)" textAlign="center">Blood work / lab tests</Text>
         </Box>
         <Box flex={1}>
           <Button
@@ -784,10 +775,10 @@ export default function ReportDispatchKioskPage() {
             onClick={() => handlePrintScope("radiology")}
             isLoading={loading}
             isDisabled={!hasRadiologyReady}
-            bg="#0f766e"
+            bg="var(--accent-strong)"
             color="white"
-            border="1px solid #115e59"
-            _hover={{ bg: "#115e59" }}
+            border="1px solid var(--accent-ink)"
+            _hover={{ bg: "var(--accent-ink)" }}
           >
             <Flex align="center" gap={3}>
               <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
@@ -806,11 +797,11 @@ export default function ReportDispatchKioskPage() {
               <Text>{text.load_scan}</Text>
             </Flex>
           </Button>
-          <Text mt={1} fontSize="xs" color="#1e293b" textAlign="center">X-Ray / scan reports</Text>
+          <Text mt={1} fontSize="xs" color="var(--text-2)" textAlign="center">X-Ray / scan reports</Text>
         </Box>
         <Box flex={1}>
           <Button
-            colorScheme="purple"
+            colorScheme="teal"
             size="lg"
             h="80px"
             w="100%"
@@ -829,20 +820,20 @@ export default function ReportDispatchKioskPage() {
                   w="14px"
                   h="8px"
                   borderRadius="2px"
-                  bg="purple.100"
+                  bg="whiteAlpha.900"
                   animation={`${paperFeed} 1.2s ease-in-out infinite`}
                 />
               </Box>
               <Text>{text.print_all}</Text>
             </Flex>
           </Button>
-          <Text mt={1} fontSize="xs" color="#1e293b" textAlign="center">Lab + scan combined</Text>
+          <Text mt={1} fontSize="xs" color="var(--text-2)" textAlign="center">Lab + scan combined</Text>
         </Box>
       </Flex>
 
       <Box mt={2} p={2} borderRadius="10px" bg="rgba(255,255,255,0.55)" border="1px solid rgba(15,23,42,0.12)">
-        <Text fontSize="sm" fontWeight="semibold" color="#0f172a" mb={1}>Before Print</Text>
-        <Text fontSize="xs" color="#1e293b">
+        <Text fontSize="sm" fontWeight="semibold" color="var(--text)" mb={1}>Before Print</Text>
+        <Text fontSize="xs" color="var(--text-2)">
           Lab: {labReadyCount}/{labTotalCount} ready ({Math.max(0, labTotalCount - labReadyCount)} pending) •
           Scan: {radiologyReadyCount}/{radiologyTotalCount} ready ({Math.max(0, radiologyTotalCount - radiologyReadyCount)} pending)
         </Text>
@@ -859,7 +850,7 @@ export default function ReportDispatchKioskPage() {
   );
 
   const renderStepFeedback = () => (
-    <Box bg="rgba(255,255,255,0.34)" backdropFilter="blur(10px) saturate(145%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
+    <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 4, md: 5 }} maxW="980px" w="100%">
       <Text fontSize="sm" color="gray.500" mb={1}>Step 3 of 3</Text>
       <Heading size="lg" mb={1}>{text.feedback_title}</Heading>
       <Text color="gray.600" mb={3}>{text.feedback_subtitle}</Text>
@@ -933,7 +924,7 @@ export default function ReportDispatchKioskPage() {
           />
         </FormControl>
         <Flex gap={3} direction={{ base: "column", md: "row" }}>
-          <Button type="submit" size="lg" h="54px" flex={1} colorScheme="purple" isLoading={loading} isDisabled={rating < 1 || rating > 5}>
+          <Button type="submit" size="lg" h="54px" flex={1} colorScheme="teal" isLoading={loading} isDisabled={rating < 1 || rating > 5}>
             {text.save_feedback}
           </Button>
           <Button size="lg" h="54px" flex={1} variant="outline" onClick={resetSession}>
@@ -950,8 +941,7 @@ export default function ReportDispatchKioskPage() {
       overflow="hidden"
       p={{ base: 2, md: 3 }}
       position="relative"
-      fontFamily='-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif'
-      bgImage='linear-gradient(125deg, rgba(6, 9, 18, 0.72), rgba(10, 14, 24, 0.62)), url("/assets/whatsapp/sdrc_banner.png")'
+      bgImage='linear-gradient(125deg, rgba(20, 14, 28, 0.48), rgba(20, 14, 28, 0.38)), url("/assets/whatsapp/sdrc_banner.png")'
       bgSize="cover"
       bgPosition="center"
       bgRepeat="no-repeat"
@@ -960,7 +950,7 @@ export default function ReportDispatchKioskPage() {
         position="absolute"
         inset="0"
         pointerEvents="none"
-        bg='radial-gradient(circle at 18% 14%, rgba(255,190,90,0.16), transparent 48%), radial-gradient(circle at 82% 78%, rgba(255,140,48,0.12), transparent 44%), radial-gradient(circle at 52% 52%, rgba(0,0,0,0.28), transparent 66%)'
+        bg='radial-gradient(circle at 52% 52%, rgba(0,0,0,0.28), transparent 66%)'
       />
       <Box maxW="1280px" mx="auto" h="100%" display="flex" flexDirection="column" position="relative" zIndex={1}>
         <Flex
@@ -982,7 +972,7 @@ export default function ReportDispatchKioskPage() {
               objectFit="contain"
             />
             <Box>
-              <Heading size="md" color="#0f172a" letterSpacing="-0.02em">Report Dispatch Kiosk</Heading>
+              <Heading size="md" color="var(--text)" letterSpacing="-0.02em">Report Dispatch Kiosk</Heading>
               <Text color="gray.700" fontSize="sm">{labMeta.name || "Lab"}</Text>
             </Box>
           </Flex>
@@ -992,7 +982,7 @@ export default function ReportDispatchKioskPage() {
                 type="button"
                 variant="solid"
                 bg="white"
-                color="#0b1e3d"
+                color="var(--accent-ink)"
                 _hover={{ bg: "whiteAlpha.900" }}
                 fontSize="md"
                 h="42px"
@@ -1004,11 +994,11 @@ export default function ReportDispatchKioskPage() {
               </Button>
             ) : null}
             {authenticated && phase === "feedback" ? (
-              <Badge bg="orange.300" color="black" px={3} py={2} borderRadius="full" fontSize="sm">
+              <Badge bg="var(--warn-soft)" color="var(--warn-ink)" px={3} py={2} borderRadius="full" fontSize="sm">
                 Returning Home in {feedbackCountdown}s
               </Badge>
             ) : null}
-            <Badge bg={authenticated ? "green.300" : "orange.300"} color="black" px={3} py={1} borderRadius="full" fontSize="sm">
+            <Badge bg={authenticated ? "var(--success-soft)" : "var(--warn-soft)"} color={authenticated ? "var(--success-ink)" : "var(--warn-ink)"} px={3} py={1} borderRadius="full" fontSize="sm">
               {authenticated ? "🔒" : "🔓"}
             </Badge>
           </Flex>
@@ -1050,7 +1040,7 @@ export default function ReportDispatchKioskPage() {
                 <FormLabel>Password</FormLabel>
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} h="54px" />
               </FormControl>
-              <Button type="submit" colorScheme="blue" w="100%" h="58px" isLoading={loading}>
+              <Button type="submit" colorScheme="teal" w="100%" h="58px" isLoading={loading}>
                 Login
               </Button>
             </form>
@@ -1070,7 +1060,7 @@ export default function ReportDispatchKioskPage() {
           p={6}
         >
           <Box bg="white" borderRadius="xl" p={8} maxW="520px" w="100%" textAlign="center" boxShadow="2xl">
-            <Spinner size="xl" color="blue.500" thickness="4px" mb={4} />
+            <Spinner size="xl" color="var(--accent)" thickness="4px" mb={4} />
             <Heading size="md" mb={2}>Preparing Print</Heading>
             <Text color="gray.700">Please wait while your report is sent to printer.</Text>
           </Box>
