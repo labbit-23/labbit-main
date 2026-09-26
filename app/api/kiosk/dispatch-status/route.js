@@ -18,7 +18,11 @@ export async function GET(request) {
     // Requisition ids are non-sequential UUIDs, so possession of the barcode is the credential.
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqid)) return new Response("Invalid reqid", { status: 400 });
 
-    const proxyUrl = new URL("/api/admin/reports/dispatch-status", request.url);
+    // request.url is bound to the internal listen address behind nginx; rebuild the public origin.
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    const origin = host ? `${proto}://${host}` : new URL(request.url).origin;
+    const proxyUrl = new URL("/api/admin/reports/dispatch-status", origin);
     proxyUrl.searchParams.set("reqid", reqid);
     proxyUrl.searchParams.set("source", "kiosk");
 
