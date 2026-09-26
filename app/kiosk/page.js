@@ -48,7 +48,7 @@ const NO_AUTOFILL_TEXT_PROPS = {
 
 const STEP_TEXT = {
   en: {
-    scan_title: "Scan Barcode",
+    scan_title: "Scan the QR Code on your bill",
     dispatch_title: "Dispatch Reports",
     feedback_title: "Thank You for Your Patronage to SDRC",
     feedback_subtitle: "Please share quick feedback",
@@ -60,7 +60,7 @@ const STEP_TEXT = {
     next_patient: "Next Patient"
   },
   te: {
-    scan_title: "బార్‌కోడ్ స్కాన్ చేయండి",
+    scan_title: "మీ బిల్లుపై ఉన్న QR కోడ్‌ను స్కాన్ చేయండి",
     dispatch_title: "రిపోర్ట్ డిస్పాచ్",
     feedback_title: "SDRC‌ను ఆదరించినందుకు ధన్యవాదాలు",
     feedback_subtitle: "దయచేసి మీ అభిప్రాయం ఇవ్వండి",
@@ -72,7 +72,7 @@ const STEP_TEXT = {
     next_patient: "తర్వాతి పేషెంట్"
   },
   hi: {
-    scan_title: "बारकोड स्कैन करें",
+    scan_title: "अपने बिल पर दिया गया QR कोड स्कैन करें",
     dispatch_title: "रिपोर्ट डिस्पैच",
     feedback_title: "SDRC को आपके सहयोग के लिए धन्यवाद",
     feedback_subtitle: "कृपया फीडबैक दें",
@@ -84,7 +84,7 @@ const STEP_TEXT = {
     next_patient: "अगला मरीज"
   },
   ur: {
-    scan_title: "بارکوڈ اسکین کریں",
+    scan_title: "اپنے بل پر موجود QR کوڈ اسکین کریں",
     dispatch_title: "رپورٹ ڈسپیچ",
     feedback_title: "SDRC کی سرپرستی کا شکریہ",
     feedback_subtitle: "براہ کرم فیڈبیک دیں",
@@ -343,7 +343,7 @@ export default function ReportDispatchKioskPage() {
     setStatusBody(null);
     try {
       const resolvedReqid = String(targetReqid || reqid || "").trim();
-      if (!resolvedReqid) throw new Error("Invalid barcode. Please rescan.");
+      if (!resolvedReqid) throw new Error("Invalid QR code. Please rescan.");
 
       const params = new URLSearchParams({ reqid: resolvedReqid });
       const res = await fetch(`/api/kiosk/dispatch-status?${params.toString()}`, {
@@ -570,7 +570,7 @@ export default function ReportDispatchKioskPage() {
         if (parsed.reqid) {
           handleScanSubmit(parsed.reqid);
         } else {
-          setNotice("Invalid barcode. Please rescan.");
+          setNotice("Invalid QR code. Please rescan.");
         }
         scanBufferRef.current = "";
         return;
@@ -672,12 +672,12 @@ export default function ReportDispatchKioskPage() {
             if (parsed.reqid) {
             handleScanSubmit(parsed.reqid);
           } else {
-            setNotice("Invalid barcode. Please rescan.");
+            setNotice("Invalid QR code. Please rescan.");
           }
         }}
       >
         <FormControl>
-          <FormLabel fontWeight="bold" fontSize="lg" color="var(--text)">Scan Barcode</FormLabel>
+          <FormLabel fontWeight="bold" fontSize="lg" color="var(--text)">QR Code</FormLabel>
           <Input
             ref={scanInputRef}
             size="lg"
@@ -687,7 +687,7 @@ export default function ReportDispatchKioskPage() {
               setScanValue(nextValue);
               scanBufferRef.current = nextValue;
             }}
-            placeholder="Scan Barcode  ||||||||||"
+            placeholder="Scan the QR code on your bill"
             name="kiosk-barcode-scan"
             h="72px"
             fontSize="xl"
