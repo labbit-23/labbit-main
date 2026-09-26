@@ -677,7 +677,6 @@ export default function ReportDispatchKioskPage() {
         }}
       >
         <FormControl>
-          <FormLabel fontWeight="bold" fontSize="lg" color="var(--text)">QR Code</FormLabel>
           <Input
             ref={scanInputRef}
             size="lg"
@@ -687,7 +686,8 @@ export default function ReportDispatchKioskPage() {
               setScanValue(nextValue);
               scanBufferRef.current = nextValue;
             }}
-            placeholder="Scan the QR code on your bill"
+            placeholder="Waiting for scan…"
+            aria-label="QR code on your bill"
             name="kiosk-barcode-scan"
             h="72px"
             fontSize="xl"
