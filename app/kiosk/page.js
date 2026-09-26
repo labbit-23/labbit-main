@@ -629,22 +629,14 @@ export default function ReportDispatchKioskPage() {
   const renderStepScan = () => (
     <Box bg="rgba(255,255,255,0.88)" backdropFilter="blur(10px) saturate(120%)" borderRadius="24px" boxShadow="0 18px 48px rgba(2, 8, 23, 0.18)" border="1px solid rgba(255,255,255,0.42)" p={{ base: 5, md: 6 }} maxW="900px" w="100%">
       <Text fontSize="sm" color="gray.700" fontWeight="semibold" mb={1}>Step 1 of 3</Text>
-      <Flex justify="center" mb={4}>
-        <Box
-          bg="linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.76))"
-          border="1px solid rgba(255,255,255,0.75)"
-          borderRadius="16px"
-          px={{ base: 4, md: 5 }}
-          py={{ base: 2, md: 3 }}
-          boxShadow="0 10px 30px rgba(15, 23, 42, 0.12)"
-        >
-          <Image
-            src={labMeta.logo_url}
-            alt={`${labMeta.name || "Lab"} logo`}
-            boxSize={{ base: "132px", md: "168px" }}
-            objectFit="contain"
-          />
-        </Box>
+      <Flex justify="center" mb={5}>
+        <Image
+          src={labMeta.logo_url}
+          alt={`${labMeta.name || "Lab"} logo`}
+          h={{ base: "84px", md: "110px" }}
+          maxW="80%"
+          objectFit="contain"
+        />
       </Flex>
       <Heading size="lg" mb={4}>{text.scan_title}</Heading>
       <Flex gap={2} wrap="wrap" mb={4}>
@@ -953,6 +945,23 @@ export default function ReportDispatchKioskPage() {
         pointerEvents="none"
         bg='radial-gradient(circle at 52% 52%, rgba(0,0,0,0.28), transparent 66%)'
       />
+      <Flex
+        position="absolute"
+        right={{ base: 3, md: 5 }}
+        bottom={{ base: 2, md: 3 }}
+        zIndex={2}
+        align="center"
+        gap={2}
+        pl={3}
+        pr={1}
+        py={0}
+        borderRadius="full"
+        bg="white"
+        pointerEvents="none"
+      >
+        <Text fontSize="xs" color="var(--text-2)" letterSpacing="0.02em">Powered by</Text>
+        <Image src="/logo.png" alt="Labit" h="34px" objectFit="contain" />
+      </Flex>
       <Box maxW="1280px" mx="auto" h="100%" display="flex" flexDirection="column" position="relative" zIndex={1}>
         <Flex
           align="center"
@@ -966,10 +975,9 @@ export default function ReportDispatchKioskPage() {
         >
           <Flex align="center" gap={3}>
             <Image
-              src="/logo.png"
-              alt="Labit logo"
-              boxSize={{ base: "48px", md: "56px" }}
-              borderRadius="md"
+              src="/SDRC_logo.png"
+              alt="SDRC logo"
+              h={{ base: "40px", md: "48px" }}
               objectFit="contain"
             />
             <Box>
