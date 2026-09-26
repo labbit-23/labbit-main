@@ -3459,10 +3459,28 @@ export async function POST(req) {
             });
           }
 
-          await sendBranchLocationsMenu({
-            labId: session.lab_id,
-            phone
-          });
+          // User, 2026-09-26: "the locations flow is rather cumbersome...
+          // Its 4 locations, they ask for it, give them the 4 links
+          // directly." Was a picker menu (sendBranchLocationsMenu) requiring
+          // a THIRD message/turn once they picked one -- with only 4
+          // branches, just list every branch's link in one message instead.
+          const branchRows = templates?.whatsapp_menus?.branch_locations?.rows || [];
+          const linksText = branchRows
+            .filter((row) => row?.url)
+            .map((row) => `${row.title || "Branch"}\n${row.url}`)
+            .join("\n\n");
+          if (linksText) {
+            await sendTextMessage({
+              labId: session.lab_id,
+              phone,
+              text: linksText
+            });
+          } else {
+            await sendBranchLocationsMenu({
+              labId: session.lab_id,
+              phone
+            });
+          }
         }
         break;
 
