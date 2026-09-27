@@ -7,11 +7,11 @@ import SessionLifecycle from './components/SessionLifecycle';
 import { UserProvider } from './context/UserContext'; // Adjust the import path as necessary
 
 export const metadata = {
-  title: "Labit",
+  title: "Labit Hub",
   description: "Labit diagnostics workspace",
   appleWebApp: {
     capable: true,
-    title: "Labit",
+    title: "Labit Hub",
     statusBarStyle: "default"
   },
   icons: {

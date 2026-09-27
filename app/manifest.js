@@ -1,7 +1,7 @@
 export default function manifest() {
   return {
-    name: "Labit",
-    short_name: "Labit",
+    name: "Labit Hub",
+    short_name: "Labit Hub",
     description: "Labit diagnostics workspace",
     start_url: "/",
     scope: "/",

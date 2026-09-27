@@ -167,14 +167,14 @@ export default function PwaInstallPrompt() {
         <VStack align="stretch" spacing={2} flex="1" minW={0}>
           <Box>
             <Text fontWeight="semibold" fontSize="sm">
-              Install Labit
+              Install Labit Hub
             </Text>
             <Text fontSize="sm" color="gray.600">
               {canPromptInstall
-                ? "Add Labit to this device for quicker access."
+                ? "Add Labit Hub to this device for quicker access."
                 : canShowIosGuide
                 ? "On iPhone or iPad, use Share and then Add to Home Screen."
-                : "Use your browser menu to install Labit if the install option is available."}
+                : "Use your browser menu to install Labit Hub if the install option is available."}
             </Text>
           </Box>
 
