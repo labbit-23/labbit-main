@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { appHubAuthorized, DEFAULT_SDRC_LAB_ID } from "@/lib/appHubAuth";
 import { assertVisitScheduleAllowed } from "@/lib/visitScheduling";
+import { submitWebsiteEnquiry } from "@/lib/labitCoreEnquiry";
 
 // POST /api/internal/app-booking/visits
 // Body: { patient_id, address_id, visit_date, time_slot, notes? }
@@ -30,6 +31,18 @@ import { assertVisitScheduleAllowed } from "@/lib/visitScheduling";
 // route follows the SAME existing convention rather than inventing a new
 // one: the caller (the hub) is expected to send a human-readable comma-
 // joined list of what was selected as `notes`.
+//
+// Bridge into labit-core (2026-09-28, director decision: commit to the
+// multi-lab marketplace architecture, see labit-app/docs/
+// MARKETPLACE_SCOPING.md, rather than let this app's booking dead-end in a
+// `visits` row only labit-main can see). Additively submits a labit-core
+// `website_enquiry` (POST /api/website-enquiries) so staff's EXISTING
+// Website Enquiries queue picks this up for real pricing/requisition/
+// QR-payment conversion -- no new staff UI. See lib/labitCoreEnquiry.js for
+// the credential/best-effort details. No structured test_ids/package_ids
+// sent -- website_enquiry.requested_test_or_package is itself free text
+// (staff match it by hand at conversion time), so the SAME comma-joined
+// name list already built for `notes` above is reused as-is.
 //
 // Payment: NOT handled here. The visit is created "pay at collection"
 // regardless -- Cashfree isn't wired to a real order yet (see labit-app/api/
@@ -107,6 +120,10 @@ export async function POST(request) {
       .select("id, visit_date, status")
       .single();
     if (error) throw error;
+
+    submitWebsiteEnquiry({ patientId, addressId, notes }).catch((err) =>
+      console.error("[app-booking/visits] website_enquiry bridge failed (non-fatal)", err)
+    );
 
     return NextResponse.json({ id: data.id, visitDate: data.visit_date, status: data.status }, { status: 201 });
   } catch (err) {
