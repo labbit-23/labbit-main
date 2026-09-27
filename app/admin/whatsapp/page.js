@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/app/context/UserContext";
 import ShortcutBar from "@/components/ShortcutBar";
-import { humanizeDeliveryError } from "@/lib/whatsapp/deliveryErrors";
+import SentJobsModal from "@/components/report-dispatch/SentJobsModal";
 
 const APP_LOGO = process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png";
 const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Labit";
@@ -80,45 +80,9 @@ function formatMessageTime(value) {
   });
 }
 
-// Reqno format is "R" + YYYYMMDD + a daily counter (e.g. "R202609120010"
-// = 2026-09-12, #0010). The date is embedded, not a separate field the
-// patient-message-job-logs source returns -- previously this was rendered
-// via reqno.slice(0, 8), which drops the "R" prefix and the last digit of
-// the day, producing garbage like "R2026091" for "R202609120010".
-function reqnoDate(reqno) {
-  const m = String(reqno || "").match(/^R(\d{4})(\d{2})(\d{2})/);
-  if (!m) return "-";
-  const [, y, mo, d] = m;
-  const parsed = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleDateString([], { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" });
-}
-
-function normalizeDeliveryStatus(value) {
-  const key = String(value || "").trim().toLowerCase();
-  if (!key) return "queued";
-  if (key === "read") return "read";
-  if (key === "delivered") return "delivered";
-  if (key === "sent") return "sent";
-  if (key === "failed") return "failed";
-  if (key === "cooling_off") return "cooling_off";
-  if (key === "retrying") return "retrying";
-  if (key === "queued") return "queued";
-  return key;
-}
-
-function istTodayYmd() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: IST_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date());
-  const y = parts.find((p) => p.type === "year")?.value || "1970";
-  const m = parts.find((p) => p.type === "month")?.value || "01";
-  const d = parts.find((p) => p.type === "day")?.value || "01";
-  return `${y}-${m}-${d}`;
-}
+// reqnoDate/normalizeDeliveryStatus/istTodayYmd moved to
+// components/report-dispatch/SentJobsModal.js with the modal they only
+// ever served -- nothing else in this file called them.
 
 function isWithin24(session, lastInboundAtOverride = null) {
   const sourceTs =
@@ -869,33 +833,10 @@ export default function WhatsAppDashboard() {
   const [registeredLookupResolvedPhone, setRegisteredLookupResolvedPhone] = useState("");
   const [registeredLookupSummary, setRegisteredLookupSummary] = useState("");
   const [reportModalError, setReportModalError] = useState("");
+  // 2026-09-27: "Sent Jobs" modal extracted to components/report-dispatch/
+  // SentJobsModal.js (shared with the Dispatch screen) -- see that file for
+  // the tab/fetch logic this used to own inline.
   const [showSentReportsModal, setShowSentReportsModal] = useState(false);
-  const [sentReportsDate, setSentReportsDate] = useState(istTodayYmd());
-  const [sentReportsRows, setSentReportsRows] = useState([]);
-  const [sentReportsSearch, setSentReportsSearch] = useState("");
-  const [isLoadingSentReports, setIsLoadingSentReports] = useState(false);
-  const [sentReportsError, setSentReportsError] = useState("");
-  // "Sent Jobs" tabs, user 2026-09-10: "reuse that sent reports to sent jobs
-  // and have a tab for each type" -- "reports"/"special_outsourced" filter
-  // the SAME auto-dispatch-logs fetch client-side (all report_auto_dispatch_jobs
-  // sends for the date come back together); "requisition_bill" is a distinct
-  // fetch against patient-message-job-logs (a different table entirely --
-  // patient_message_jobs sends have no report_auto_dispatch_jobs row at all).
-  //
-  // User, 2026-09-13: "OUTSOURCED and SPECIAL are the same, surface them
-  // uniformly" -- every metadata.report_source==="outsourced_report" job was
-  // ALREADY included under the "special" tab's isSpecial check (see below),
-  // so a genuine outsourced send always showed up in both tabs at once --
-  // two places to look for the same thing, not two real categories. Merged
-  // into one tab; the underlying isSpecial predicate (label==="special
-  // report" OR outsourced_report) is unchanged, just no longer also exposed
-  // as a second, overlapping tab.
-  const SENT_JOBS_TABS = [
-    { key: "reports", label: "Reports" },
-    { key: "special_outsourced", label: "Special / Outsourced" },
-    { key: "requisition_bill", label: "Requisition Bill", jobKey: "requisition_welcome" },
-  ];
-  const [sentJobsTab, setSentJobsTab] = useState("reports");
   const webhookWhatsappNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const number = extractBusinessNumberFromPayload(messages[i]?.payload);
@@ -2078,100 +2019,6 @@ export default function WhatsAppDashboard() {
     setShowReportTemplateModal(true);
   };
 
-  const loadSentReports = async (dateValue = sentReportsDate, tabKey = sentJobsTab) => {
-    setSentReportsError("");
-    setIsLoadingSentReports(true);
-    try {
-      const tab = SENT_JOBS_TABS.find((t) => t.key === tabKey) || SENT_JOBS_TABS[0];
-      const selectedDate = String(dateValue || istTodayYmd());
-      let response;
-      if (tab.jobKey) {
-        const query = new URLSearchParams({ selected_date: selectedDate, job_key: tab.jobKey, limit: "300" });
-        response = await fetch(`/api/admin/reports/patient-message-job-logs?${query.toString()}`, {
-          credentials: "include",
-          cache: "no-store"
-        });
-      } else {
-        const query = new URLSearchParams({ status: "sent", selected_date: selectedDate, limit: "300" });
-        response = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, {
-          credentials: "include",
-          cache: "no-store"
-        });
-      }
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Failed to load sent jobs");
-      }
-      const json = await response.json();
-      setSentReportsRows(Array.isArray(json?.jobs) ? json.jobs : []);
-    } catch (err) {
-      setSentReportsRows([]);
-      setSentReportsError(err?.message || "Failed to load sent jobs");
-    } finally {
-      setIsLoadingSentReports(false);
-    }
-  };
-
-  const openSentReportsModal = async () => {
-    setShowSentReportsModal(true);
-    await loadSentReports(sentReportsDate, sentJobsTab);
-  };
-
-  const switchSentJobsTab = async (tabKey) => {
-    setSentJobsTab(tabKey);
-    await loadSentReports(sentReportsDate, tabKey);
-  };
-
-  // "reports"/"special"/"outsourced" all come from the SAME auto-dispatch-logs
-  // fetch (that endpoint has no concept of these sub-types) -- split client-side
-  // by report_source/report_label, same signals resolve_job_report_label /
-  // deriveDeliveryStatus already use elsewhere in this file. "requisition_bill"'s
-  // rows are already exactly what was fetched (a distinct endpoint/tab), so no
-  // further split needed there.
-  const tabFilteredSentReportsRows = useMemo(() => {
-    const rows = Array.isArray(sentReportsRows) ? sentReportsRows : [];
-    if (sentJobsTab === "requisition_bill") return rows;
-    return rows.filter((row) => {
-      const rawMeta = row?.metadata;
-      const meta = (rawMeta && typeof rawMeta === "object")
-        ? rawMeta
-        : (() => { try { return JSON.parse(rawMeta || "{}"); } catch { return {}; } })();
-      const reportSource = String(meta?.report_source || "").trim().toLowerCase();
-      const label = String(row?.report_label || "").trim().toLowerCase();
-      const isOutsourced = reportSource === "outsourced_report";
-      const isSpecial = label === "special report" || isOutsourced;
-      if (sentJobsTab === "special_outsourced") return isSpecial;
-      return !isSpecial;
-    });
-  }, [sentReportsRows, sentJobsTab]);
-
-  const filteredSentReportsRows = useMemo(() => {
-    const q = String(sentReportsSearch || "").trim().toLowerCase();
-    if (!q) return tabFilteredSentReportsRows;
-    return tabFilteredSentReportsRows.filter((row) => {
-      const reasonText = String(
-        row?.last_error ||
-        row?.state_hint ||
-        row?.last_event_message ||
-        row?.result_message ||
-        row?.comment ||
-        row?.remarks ||
-        ""
-      ).toLowerCase();
-      const hay = [
-        row?.reqno,
-        row?.patient_name,
-        row?.phone,
-        row?.report_label,
-        row?.status,
-        row?.delivery_status,
-        row?.provider_message_id,
-        reasonText
-      ].map((value) => String(value || "").toLowerCase()).join(" ");
-      return hay.includes(q);
-    });
-  }, [sentReportsRows, sentReportsSearch]);
-
   const handleSendReportTemplate = async () => {
     const phoneRaw = String(reportTemplatePhone || "").trim();
     const phoneDigits = digitsOnly(phoneRaw);
@@ -3183,7 +3030,7 @@ export default function WhatsAppDashboard() {
                 <button
                   type="button"
                   className="wa-ownerSearchOpenBtn"
-                  onClick={openSentReportsModal}
+                  onClick={() => setShowSentReportsModal(true)}
                   title="View sent jobs (reports, special, outsourced, requisition bill) for selected date"
                 >
                   Sent Jobs
@@ -3862,138 +3709,7 @@ export default function WhatsAppDashboard() {
         </div>
       </div>
 
-      {showSentReportsModal && (
-        <div className="wa-modalBackdrop" role="presentation" onClick={() => !isLoadingSentReports && setShowSentReportsModal(false)}>
-          <div className="wa-modalCard wa-modalCard--wide" role="dialog" aria-modal="true" aria-label="Sent jobs list" onClick={(event) => event.stopPropagation()}>
-            <div className="wa-modalHeader">
-              <strong>Sent Jobs</strong>
-              <button
-                type="button"
-                className="wa-modalClose"
-                onClick={() => setShowSentReportsModal(false)}
-                disabled={isLoadingSentReports}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <div className="wa-tabs" role="tablist" aria-label="Sent job type">
-              {SENT_JOBS_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={sentJobsTab === tab.key}
-                  className={sentJobsTab === tab.key ? "is-active" : ""}
-                  onClick={() => switchSentJobsTab(tab.key)}
-                  disabled={isLoadingSentReports}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <div className="wa-modalLookupRow">
-              <input
-                className="wa-modalInput"
-                type="date"
-                value={sentReportsDate}
-                onChange={(e) => setSentReportsDate(e.target.value)}
-                disabled={isLoadingSentReports}
-              />
-              <button
-                type="button"
-                className="wa-modalLookupBtn"
-                onClick={() => loadSentReports(sentReportsDate, sentJobsTab)}
-                disabled={isLoadingSentReports}
-              >
-                {isLoadingSentReports ? "Loading..." : "Load"}
-              </button>
-            </div>
-            <div className="wa-modalLookupRow">
-              <input
-                className="wa-modalInput"
-                type="search"
-                placeholder="Search req no / patient / phone / reason"
-                value={sentReportsSearch}
-                onChange={(e) => setSentReportsSearch(e.target.value)}
-                disabled={isLoadingSentReports}
-              />
-            </div>
-            {sentReportsError ? <div className="wa-modalError">{sentReportsError}</div> : null}
-            <div className="wa-sentReportsTableWrap">
-              {filteredSentReportsRows.length === 0 && !isLoadingSentReports ? (
-                <div className="wa-empty">No sent {SENT_JOBS_TABS.find((t) => t.key === sentJobsTab)?.label.toLowerCase() || "jobs"} for this date.</div>
-              ) : (
-                <table className="wa-sentReportsTable">
-                  <thead>
-                    <tr>
-                      <th>Req No</th>
-                      <th>Req Date</th>
-                      <th>Patient</th>
-                      <th>Phone</th>
-                      <th>Report Type</th>
-                      <th>Job Status</th>
-                      <th>Delivery</th>
-                      <th>Sent (IST)</th>
-                      <th>Delivery At (IST)</th>
-                      <th>Message ID</th>
-                      <th>Reason / Comment</th>
-                      <th>View</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSentReportsRows.map((row) => {
-                      // Freshest-as-of-viewing, not a snapshot of what the patient
-                      // actually received (Meta caches the PDF bytes at send time --
-                      // see [[report-delivery-status-vocabulary]] memory). User,
-                      // 2026-09-10: "still worth hooking up" despite that caveat.
-                      const viewQuery = new URLSearchParams({ reqid: String(row?.reqid || ""), mode: "preview" });
-                      if (row?.reqno) viewQuery.set("reqno", String(row.reqno));
-                      if (sentJobsTab === "requisition_bill") viewQuery.set("kind", "ebill");
-                      const viewUrl = row?.reqid ? `/api/admin/reports/document?${viewQuery.toString()}` : null;
-                      return (
-                        <tr key={`sr_${row?.id || row?.reqno || row?.phone || Math.random()}`}>
-                          <td><strong>{String(row?.reqno || "-")}</strong></td>
-                          <td>{reqnoDate(row?.reqno)}</td>
-                          <td>{String(row?.patient_name || "-")}</td>
-                          <td>{String(row?.phone || "-")}</td>
-                          <td>{String(row?.report_label || "-")}</td>
-                          <td>{String(row?.status || "-")}</td>
-                          <td>{normalizeDeliveryStatus(row?.delivery_status)}</td>
-                          <td>{formatMessageTime(row?.sent_at || row?.updated_at)}</td>
-                          <td>{formatMessageTime(row?.delivery_status_at)}</td>
-                          <td title={String(row?.provider_message_id || "")}>
-                            {String(row?.provider_message_id || "-")}
-                          </td>
-                          <td>
-                            {row?.last_error
-                              ? humanizeDeliveryError(row.last_error)
-                              : String(
-                                  row?.state_hint ||
-                                  row?.last_event_message ||
-                                  row?.result_message ||
-                                  row?.comment ||
-                                  row?.remarks ||
-                                  "-"
-                                )}
-                          </td>
-                          <td>
-                            {viewUrl ? (
-                              <a href={viewUrl} target="_blank" rel="noreferrer" title="Opens the current version of this document, not a snapshot of what was sent">
-                                View
-                              </a>
-                            ) : "-"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <SentJobsModal isOpen={showSentReportsModal} onClose={() => setShowSentReportsModal(false)} />
 
       {showReportTemplateModal && (
         <div className="wa-modalBackdrop" role="presentation" onClick={() => !isSendingReportTemplate && setShowReportTemplateModal(false)}>

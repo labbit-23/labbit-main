@@ -43,6 +43,7 @@ import { FaWhatsapp } from "react-icons/fa";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
 import SendReportTemplateModal from "@/components/report-dispatch/SendReportTemplateModal";
+import SentJobsModal from "@/components/report-dispatch/SentJobsModal";
 import SetHalfDaysModal from "@/components/report-dispatch/SetHalfDaysModal";
 import { ActionBtn, DataCell, DeptChip, PageHeader, Pane, ReadyBar, SegmentedControl, StatusPill } from "@/components/ui";
 import { humanizeDeliveryError } from "@/lib/whatsapp/deliveryErrors";
@@ -611,11 +612,11 @@ export default function ReportDispatchWorkspace({
   }, []);
   const [autoSearchInput, setAutoSearchInput] = useState("");
   const [autoSearch, setAutoSearch] = useState("");
-  const [showSentInline, setShowSentInline] = useState(false);
-  const [sentInlineRows, setSentInlineRows] = useState([]);
-  const [sentInlineLoading, setSentInlineLoading] = useState(false);
-  const [outsourcedSentRows, setOutsourcedSentRows] = useState([]);
-  const [outsourcedSentLoading, setOutsourcedSentLoading] = useState(false);
+  // 2026-09-27: the three inline "sent" panels (Reports/Special-Outsourced/
+  // Requisition Bill) this screen used to render itself were replaced by the
+  // shared SentJobsModal (also used by the WhatsApp admin page) -- one real
+  // implementation of tabs+fetch+View-link instead of three divergent copies.
+  const [sentJobsModalOpen, setSentJobsModalOpen] = useState(false);
   const [autoJobs, setAutoJobs] = useState([]);
   const [autoEvents, setAutoEvents] = useState([]);
   const [autoSummary, setAutoSummary] = useState(null);
@@ -721,18 +722,6 @@ export default function ReportDispatchWorkspace({
   }, [selectedDate]);
 
   useEffect(() => {
-    if (!monitorOpen || !showSentInline) return;
-    loadSentInlineRows({ limit: 1000 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, showSentInline, monitorOpen]);
-
-  useEffect(() => {
-    if (!monitorOpen) return;
-    loadOutsourcedSentRows({ limit: 1000 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, monitorOpen]);
-
-  useEffect(() => {
     let active = true;
     async function loadPermissions() {
       try {
@@ -834,10 +823,6 @@ export default function ReportDispatchWorkspace({
     });
     return collapseByReqno(filtered).sort(byReqnoDesc);
   }, [autoJobs, autoStatusFilter, autoSearch, autoViewFilter, outsourcedFilter]);
-
-  const sentDispatchRows = useMemo(() => {
-    return [...(Array.isArray(sentInlineRows) ? sentInlineRows : [])].sort(byReqnoDesc);
-  }, [sentInlineRows]);
 
   const monitorDateStats = useMemo(() => {
     const bounds = istDayBounds(selectedDate);
@@ -1330,47 +1315,6 @@ export default function ReportDispatchWorkspace({
       return false;
     } finally {
       setAutoLoading(false);
-    }
-  }
-
-  async function loadSentInlineRows(options = {}) {
-    setSentInlineLoading(true);
-    try {
-      const limit = Number(options?.limit || 1000);
-      const query = new URLSearchParams({ limit: String(limit), status: "sent" });
-      if (selectedDate) query.set("selected_date", selectedDate);
-      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-      setSentInlineRows(Array.isArray(json?.jobs) ? json.jobs : []);
-      return true;
-    } catch (err) {
-      setSentInlineRows([]);
-      setError(err?.message || "Failed to load sent reports");
-      return false;
-    } finally {
-      setSentInlineLoading(false);
-    }
-  }
-
-  async function loadOutsourcedSentRows(options = {}) {
-    setOutsourcedSentLoading(true);
-    try {
-      const limit = Number(options?.limit || 1000);
-      const query = new URLSearchParams({ limit: String(limit), status: "sent" });
-      if (selectedDate) query.set("selected_date", selectedDate);
-      const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-      const allJobs = Array.isArray(json?.jobs) ? json.jobs : [];
-      setOutsourcedSentRows(allJobs.filter(isSpecialOrOutsourced));
-      return true;
-    } catch (err) {
-      setOutsourcedSentRows([]);
-      setError(err?.message || "Failed to load outsourced sent reports");
-      return false;
-    } finally {
-      setOutsourcedSentLoading(false);
     }
   }
 
@@ -2142,13 +2086,9 @@ export default function ReportDispatchWorkspace({
                     leftIcon={<List size={14} />}
                     variant="outline"
                     minW="120px"
-                    onClick={async () => {
-                      const next = !showSentInline;
-                      setShowSentInline(next);
-                      if (next) await loadSentInlineRows({ limit: 1000 });
-                    }}
+                    onClick={() => setSentJobsModalOpen(true)}
                   >
-                    {showSentInline ? "Hide Sent" : "View Sent"}
+                    Sent Jobs
                   </Button>
                   <Select size="sm" maxW="220px" borderRadius="md" value={autoStatusFilter} onChange={(e) => setAutoStatusFilter(e.target.value)}>
                     <option value="">All statuses</option>
@@ -2637,191 +2577,6 @@ export default function ReportDispatchWorkspace({
                   </Table>
                 </Box>
               )}
-              {!showSentInline ? null : (
-              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
-                <Flex align="center" justify="space-between" mb={2}>
-                  <Text fontWeight="semibold" fontSize="sm">Sent Reports</Text>
-                  <Badge colorScheme="green">{sentDispatchRows.length}</Badge>
-                </Flex>
-                {sentInlineLoading ? (
-                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading sent reports...</Text>
-                ) : sentDispatchRows.length === 0 ? (
-                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No sent reports for selected date.</Text>
-                ) : (
-                  isMobileViewport ? (
-                    <Box>
-                      {sentDispatchRows.map((job) => {
-                        const jobId = String(job?.id || "");
-                        const statusValue = String(job?.status || "");
-                        const whyText = buildWhyText(job);
-                        return (
-                          <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
-                            <Flex justify="space-between" align="center" mb={1}>
-                              <HStack spacing={1}>
-                                <Badge colorScheme="green" borderRadius="md" px={2} textTransform="lowercase">Sent</Badge>
-                                <JobOriginBadge job={job} />
-                              </HStack>
-                              <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
-                            </Flex>
-                            <Text fontSize="xs" fontWeight="semibold">
-                              <Text as="span" fontWeight="bold" cursor="pointer" userSelect="text" onClick={() => handleReqnoClick(job)}>
-                                {displayValue(job?.reqno)}
-                              </Text>
-                              {" • "}
-                              {displayValue(job?.patient_name)}
-                            </Text>
-                            <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)}</Text>
-                            <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
-                              <Text fontSize="xs" noOfLines={1} mt={1}>Sent: {smartTimestamp(job)}</Text>
-                            </Tooltip>
-                          </Box>
-                        );
-                      })}
-                    </Box>
-                  ) : (
-                    <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflowX="auto" overflowY="visible">
-                      <Table size="sm" variant="simple" sx={{ tableLayout: "fixed", minWidth: "900px", "th, td": { fontSize: "xs", py: 2, verticalAlign: "top", whiteSpace: "normal", wordBreak: "break-word" }, th: { bg: themeMode === "dark" ? "gray.800" : "gray.50", letterSpacing: "0.08em" } }}>
-                        <Thead>
-                          <Tr>
-                            <Th>Delivery Status</Th>
-                            <Th>REQNO</Th>
-                            <Th>Patient</Th>
-                            <Th>Phone</Th>
-                            <Th>Sent At (IST)</Th>
-                            <Th>Why / State</Th>
-                            <Th>Actions</Th>
-                          </Tr>
-                        </Thead>
-                        <Tbody>
-                          {sentDispatchRows.map((job) => {
-                            const jobId = String(job?.id || "");
-                            const deliveryStatus = deriveDeliveryStatus(job);
-                            const whyText = buildWhyText(job);
-                            const canPushRow = canAutoPush;
-                            const canSendToRow = canAutoSendTo;
-                            return (
-                              <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
-                                <Td>
-                                  <Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge>
-                                  {Number.isFinite(job?.delivered_latency_seconds) ? (
-                                    <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
-                                      +{formatLatencyDuration(job.delivered_latency_seconds)}
-                                    </Text>
-                                  ) : null}
-                                </Td>
-                                <Td>
-                                  <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
-                                  <Box mt={1}><JobOriginBadge job={job} /></Box>
-                                </Td>
-                                <Td>{displayValue(job?.patient_name)}</Td>
-                                <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
-                                <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
-                                <Td><Tooltip label={whyText} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{whyText}</Text></Tooltip></Td>
-                                <Td><HStack spacing={0.5} noOfLines={1}><Tooltip label="Events" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Events" variant="ghost" icon={<Activity size={14} />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} /></Tooltip>{canPushRow ? <Tooltip label="Push" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Push" variant="ghost" icon={<UploadCloud size={14} />} onClick={() => runAutoJobAction(jobId, "push")} isLoading={isRowActionLoading(jobId, "push")} /></Tooltip> : null}{canSendToRow ? <Tooltip label="Resend to" hasArrow openDelay={250}><IconButton size="xs" type="button" aria-label="Resend to" variant="ghost" icon={<Share2 size={14} />} onClick={() => openAutoSendToModal(job)} /></Tooltip> : null}</HStack></Td>
-                              </Tr>
-                            );
-                          })}
-                        </Tbody>
-                      </Table>
-                    </Box>
-                  )
-                )}
-              </Box>
-              )}
-              {monitorOpen && (
-              <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={3}>
-                <Flex align="center" justify="space-between" mb={2}>
-                  <Text fontWeight="semibold" fontSize="sm">Special / Outsourced Sent</Text>
-                  <Badge colorScheme="purple">{outsourcedSentRows.length}</Badge>
-                </Flex>
-                {outsourcedSentLoading ? (
-                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>Loading special/outsourced reports...</Text>
-                ) : outsourcedSentRows.length === 0 ? (
-                  <Text fontSize="xs" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>No special or outsourced tests sent for selected date.</Text>
-                ) : (
-                  isMobileViewport ? (
-                    <Box>
-                      {outsourcedSentRows.map((job) => {
-                        const jobId = String(job?.id || "");
-                        const isOutsourced = String(job?.metadata?.report_source || "").trim().toLowerCase() === "outsourced_report";
-                        return (
-                          <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.400" : "gray.300"} borderRadius="md" p={1.5} mb={2}>
-                            <Flex justify="space-between" align="center" mb={1}>
-                              <HStack spacing={1}>
-                                <Badge colorScheme="purple" borderRadius="md" px={2} textTransform="lowercase">{isOutsourced ? "Outsourced" : "Special"}</Badge>
-                                <JobOriginBadge job={job} />
-                              </HStack>
-                              <Badge colorScheme={deriveDeliveryStatus(job) === "read" ? "blue" : deriveDeliveryStatus(job) === "delivered" ? "teal" : "gray"}>{deriveDeliveryStatus(job).toUpperCase()}</Badge>
-                            </Flex>
-                            <Text fontSize="xs" fontWeight="semibold">
-                              <Text as="span" fontWeight="bold" cursor="pointer" userSelect="text" onClick={() => handleReqnoClick(job)}>
-                                {displayValue(job?.reqno)}
-                              </Text>
-                              {isOutsourced ? (
-                                <>
-                                  {" • "}
-                                  <Text as="span" fontSize="xs" color="gray.500">T{displayValue((job?.metadata?.outsourced_testid || "").replace(/^T/, ""))}</Text>
-                                </>
-                              ) : null}
-                            </Text>
-                            <Text fontSize="xs" color="gray.600">{displayValue(job?.phone)}</Text>
-                            <Tooltip label={smartTimestamp(job)} hasArrow openDelay={250}>
-                              <Text fontSize="xs" noOfLines={1} mt={1}>Sent: {smartTimestamp(job)}</Text>
-                            </Tooltip>
-                          </Box>
-                        );
-                      })}
-                    </Box>
-                  ) : (
-                    <Box borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" overflowX="auto" overflowY="visible">
-                      <Table size="sm" variant="simple" sx={{ tableLayout: "fixed", minWidth: "900px", "th, td": { fontSize: "xs", py: 2, verticalAlign: "top", whiteSpace: "normal", wordBreak: "break-word" }, th: { bg: themeMode === "dark" ? "gray.800" : "gray.50", letterSpacing: "0.08em" } }}>
-                        <Thead>
-                          <Tr>
-                            <Th>Delivery Status</Th>
-                            <Th>Type</Th>
-                            <Th>REQNO</Th>
-                            <Th>Test ID</Th>
-                            <Th>Phone</Th>
-                            <Th>Sent At (IST)</Th>
-                            <Th>Mode</Th>
-                          </Tr>
-                        </Thead>
-                        <Tbody>
-                          {outsourcedSentRows.map((job) => {
-                            const jobId = String(job?.id || "");
-                            const deliveryStatus = deriveDeliveryStatus(job);
-                            const isOutsourced = String(job?.metadata?.report_source || "").trim().toLowerCase() === "outsourced_report";
-                            const testid = (job?.metadata?.outsourced_testid || "").replace(/^T/, "");
-                            const mode = String(job?.metadata?.outsourced_mode || "").toLowerCase();
-                            return (
-                              <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
-                                <Td>
-                                  <Badge colorScheme={deliveryStatus === "read" ? "blue" : deliveryStatus === "delivered" ? "teal" : "gray"} borderRadius="md" textTransform="uppercase">{deliveryStatus}</Badge>
-                                  {Number.isFinite(job?.delivered_latency_seconds) ? (
-                                    <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.700" : "gray.600"}>
-                                      +{formatLatencyDuration(job.delivered_latency_seconds)}
-                                    </Text>
-                                  ) : null}
-                                </Td>
-                                <Td><Badge colorScheme="purple" borderRadius="md" fontSize="xs" textTransform="lowercase">{isOutsourced ? "outsourced" : "special"}</Badge></Td>
-                                <Td>
-                                  <Text cursor="pointer" fontWeight="semibold" onClick={() => handleReqnoClick(job)} userSelect="text" _hover={{ textDecoration: "underline" }}>{displayValue(job?.reqno)}</Text>
-                                  <Box mt={1}><JobOriginBadge job={job} /></Box>
-                                </Td>
-                                <Td><Text mono fontSize="xs">{isOutsourced ? `T${testid}` : "-"}</Text></Td>
-                                <Td><Text mono fontSize="xs">{displayValue(job?.phone)}</Text></Td>
-                                <Td><Tooltip label={formatIstDateTime(job?.sent_at)} hasArrow openDelay={250}><Text fontSize="xs" noOfLines={2}>{formatIstDateTime(job?.sent_at)}</Text></Tooltip></Td>
-                                <Td>{isOutsourced ? <Badge colorScheme="orange" borderRadius="md" fontSize="xs" textTransform="lowercase">{mode || "base"}</Badge> : <Text fontSize="xs">-</Text>}</Td>
-                              </Tr>
-                            );
-                          })}
-                        </Tbody>
-                      </Table>
-                    </Box>
-                  )
-                )}
-              </Box>
-              )}
             </Box>
           ) : null}
 
@@ -3208,6 +2963,8 @@ export default function ReportDispatchWorkspace({
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      <SentJobsModal isOpen={sentJobsModalOpen} onClose={() => setSentJobsModalOpen(false)} initialDate={selectedDate} />
 
       <SendReportTemplateModal
         isOpen={pushTemplateModal.isOpen}
