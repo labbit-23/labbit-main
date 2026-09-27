@@ -5,9 +5,13 @@
 // lib/olaEta.js). Never errors on a routing failure -- an empty map just
 // means the cards show no ETA.
 //
-// A stop with no saved pin falls back to the median position of OTHER saved
-// pins in the same pincode (else the same area name) -- our own data, so no
-// geocoding call. Those ETAs are flagged approx: true.
+// A stop with no saved pin resolves in two free, no-external-call steps:
+//  1. `area_centroids` -- a static table seeded once from OpenStreetMap
+//     (db/migrations/20260927_area_centroids_eta_fallback.sql), keyed on the
+//     patient_addresses.area free-text value. No runtime API call at all.
+//  2. Failing that, the median position of OTHER saved pins in the same
+//     pincode (else the same area name) -- our own data.
+// Either way the result is flagged approx: true.
 import { NextResponse } from "next/server";
 import { getSessionUser, deny } from "@/lib/uac/authz";
 import { scoped, query } from "@/lib/pgScoped";
@@ -15,7 +19,13 @@ import { fetchEtas, MAX_STOPS } from "@/lib/olaEta";
 
 const hasPin = (s) => Number.isFinite(Number(s?.lat)) && Number.isFinite(Number(s?.lng)) && s.lat != null && s.lng != null;
 
-async function areaCentroid(s) {
+async function seededCentroid(area) {
+  if (!area) return null;
+  const rows = await query(`SELECT lat, lng FROM area_centroids WHERE area = $1`, [area]);
+  return rows[0] ? { lat: Number(rows[0].lat), lng: Number(rows[0].lng) } : null;
+}
+
+async function pinMedianCentroid(s) {
   const pincode = String(s.pincode || "").trim();
   const area = String(s.area || "").trim().toLowerCase();
   if (!pincode && !area) return null;
@@ -46,7 +56,7 @@ export async function POST(request) {
     await scoped({ mode: "all", labId: null }, async () => {
       for (const s of stops.filter((x) => !hasPin(x))) {
         const k = `${s.pincode || ""}|${String(s.area || "").toLowerCase()}`;
-        if (!cache.has(k)) cache.set(k, await areaCentroid(s));
+        if (!cache.has(k)) cache.set(k, (await seededCentroid(String(s.area || "").trim().toLowerCase())) || (await pinMedianCentroid(s)));
         const c = cache.get(k);
         if (c) { resolved.push({ id: s.id, ...c }); approxIds.add(s.id); }
       }
