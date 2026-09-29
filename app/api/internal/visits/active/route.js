@@ -77,7 +77,7 @@ export async function GET(request) {
         // rebuild]] memory: this is the Tier-1/Tier-2 split).
         visitIds.length
           ? query(
-              `SELECT vd.visit_id, lt.lab_test_name AS name,
+              `SELECT vd.id AS visit_detail_id, vd.visit_id, vd.barcode, lt.lab_test_name AS name,
                  (SELECT string_agg(DISTINCT st.name, ' / ') FROM labit_core.test t
                     LEFT JOIN labit_core.test_specimen_requirement tsr ON tsr.test_id = t.id
                     LEFT JOIN labit_core.specimen_type st ON st.id = tsr.specimen_type_id
@@ -94,7 +94,7 @@ export async function GET(request) {
           : [],
         visitIds.length
           ? query(
-              `SELECT vd.visit_id, pk.name FROM visit_details vd
+              `SELECT vd.id AS visit_detail_id, vd.visit_id, vd.barcode, pk.name FROM visit_details vd
                JOIN packages pk ON pk.id = vd.package_id
                WHERE vd.visit_id = ANY($1) AND vd.package_id IS NOT NULL`,
               [visitIds]
@@ -105,7 +105,7 @@ export async function GET(request) {
       const testsByVisit = new Map();
       for (const t of testDetails) {
         const list = testsByVisit.get(t.visit_id) || [];
-        list.push({ name: t.name, specimen: t.specimen || null, fastingRequired: !!t.fasting_required });
+        list.push({ id: t.visit_detail_id, name: t.name, specimen: t.specimen || null, fastingRequired: !!t.fasting_required, barcode: t.barcode || null });
         testsByVisit.set(t.visit_id, list);
       }
       for (const p of packageDetails) {
@@ -113,7 +113,7 @@ export async function GET(request) {
         // A package's own components aren't individually specimen-resolved
         // here (visit_details records the package as one row, not its line
         // items) -- shown as a package, not pretended to be a single test.
-        list.push({ name: p.name, specimen: null, fastingRequired: false, isPackage: true });
+        list.push({ id: p.visit_detail_id, name: p.name, specimen: null, fastingRequired: false, isPackage: true, barcode: p.barcode || null });
         testsByVisit.set(p.visit_id, list);
       }
 

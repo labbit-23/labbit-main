@@ -1,0 +1,14 @@
+-- Migration: barcode on visit_details -- a pre-printed tube's barcode,
+-- attached to a specific test/package line item at collection time.
+--
+-- Deliberately main-only for now (2026-09-29 director call): labit-core's
+-- own POST /samples (app/routers/samples.py) already supports attaching a
+-- pre-printed barcode, not just auto-generating one -- but it REQUIRES a
+-- real requisition_id, which an app-booked visit doesn't have yet (it only
+-- reaches labit-core as a website_enquiry until staff convert it, see the
+-- 2026-09-28 booking bridge). So this can't call that real endpoint today
+-- without requisition_id being resolved first -- deferred, not a design
+-- choice to avoid labit-core. This column just lets a phlebo record which
+-- tube went with which test, in main, now; reconciling it into a real
+-- labit_core.sample row is a later pass once/if that's worth building.
+ALTER TABLE visit_details ADD COLUMN IF NOT EXISTS barcode text;

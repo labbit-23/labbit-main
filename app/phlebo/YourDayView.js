@@ -974,6 +974,46 @@ function ToolbarBtn({ icon, label, onClick, isDark, accent }) {
   );
 }
 
+// ── BarcodeField ──────────────────────────────────────────────────────────────
+// Type or paste a pre-printed tube's barcode against this test, saved on
+// blur/Enter. Deliberately just a text box -- no scan wizard, no confirm
+// steps -- see this session's note on not building anything that assumes
+// training nobody's had. Recorded in main only for now (see
+// db/migrations/20260929_visit_details_barcode.sql for why).
+function BarcodeField({ visitDetailId, initial, isDark, muted }) {
+  const [value, setValue] = useState(initial || "");
+  const [saving, setSaving] = useState(false);
+  const lastSaved = useRef(initial || "");
+
+  async function save() {
+    if (value === lastSaved.current) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/internal/visit-details/barcode", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visit_detail_id: visitDetailId, barcode: value }),
+      });
+      if (res.ok) lastSaved.current = value;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Flex align="center" gap="6px">
+      <Box as="input" value={value} onChange={(e) => setValue(e.target.value)}
+        onBlur={save} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        placeholder="Tube barcode"
+        fontSize="12px" px="8px" py="3px" borderRadius="6px" maxW="140px"
+        bg={isDark ? "whiteAlpha.50" : "var(--surface-2)"}
+        border="1px solid" borderColor={isDark ? "whiteAlpha.200" : "var(--border)"}
+        color="inherit" outline="none"
+      />
+      {saving && <Text fontSize="10px" color={muted}>Saving…</Text>}
+    </Flex>
+  );
+}
+
 // ── CurrentCard ───────────────────────────────────────────────────────────────
 
 function CurrentCard({ visit, locationCount, eta, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, onViewDraw, surface, text, muted, borderC }) {
@@ -1050,11 +1090,14 @@ function CurrentCard({ visit, locationCount, eta, isDark, isLoading, onAdvance, 
         {visit.tests?.length ? (
           <Box mb={3}>
             {visit.tests.map((t, i) => (
-              <Flex key={i} align="baseline" gap="6px" mb="2px">
-                <Text fontSize="13px" fontWeight="600" color={text}>{t.name}</Text>
-                {t.specimen && <Text fontSize="12px" color={muted}>· {t.specimen}</Text>}
-                {t.fastingRequired && <Text fontSize="12px" color="var(--warn-ink)" fontWeight="600">· Fasting</Text>}
-              </Flex>
+              <Box key={i} mb="6px">
+                <Flex align="baseline" gap="6px">
+                  <Text fontSize="13px" fontWeight="600" color={text}>{t.name}</Text>
+                  {t.specimen && <Text fontSize="12px" color={muted}>· {t.specimen}</Text>}
+                  {t.fastingRequired && <Text fontSize="12px" color="var(--warn-ink)" fontWeight="600">· Fasting</Text>}
+                </Flex>
+                {t.id && <BarcodeField visitDetailId={t.id} initial={t.barcode} isDark={isDark} muted={muted} />}
+              </Box>
             ))}
           </Box>
         ) : visit.notes ? (
