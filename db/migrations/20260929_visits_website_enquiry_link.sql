@@ -1,0 +1,16 @@
+-- Migration: visits.website_enquiry_id -- closes the "missing link" between
+-- labit-main's visits and labit-core's requisition (2026-09-29 session).
+--
+-- Captures the labit-core website_enquiry.id the booking bridge
+-- (lib/labitCoreEnquiry.js, 2026-09-28) already gets back and previously
+-- threw away. When staff later convert that enquiry (their EXISTING
+-- Convert-to-estimate action -- no new step, no new training), labit-core
+-- sets website_enquiry.converted_requisition_id itself. From there the
+-- phlebo screen can follow the whole chain live in one query (labit-main
+-- and labit-core are one physical Postgres instance):
+--   visits.website_enquiry_id -> website_enquiry.converted_requisition_id
+--   -> requisition_item (real test_id/package_id, labit-core's own id
+--   space) -> test/specimen info.
+-- No sync job, nothing to keep in step separately -- see
+-- visits/active/route.js's testDetails2/packageDetails2 queries.
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS website_enquiry_id uuid;

@@ -158,9 +158,15 @@ export async function POST(request) {
       }
     }
 
-    submitWebsiteEnquiry({ patientId, addressId, notes }).catch((err) =>
-      console.error("[app-booking/visits] website_enquiry bridge failed (non-fatal)", err)
-    );
+    // Captures the created enquiry's id onto this visit (website_enquiry_id,
+    // 2026-09-29) so the phlebo screen can later follow enquiry ->
+    // converted_requisition_id -> real line items once staff convert it --
+    // closes the visits<->requisition link, no new staff step. Still
+    // fire-and-forget: neither the submit nor this follow-up write may
+    // block or fail the booking response already sent below.
+    submitWebsiteEnquiry({ patientId, addressId, notes })
+      .then((enquiryId) => enquiryId && supabase.from("visits").update({ website_enquiry_id: enquiryId }).eq("id", data.id))
+      .catch((err) => console.error("[app-booking/visits] website_enquiry bridge failed (non-fatal)", err));
 
     return NextResponse.json({ id: data.id, visitDate: data.visit_date, status: data.status }, { status: 201 });
   } catch (err) {

@@ -32,7 +32,7 @@ export async function GET(request) {
     const data = await scoped({ mode: "all", labId: null }, async () => {
       const visits = await query(
         `
-        SELECT id, patient_id, visit_date, time_slot, address, status, executive_id, notes, prescription
+        SELECT id, patient_id, visit_date, time_slot, address, status, executive_id, notes, prescription, website_enquiry_id
         FROM visits
         WHERE visit_date >= $1 AND visit_date <= $2
           AND (executive_id = $3${includeUnassigned ? " OR executive_id IS NULL" : ""})
@@ -115,6 +115,49 @@ export async function GET(request) {
         // items) -- shown as a package, not pretended to be a single test.
         list.push({ id: p.visit_detail_id, name: p.name, specimen: null, fastingRequired: false, isPackage: true, barcode: p.barcode || null });
         testsByVisit.set(p.visit_id, list);
+      }
+
+      // Fallback chain (2026-09-29, "closing the missing link"): a visit
+      // with no visit_details rows but a website_enquiry_id (set when the
+      // app-booking bridge submitted it) may have since been converted by
+      // staff into a real requisition -- labit-core sets
+      // website_enquiry.converted_requisition_id itself when they do,
+      // their EXISTING "Convert to estimate" action, no new step. Follow it
+      // live: one physical Postgres instance, no sync job needed. Only
+      // queried for visits visit_details didn't already answer -- structured
+      // visit_details stays the fast, first-choice path.
+      const needsFallback = visits.filter((v) => v.website_enquiry_id && !testsByVisit.has(v.id));
+      if (needsFallback.length) {
+        const enquiryIds = needsFallback.map((v) => v.website_enquiry_id);
+        const fallbackRows = await query(
+          `SELECT we.id AS website_enquiry_id, ri.test_id, ri.package_id,
+             COALESCE(t.name, pk.name) AS name,
+             (SELECT string_agg(DISTINCT st.name, ' / ') FROM labit_core.test_specimen_requirement tsr
+                LEFT JOIN labit_core.specimen_type st ON st.id = tsr.specimen_type_id
+              WHERE tsr.test_id = ri.test_id) AS specimen,
+             (SELECT bool_or(p.fasting_required) FROM labit_core.test_parameter tp
+                JOIN labit_core.parameter p ON p.id = tp.parameter_id
+              WHERE tp.test_id = ri.test_id) AS fasting_required
+           FROM labit_core.website_enquiry we
+           JOIN labit_core.requisition_item ri ON ri.requisition_id = we.converted_requisition_id AND NOT ri.cancelled
+           LEFT JOIN labit_core.test t ON t.id = ri.test_id
+           LEFT JOIN labit_core.package pk ON pk.id = ri.package_id
+           WHERE we.id = ANY($1) AND we.converted_requisition_id IS NOT NULL`,
+          [enquiryIds]
+        );
+        const byEnquiry = new Map();
+        for (const r of fallbackRows) {
+          const list = byEnquiry.get(r.website_enquiry_id) || [];
+          list.push({
+            id: null, name: r.name, specimen: r.specimen || null,
+            fastingRequired: !!r.fasting_required, isPackage: !!r.package_id, barcode: null,
+          });
+          byEnquiry.set(r.website_enquiry_id, list);
+        }
+        for (const v of needsFallback) {
+          const list = byEnquiry.get(v.website_enquiry_id);
+          if (list) testsByVisit.set(v.id, list);
+        }
       }
 
       const addressesByPatient = new Map();
