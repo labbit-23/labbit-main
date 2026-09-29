@@ -793,15 +793,19 @@ export async function PUT(request) {
       // has no date/time-slot placeholder -- wrong template for an actual
       // reschedule, not a missing-data bug (visitWhatsapp.js's paramMap
       // already had date/time_slot ready, nothing ever asked for them).
-      // "home_visit_update" ({{1}} name, {{2}} status word, {{3}} date,
-      // {{4}} time slot, {{5}} contact name, {{6}} contact phone) maps
-      // onto that same paramMap in order and actually says what changed.
-      // A pure executive (phlebo) reassignment with no date/time change
-      // keeps "booking_status"/"UPDATED" -- there's no new slot to report.
+      // "book_home_visit" (labs_apis.templates -- confirmed live via
+      // service-role query, RLS blocks the app DB role from seeing this
+      // table directly) has params_order ["name","status","date",
+      // "time_slot","contact_name","contact_phone"], matching the "Home
+      // Visit Update" Meta template body ({{1}} name, {{2}} status word,
+      // {{3}} date, {{4}} time slot, {{5}} contact name, {{6}} contact
+      // phone) exactly. A pure executive (phlebo) reassignment with no
+      // date/time change keeps "booking_status"/"UPDATED" -- there's no
+      // new slot to report.
       const isReschedule = isVisitDateChanged || isTimeslotChangedForPatient;
       try {
         await notifyPatientWhatsappWithSmsFallback(data.id, {
-          templateKey: isReschedule ? "home_visit_update" : "booking_status",
+          templateKey: isReschedule ? "book_home_visit" : "booking_status",
           statusLabel: isReschedule ? "RESCHEDULED" : "UPDATED",
         });
       } catch (e) {
