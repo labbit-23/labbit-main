@@ -45,6 +45,23 @@ function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
   return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
 }
 
+// Ops/infra alerts (template_name "ops_status_alert", e.g. the WAN-down
+// WhatsApp alert from labit-py's monitoring_agent) fan out to a dedicated
+// list, kept separate from report_notify_number so adding an ops recipient
+// never changes who gets booking/report notifications from other callers
+// of this same route (quickbook, the chat webhook). 2026-09-29, user: "Add
+// 9949099249 and 9866667912 to that list for Ops."
+function resolveOpsAlertPhones({ templates = {}, lab = null }) {
+  const botFlow = templates?.bot_flow || {};
+  const list = Array.isArray(botFlow?.ops_alert_numbers) ? botFlow.ops_alert_numbers : [];
+  const normalized = list
+    .map((raw) => toCanonicalIndiaPhone(raw) || String(raw || "").replace(/\D/g, ""))
+    .filter(Boolean);
+  if (normalized.length > 0) return Array.from(new Set(normalized));
+  const single = resolveInternalNotifyPhone({ templates, lab });
+  return single ? [single] : [];
+}
+
 export async function POST(request) {
   try {
     const expectedToken =
@@ -88,10 +105,20 @@ export async function POST(request) {
     ]);
 
     const templates = parseTemplates(apiRow?.templates);
-    const notifyPhone = resolveInternalNotifyPhone({ templates, lab: labRow || null });
-    if (!notifyPhone) {
+    const isOpsAlert = templateName === "ops_status_alert";
+    const notifyPhones = isOpsAlert
+      ? resolveOpsAlertPhones({ templates, lab: labRow || null })
+      : (() => {
+          const one = resolveInternalNotifyPhone({ templates, lab: labRow || null });
+          return one ? [one] : [];
+        })();
+    if (notifyPhones.length === 0) {
       return NextResponse.json(
-        { error: "No internal notify number configured for this lab (bot_flow.report_notify_number / labs.internal_whatsapp_number)" },
+        {
+          error: isOpsAlert
+            ? "No ops alert recipients configured (bot_flow.ops_alert_numbers / report_notify_number / labs.internal_whatsapp_number)"
+            : "No internal notify number configured for this lab (bot_flow.report_notify_number / labs.internal_whatsapp_number)"
+        },
         { status: 422 }
       );
     }
@@ -104,24 +131,38 @@ export async function POST(request) {
     // silently rejected by the Cloud API. Callers that know they're inside
     // an active session (e.g. labit-core's "request a printed copy" reply
     // flow, the first caller here) can still pass plain `text`.
-    const sendResult = templateName
-      ? await sendTemplateMessage({
-          labId,
-          phone: notifyPhone,
-          templateName,
-          languageCode,
-          templateParams,
-          sender
-        })
-      : await sendTextMessage({
-          labId,
-          phone: notifyPhone,
-          text,
-          sender
-        });
+    // Sent sequentially, not in parallel, to keep this well under the Cloud
+    // API's per-second rate limit for a small, fixed-size ops list.
+    const sendResults = [];
+    for (const phone of notifyPhones) {
+      const sendResult = templateName
+        ? await sendTemplateMessage({
+            labId,
+            phone,
+            templateName,
+            languageCode,
+            templateParams,
+            sender
+          })
+        : await sendTextMessage({
+            labId,
+            phone,
+            text,
+            sender
+          });
+      sendResults.push({ phone, provider_response: sendResult });
+    }
 
     return NextResponse.json(
-      { success: true, ok: true, notified_phone: notifyPhone, kind: templateName ? "template" : "text", provider_response: sendResult },
+      {
+        success: true,
+        ok: true,
+        notified_phone: notifyPhones[0],
+        notified_phones: notifyPhones,
+        kind: templateName ? "template" : "text",
+        provider_response: sendResults[0]?.provider_response,
+        results: sendResults
+      },
       { status: 200 }
     );
   } catch (err) {
