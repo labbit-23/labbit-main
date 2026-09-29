@@ -788,10 +788,21 @@ export async function PUT(request) {
     }
 
     if (!statusChanged && (isExecutiveChanged || isTimeslotChangedForPatient || isVisitDateChanged)) {
+      // 2026-09-29, user (live: MEGHNA RAO's reschedule WhatsApp had no new
+      // date/time at all): "booking_status"'s approved Meta template body
+      // has no date/time-slot placeholder -- wrong template for an actual
+      // reschedule, not a missing-data bug (visitWhatsapp.js's paramMap
+      // already had date/time_slot ready, nothing ever asked for them).
+      // "home_visit_update" ({{1}} name, {{2}} status word, {{3}} date,
+      // {{4}} time slot, {{5}} contact name, {{6}} contact phone) maps
+      // onto that same paramMap in order and actually says what changed.
+      // A pure executive (phlebo) reassignment with no date/time change
+      // keeps "booking_status"/"UPDATED" -- there's no new slot to report.
+      const isReschedule = isVisitDateChanged || isTimeslotChangedForPatient;
       try {
         await notifyPatientWhatsappWithSmsFallback(data.id, {
-          templateKey: "booking_status",
-          statusLabel: isVisitDateChanged || isTimeslotChangedForPatient ? "RESCHEDULED" : "UPDATED",
+          templateKey: isReschedule ? "home_visit_update" : "booking_status",
+          statusLabel: isReschedule ? "RESCHEDULED" : "UPDATED",
         });
       } catch (e) {
         console.error(`Visit ${data.id}: Patient update notification failed:`, e?.message || e);
