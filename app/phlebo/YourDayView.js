@@ -251,6 +251,16 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   const current  = sorted[0] || null;
   const carrying = sorted.filter(v => norm(v.status) === "sample_picked");
   const upcoming = sorted.slice(1).filter(v => norm(v.status) !== "sample_picked");
+  // How many of TODAY's active visits share an address -- multiple separate
+  // orders at one building (family bookings, same office) must stay
+  // visibly distinct, never read as one combined stop. Counted across all
+  // active visits (not just `upcoming`) so the current card can flag it too.
+  const addressCounts = new Map();
+  for (const v of sorted) {
+    const a = displayAddress(v);
+    if (a) addressCounts.set(a, (addressCounts.get(a) || 0) + 1);
+  }
+  const sameLocationCount = (v) => addressCounts.get(displayAddress(v)) || 1;
 
   const isAfter5pm = new Date().getHours() >= 17;
   const tomorrowSorted = [...tomorrowMine].sort((a, b) =>
@@ -543,6 +553,7 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
         {current ? (
           <CurrentCard
             visit={current}
+            locationCount={sameLocationCount(current)}
             eta={etaFor(current)}
             isDark={isDark}
             isLoading={advancingId === current.id}
@@ -642,6 +653,7 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
                   {i > 0 && <Box h="1px" bg={softDiv} />}
                   <UpcomingRow
                     visit={v}
+                    locationCount={sameLocationCount(v)}
                     eta={etaFor(v)}
                     isDark={isDark}
                     isLoading={advancingId === v.id}
@@ -964,7 +976,7 @@ function ToolbarBtn({ icon, label, onClick, isDark, accent }) {
 
 // ── CurrentCard ───────────────────────────────────────────────────────────────
 
-function CurrentCard({ visit, eta, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, onViewDraw, surface, text, muted, borderC }) {
+function CurrentCard({ visit, locationCount, eta, isDark, isLoading, onAdvance, onNavigate, onContact, onAddTests, onViewDraw, surface, text, muted, borderC }) {
   const status    = norm(visit.status);
   const label     = actionLabel(status);
   const scheme    = actionScheme(status);
@@ -1020,13 +1032,34 @@ function CurrentCard({ visit, eta, isDark, isLoading, onAdvance, onNavigate, onC
 
       {/* Body */}
       <Box px={4} pt={4} pb={2}>
-        <Text fontSize="22px" fontWeight="800" color={text}
-          letterSpacing="-0.02em" lineHeight="1.1" mb={visit.notes ? 1 : 3}>
-          {visit.patient?.name}
-        </Text>
-        {visit.notes && (
+        <Flex align="center" gap="8px" mb={visit.tests?.length || visit.notes ? 1 : 3}>
+          <Text fontSize="22px" fontWeight="800" color={text} letterSpacing="-0.02em" lineHeight="1.1">
+            {visit.patient?.name}
+          </Text>
+          {locationCount > 1 && (
+            <Box bg={isDark ? "whiteAlpha.100" : "var(--surface-2)"} border="1px solid"
+              borderColor={isDark ? "whiteAlpha.200" : "var(--border)"} borderRadius="full" px="8px" py="1px" flexShrink={0}>
+              <Text fontSize="10px" fontWeight="700" color={muted} whiteSpace="nowrap">{locationCount} orders here</Text>
+            </Box>
+          )}
+        </Flex>
+        {/* Structured tests (visit_details), since 2026-09-29 -- what to
+            draw and in what tube, not just a name string. Falls back to
+            the old free-text `notes` for visits with no structured rows
+            (created before this, or a source that hasn't wired items yet). */}
+        {visit.tests?.length ? (
+          <Box mb={3}>
+            {visit.tests.map((t, i) => (
+              <Flex key={i} align="baseline" gap="6px" mb="2px">
+                <Text fontSize="13px" fontWeight="600" color={text}>{t.name}</Text>
+                {t.specimen && <Text fontSize="12px" color={muted}>· {t.specimen}</Text>}
+                {t.fastingRequired && <Text fontSize="12px" color="var(--warn-ink)" fontWeight="600">· Fasting</Text>}
+              </Flex>
+            ))}
+          </Box>
+        ) : visit.notes ? (
           <Text fontSize="12px" color={muted} mb={3} lineHeight="1.4">{visit.notes}</Text>
-        )}
+        ) : null}
 
         {/* Address */}
         {addr ? (
@@ -1247,7 +1280,7 @@ function TomorrowHeroCard({ visit, isDark, surface, text, muted, borderC, onNavi
 
 // ── UpcomingRow ───────────────────────────────────────────────────────────────
 
-function UpcomingRow({ visit, eta, isDark, isLoading, onStart, onTap, text, muted }) {
+function UpcomingRow({ visit, locationCount, eta, isDark, isLoading, onStart, onTap, text, muted }) {
   const time = slotTime(visit.time_slot?.slot_name);
   const addr = displayAddress(visit);
   const [armed, setArmed] = useState(false);
@@ -1267,9 +1300,16 @@ function UpcomingRow({ visit, eta, isDark, isLoading, onStart, onTap, text, mute
       </Text>
       <Box w="1px" h="34px" bg={isDark ? "whiteAlpha.100" : "var(--border-soft)"} flexShrink={0} />
       <Box flex={1} minW={0}>
-        <Text fontSize="15px" fontWeight="700" color={text} noOfLines={1} letterSpacing="-0.005em">
-          {visit.patient?.name}
-        </Text>
+        <Flex align="center" gap="6px">
+          <Text fontSize="15px" fontWeight="700" color={text} noOfLines={1} letterSpacing="-0.005em">
+            {visit.patient?.name}
+          </Text>
+          {locationCount > 1 && (
+            <Box bg="var(--surface-2)" border="1px solid" borderColor="var(--border)" borderRadius="full" px="6px" flexShrink={0}>
+              <Text fontSize="9px" fontWeight="700" color={muted} whiteSpace="nowrap">{locationCount} here</Text>
+            </Box>
+          )}
+        </Flex>
         <Text fontSize="12px" color={muted} noOfLines={1}>{addr || "—"}</Text>
         {eta && <Text fontSize="11px" fontWeight="600" color="var(--accent-ink)">{etaText(eta)}</Text>}
       </Box>

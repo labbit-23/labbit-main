@@ -69,6 +69,13 @@ export async function POST(request) {
   const visitDate = String(body?.visit_date || "").trim();
   const timeSlot = String(body?.time_slot || "").trim();
   const notes = body?.notes ? String(body.notes).trim().slice(0, 2000) : null;
+  // items (2026-09-29): [{code, kind}] -- structured line items, so the
+  // phlebo screen (and anything else) can know exactly what was booked
+  // instead of parsing the `notes` display string. See visit_details insert
+  // below, after the visit itself exists.
+  const items = Array.isArray(body?.items)
+    ? body.items.filter((i) => i?.code && (i.kind === "test" || i.kind === "package")).slice(0, 50)
+    : [];
 
   if (!patientId || !addressId || !visitDate || !timeSlot) {
     return NextResponse.json(
@@ -120,6 +127,36 @@ export async function POST(request) {
       .select("id, visit_date, status")
       .single();
     if (error) throw error;
+
+    // Resolve item codes to real visit_details rows -- best-effort, same
+    // posture as the website_enquiry bridge below: a resolution miss (a
+    // stale code, an unmatched test) must never fail a booking that already
+    // succeeded. Test codes are the app's providerTestCode == this table's
+    // own lab_tests.internal_code (case-insensitive -- the catalog route
+    // upper-cases it when it hands it out, but never assume the caller
+    // echoed it back unchanged); package codes are already packages.id
+    // verbatim (see app-catalog/packages/route.js's providerPackageCode).
+    if (items.length) {
+      const testCodes = items.filter((i) => i.kind === "test").map((i) => String(i.code).trim().toUpperCase());
+      const packageIds = items.filter((i) => i.kind === "package").map((i) => String(i.code).trim());
+      try {
+        const [testRows, pkgRows] = await Promise.all([
+          testCodes.length
+            ? supabase.from("lab_tests").select("id, internal_code").in("internal_code", testCodes)
+            : Promise.resolve({ data: [] }),
+          packageIds.length
+            ? supabase.from("packages").select("id").in("id", packageIds)
+            : Promise.resolve({ data: [] }),
+        ]);
+        const rows = [
+          ...(testRows.data || []).map((t) => ({ visit_id: data.id, test_id: t.id, package_id: null })),
+          ...(pkgRows.data || []).map((p) => ({ visit_id: data.id, test_id: null, package_id: p.id })),
+        ];
+        if (rows.length) await supabase.from("visit_details").insert(rows);
+      } catch (err) {
+        console.error("[app-booking/visits] visit_details write failed (non-fatal)", err);
+      }
+    }
 
     submitWebsiteEnquiry({ patientId, addressId, notes }).catch((err) =>
       console.error("[app-booking/visits] website_enquiry bridge failed (non-fatal)", err)
