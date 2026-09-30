@@ -108,13 +108,22 @@ export async function GET(request) {
               return [];
             })
           : [],
+        // 2026-09-30, user: same principle as testDetails above -- one
+        // enrichment query's permission problem (found live right after
+        // the labit-core fix: "permission denied for table packages",
+        // a SEPARATE, unrelated grant gap -- packages is labit-main's own
+        // public-schema table, nothing to do with labit-core) must not
+        // fail the whole visits list either.
         visitIds.length
           ? query(
               `SELECT vd.id AS visit_detail_id, vd.visit_id, vd.barcode, pk.name FROM visit_details vd
                JOIN packages pk ON pk.id = vd.package_id
                WHERE vd.visit_id = ANY($1) AND vd.package_id IS NOT NULL`,
               [visitIds]
-            )
+            ).catch((err) => {
+              console.error("[api/internal/visits/active] package-details enrichment failed, degrading:", err?.message || err);
+              return [];
+            })
           : [],
       ]);
 
