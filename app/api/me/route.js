@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { getIronSession } from 'iron-session';
-import { ironOptions } from '@/lib/session';
+import { ironOptions, isSessionValid } from '@/lib/session';
 
 export async function GET(request) {
   const response = NextResponse.next();
@@ -13,8 +13,8 @@ export async function GET(request) {
 
     const session = await getIronSession(request, response, ironOptions);
 
-    if (!session.user) {
-      console.log('[api/me] Unauthorized access - no user in session.');
+    if (!isSessionValid(session)) {
+      console.log('[api/me] Unauthorized access - no user in session or idle session expired.');
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 

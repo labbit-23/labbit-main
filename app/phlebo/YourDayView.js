@@ -171,6 +171,12 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   const [visits, setVisits]         = useState([]);
   const [loading, setLoading]       = useState(true);
   const [advancingId, setAdvancing] = useState(null);
+  // Stops the visits/ETA pollers dead on a 401 instead of hammering the
+  // (already-expired) session every 60s/3min forever -- see the
+  // session-loop fix: a stale session used to render this page once, then
+  // poll into a wall of 401s until SessionLifecycle's global fetch
+  // interceptor finally bounced the tab to /login.
+  const sessionExpiredRef = useRef(false);
 
   const contactModal    = useDisclosure();
   const assignDialog    = useDisclosure();
@@ -202,7 +208,7 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   // ── Fetch ────────────────────────────────────────────────────────────────
 
   const fetchVisits = useCallback(async () => {
-    if (!executiveId) return;
+    if (!executiveId || sessionExpiredRef.current) return;
     try {
       // visits now has RLS enabled (2026-09-14) -- browser can no longer
       // query it via the anon key. See
@@ -213,6 +219,13 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
       visitsUrl.searchParams.set("range_end", isToday ? tomorrow : viewDate);
       visitsUrl.searchParams.set("include_unassigned", isToday ? "true" : "false");
       const res = await fetch(visitsUrl.toString());
+      if (res.status === 401) {
+        // Session's gone -- stop polling. SessionLifecycle's global fetch
+        // interceptor already handles the redirect to /login off this same
+        // 401; retrying every 60s only re-fires it into a loop.
+        sessionExpiredRef.current = true;
+        return;
+      }
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error || "Could not load visits");
       setVisits(body.data || []);
@@ -225,7 +238,13 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
 
   useEffect(() => {
     fetchVisits();
-    const t = setInterval(fetchVisits, 60_000);
+    const t = setInterval(() => {
+      if (sessionExpiredRef.current) {
+        clearInterval(t);
+        return;
+      }
+      fetchVisits();
+    }, 60_000);
     return () => clearInterval(t);
   }, [fetchVisits]);
 
@@ -280,7 +299,9 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
   useEffect(() => {
     if (!etaKey || !("geolocation" in navigator)) { setEtas({}); return; }
     let cancelled = false;
+    let t; // declared before refresh() so the 401 branch can clearInterval(t) safely
     async function refresh() {
+      if (sessionExpiredRef.current) return;
       const origin = await new Promise((resolve) =>
         navigator.geolocation.getCurrentPosition(
           (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
@@ -294,12 +315,23 @@ export default function YourDayView({ executiveId, themeMode = "light", selected
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ origin, stops: etaStops }),
         });
+        if (res.status === 401) {
+          // Same stale-session case as fetchVisits -- stop hitting this
+          // endpoint every 3 min once the session's gone; the global
+          // fetch interceptor already owns redirecting to /login.
+          sessionExpiredRef.current = true;
+          clearInterval(t);
+          return;
+        }
         const body = await res.json().catch(() => ({}));
         if (!cancelled && res.ok) setEtas(body.etas || {});
       } catch { /* ETA is a nicety; the cards work without it */ }
     }
     refresh();
-    const t = setInterval(refresh, 3 * 60_000); // every 3 min, not every 60s poll
+    t = setInterval(() => {
+      if (sessionExpiredRef.current) { clearInterval(t); return; }
+      refresh();
+    }, 3 * 60_000); // every 3 min, not every 60s poll
     return () => { cancelled = true; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etaKey]);
