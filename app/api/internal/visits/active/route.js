@@ -75,6 +75,19 @@ export async function GET(request) {
         // test NAME from this repo's own lab_tests, just no specimen/
         // occasion line -- degrades, doesn't break (see [[phlebo-dashboard-
         // rebuild]] memory: this is the Tier-1/Tier-2 split).
+        //
+        // 2026-09-30, user (live: labit_main_rw has no USAGE grant on
+        // labit_core -- "permission denied for schema labit_core", whole
+        // page failed to load for Phlebo): the LEFT JOINs inside this
+        // query are resilient to labit-core having no matching row, but
+        // this query sat inside Promise.all([...]) with five others --
+        // ANY rejected promise fails the WHOLE Promise.all, so a
+        // labit-core-side failure (permission, schema missing, lab has no
+        // labit-core at all) took down the entire visits list, not just
+        // the specimen/fasting enrichment. ".catch(() => [])" so this one
+        // query degrading to "no specimen/fasting info" can never fail
+        // the other five. "Phlebos page should work with or without the
+        // add-on of labit core. Not fail."
         visitIds.length
           ? query(
               `SELECT vd.id AS visit_detail_id, vd.visit_id, vd.barcode, lt.lab_test_name AS name,
@@ -90,7 +103,10 @@ export async function GET(request) {
                JOIN lab_tests lt ON lt.id = vd.test_id
                WHERE vd.visit_id = ANY($1) AND vd.test_id IS NOT NULL`,
               [visitIds]
-            )
+            ).catch((err) => {
+              console.error("[api/internal/visits/active] labit-core specimen/fasting enrichment failed, degrading:", err?.message || err);
+              return [];
+            })
           : [],
         visitIds.length
           ? query(
