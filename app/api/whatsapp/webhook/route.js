@@ -3144,6 +3144,61 @@ export async function POST(req) {
     }
 
     // --------------------------------------------------
+    // Repeat-send de-dup for report documents (2026-10-02).
+    //
+    // Root cause (traced from production data showing "Report post-download
+    // menu sent" / "Lab report status" resent 11-24x/hour to the same real
+    // patient): REPORT_DOWNLOAD_LATEST / TREND_LATEST / a bare reqno in text
+    // etc. are "GLOBAL COMMANDS" in lib/whatsapp/engine.js -- they work from
+    // ANY session state, by design, so a patient can always ask for their
+    // report. But there is no cooldown on them: a patient re-tapping an old
+    // button, re-typing "latest report", or impatiently repeating the same
+    // request every few minutes while waiting gets a brand-new full PDF +
+    // status text + post-download menu EVERY time, with no memory of the
+    // identical request just answered. This is not a state-machine loop
+    // (the webhook's existing inbound message_id dedup at the top of this
+    // handler already rules out duplicate-webhook-delivery as the cause --
+    // these are distinct inbound messages) and not a single specific state
+    // bug -- it's this whole class of global, cooldown-free report commands.
+    //
+    // Fix: short per-phone+document cooldown, tracked in session.context
+    // (no new table -- same approach as the rate limiter above). If the
+    // exact same document was already sent to this phone within the last 5
+    // minutes, skip resending the PDF + status text + post-download menu and
+    // reply with one short text instead. Scoped narrowly to SEND_DOCUMENT
+    // (the actual resend cost) rather than a generic message de-dup layer.
+    // --------------------------------------------------
+    const REPORT_DOCUMENT_RESEND_COOLDOWN_MS = 5 * 60 * 1000;
+    if (result.replyType === "SEND_DOCUMENT" && result.documentUrl) {
+      const lastDocumentUrl = String(session?.context?.last_report_document_url || "").trim();
+      const lastSentAtIso = session?.context?.last_report_document_sent_at || null;
+      const lastSentAtMs = lastSentAtIso ? new Date(lastSentAtIso).getTime() : NaN;
+      const isDuplicateWithinCooldown =
+        lastDocumentUrl &&
+        lastDocumentUrl === result.documentUrl &&
+        Number.isFinite(lastSentAtMs) &&
+        Date.now() - lastSentAtMs < REPORT_DOCUMENT_RESEND_COOLDOWN_MS;
+
+      if (isDuplicateWithinCooldown) {
+        console.log("[bot] duplicate report request suppressed (resend cooldown)", {
+          phone,
+          documentUrl: result.documentUrl
+        });
+        result = {
+          replyType: "TEXT",
+          replyText:
+            "We already sent this report a few minutes ago — please check above, or reply MAIN MENU for other options.",
+          newState: result.newState || "REPORT_POST_DOWNLOAD_MENU",
+          context: {
+            ...(result.context || {}),
+            last_report_document_url: lastDocumentUrl,
+            last_report_document_sent_at: lastSentAtIso
+          }
+        };
+      }
+    }
+
+    // --------------------------------------------------
     // 1️⃣1️⃣ Internal Notify
     // --------------------------------------------------
 
@@ -3248,6 +3303,13 @@ export async function POST(req) {
         acc[item.iso] = item.title;
         return acc;
       }, {});
+    }
+
+    // Record what was just sent so the repeat-send de-dup check above can
+    // recognize an identical follow-up request next turn.
+    if (result.replyType === "SEND_DOCUMENT" && result.documentUrl) {
+      nextContext.last_report_document_url = result.documentUrl;
+      nextContext.last_report_document_sent_at = new Date().toISOString();
     }
 
     if (result.replyType === "BOOKING_SLOT_MENU") {
