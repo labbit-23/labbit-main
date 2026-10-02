@@ -352,11 +352,11 @@ export default function ReportDispatchKioskPage() {
   }
 
   async function handleScanSubmit(targetReqid) {
+    const resolvedReqid = String(targetReqid || reqid || "").trim();
     setLoading(true);
     setNotice("");
     setStatusBody(null);
     try {
-      const resolvedReqid = String(targetReqid || reqid || "").trim();
       if (!resolvedReqid) throw new Error("Invalid QR code. Please rescan.");
 
       const params = new URLSearchParams({ reqid: resolvedReqid });
@@ -383,6 +383,14 @@ export default function ReportDispatchKioskPage() {
       });
     } catch (error) {
       setNotice(error?.message || "Failed to load report status.");
+      // Keep the rejected value visible for diagnosis, but select all of it
+      // so the first character from the next scanner burst replaces it rather
+      // than appending to the invalid UUID/URL.
+      scanBufferRef.current = scanInputRef.current?.value || scanValue;
+      setTimeout(() => {
+        scanInputRef.current?.focus();
+        scanInputRef.current?.select();
+      }, 0);
     } finally {
       setLoading(false);
     }
@@ -572,6 +580,14 @@ export default function ReportDispatchKioskPage() {
 
     const onScannerKey = (event) => {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      // The focused scan input already receives this keystroke through its
+      // native input/onChange path (and Enter through the form submit). If the
+      // window listener also appends it, React can flush the controlled value
+      // before the browser's default insertion and turn one scanner character
+      // into two. Keep this listener only as the focus-lost scanner fallback.
+      if (event.target === scanInputRef.current) return;
+
       const key = String(event.key || "");
 
       if (key === "Enter") {
@@ -585,9 +601,10 @@ export default function ReportDispatchKioskPage() {
           handleScanSubmit(parsed.reqid);
         } else {
           setNotice("Invalid QR code. Please rescan.");
-          setScanValue("");
-          scanBufferRef.current = "";
-          scanInputRef.current?.select();
+          setTimeout(() => {
+            scanInputRef.current?.focus();
+            scanInputRef.current?.select();
+          }, 0);
           return;
         }
         scanBufferRef.current = "";
@@ -714,6 +731,23 @@ export default function ReportDispatchKioskPage() {
               const nextValue = e.target.value;
               setScanValue(nextValue);
               scanBufferRef.current = nextValue;
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              const scanned = String(e.currentTarget.value || "").trim();
+              const parsed = parseScanValue(scanned);
+              setReqidValue(parsed.reqid);
+              if (parsed.reqid) {
+                setNotice("");
+                handleScanSubmit(parsed.reqid);
+                return;
+              }
+              setNotice("Invalid QR code. Please rescan.");
+              setTimeout(() => {
+                scanInputRef.current?.focus();
+                scanInputRef.current?.select();
+              }, 0);
             }}
             placeholder="Waiting for scan…"
             aria-label="QR code on your bill"
