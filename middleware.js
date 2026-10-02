@@ -9,6 +9,8 @@ const PUBLIC_PATHS = new Set([
   "/api/send-otp",
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
+  "/feedback",
+  "/api/feedback/submit",
 ]);
 
 function clearSessionCookie(response) {

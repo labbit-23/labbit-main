@@ -14,6 +14,9 @@ const AUTH_ERROR_PATHS = new Set([
 ]);
 
 const isKioskPath = () => window.location.pathname.startsWith("/kiosk");
+// Public, no-login pages: a 401 here (e.g. an expired/invalid feedback
+// token) must render its own "link expired" state, not bounce to /login.
+const isPublicNoLoginPath = () => window.location.pathname.startsWith("/feedback");
 
 function isSameOriginApi(input) {
   const rawUrl =
@@ -44,6 +47,7 @@ export default function SessionLifecycle() {
         response.status === 401 &&
         window.location.pathname !== "/login" &&
         !isKioskPath() &&
+        !isPublicNoLoginPath() &&
         isSameOriginApi(input)
       ) {
         router.replace("/login");
