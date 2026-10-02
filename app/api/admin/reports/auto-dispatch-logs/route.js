@@ -104,6 +104,18 @@ function extractProviderMessageIdFromJob(job) {
   return id || null;
 }
 
+// Mirrors the frontend's dispatchRouteForJob() (ReportDispatchWorkspace.js)
+// so the authoritative server-side sent_at-scoped summary and the client's
+// own fallback computation agree on what counts as "template" vs
+// "freeform" (session_document).
+function dispatchRouteFromJob(row) {
+  const payload = parseMaybeJson(row?.provider_response);
+  const route = String(payload?.dispatch_route || "").trim().toLowerCase();
+  if (route === "session_document") return "freeform";
+  if (route === "template") return "template";
+  return "unknown";
+}
+
 function extractProviderMessageIdFromAny(value) {
   const payload = parseMaybeJson(value);
   if (!payload || typeof payload !== "object") return null;
@@ -731,6 +743,13 @@ export async function GET(request) {
       unknown_origin_jobs: 0,
       labit_core_sent_jobs: 0,
       shivam_archive_sent_jobs: 0,
+      sent_today_route_template_jobs: 0,
+      sent_today_route_freeform_jobs: 0,
+      sent_today_route_unknown_jobs: 0,
+      sent_today_label_lab_jobs: 0,
+      sent_today_label_radiology_jobs: 0,
+      sent_today_label_hybrid_jobs: 0,
+      sent_today_label_other_jobs: 0,
       avg_delivery_latency_seconds: null,
       delivery_latency_sample_count: 0
     };
@@ -779,7 +798,7 @@ export async function GET(request) {
       if (sentDayRange) {
         let sentDayQuery = supabase
           .from(JOBS_TABLE)
-          .select("reqno,phone,metadata,created_at,sent_at,last_status_snapshot,provider_response")
+          .select("reqno,phone,report_label,metadata,created_at,sent_at,last_status_snapshot,provider_response")
           .eq("status", "sent")
           .gte("sent_at", sentDayRange.startIso)
           .lt("sent_at", sentDayRange.endIso)
@@ -819,6 +838,25 @@ export async function GET(request) {
             if (origin === "shivam_archive") {
               summary.shivam_archive_sent_jobs += 1;
             }
+
+            // Authoritative route/label breakdown for "Sent today by route" and
+            // the Lab/Scan/Both split -- computed from this sent_at-scoped query
+            // (not the paged `enrichedJobs`/`dateJobs` set above, which is scoped
+            // by created_at and silently drops reconciliation follow-up jobs that
+            // were CREATED on an earlier day but SENT today; that gap is why the
+            // frontend's own client-side fallback split undercounted real sends).
+            const route = dispatchRouteFromJob(row);
+            if (route === "template") summary.sent_today_route_template_jobs += 1;
+            else if (route === "freeform") summary.sent_today_route_freeform_jobs += 1;
+            else summary.sent_today_route_unknown_jobs += 1;
+
+            const rowLabel = String(row?.report_label || "").trim().toLowerCase();
+            const rowHasLab = rowLabel.includes("lab");
+            const rowHasRad = rowLabel.includes("radiology");
+            if (rowHasLab && rowHasRad) summary.sent_today_label_hybrid_jobs += 1;
+            else if (rowHasLab) summary.sent_today_label_lab_jobs += 1;
+            else if (rowHasRad) summary.sent_today_label_radiology_jobs += 1;
+            else summary.sent_today_label_other_jobs += 1;
           }
 
           // Compute accurate Read/Delivered counts from the full sent-today set.
