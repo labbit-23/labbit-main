@@ -585,6 +585,10 @@ export default function ReportDispatchKioskPage() {
           handleScanSubmit(parsed.reqid);
         } else {
           setNotice("Invalid QR code. Please rescan.");
+          setScanValue("");
+          scanBufferRef.current = "";
+          scanInputRef.current?.select();
+          return;
         }
         scanBufferRef.current = "";
         return;
@@ -603,7 +607,11 @@ export default function ReportDispatchKioskPage() {
 
     window.addEventListener("keydown", onScannerKey);
     return () => window.removeEventListener("keydown", onScannerKey);
-  }, [authenticated, phase, scanValue]);
+    // scanValue intentionally omitted: scanBufferRef mirrors it on every update
+    // (see onChange below and the Backspace/char branches above), so the closure
+    // doesn't need the live value — including it caused a re-subscribe on every
+    // keystroke, which a fast scanner burst could outrun.
+  }, [authenticated, phase]);
 
   useEffect(() => {
     if (authenticated) return undefined;
@@ -691,6 +699,9 @@ export default function ReportDispatchKioskPage() {
             handleScanSubmit(parsed.reqid);
           } else {
             setNotice("Invalid QR code. Please rescan.");
+            setScanValue("");
+            scanBufferRef.current = "";
+            scanInputRef.current?.select();
           }
         }}
       >
