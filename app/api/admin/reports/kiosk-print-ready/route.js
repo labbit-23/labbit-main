@@ -91,7 +91,11 @@ export async function POST(request) {
     };
     const reportUrl =
       reportScope === "radiology"
-        ? getRadiologyReportUrl(reqid, commonFlags)
+        // 2026-10-02: reqno was missing here specifically -- the "all" and
+        // default (lab) branches both already pass it. See
+        // getRadiologyReportUrl's own comment for why its absence broke
+        // every radiology-scoped kiosk print.
+        ? getRadiologyReportUrl(reqid, { reqno, ...commonFlags })
         : reportScope === "all"
           ? getReportUrl(reqid, { reqno, printtype: 1, ...commonFlags })
           : getReportsUrl(reqid, reqno, { printtype: 1, ...commonFlags });

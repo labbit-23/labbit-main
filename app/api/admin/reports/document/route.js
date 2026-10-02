@@ -130,7 +130,9 @@ export async function GET(request) {
           ...commonFlags
         })
       : reportScope === "radiology"
-        ? getRadiologyReportUrl(reqid, commonFlags)
+        // 2026-10-02: same missing-reqno bug as kiosk-print-ready's own
+        // radiology branch -- see getRadiologyReportUrl's own comment.
+        ? getRadiologyReportUrl(reqid, { reqno, ...commonFlags })
         : getReportsUrl(reqid, reqno, {
             printtype,
             ...commonFlags
