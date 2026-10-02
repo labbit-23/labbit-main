@@ -36,6 +36,7 @@ import {
 } from "@/lib/whatsapp/sender";
 import healthPackagesData from "@/lib/data/health-packages.json";
 import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
+import { resolveInternalNotifyPhone } from "@/lib/whatsapp/internalNumbers";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 import { saveReportFeedback } from "@/lib/reportFeedback";
 import crypto from "node:crypto";
@@ -1411,15 +1412,10 @@ async function sendMainMenuWithDailyBanner({ session, phone, templates = null })
   }
 }
 
-function resolveInternalNotifyPhone({ templates = {}, lab = null }) {
-  const botFlow = templates?.bot_flow || {};
-  const candidate =
-    botFlow?.report_notify_number ||
-    templates?.report_notify_number ||
-    lab?.internal_whatsapp_number ||
-    "";
-  return toCanonicalIndiaPhone(candidate) || String(candidate || "").replace(/\D/g, "") || null;
-}
+// resolveInternalNotifyPhone moved to lib/whatsapp/internalNumbers.js
+// (2026-10-02) so the new per-patient rate limiter can resolve "is this an
+// internal alert number" the exact same way, instead of a second
+// independently-maintained copy. Imported at the top of this file.
 
 function buildFailedDeliveryInternalNotifyText({
   labName,
