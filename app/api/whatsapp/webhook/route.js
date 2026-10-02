@@ -19,7 +19,6 @@ import {
   sendMoreServicesMenu,
   sendReportInputPrompt,
   sendReportHistoryTrendMenu,
-  sendReportPostDownloadMenu,
   sendReportSelectionMenu,
   sendFeedbackActionMenu,
   sendLocationMessage,
@@ -63,7 +62,6 @@ const BOT_START_KEYWORDS = new Set([
   "BOOK_HOME_VISIT",
   "MORE_SERVICES"
 ]);
-const FEEDBACK_IDLE_DELAY_MS = 60 * 1000;
 const FEEDBACK_MAX_COMMENT_LEN = 500;
 const FEEDBACK_REPEAT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 const DELIVERY_FAILED_ACK_COOLDOWN_MS = 30 * 60 * 1000;
@@ -429,78 +427,13 @@ async function createFeedbackComplaintEvent({
   }
 }
 
-function schedulePostReportFeedbackPrompt({
-  sessionId,
-  labId,
-  phone,
-  reqid,
-  reqno,
-  baselineInboundAt
-}) {
-  setTimeout(async () => {
-    try {
-      const { data: activeSession } = await supabase
-        .from("chat_sessions")
-        .select("id,lab_id,phone,status,context")
-        .eq("id", sessionId)
-        .maybeSingle();
-
-      if (!activeSession?.id) return;
-
-      const currentStatus = String(activeSession.status || "").toLowerCase();
-      if (["resolved", "closed"].includes(currentStatus)) return;
-      if (getFeedbackFlow(activeSession.context)?.stage) return;
-      if (!activeSession?.context?.last_report_feedback_armed) return;
-      if (!canOfferPostReportFeedback(activeSession.context || {})) return;
-      if (!(await canPromptFeedbackNow({ context: activeSession.context || {}, labId, phone }))) return;
-
-      const { data: latestInbound } = await supabase
-        .from("whatsapp_messages")
-        .select("created_at")
-        .eq("lab_id", labId)
-        .eq("phone", phone)
-        .eq("direction", "inbound")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const baselineMs = new Date(baselineInboundAt || 0).getTime();
-      const latestInboundMs = new Date(latestInbound?.created_at || 0).getTime();
-      if (Number.isFinite(latestInboundMs) && Number.isFinite(baselineMs) && latestInboundMs > baselineMs + 1000) {
-        return;
-      }
-
-      await sendTextMessage({
-        labId: labId,
-        phone,
-        text: feedbackRatingPromptText()
-      });
-
-      const nextContext = withFeedbackFlowContext(activeSession.context, {
-        stage: "awaiting_rating",
-        trigger_source: "report_delivery_feedback",
-        reqid: reqid || null,
-        reqno: reqno || null,
-        prompted_at: new Date().toISOString()
-      });
-      nextContext.feedback_last_prompted_at = new Date().toISOString();
-      nextContext.feedback_prompted_once_in_session = true;
-
-      await supabase
-        .from("chat_sessions")
-        .update({
-          context: nextContext,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", sessionId);
-    } catch (err) {
-      console.error("[whatsapp-feedback] schedule failed", {
-        sessionId,
-        error: err?.message || String(err)
-      });
-    }
-  }, FEEDBACK_IDLE_DELAY_MS);
-}
+// 2026-10: the old delayed, separate "rate your experience" text prompt
+// (schedulePostReportFeedbackPrompt, fired ~60s after every report PDF via
+// a setTimeout) has been removed. The feedback link is now embedded
+// directly in the report PDF's own caption at send time (see the
+// SEND_DOCUMENT case in the POST handler below) -- one message does double
+// duty as the report + the feedback invite, instead of a separate delayed
+// follow-up message.
 
 async function handlePostReportFeedbackInbound({
   session,
@@ -3032,14 +2965,43 @@ export async function POST(req) {
         (session?.context?.last_resolution_feedback_armed && canOfferResolvedFeedback(session?.context || {}))
       )
     ) {
-      const triggerSource = session?.context?.last_report_feedback_armed
-        ? "report_delivery_feedback"
-        : "agent_resolved_feedback";
+      const isReportDeliveryTrigger = Boolean(session?.context?.last_report_feedback_armed);
+      const triggerSource = isReportDeliveryTrigger ? "report_delivery_feedback" : "agent_resolved_feedback";
+      const reqid = String(session?.context?.selected_report_reqid || "").trim() || null;
+      const reqno = String(session?.context?.selected_report_reqno || "").trim() || null;
+
+      if (isReportDeliveryTrigger) {
+        // 2026-10: report-delivery feedback is now a link embedded in the
+        // report PDF's own caption (see SEND_DOCUMENT case below), which no
+        // longer arms last_report_feedback_armed. This branch is kept only
+        // as a safety net for sessions armed before that change shipped --
+        // send the same link rather than the old numeric rating prompt.
+        await supabase
+          .from("chat_sessions")
+          .update({
+            context: {
+              ...withFeedbackFlowContext(session?.context || {}, null),
+              feedback_last_prompted_at: new Date().toISOString(),
+              feedback_prompted_once_in_session: true
+            },
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", session.id);
+
+        const feedbackLink = buildFeedbackLink({ reqid, reqno, labId: session.lab_id, phone });
+        await sendTextMessage({
+          labId: session.lab_id,
+          phone,
+          text: `You're welcome! Please share your feedback here:\n${feedbackLink}`
+        });
+        return Response.json({ success: true });
+      }
+
       const feedbackFlow = {
         stage: "awaiting_rating",
         trigger_source: triggerSource,
-        reqid: String(session?.context?.selected_report_reqid || "").trim() || null,
-        reqno: String(session?.context?.selected_report_reqno || "").trim() || null,
+        reqid,
+        reqno,
         prompted_at: new Date().toISOString()
       };
 
@@ -3947,6 +3909,33 @@ export async function POST(req) {
             documentCaption = await buildLatestReportStatusMessageForPhone(result.latestReportPhone);
           }
 
+          // 2026-10: instead of a separate post-download menu + a later
+          // delayed "rate your experience" text, fold the feedback link
+          // directly into THIS report PDF's own caption -- one message
+          // does double duty as the report + the feedback invite. Only
+          // when we're not already suppressing feedback (delivery
+          // failure), haven't already prompted this session, and have a
+          // reqid/reqno to attach the link to.
+          var offeredFeedbackLinkOnSend = false;
+          if (
+            !feedbackSuppressedForDeliveryFailure &&
+            !Boolean(nextContext?.feedback_prompted_once_in_session) &&
+            (dispatchReqid || dispatchReqno) &&
+            (await canPromptFeedbackNow({ context: nextContext || {}, labId: session.lab_id, phone }))
+          ) {
+            const feedbackLink = buildFeedbackLink({
+              reqid: dispatchReqid,
+              reqno: dispatchReqno,
+              labId: session.lab_id,
+              phone
+            });
+            const feedbackInviteText = `We hope this report helps. Please share your feedback here:\n${feedbackLink}`;
+            documentCaption = documentCaption
+              ? `${documentCaption}\n\n${feedbackInviteText}`
+              : feedbackInviteText;
+            offeredFeedbackLinkOnSend = true;
+          }
+
           try {
             const sendResponse = await sendDocumentMessage({
               labId: session.lab_id,
@@ -4035,48 +4024,36 @@ export async function POST(req) {
             });
           }
         }
-        if (result.sendReportActionsMenu) {
-          // Gives the PDF time to actually land before the follow-up menu
-          // arrives (user, 2026-09-25) -- not a UX-pacing nicety, don't
-          // shorten this without confirming WhatsApp/provider delivery
-          // timing can tolerate it.
-          await wait(4000);
-          await sendReportPostDownloadMenu({
-            labId: session.lab_id,
-            phone
-          });
-        }
-        const shouldPromptPostReportFeedback =
-          !feedbackSuppressedForDeliveryFailure &&
-          !Boolean(nextContext?.feedback_prompted_once_in_session) &&
-          (await canPromptFeedbackNow({ context: nextContext || {}, labId: session.lab_id, phone }));
-        if (shouldPromptPostReportFeedback) {
-          const reportFeedbackContext = withFeedbackFlowContext(
-            {
-              ...nextContext,
-              suppress_feedback_once: false,
-              last_report_delivery_at: new Date().toISOString(),
-              last_report_delivery_reqid: dispatchReqid || null,
-              last_report_delivery_reqno: dispatchReqno || result.reportStatusReqno || null,
-              last_report_feedback_armed: true,
-              last_report_feedback_disarmed_at: null
-            },
-            null
-          );
+        // 2026-10: no longer auto-send the separate post-download menu
+        // (sendReportPostDownloadMenu) or a later delayed rating prompt
+        // after every single report delivery -- the feedback link is now
+        // part of the PDF caption above. The patient can still reach
+        // Trend Reports / Report List / etc. by scrolling up to an
+        // earlier menu, or via the GLOBAL COMMANDS in engine.js
+        // (REPORT_DOWNLOAD_LATEST, TREND_LATEST, a bare reqno in text,
+        // etc.), which work from any session state independent of whether
+        // this menu was (re-)sent. sendReportPostDownloadMenu() itself is
+        // left intact in sender.js in case another flow needs it later --
+        // only this auto-fire-on-every-delivery call site is removed.
+        if (offeredFeedbackLinkOnSend) {
+          // Record the delivery + prompt markers (so a bare numeric
+          // rating typed later can still be bootstrapped, and so we don't
+          // offer the link again this session) without arming the old
+          // delayed/"thank you" rating-prompt flow.
+          const reportFeedbackContext = {
+            ...nextContext,
+            last_report_delivery_at: new Date().toISOString(),
+            last_report_delivery_reqid: dispatchReqid || null,
+            last_report_delivery_reqno: dispatchReqno || result.reportStatusReqno || null,
+            feedback_last_prompted_at: new Date().toISOString(),
+            feedback_prompted_once_in_session: true
+          };
           await updateSession(
             session.id,
             result.newState || session.current_state || "START",
             reportFeedbackContext,
             new Date().toISOString()
           );
-          schedulePostReportFeedbackPrompt({
-            sessionId: session.id,
-            labId: session.lab_id,
-            phone,
-            reqid: dispatchReqid,
-            reqno: dispatchReqno,
-            baselineInboundAt: new Date().toISOString()
-          });
         }
         break;
 
