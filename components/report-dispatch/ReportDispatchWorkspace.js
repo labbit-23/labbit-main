@@ -899,7 +899,34 @@ export default function ReportDispatchWorkspace({
     };
   }, [autoJobs, autoSummary]);
 
+  // 2026-10-02 fix: these used to be computed ONLY from the client-side
+  // `autoJobs` array, which (on an unfiltered/default load) the API scopes by
+  // created_at, not sent_at -- see auto-dispatch-logs/route.js's jobsQuery.
+  // A reconciliation follow-up job (created on an earlier day, sent today;
+  // see the 2026-09-09 reconciliation fixes in py_utils) is therefore CREATED
+  // outside today's window and silently missing from `autoJobs`, even though
+  // it's one of today's real sends -- undercounting both this Lab/Scan split
+  // and the route split below, and in the route split's case making
+  // "freeform" look permanently stuck at 0 even when it isn't. The API now
+  // computes both breakdowns from its own sent_at-scoped `sentDayRows` query
+  // (the same authoritative source already used for sent_today_total /
+  // delivery_read_jobs / previous_days_sent_jobs) and returns them in
+  // `summary`; prefer that, falling back to the client-side computation only
+  // if the summary is unavailable (e.g. that diagnostics block errored).
   const sentTodaySplit = useMemo(() => {
+    if (autoSummary && (
+      Number.isFinite(autoSummary?.sent_today_label_lab_jobs) ||
+      Number.isFinite(autoSummary?.sent_today_label_radiology_jobs) ||
+      Number.isFinite(autoSummary?.sent_today_label_hybrid_jobs) ||
+      Number.isFinite(autoSummary?.sent_today_label_other_jobs)
+    )) {
+      return {
+        lab: Number(autoSummary?.sent_today_label_lab_jobs || 0),
+        radiology: Number(autoSummary?.sent_today_label_radiology_jobs || 0),
+        hybrid: Number(autoSummary?.sent_today_label_hybrid_jobs || 0),
+        other: Number(autoSummary?.sent_today_label_other_jobs || 0),
+      };
+    }
     const bounds = istDayBounds(selectedDate);
     const rows = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
@@ -919,9 +946,20 @@ export default function ReportDispatchWorkspace({
       else out.other += 1;
     }
     return out;
-  }, [autoJobs, selectedDate]);
+  }, [autoJobs, autoSummary, selectedDate]);
 
   const sentTodayRouteSplit = useMemo(() => {
+    if (autoSummary && (
+      Number.isFinite(autoSummary?.sent_today_route_template_jobs) ||
+      Number.isFinite(autoSummary?.sent_today_route_freeform_jobs) ||
+      Number.isFinite(autoSummary?.sent_today_route_unknown_jobs)
+    )) {
+      return {
+        template: Number(autoSummary?.sent_today_route_template_jobs || 0),
+        freeform: Number(autoSummary?.sent_today_route_freeform_jobs || 0),
+        unknown: Number(autoSummary?.sent_today_route_unknown_jobs || 0),
+      };
+    }
     const bounds = istDayBounds(selectedDate);
     const rows = (Array.isArray(autoJobs) ? autoJobs : []).filter((row) => {
       const st = String(row?.status || "").trim().toLowerCase();
@@ -935,7 +973,7 @@ export default function ReportDispatchWorkspace({
       out[dispatchRouteForJob(row)] += 1;
     }
     return out;
-  }, [autoJobs, selectedDate]);
+  }, [autoJobs, autoSummary, selectedDate]);
 
   const monitorPipeline = useMemo(() => {
     const labPendingApproval = Number(autoSummary?.lab_pending_approval_tests ?? 0);
@@ -1984,7 +2022,14 @@ export default function ReportDispatchWorkspace({
                 </ButtonGroup>
               </Flex>
 
-              <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={2} mb={2}>
+              <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={2} mb={2}>
+                <Box p={2} borderWidth="2px" borderRadius="md"
+                  bg={themeMode === "dark" ? "blue.900" : "blue.50"}
+                  borderColor="transparent"
+                >
+                  <Text fontSize="xs" opacity={0.7}>Total Reports {selectedDate === dayjs().format("YYYY-MM-DD") ? "(today)" : `(${selectedDate})`}</Text>
+                  <Text fontWeight="bold">{monitorTopStats.totalJobs}</Text>
+                </Box>
                 <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
                   bg={themeMode === "dark" ? "orange.900" : "orange.50"}
                   borderColor={autoStatusFilter === "queued" ? "orange.400" : "transparent"}
