@@ -39,6 +39,7 @@ import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/pho
 import { resolveInternalNotifyPhone } from "@/lib/whatsapp/internalNumbers";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 import { saveReportFeedback } from "@/lib/reportFeedback";
+import { buildFeedbackLink } from "@/lib/feedbackToken";
 import crypto from "node:crypto";
 
 const BOT_START_KEYWORDS = new Set([
@@ -3619,6 +3620,14 @@ export async function POST(req) {
       }
 
       case "FEEDBACK_LINK": {
+        // 2026-10: replaced the old multi-turn conversational flow
+        // (rating prompt -> numeric reply -> action menu) with a single
+        // link to the public /feedback page, which reuses the kiosk's
+        // star-rating + free-text UI and saveReportFeedback() directly.
+        // The "awaiting_rating"/"awaiting_action" flow code below this
+        // case (canPromptFeedbackNow, feedbackRatingPromptText, etc.) is
+        // left in place for the other automatic post-delivery triggers,
+        // not touched here.
         if (feedbackSuppressedForDeliveryFailure) {
           await sendTextMessage({
             labId: session.lab_id,
@@ -3635,27 +3644,28 @@ export async function POST(req) {
           });
           break;
         }
-        const feedbackFlow = {
-          stage: "awaiting_rating",
-          trigger_source: "services_feedback",
-          reqid: String(nextContext.selected_report_reqid || "").trim() || null,
-          reqno: String(nextContext.selected_report_reqno || "").trim() || null,
-          prompted_at: new Date().toISOString()
-        };
+        const feedbackReqid = String(nextContext.selected_report_reqid || "").trim() || null;
+        const feedbackReqno = String(nextContext.selected_report_reqno || "").trim() || null;
         await updateSession(
           session.id,
           result.newState || session.current_state || "START",
           {
-            ...withFeedbackFlowContext(nextContext, feedbackFlow),
+            ...withFeedbackFlowContext(nextContext, null),
             feedback_last_prompted_at: new Date().toISOString(),
             feedback_prompted_once_in_session: true
           },
           messageTimestamp
         );
+        const feedbackLink = buildFeedbackLink({
+          reqid: feedbackReqid,
+          reqno: feedbackReqno,
+          labId: session.lab_id,
+          phone
+        });
         await sendTextMessage({
           labId: session.lab_id,
           phone,
-          text: feedbackRatingPromptText()
+          text: `We hope your report was delivered successfully. Please share your feedback here:\n${feedbackLink}`
         });
         break;
       }
