@@ -1310,7 +1310,7 @@ async function loadPatientAppMetrics(labId) {
       checked_at: checkedAt,
       source: "labit-core-live",
       latency_ms: null,
-      message: `${stats.logins_today} logins today (${stats.otp_logins_today} OTP, ${stats.passkey_logins_today} passkey), ${stats.active_sessions} active sessions, ${stats.unique_patients_7d} unique patients (7d)`,
+      message: `${stats.logins_today} logins today (${stats.otp_logins_today} OTP, ${stats.passkey_logins_today} passkey${stats.magic_link_logins_today ? `, ${stats.magic_link_logins_today} WhatsApp link` : ""}), ${stats.active_sessions} active sessions, ${stats.unique_patients_7d} unique patients (7d)`,
       payload: { ...stats, daily: daily?.points || null },
       updated_at: checkedAt
     }
