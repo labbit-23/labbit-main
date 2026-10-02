@@ -221,6 +221,8 @@ export default function ReportDispatchKioskPage() {
   const labTotalCount = useMemo(() => Number(statusBody?.live_status?.lab_total || 0), [statusBody]);
   const radiologyReadyCount = useMemo(() => Number(statusBody?.live_status?.radiology_ready || 0), [statusBody]);
   const radiologyTotalCount = useMemo(() => Number(statusBody?.live_status?.radiology_total || 0), [statusBody]);
+  const hasLabReports = labTotalCount > 0;
+  const hasRadiologyReports = radiologyTotalCount > 0;
   const showFirstFloorWarning = useMemo(
     () =>
       shouldEscalateToFirstFloor({
@@ -677,8 +679,23 @@ export default function ReportDispatchKioskPage() {
     </Box>
   );
   const PrintIcon = () => (
-    <Box position="relative" w="22px" h="22px" animation={`${printBounce} 1.2s ease-in-out infinite`}>
-      <Text position="absolute" inset="0" fontSize="20px" lineHeight="22px">🖨️</Text>
+    <Box
+      as="svg"
+      viewBox="0 0 24 24"
+      w="24px"
+      h="24px"
+      flexShrink={0}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      animation={`${printBounce} 1.2s ease-in-out infinite`}
+      aria-hidden="true"
+    >
+      <Box as="path" d="M6 9V2h12v7" />
+      <Box as="path" d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <Box as="rect" x="6" y="14" width="12" height="8" />
     </Box>
   );
 
@@ -803,24 +820,28 @@ export default function ReportDispatchKioskPage() {
         <Text as="span" fontSize="2xl">{readyTone === "ok" ? "✓" : "!"}</Text>
         <Text>{getStatusLabel(statusBody?.live_status?.overall_status)}</Text>
       </Flex>
-      <Text color={K.text2} fontSize="lg" mb={4}>{getPatientDecisionMessage(decision)}</Text>
+      {hasLabReports ? (
+        <Text color={K.text2} fontSize="lg" mb={4}>{getPatientDecisionMessage(decision)}</Text>
+      ) : null}
 
       <Flex gap={4} mb={6} direction={{ base: "column", md: "row" }}>
-        <StatTile label="Lab reports" ready={labReadyCount} total={labTotalCount} />
-        {radiologyTotalCount > 0 ? <StatTile label="Scan reports" ready={radiologyReadyCount} total={radiologyTotalCount} /> : null}
+        {hasLabReports ? <StatTile label="Lab reports" ready={labReadyCount} total={labTotalCount} /> : null}
+        {hasRadiologyReports ? <StatTile label="Scan reports" ready={radiologyReadyCount} total={radiologyTotalCount} /> : null}
       </Flex>
 
       <Flex gap={3} direction={{ base: "column", md: "row" }}>
-        {radiologyTotalCount > 0 ? (
+        {hasLabReports && hasRadiologyReports ? (
           <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("all")} isLoading={loading} isDisabled={!hasLabReady && !hasRadiologyReady} {...PRIMARY_BTN}>
             <Flex align="center" gap={3}><PrintIcon /><Text>{text.print_all}</Text></Flex>
           </Button>
         ) : null}
-        <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("lab")} isLoading={loading} isDisabled={!hasLabReady} {...(radiologyTotalCount > 0 ? OUTLINE_BTN : PRIMARY_BTN)}>
-          <Flex align="center" gap={3}><PrintIcon /><Text>{text.print_lab}</Text></Flex>
-        </Button>
-        {radiologyTotalCount > 0 ? (
-          <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("radiology")} isLoading={loading} isDisabled={!hasRadiologyReady} {...OUTLINE_BTN}>
+        {hasLabReports ? (
+          <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("lab")} isLoading={loading} isDisabled={!hasLabReady} {...(hasRadiologyReports ? OUTLINE_BTN : PRIMARY_BTN)}>
+            <Flex align="center" gap={3}><PrintIcon /><Text>{text.print_lab}</Text></Flex>
+          </Button>
+        ) : null}
+        {hasRadiologyReports ? (
+          <Button flex={1} h="76px" borderRadius="18px" fontSize="lg" fontWeight="semibold" onClick={() => handlePrintScope("radiology")} isLoading={loading} isDisabled={!hasRadiologyReady} {...(hasLabReports ? OUTLINE_BTN : PRIMARY_BTN)}>
             <Flex align="center" gap={3}><PrintIcon /><Text>{text.load_scan}</Text></Flex>
           </Button>
         ) : null}
