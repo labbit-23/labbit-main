@@ -2468,7 +2468,7 @@ export default function ReportDispatchWorkspace({
                     variant="simple"
                     sx={{
                       tableLayout: "fixed",
-                      minWidth: "1080px",
+                      minWidth: "1200px",
                       "th, td": { fontSize: "xs", py: 2, verticalAlign: "top", whiteSpace: "normal", wordBreak: "break-word" },
                       th: {
                         bg: themeMode === "dark" ? "gray.800" : "gray.50",
@@ -2476,17 +2476,29 @@ export default function ReportDispatchWorkspace({
                       }
                     }}
                   >
+                    {/*
+                      table-layout:fixed sizes every column from the FIRST row's cell
+                      widths (the thead row), not the tbody rows. Only the Td cells below
+                      had explicit w="..." values, and even those covered just 6 of the 9
+                      columns (summing to 91%) -- Status/Attempts/Send Status had no width
+                      anywhere, so the fixed layout squeezed them into a ~3%-of-1080px
+                      sliver (~30px). Combined with wordBreak:"break-word" on every th/td,
+                      any word that didn't fit that sliver (e.g. "cooling_off",
+                      "delivered") wrapped one character per line. Widths now live on the
+                      Th row (every column covered, summing to 100%) so the layout is
+                      actually driven by them.
+                    */}
                     <Thead>
                       <Tr>
-                        <Th>Status</Th>
-                        <Th>REQNO</Th>
-                        <Th>Patient</Th>
-                        <Th>Phone</Th>
-                        <Th>Attempts</Th>
-                        <Th>Why / State</Th>
-                        <Th>Timeline (IST)</Th>
-                        <Th>Send Status</Th>
-                        <Th>Actions</Th>
+                        <Th w="8%">Status</Th>
+                        <Th w="11%">REQNO</Th>
+                        <Th w="13%">Patient</Th>
+                        <Th w="10%">Phone</Th>
+                        <Th w="7%">Attempts</Th>
+                        <Th w="18%">Why / State</Th>
+                        <Th w="12%">Timeline (IST)</Th>
+                        <Th w="9%">Send Status</Th>
+                        <Th w="12%">Actions</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -2505,7 +2517,7 @@ export default function ReportDispatchWorkspace({
                       const pauseColor = job?.is_paused ? "green" : "orange";
                       return (
                         <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
-                          <Td>
+                          <Td w="8%">
                             <Badge
                               colorScheme={
                                 statusValue === "sent"
@@ -2523,7 +2535,7 @@ export default function ReportDispatchWorkspace({
                               {displayValue(statusValue)}
                             </Badge>
                           </Td>
-                          <Td w="10%" fontWeight="bold">
+                          <Td w="11%" fontWeight="bold">
                             <Text
                               as="span"
                               fontWeight="bold"
@@ -2540,8 +2552,8 @@ export default function ReportDispatchWorkspace({
                           </Td>
                           <Td w="13%">{displayValue(job?.patient_name)}</Td>
                           <Td w="10%">{displayValue(job?.phone)}</Td>
-                          <Td>{Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Td>
-                          <Td w="20%">
+                          <Td w="7%">{Number(job?.attempt_count || 0)}/{Number(job?.max_attempts || 0)}</Td>
+                          <Td w="18%">
                             <Tooltip
                               label={
                                 buildWhyText(job)
@@ -2554,7 +2566,7 @@ export default function ReportDispatchWorkspace({
                               </Text>
                             </Tooltip>
                           </Td>
-                          <Td w="14%">
+                          <Td w="12%">
                             {(() => {
                               const tp = timelineParts(job);
                               return (
@@ -2567,7 +2579,7 @@ export default function ReportDispatchWorkspace({
                               );
                             })()}
                           </Td>
-                          <Td>
+                          <Td w="9%">
                             {job?.is_paused ? (
                               <Badge colorScheme="orange">Paused</Badge>
                             ) : String(job?.status || "").toLowerCase() === "sent" ? (
@@ -2585,7 +2597,7 @@ export default function ReportDispatchWorkspace({
                               <Badge colorScheme="yellow">Active</Badge>
                             )}
                           </Td>
-                          <Td w="24%">
+                          <Td w="12%">
                             <HStack spacing={1.5} mb={1.5} wrap="nowrap">
                               <Tooltip label="Events" hasArrow openDelay={250}>
                                 <IconButton
