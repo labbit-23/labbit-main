@@ -391,12 +391,22 @@ export async function GET(request) {
     const status = String(url.searchParams.get("status") || "").trim();
     const selectedDate = String(url.searchParams.get("selected_date") || "").trim();
     const jobId = String(url.searchParams.get("job_id") || "").trim();
+    // "q" is the Report Dispatch Queue search box (reqno/patient/phone/status/error).
+    // Previously this was ONLY applied client-side against whatever page of jobs was
+    // already in memory (at most 120 rows on an unfiltered default load) -- a genuine
+    // match outside that small window was invisible even though the row existed in the
+    // table. When present, search the full table server-side (ignoring the normal small
+    // page limit and date scoping) so it actually covers the whole dataset.
+    const searchTerm = String(url.searchParams.get("q") || "").trim();
     const selectedDateKey = ymdKeyFromIsoDate(selectedDate);
-    // For date-scoped requests fetch all rows for the day so collapseByReqno on
-    // the client produces the full unique-reqno set, not a partial slice by updated_at.
-    const limit = selectedDate
-      ? Math.min(toInt(url.searchParams.get("limit"), 50), 5000)
-      : Math.min(toInt(url.searchParams.get("limit"), 50), 200);
+    // For date-scoped or search requests fetch a much larger set so collapseByReqno on
+    // the client (and the search itself) sees the full relevant row set, not a partial
+    // slice by updated_at.
+    const limit = searchTerm
+      ? Math.min(toInt(url.searchParams.get("limit"), 1000), 3000)
+      : selectedDate
+        ? Math.min(toInt(url.searchParams.get("limit"), 50), 5000)
+        : Math.min(toInt(url.searchParams.get("limit"), 50), 200);
 
     let jobsQuery = supabase
       .from(JOBS_TABLE)
@@ -410,7 +420,25 @@ export async function GET(request) {
       jobsQuery = jobsQuery.eq("status", status);
     }
 
-    if (selectedDateKey) {
+    if (searchTerm) {
+      // Strip characters that would break PostgREST's or()/ilike pattern syntax
+      // (comma separates conditions, parens group them, % is the wildcard itself).
+      const safeTerm = searchTerm.replace(/[%,()]/g, "").trim();
+      if (safeTerm) {
+        const pattern = `*${safeTerm}*`;
+        jobsQuery = jobsQuery.or(
+          [
+            `reqno.ilike.${pattern}`,
+            `reqid.ilike.${pattern}`,
+            `patient_name.ilike.${pattern}`,
+            `phone.ilike.${pattern}`,
+            `status.ilike.${pattern}`,
+            `last_error.ilike.${pattern}`,
+            `report_label.ilike.${pattern}`
+          ].join(",")
+        );
+      }
+    } else if (selectedDateKey) {
       const range = istDayRange(selectedDate);
       if (range) {
         const st = String(status || "").toLowerCase();

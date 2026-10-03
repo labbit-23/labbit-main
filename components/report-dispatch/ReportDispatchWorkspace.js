@@ -1327,10 +1327,17 @@ export default function ReportDispatchWorkspace({
     setAutoLoading(true);
     try {
       const skipDateScope = autoStatusFilter === "failed";
+      const searchTerm = String(options?.search ?? autoSearch ?? "").trim();
       // When a date is selected, always fetch 2000 rows regardless of caller's limit
       // so collapseByReqno gets the full day's unique-reqno set, not just the top N
       // by updated_at (which would be dominated by noise rows and miss sent jobs).
-      const limit = (selectedDate && !skipDateScope) ? 2000 : Number(options?.limit || 120);
+      // When searching, fetch a much larger set too (and the API searches the whole
+      // table server-side, not just this page) -- see the "q" param below. Previously
+      // search only ever filtered whatever <=120 rows were already loaded, so a real
+      // match outside that small recent window silently showed as "not found".
+      const limit = searchTerm
+        ? 1000
+        : (selectedDate && !skipDateScope) ? 2000 : Number(options?.limit || 120);
       const query = new URLSearchParams({ limit: String(limit) });
       // "prev_day_reqno" is a client-side derived filter (is_previous_day_reqno), not a
       // real job status column value -- every such row is itself status="sent", so ask
@@ -1338,7 +1345,8 @@ export default function ReportDispatchWorkspace({
       // byStatus filter above narrow it down further on the client.
       if (autoStatusFilter === "prev_day_reqno") query.set("status", "sent");
       else if (autoStatusFilter) query.set("status", autoStatusFilter);
-      if (selectedDate && !skipDateScope) query.set("selected_date", selectedDate);
+      if (searchTerm) query.set("q", searchTerm);
+      else if (selectedDate && !skipDateScope) query.set("selected_date", selectedDate);
       const res = await fetch(`/api/admin/reports/auto-dispatch-logs?${query.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
@@ -2256,10 +2264,31 @@ export default function ReportDispatchWorkspace({
                   onChange={(e) => setAutoSearchInput(e.target.value)}
                   placeholder="Search reqno/patient/phone/status/error"
                 />
-                <Button type="button" size="sm" leftIcon={<Search size={14} />} onClick={() => { setAutoSearch(autoSearchInput); setAutoPage(1); }}>
+                <Button
+                  type="button"
+                  size="sm"
+                  leftIcon={<Search size={14} />}
+                  isLoading={autoLoading}
+                  onClick={() => {
+                    const term = autoSearchInput.trim();
+                    setAutoSearch(term);
+                    setAutoPage(1);
+                    loadAutoDispatchJobs({ search: term, resetPage: true });
+                  }}
+                >
                   Search
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setAutoSearchInput(""); setAutoSearch(""); setAutoPage(1); }}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setAutoSearchInput("");
+                    setAutoSearch("");
+                    setAutoPage(1);
+                    loadAutoDispatchJobs({ search: "", limit: 120, resetPage: true });
+                  }}
+                >
                   Clear
                 </Button>
               </HStack>
