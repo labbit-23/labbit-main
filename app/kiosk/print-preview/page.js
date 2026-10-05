@@ -50,10 +50,13 @@ export default function KioskPrintPreviewPage() {
         setStatus(`Preparing ${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"}…`);
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
           const page = await pdf.getPage(pageNumber);
+          const printSize = page.getViewport({ scale: 1 });
           const viewport = page.getViewport({ scale: PRINT_SCALE });
           const canvas = document.createElement("canvas");
           canvas.width = Math.ceil(viewport.width);
           canvas.height = Math.ceil(viewport.height);
+          canvas.style.width = `${printSize.width}pt`;
+          canvas.style.height = `${printSize.height}pt`;
           canvas.className = "pdf-page";
           canvas.setAttribute("aria-label", `Report page ${pageNumber}`);
           container.appendChild(canvas);
@@ -112,12 +115,12 @@ export default function KioskPrintPreviewPage() {
         .pages { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 18px; }
         .pdf-page { display: block; width: min(100%, 900px); height: auto; background: white; box-shadow: 0 4px 18px rgba(0,0,0,.18); }
         @media print {
-          @page { margin: 0; }
+          @page { size: A4; margin: 0; }
           html, body { background: white; }
           .status { display: none !important; }
           .pages { display: block; padding: 0; }
           main, .pages { min-height: 0; }
-          .pdf-page { width: 100%; height: auto; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+          .pdf-page { max-width: none; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
           .pdf-page + .pdf-page { break-before: page; page-break-before: always; }
         }
       `}</style>
