@@ -84,8 +84,16 @@ export default function KioskPrintPreviewPage() {
 
     window.addEventListener("message", handlePdf);
     notifyOpener({ type: "LABIT_KIOSK_PRINT_READY" });
+    const readyInterval = window.setInterval(() => {
+      if (startedRef.current) {
+        window.clearInterval(readyInterval);
+        return;
+      }
+      notifyOpener({ type: "LABIT_KIOSK_PRINT_READY" });
+    }, 500);
     return () => {
       disposed = true;
+      window.clearInterval(readyInterval);
       window.removeEventListener("message", handlePdf);
       window.removeEventListener("afterprint", closeAfterPrint);
     };
