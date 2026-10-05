@@ -116,8 +116,9 @@ export default function KioskPrintPreviewPage() {
           html, body { background: white; }
           .status { display: none !important; }
           .pages { display: block; padding: 0; }
-          .pdf-page { width: 100%; height: auto; box-shadow: none; break-after: page; page-break-after: always; }
-          .pdf-page:last-child { break-after: auto; page-break-after: auto; }
+          main, .pages { min-height: 0; }
+          .pdf-page { width: 100%; height: auto; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+          .pdf-page + .pdf-page { break-before: page; page-break-before: always; }
         }
       `}</style>
     </main>
