@@ -399,7 +399,11 @@ export default function ReportDispatchKioskPage() {
   }
 
   async function printPdfFromApiInMemory(url, payload) {
-    const printWindow = window.open("", "_blank", "width=920,height=760");
+    const printWindow = window.open("/kiosk/print-preview", "_blank", "width=920,height=760");
+
+    if (!printWindow) {
+      throw new Error("The print preview was blocked. Please allow pop-ups and retry.");
+    }
 
     const res = await fetch(url, {
       method: "POST",
@@ -418,44 +422,51 @@ export default function ReportDispatchKioskPage() {
 
     const bytes = await res.arrayBuffer();
     const pageCount = estimatePdfPageCountFromBuffer(bytes);
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const blobUrl = URL.createObjectURL(blob);
 
-    if (printWindow && !printWindow.closed) {
-      printWindow.location.href = blobUrl;
-      await new Promise((resolve) => {
-        let resolved = false;
-        const done = () => {
-          if (resolved) return;
-          resolved = true;
-          try {
-            printWindow.close();
-          } catch {}
-          URL.revokeObjectURL(blobUrl);
-          resolve();
-        };
+    await new Promise((resolve, reject) => {
+      let previewReady = false;
+      let pdfReady = true;
+      let sent = false;
+      let settled = false;
 
-        const invokePrint = () => {
-          try {
-            if (!printWindow.closed) {
-              printWindow.focus();
-              printWindow.print();
-            }
-          } catch {}
-        };
+      const cleanup = () => {
+        window.removeEventListener("message", handlePreviewMessage);
+        clearTimeout(timeoutId);
+      };
+      const finish = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) reject(error);
+        else resolve();
+      };
+      const sendPdf = () => {
+        if (sent || !previewReady || !pdfReady || printWindow.closed) return;
+        sent = true;
+        printWindow.postMessage({ type: "LABIT_KIOSK_PRINT_PDF", bytes }, window.location.origin, [bytes]);
+      };
+      const handlePreviewMessage = (event) => {
+        if (event.origin !== window.location.origin || event.source !== printWindow) return;
+        if (event.data?.type === "LABIT_KIOSK_PRINT_READY") {
+          previewReady = true;
+          sendPdf();
+        } else if (event.data?.type === "LABIT_KIOSK_PRINT_STARTED") {
+          finish();
+        } else if (event.data?.type === "LABIT_KIOSK_PRINT_ERROR") {
+          finish(new Error(event.data.message || "The print preview failed."));
+        }
+      };
 
-        printWindow.onload = () => {
-          setTimeout(invokePrint, 700);
-          setTimeout(invokePrint, 1800);
-          setTimeout(invokePrint, 3200);
-        };
-        printWindow.onafterprint = done;
-        setTimeout(done, 7000);
-      });
-      return pageCount;
-    }
+      window.addEventListener("message", handlePreviewMessage);
+      const timeoutId = setTimeout(() => {
+        try {
+          printWindow.close();
+        } catch {}
+        finish(new Error("The print preview did not start in time. Please retry."));
+      }, 30000);
+      sendPdf();
+    });
 
-    URL.revokeObjectURL(blobUrl);
     return pageCount;
   }
 
