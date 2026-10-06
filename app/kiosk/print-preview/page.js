@@ -2,16 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const PRINT_SCALE = 2;
-
 export default function KioskPrintPreviewPage() {
-  const pagesRef = useRef(null);
+  const pdfFrameRef = useRef(null);
   const startedRef = useRef(false);
-  const [status, setStatus] = useState("Preparing print preview…");
-  const [error, setError] = useState("");
+  const confirmedRef = useRef(false);
+  const objectUrlRef = useRef("");
+  const [status, setStatus] = useState("Loading report preview…");
 
   useEffect(() => {
     let disposed = false;
+    let printTimeout;
 
     const notifyOpener = (message) => {
       if (window.opener && !window.opener.closed) {
@@ -20,68 +20,56 @@ export default function KioskPrintPreviewPage() {
     };
 
     const closeAfterPrint = () => {
+      if (confirmedRef.current) return;
+      confirmedRef.current = true;
       notifyOpener({ type: "LABIT_KIOSK_PRINT_CONFIRMED" });
       window.setTimeout(() => window.close(), 250);
     };
 
-    const handlePdf = async (event) => {
+    const printNativePdf = () => {
+      const frame = pdfFrameRef.current;
+      if (disposed || !startedRef.current || !frame?.contentWindow || frame.dataset.printStarted === "true") return;
+      frame.dataset.printStarted = "true";
+
+      const frameWindow = frame.contentWindow;
+      frameWindow.addEventListener("afterprint", closeAfterPrint, { once: true });
+      window.addEventListener("afterprint", closeAfterPrint, { once: true });
+      setStatus("Printing…");
+      notifyOpener({ type: "LABIT_KIOSK_PRINT_STARTED" });
+
+      printTimeout = window.setTimeout(() => {
+        try {
+          frameWindow.focus();
+          frameWindow.print();
+        } catch (error) {
+          const message = error?.message || "Chrome could not start native PDF printing.";
+          setStatus(message);
+          notifyOpener({ type: "LABIT_KIOSK_PRINT_ERROR", message });
+        }
+      }, 350);
+    };
+
+    const frame = pdfFrameRef.current;
+    frame?.addEventListener("load", printNativePdf);
+
+    const handlePdf = (event) => {
       if (
         disposed ||
         startedRef.current ||
         event.origin !== window.location.origin ||
         event.source !== window.opener ||
         event.data?.type !== "LABIT_KIOSK_PRINT_PDF"
-      ) {
-        return;
-      }
+      ) return;
 
-      startedRef.current = true;
       try {
-        const pdfjs = await import("pdfjs-dist/build/pdf.mjs");
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-          "pdfjs-dist/build/pdf.worker.min.mjs",
-          import.meta.url
-        ).toString();
-
-        const data = new Uint8Array(event.data.bytes);
-        const pdf = await pdfjs.getDocument({ data }).promise;
-        const container = pagesRef.current;
-        if (!container) throw new Error("Print preview is unavailable.");
-
-        setStatus(`Preparing ${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"}…`);
-        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-          const page = await pdf.getPage(pageNumber);
-          const printSize = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: PRINT_SCALE });
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.ceil(viewport.width);
-          canvas.height = Math.ceil(viewport.height);
-          canvas.style.width = `${printSize.width}pt`;
-          canvas.style.height = `${printSize.height}pt`;
-          canvas.className = "pdf-page";
-          canvas.setAttribute("aria-label", `Report page ${pageNumber}`);
-          container.appendChild(canvas);
-          await page.render({
-            canvas,
-            canvasContext: canvas.getContext("2d", { alpha: false }),
-            viewport,
-            intent: "print",
-            background: "rgb(255,255,255)"
-          }).promise;
-        }
-
-        if (disposed) return;
-        setStatus("Printing…");
-        await document.fonts?.ready;
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        window.addEventListener("afterprint", closeAfterPrint, { once: true });
-        notifyOpener({ type: "LABIT_KIOSK_PRINT_STARTED", pages: pdf.numPages });
-        window.focus();
-        window.print();
-      } catch (printError) {
-        const message = printError?.message || "Unable to prepare this report for printing.";
-        setError(message);
-        setStatus("");
+        const pdfBlob = new Blob([event.data.bytes], { type: "application/pdf" });
+        objectUrlRef.current = URL.createObjectURL(pdfBlob);
+        startedRef.current = true;
+        setStatus("Report ready. Starting print…");
+        pdfFrameRef.current.src = objectUrlRef.current;
+      } catch (error) {
+        const message = error?.message || "Unable to open the original PDF.";
+        setStatus(message);
         notifyOpener({ type: "LABIT_KIOSK_PRINT_ERROR", message });
       }
     };
@@ -95,34 +83,37 @@ export default function KioskPrintPreviewPage() {
       }
       notifyOpener({ type: "LABIT_KIOSK_PRINT_READY" });
     }, 500);
+
     return () => {
       disposed = true;
       window.clearInterval(readyInterval);
+      window.clearTimeout(printTimeout);
+      frame?.removeEventListener("load", printNativePdf);
       window.removeEventListener("message", handlePdf);
       window.removeEventListener("afterprint", closeAfterPrint);
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     };
   }, []);
 
   return (
     <main>
-      <div className="status" role={error ? "alert" : "status"}>
-        {error || status}
-      </div>
-      <section ref={pagesRef} className="pages" aria-label="Report print preview" />
+      <div className="status" role="status">{status}</div>
+      <iframe
+        ref={pdfFrameRef}
+        className="pdf-preview"
+        title="Report PDF preview"
+      />
       <style jsx global>{`
         * { box-sizing: border-box; }
-        html, body { margin: 0; min-height: 100%; background: #eef0f2; color: #15181c; font-family: Arial, sans-serif; }
-        .status { position: sticky; top: 0; z-index: 2; padding: 12px 18px; text-align: center; background: #6b4f82; color: white; font-weight: 600; }
-        .pages { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 18px; }
-        .pdf-page { display: block; width: min(100%, 900px); height: auto; background: white; box-shadow: 0 4px 18px rgba(0,0,0,.18); }
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #eef0f2; color: #15181c; font-family: Arial, sans-serif; }
+        main { display: flex; flex-direction: column; width: 100vw; height: 100dvh; }
+        .status { flex: 0 0 auto; padding: 10px 16px; text-align: center; background: #6b4f82; color: white; font-weight: 600; }
+        .pdf-preview { display: block; flex: 1 1 auto; width: 100%; min-height: 0; border: 0; background: #eef0f2; }
         @media print {
           @page { size: A4; margin: 0; }
-          html, body { background: white; }
+          html, body, main { width: 100%; height: 100%; margin: 0; overflow: hidden; }
           .status { display: none !important; }
-          .pages { display: block; padding: 0; }
-          main, .pages { min-height: 0; }
-          .pdf-page { max-width: none; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
-          .pdf-page + .pdf-page { break-before: page; page-break-before: always; }
+          .pdf-preview { width: 100%; height: 100%; border: 0; }
         }
       `}</style>
     </main>
