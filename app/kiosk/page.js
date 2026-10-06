@@ -541,20 +541,13 @@ export default function ReportDispatchKioskPage() {
     if (!printPending.length) return;
     const eventId = `kiosk-print-${crypto.randomUUID()}`;
     const testids = [...new Set(printPending.map((item) => String(item?.test_id || "").trim()).filter(Boolean))];
-    const kinds = new Set(printPending.map((item) => String(item?.report_kind || "").toLowerCase()));
-    const scope = kinds.size === 1 && kinds.has("lab") ? "lab" : kinds.size === 1 && kinds.has("radiology") ? "radiology" : "all";
-
     setLoading(true);
     setIsPrinting(true);
     setNotice("");
     try {
-      const pages = await printPdfFromApiInMemory("/api/admin/reports/kiosk-print-ready", {
-        source: "kiosk",
-        report_scope: scope,
-        reqid,
+      const pages = await printPdfFromApiInMemory("/api/kiosk/print-pending/pdf", {
         reqno,
-        phone: patientPhone || null,
-        ready_lab_test_keys: testids
+        testids
       });
       const receipt = await fetch("/api/kiosk/print-receipt", {
         method: "POST",
