@@ -149,6 +149,19 @@ function getStatusLabel(status) {
   return String(status || "Not loaded").replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 }
 
+function formatKioskTime(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function shouldEscalateToFirstFloor({ labReady, labTotal, radiologyReady, radiologyTotal }) {
   const pendingLab = Math.max(0, Number(labTotal || 0) - Number(labReady || 0));
   const pendingRadiology = Math.max(0, Number(radiologyTotal || 0) - Number(radiologyReady || 0));
@@ -197,6 +210,8 @@ export default function ReportDispatchKioskPage() {
   const [feedbackCountdown, setFeedbackCountdown] = useState(0);
   const [isPrinting, setIsPrinting] = useState(false);
   const [lastPrintInstruction, setLastPrintInstruction] = useState("");
+  const [printPending, setPrintPending] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
   const [labMeta, setLabMeta] = useState({
     name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
     logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
@@ -373,6 +388,7 @@ export default function ReportDispatchKioskPage() {
 
       const data = await res.json();
       setStatusBody(data);
+      void fetchPrintPending(data?.reqno);
       setPhase("dispatch");
       setNotice("");
       toast({
@@ -395,6 +411,26 @@ export default function ReportDispatchKioskPage() {
       }, 0);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchPrintPending(targetReqno = reqno) {
+    const value = String(targetReqno || "").trim();
+    if (!value) {
+      setPrintPending([]);
+      return;
+    }
+    setPendingLoading(true);
+    try {
+      const response = await fetch(`/api/kiosk/print-pending?reqno=${encodeURIComponent(value)}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body?.error || "Print Pending is temporarily unavailable.");
+      setPrintPending(Array.isArray(body?.items) ? body.items : []);
+    } catch (error) {
+      setPrintPending([]);
+      setNotice(error?.message || "Print Pending is temporarily unavailable.");
+    } finally {
+      setPendingLoading(false);
     }
   }
 
@@ -450,7 +486,7 @@ export default function ReportDispatchKioskPage() {
         if (event.data?.type === "LABIT_KIOSK_PRINT_READY") {
           previewReady = true;
           sendPdf();
-        } else if (event.data?.type === "LABIT_KIOSK_PRINT_STARTED") {
+        } else if (event.data?.type === "LABIT_KIOSK_PRINT_CONFIRMED") {
           finish();
         } else if (event.data?.type === "LABIT_KIOSK_PRINT_ERROR") {
           finish(new Error(event.data.message || "The print preview failed."));
@@ -463,7 +499,7 @@ export default function ReportDispatchKioskPage() {
           printWindow.close();
         } catch {}
         finish(new Error("The print preview did not start in time. Please retry."));
-      }, 30000);
+      }, 120000);
       sendPdf();
     });
 
@@ -495,6 +531,44 @@ export default function ReportDispatchKioskPage() {
       startFeedbackPhase();
     } catch (error) {
       setNotice(error?.message || "Ready print failed.");
+    } finally {
+      setIsPrinting(false);
+      setLoading(false);
+    }
+  }
+
+  async function handlePrintPending() {
+    if (!printPending.length) return;
+    const eventId = `kiosk-print-${crypto.randomUUID()}`;
+    const testids = [...new Set(printPending.map((item) => String(item?.test_id || "").trim()).filter(Boolean))];
+    const kinds = new Set(printPending.map((item) => String(item?.report_kind || "").toLowerCase()));
+    const scope = kinds.size === 1 && kinds.has("lab") ? "lab" : kinds.size === 1 && kinds.has("radiology") ? "radiology" : "all";
+
+    setLoading(true);
+    setIsPrinting(true);
+    setNotice("");
+    try {
+      const pages = await printPdfFromApiInMemory("/api/admin/reports/kiosk-print-ready", {
+        source: "kiosk",
+        report_scope: scope,
+        reqid,
+        reqno,
+        phone: patientPhone || null,
+        ready_lab_test_keys: testids
+      });
+      const receipt = await fetch("/api/kiosk/print-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reqno, testids, sent_at: new Date().toISOString(), external_event_id: eventId })
+      });
+      const receiptBody = await receipt.json().catch(() => ({}));
+      if (!receipt.ok) throw new Error(receiptBody?.error || "Printed, but Core did not confirm the receipt.");
+      await fetchPrintPending(reqno);
+      setLastPrintInstruction(`Reports printed. Please collect ${pages} page(s) from the print tray below the screen.`);
+      toast({ title: "Print confirmed", description: `${pages} page(s) printed.`, status: "success", duration: 2600, isClosable: true, position: "top" });
+      startFeedbackPhase();
+    } catch (error) {
+      setNotice(error?.message || "Pending report print failed.");
     } finally {
       setIsPrinting(false);
       setLoading(false);
@@ -542,6 +616,7 @@ export default function ReportDispatchKioskPage() {
     setScanValue("");
     setReqidValue("");
     setStatusBody(null);
+    setPrintPending([]);
     setRating(0);
     setFeedback("");
     setIsPrinting(false);
@@ -857,6 +932,30 @@ export default function ReportDispatchKioskPage() {
           </Button>
         ) : null}
       </Flex>
+
+      <Box mt={5} border={`1px solid ${K.plumLine}`} borderRadius="18px" p={4} bg={K.plumSoft}>
+        <Flex align="center" justify="space-between" gap={4} wrap="wrap">
+          <Box>
+            <Text color={K.plumInk} fontWeight="semibold" fontSize="lg">Print Pending</Text>
+            <Text color={K.text2}>{pendingLoading ? "Checking Core…" : `${printPending.length} report${printPending.length === 1 ? "" : "s"} waiting for physical print`}</Text>
+          </Box>
+          <Button h="58px" px={7} borderRadius="16px" onClick={handlePrintPending} isLoading={pendingLoading || isPrinting} isDisabled={!printPending.length} {...PRIMARY_BTN}>
+            <Flex align="center" gap={2}><PrintIcon /><Text>Print Pending</Text></Flex>
+          </Button>
+        </Flex>
+        {printPending.length ? (
+          <Stack mt={4} spacing={2}>
+            {printPending.map((item) => (
+              <Box key={`${item.report_kind}-${item.report_id}-${item.test_id}`} bg="white" borderRadius="12px" px={4} py={3}>
+                <Text fontWeight="semibold" color={K.text}>{item.reqno} · {item.patient_name} · {item.test_name || item.test_id}</Text>
+                <Text fontSize="sm" color={K.text2}>
+                  Test {item.test_id} · {item.report_kind} · approved {formatKioskTime(item.ready_at)} · WhatsApp {formatKioskTime(item.whatsapp_sent_at)} · physical prints {Number(item.physical_print_count ?? item.print_count ?? 0)} · last print {formatKioskTime(item.last_print_at)}
+                </Text>
+              </Box>
+            ))}
+          </Stack>
+        ) : null}
+      </Box>
 
       {showFirstFloorWarning ? (
         <Flex mt={5} align="center" gap={3} bg={K.warnSoft} color={K.warnInk} borderRadius="16px" px={5} py={4} fontSize="lg">

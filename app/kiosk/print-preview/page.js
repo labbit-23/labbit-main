@@ -20,6 +20,7 @@ export default function KioskPrintPreviewPage() {
     };
 
     const closeAfterPrint = () => {
+      notifyOpener({ type: "LABIT_KIOSK_PRINT_CONFIRMED" });
       window.setTimeout(() => window.close(), 250);
     };
 
