@@ -12,6 +12,7 @@ export default function KioskPrintPreviewPage() {
   useEffect(() => {
     let disposed = false;
     let printTimeout;
+    let closeFallbackTimeout;
 
     const notifyOpener = (message) => {
       if (window.opener && !window.opener.closed) {
@@ -22,6 +23,8 @@ export default function KioskPrintPreviewPage() {
     const closeAfterPrint = () => {
       if (confirmedRef.current) return;
       confirmedRef.current = true;
+      window.clearTimeout(closeFallbackTimeout);
+      setStatus("Print sent. Closing preview…");
       notifyOpener({ type: "LABIT_KIOSK_PRINT_CONFIRMED" });
       window.setTimeout(() => window.close(), 250);
     };
@@ -41,6 +44,9 @@ export default function KioskPrintPreviewPage() {
         try {
           frameWindow.focus();
           frameWindow.print();
+          // Chrome's PDF viewer may print successfully without firing
+          // afterprint on either the iframe or its parent.
+          closeFallbackTimeout = window.setTimeout(closeAfterPrint, 2000);
         } catch (error) {
           const message = error?.message || "Chrome could not start native PDF printing.";
           setStatus(message);
@@ -88,6 +94,7 @@ export default function KioskPrintPreviewPage() {
       disposed = true;
       window.clearInterval(readyInterval);
       window.clearTimeout(printTimeout);
+      window.clearTimeout(closeFallbackTimeout);
       frame?.removeEventListener("load", printNativePdf);
       window.removeEventListener("message", handlePdf);
       window.removeEventListener("afterprint", closeAfterPrint);
