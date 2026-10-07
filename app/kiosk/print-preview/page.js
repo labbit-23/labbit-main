@@ -44,9 +44,8 @@ export default function KioskPrintPreviewPage() {
         try {
           frameWindow.focus();
           frameWindow.print();
-          // Chrome's PDF viewer may print successfully without firing
-          // afterprint on either the iframe or its parent.
-          closeFallbackTimeout = window.setTimeout(closeAfterPrint, 2000);
+          // Give Chrome time to hand the PDF job to CUPS before closing its viewer.
+          closeFallbackTimeout = window.setTimeout(closeAfterPrint, 10000);
         } catch (error) {
           const message = error?.message || "Chrome could not start native PDF printing.";
           setStatus(message);
