@@ -114,10 +114,9 @@ function istTodayYmd() {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
-// Freshest-as-of-viewing, not a snapshot of what the patient actually received
-// (Meta caches the PDF bytes at send time -- see [[report-delivery-status-vocabulary]]
-// memory). Acceptable approximation per the user, 2026-09-27: "generated from
-// live which is acceptable instead of storing actual payload."
+// Rebuilds the same report endpoint/options used by the sender. This is a live
+// render, not an immutable send-time PDF snapshot; the sender currently stores
+// the document URL, not the PDF bytes.
 function buildSentDocumentViewUrl(row, tabKey) {
   const reqid = String(row?.reqid || "").trim();
   const reqno = String(row?.reqno || "").trim();
@@ -126,6 +125,18 @@ function buildSentDocumentViewUrl(row, tabKey) {
   if (reqid) query.set("reqid", reqid);
   if (reqno) query.set("reqno", reqno);
   if (tabKey === "requisition_bill") query.set("kind", "ebill");
+  else {
+    query.set("header_mode", "default");
+    const rawMeta = row?.metadata;
+    const meta = rawMeta && typeof rawMeta === "object"
+      ? rawMeta
+      : (() => { try { return JSON.parse(rawMeta || "{}"); } catch { return {}; } })();
+    const reportSource = String(meta?.report_source || "").trim().toLowerCase();
+    const reportLabel = String(row?.report_label || "").trim().toLowerCase();
+    if (reportSource === "outsourced_report" || reportLabel === "special report") {
+      query.set("report_scope", "special");
+    }
+  }
   return `/api/admin/reports/document?${query.toString()}`;
 }
 

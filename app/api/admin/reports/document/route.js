@@ -1,7 +1,7 @@
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { ironOptions } from "@/lib/session";
-import { getDocumentUrl, getLabReportUrl, getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl } from "@/lib/neosoft/client";
+import { getDocumentUrl, getLabReportUrl, getRadiologyReportUrl, getReportStatus, getReportStatusByReqid, getReportUrl, getReportsUrl, getSpecialReportUrl } from "@/lib/neosoft/client";
 import { logReportDispatch } from "@/lib/reportDispatchLogs";
 import {
   canUseReportDispatch,
@@ -133,11 +133,13 @@ export async function GET(request) {
         // 2026-10-02: same missing-reqno bug as kiosk-print-ready's own
         // radiology branch -- see getRadiologyReportUrl's own comment.
         ? getRadiologyReportUrl(reqid, { reqno, ...commonFlags })
+        : reportScope === "special"
+          ? getSpecialReportUrl(reqid, { reqno, header_mode: "default" })
         : getReportsUrl(reqid, reqno, {
             printtype,
             ...commonFlags
           });
-    const reportType = kind || (reportScope === "lab" ? "lab" : reportScope === "radiology" ? "radiology" : "combined");
+    const reportType = kind || (reportScope === "lab" ? "lab" : reportScope === "radiology" ? "radiology" : reportScope === "special" ? "special" : "combined");
 
     const upstream = await fetch(reportUrl, { method: "GET", cache: "no-store" });
     const bytes = await upstream.arrayBuffer();
