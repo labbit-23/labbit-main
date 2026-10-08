@@ -14,6 +14,7 @@ import {
   Button,
   ButtonGroup,
   Input,
+  IconButton,
   Modal,
   ModalBody,
   ModalCloseButton,
@@ -28,6 +29,7 @@ import {
   Thead,
   Tr
 } from "@chakra-ui/react";
+import { ViewIcon } from "@chakra-ui/icons";
 import { humanizeDeliveryError } from "@/lib/whatsapp/deliveryErrors";
 
 const IST_TIMEZONE = "Asia/Kolkata";
@@ -76,6 +78,29 @@ function normalizeDeliveryStatus(value) {
   const key = String(value || "").trim().toLowerCase();
   if (!key) return "queued";
   return key;
+}
+
+function jobStatusColor(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (status === "sent" || status === "success") return "green";
+  if (status === "failed" || status === "error") return "red";
+  if (["queued", "cooling_off", "retrying", "sending", "processing"].includes(status)) return "orange";
+  return "gray";
+}
+
+function deliveryStatusColor(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (["read", "delivered", "success"].includes(status)) return "green";
+  if (["failed", "error", "undelivered"].includes(status)) return "red";
+  if (["sent", "submitted"].includes(status)) return "blue";
+  if (["queued", "pending", "retrying"].includes(status)) return "orange";
+  return "gray";
+}
+
+function reasonForRow(row) {
+  return row?.last_error
+    ? humanizeDeliveryError(row.last_error)
+    : String(row?.state_hint || row?.last_event_message || row?.result_message || row?.comment || row?.remarks || "").trim();
 }
 
 function istTodayYmd() {
@@ -189,6 +214,8 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
     });
   }, [tabFilteredRows, search]);
 
+  const hasReasonColumn = filteredRows.some((row) => reasonForRow(row));
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside">
       <ModalOverlay />
@@ -234,6 +261,7 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                 {filteredRows.map((row) => {
                   const viewUrl = buildSentDocumentViewUrl(row, tab);
                   const messageId = String(row?.provider_message_id || "");
+                  const statusColor = jobStatusColor(row?.status);
                   const reason = row?.last_error
                     ? humanizeDeliveryError(row.last_error)
                     : String(row?.state_hint || row?.last_event_message || row?.result_message || row?.comment || row?.remarks || "-");
@@ -241,7 +269,9 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                     <Box
                       key={row?.id || `${row?.reqno || ""}_${row?.phone || ""}`}
                       borderWidth="1px"
-                      borderColor="gray.200"
+                      borderColor={`${statusColor}.300`}
+                      borderLeftWidth="4px"
+                      bg={`${statusColor}.50`}
                       borderRadius="md"
                       p={3}
                       mb={2}
@@ -262,8 +292,8 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                       <Text fontSize="sm" color="gray.600">{String(row?.phone || "-")}</Text>
                       <Box display="flex" flexWrap="wrap" alignItems="center" gap={1.5} mt={2}>
                         <Badge>{String(row?.report_label || "-")}</Badge>
-                        <Badge>{String(row?.status || "-")}</Badge>
-                        <Badge>{normalizeDeliveryStatus(row?.delivery_status)}</Badge>
+                        <Badge colorScheme={statusColor}>{String(row?.status || "-")}</Badge>
+                        <Badge colorScheme={deliveryStatusColor(row?.delivery_status)}>{normalizeDeliveryStatus(row?.delivery_status)}</Badge>
                       </Box>
                       <Text mt={2} fontSize="xs" color="gray.600">
                         Sent (IST): {formatMessageTime(row?.sent_at || row?.updated_at) || "-"}
@@ -281,7 +311,7 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                 })}
               </Box>
               <Box display={{ base: "none", lg: "block" }} borderWidth="1px" borderColor="gray.200" borderRadius="md" overflowX="auto">
-              <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 2, whiteSpace: "normal", wordBreak: "break-word" } }}>
+              <Table size="sm" variant="simple" layout="auto" sx={{ "th, td": { fontSize: "xs", py: 2, whiteSpace: "nowrap", wordBreak: "normal" } }}>
                 <Thead>
                   <Tr>
                     <Th>Req No</Th>
@@ -292,14 +322,15 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                     <Th>Job Status</Th>
                     <Th>Delivery</Th>
                     <Th>Sent (IST)</Th>
-                    <Th>Message ID</Th>
-                    <Th>Reason / Comment</Th>
+                    {hasReasonColumn ? <Th>Reason / Comment</Th> : null}
                     <Th>View</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {filteredRows.map((row) => {
                     const viewUrl = buildSentDocumentViewUrl(row, tab);
+                    const messageId = String(row?.provider_message_id || "");
+                    const reason = reasonForRow(row);
                     return (
                       <Tr key={row?.id || `${row?.reqno || ""}_${row?.phone || ""}`}>
                         <Td fontWeight="semibold">{String(row?.reqno || "-")}</Td>
@@ -307,20 +338,23 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                         <Td>{String(row?.patient_name || "-")}</Td>
                         <Td>{String(row?.phone || "-")}</Td>
                         <Td>{String(row?.report_label || "-")}</Td>
-                        <Td><Badge>{String(row?.status || "-")}</Badge></Td>
+                        <Td title={messageId ? `Message ID: ${messageId}` : undefined}><Badge colorScheme={jobStatusColor(row?.status)}>{String(row?.status || "-")}</Badge></Td>
                         <Td>{normalizeDeliveryStatus(row?.delivery_status)}</Td>
                         <Td>{formatMessageTime(row?.sent_at || row?.updated_at)}</Td>
-                        <Td title={String(row?.provider_message_id || "")}>{String(row?.provider_message_id || "-")}</Td>
-                        <Td>
-                          {row?.last_error
-                            ? humanizeDeliveryError(row.last_error)
-                            : String(row?.state_hint || row?.last_event_message || row?.result_message || row?.comment || row?.remarks || "-")}
-                        </Td>
+                        {hasReasonColumn ? <Td maxW="280px" overflow="hidden" textOverflow="ellipsis" title={reason || undefined}>{reason}</Td> : null}
                         <Td>
                           {viewUrl ? (
-                            <a href={viewUrl} target="_blank" rel="noreferrer" title="Opens the current version of this document, not a snapshot of what was sent">
-                              View
-                            </a>
+                            <IconButton
+                              as="a"
+                              href={viewUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              size="xs"
+                              variant="ghost"
+                              aria-label="View Sent PDF"
+                              title="View Sent PDF"
+                              icon={<ViewIcon />}
+                            />
                           ) : "-"}
                         </Td>
                       </Tr>
