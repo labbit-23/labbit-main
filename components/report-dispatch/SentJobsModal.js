@@ -227,7 +227,58 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
           {filteredRows.length === 0 && !loading ? (
             <Text fontSize="sm" color="gray.500">No sent {SENT_JOBS_TABS.find((t) => t.key === tab)?.label.toLowerCase() || "jobs"} for this date.</Text>
           ) : (
-            <Box borderWidth="1px" borderColor="gray.200" borderRadius="md" overflowX="auto">
+            <>
+              <Box display={{ base: "block", lg: "none" }}>
+                {filteredRows.map((row) => {
+                  const viewUrl = buildSentDocumentViewUrl(row, tab);
+                  const messageId = String(row?.provider_message_id || "");
+                  const reason = row?.last_error
+                    ? humanizeDeliveryError(row.last_error)
+                    : String(row?.state_hint || row?.last_event_message || row?.result_message || row?.comment || row?.remarks || "-");
+                  return (
+                    <Box
+                      key={row?.id || `${row?.reqno || ""}_${row?.phone || ""}`}
+                      borderWidth="1px"
+                      borderColor="gray.200"
+                      borderRadius="md"
+                      p={3}
+                      mb={2}
+                      minW={0}
+                    >
+                      <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={2} minW={0}>
+                        <Box minW={0}>
+                          <Text fontWeight="bold" fontSize="sm" overflowWrap="anywhere">{String(row?.reqno || "-")}</Text>
+                          <Text fontSize="xs" color="gray.500">{reqnoDate(row?.reqno)}</Text>
+                        </Box>
+                        {viewUrl ? (
+                          <Button as="a" href={viewUrl} target="_blank" rel="noreferrer" size="xs" flexShrink={0} title="Opens the current version of this document, not a snapshot of what was sent">
+                            View
+                          </Button>
+                        ) : null}
+                      </Box>
+                      <Text mt={2} fontSize="sm" fontWeight="semibold" overflowWrap="anywhere">{String(row?.patient_name || "-")}</Text>
+                      <Text fontSize="sm" color="gray.600">{String(row?.phone || "-")}</Text>
+                      <Box display="flex" flexWrap="wrap" alignItems="center" gap={1.5} mt={2}>
+                        <Badge>{String(row?.report_label || "-")}</Badge>
+                        <Badge>{String(row?.status || "-")}</Badge>
+                        <Badge>{normalizeDeliveryStatus(row?.delivery_status)}</Badge>
+                      </Box>
+                      <Text mt={2} fontSize="xs" color="gray.600">
+                        Sent (IST): {formatMessageTime(row?.sent_at || row?.updated_at) || "-"}
+                      </Text>
+                      {messageId ? (
+                        <Text mt={1} fontSize="xs" color="gray.600" overflowWrap="anywhere">
+                          Message ID: {messageId}
+                        </Text>
+                      ) : null}
+                      <Text mt={2} fontSize="xs" color="gray.700" whiteSpace="pre-wrap" overflowWrap="anywhere">
+                        Reason / Comment: {reason}
+                      </Text>
+                    </Box>
+                  );
+                })}
+              </Box>
+              <Box display={{ base: "none", lg: "block" }} borderWidth="1px" borderColor="gray.200" borderRadius="md" overflowX="auto">
               <Table size="sm" variant="simple" sx={{ "th, td": { fontSize: "xs", py: 2, whiteSpace: "normal", wordBreak: "break-word" } }}>
                 <Thead>
                   <Tr>
@@ -275,7 +326,8 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                   })}
                 </Tbody>
               </Table>
-            </Box>
+              </Box>
+            </>
           )}
         </ModalBody>
       </ModalContent>
