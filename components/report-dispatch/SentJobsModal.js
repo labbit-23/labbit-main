@@ -95,9 +95,11 @@ function istTodayYmd() {
 // live which is acceptable instead of storing actual payload."
 function buildSentDocumentViewUrl(row, tabKey) {
   const reqid = String(row?.reqid || "").trim();
-  if (!reqid) return null;
-  const query = new URLSearchParams({ reqid, mode: "preview" });
-  if (row?.reqno) query.set("reqno", String(row.reqno));
+  const reqno = String(row?.reqno || "").trim();
+  if (!reqid && !reqno) return null;
+  const query = new URLSearchParams({ mode: "preview" });
+  if (reqid) query.set("reqid", reqid);
+  if (reqno) query.set("reqno", reqno);
   if (tabKey === "requisition_bill") query.set("kind", "ebill");
   return `/api/admin/reports/document?${query.toString()}`;
 }
