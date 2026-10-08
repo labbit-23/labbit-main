@@ -58,7 +58,8 @@ function isReportLikeDocumentUrl(url) {
     raw.includes("/reports/") ||
     raw.includes("/radiologyreport/") ||
     raw.includes("/latest-report/") ||
-    raw.includes("/outsourced-report")
+    raw.includes("/outsourced-report") ||
+    raw.includes("/special_report/")
   );
 }
 

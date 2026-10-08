@@ -4,6 +4,7 @@ import { digitsOnly, toCanonicalIndiaPhone } from "@/lib/phone";
 import {
   getLatestReportUrl,
   getOutsourcedReportUrl,
+  getSpecialReportUrl,
   getReportStatus,
   getReportUrl,
   getTrendReportUrl
@@ -283,10 +284,14 @@ export async function POST(request) {
       const rawReqid = String(body?.reqid || "").trim();
       const rawTestid = String(body?.testid || "").trim();
       const rawReqno = String(body?.reqno || "").trim();
-      if (!rawReqid || !rawTestid) {
-        return new Response("ReqID and TestID are required for outsourced report.", { status: 400 });
+      // 2026-10-08 (live: every special/outsourced send failing 400): the sender now sends ONE special bundle per requisition
+      // (several tests, no single testid). A testid still means the old per-test attachment; without one it is the bundle.
+      if (!rawReqid || (!rawTestid && !rawReqno)) {
+        return new Response("ReqID and either TestID (single outsourced test) or Requisition No (special bundle) are required for outsourced report.", { status: 400 });
       }
-      documentUrl = getOutsourcedReportUrl(rawReqid, rawTestid, { reqno: rawReqno || undefined });
+      documentUrl = rawTestid
+        ? getOutsourcedReportUrl(rawReqid, rawTestid, { reqno: rawReqno || undefined })
+        : getSpecialReportUrl(rawReqid, { reqno: rawReqno });
       if (!(await isReachablePdfDocument(documentUrl))) {
         return new Response(`Outsourced report PDF was not found for requisition ${rawReqno || rawReqid}.`, { status: 400 });
       }
