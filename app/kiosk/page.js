@@ -57,7 +57,13 @@ const STEP_TEXT = {
     load_scan: "Print Scan Reports",
     print_all: "Print All Reports",
     save_feedback: "Save Feedback",
-    next_patient: "Next Patient"
+    next_patient: "Next Patient",
+    special_button: "Special Reports — Collect from First Floor",
+    special_title: "Special reports are collected from the First Floor",
+    special_body: "Please go to the First Floor using the dedicated elevator. Your special reports are handed over there, on the correct report paper.",
+    special_ready: "Ready",
+    special_pending: "In progress",
+    special_close: "Close"
   },
   te: {
     scan_title: "మీ బిల్లుపై ఉన్న QR కోడ్‌ను స్కాన్ చేయండి",
@@ -69,7 +75,13 @@ const STEP_TEXT = {
     load_scan: "స్కాన్ రిపోర్ట్స్ ప్రింట్",
     print_all: "అన్ని రిపోర్ట్స్ ప్రింట్",
     save_feedback: "ఫీడ్‌బ్యాక్ సేవ్",
-    next_patient: "తర్వాతి పేషెంట్"
+    next_patient: "తర్వాతి పేషెంట్",
+    special_button: "ప్రత్యేక రిపోర్ట్స్ — మొదటి అంతస్తులో తీసుకోండి",
+    special_title: "ప్రత్యేక రిపోర్ట్స్ మొదటి అంతస్తులో లభిస్తాయి",
+    special_body: "దయచేసి ప్రత్యేక లిఫ్ట్ ద్వారా మొదటి అంతస్తుకు వెళ్లండి. మీ ప్రత్యేక రిపోర్ట్స్ అక్కడ సరైన రిపోర్ట్ పేపర్‌పై అందజేస్తారు.",
+    special_ready: "సిద్ధం",
+    special_pending: "ప్రక్రియలో ఉంది",
+    special_close: "మూసివేయండి"
   },
   hi: {
     scan_title: "अपने बिल पर दिया गया QR कोड स्कैन करें",
@@ -81,7 +93,13 @@ const STEP_TEXT = {
     load_scan: "स्कैन रिपोर्ट प्रिंट",
     print_all: "सभी रिपोर्ट प्रिंट",
     save_feedback: "फीडबैक सेव करें",
-    next_patient: "अगला मरीज"
+    next_patient: "अगला मरीज",
+    special_button: "विशेष रिपोर्ट — पहली मंज़िल से लें",
+    special_title: "विशेष रिपोर्ट पहली मंज़िल से मिलती हैं",
+    special_body: "कृपया समर्पित लिफ्ट से पहली मंज़िल पर जाएँ। आपकी विशेष रिपोर्ट वहाँ सही रिपोर्ट पेपर पर दी जाएँगी।",
+    special_ready: "तैयार",
+    special_pending: "प्रक्रिया में",
+    special_close: "बंद करें"
   },
   ur: {
     scan_title: "اپنے بل پر موجود QR کوڈ اسکین کریں",
@@ -93,7 +111,13 @@ const STEP_TEXT = {
     load_scan: "اسکین رپورٹ پرنٹ",
     print_all: "تمام رپورٹ پرنٹ",
     save_feedback: "فیڈبیک محفوظ کریں",
-    next_patient: "اگلا مریض"
+    next_patient: "اگلا مریض",
+    special_button: "خصوصی رپورٹس — پہلی منزل سے حاصل کریں",
+    special_title: "خصوصی رپورٹس پہلی منزل سے ملتی ہیں",
+    special_body: "براہ کرم مخصوص لفٹ سے پہلی منزل پر جائیں۔ آپ کی خصوصی رپورٹس وہاں درست رپورٹ پیپر پر دی جائیں گی۔",
+    special_ready: "تیار",
+    special_pending: "عمل میں",
+    special_close: "بند کریں"
   }
 };
 
@@ -212,6 +236,7 @@ export default function ReportDispatchKioskPage() {
   const [lastPrintInstruction, setLastPrintInstruction] = useState("");
   const [printPending, setPrintPending] = useState([]);
   const [pendingLoading, setPendingLoading] = useState(false);
+  const [specialInfoOpen, setSpecialInfoOpen] = useState(false);
   const [labMeta, setLabMeta] = useState({
     name: process.env.NEXT_PUBLIC_APP_NAME || "Labit",
     logo_url: process.env.NEXT_PUBLIC_LABBIT_LOGO || "/logo.png"
@@ -230,7 +255,18 @@ export default function ReportDispatchKioskPage() {
   const testTime = useMemo(() => String(statusBody?.live_status?.test_time || "").trim(), [statusBody]);
   const readyLabKeys = useMemo(() => statusBody?.live_status?.ready_lab_test_keys || [], [statusBody]);
   const readyRadiology = useMemo(() => Number(statusBody?.live_status?.radiology_ready || 0), [statusBody]);
-  const hasLabReady = useMemo(() => readyLabKeys.length > 0, [readyLabKeys]);
+  const specialTests = useMemo(
+    () => (Array.isArray(statusBody?.live_status?.special_tests) ? statusBody.live_status.special_tests : []),
+    [statusBody]
+  );
+  const hasSpecialTests = specialTests.length > 0;
+  // labit-core leaves special/outsourced reports out of the ordinary lab/all
+  // print bundles (they go out on their own paper from the First Floor), so
+  // they must not count toward "something is ready to print here".
+  const hasLabReady = useMemo(() => {
+    const specialKeys = new Set(specialTests.map((item) => String(item?.key || "")));
+    return readyLabKeys.some((key) => !specialKeys.has(String(key || "")));
+  }, [readyLabKeys, specialTests]);
   const hasRadiologyReady = useMemo(() => readyRadiology > 0, [readyRadiology]);
   const labReadyCount = useMemo(() => Number(statusBody?.live_status?.lab_ready || 0), [statusBody]);
   const labTotalCount = useMemo(() => Number(statusBody?.live_status?.lab_total || 0), [statusBody]);
@@ -610,6 +646,7 @@ export default function ReportDispatchKioskPage() {
     setReqidValue("");
     setStatusBody(null);
     setPrintPending([]);
+    setSpecialInfoOpen(false);
     setRating(0);
     setFeedback("");
     setIsPrinting(false);
@@ -926,6 +963,25 @@ export default function ReportDispatchKioskPage() {
         ) : null}
       </Flex>
 
+      {hasSpecialTests ? (
+        <Box mt={5} border={`1px solid ${K.warnInk}33`} borderRadius="18px" p={4} bg={K.warnSoft}>
+          <Stack spacing={1} mb={3}>
+            {specialTests.map((item) => (
+              <Flex key={item.key} justify="space-between" align="center" gap={3}>
+                <Text color={K.text} fontWeight="medium">{item.test_name || item.key}</Text>
+                <Badge colorScheme={item.ready ? "green" : "yellow"}>
+                  {item.ready ? text.special_ready : text.special_pending}
+                </Badge>
+              </Flex>
+            ))}
+          </Stack>
+          <Button w="100%" h="68px" borderRadius="16px" fontSize="lg" fontWeight="semibold" onClick={() => setSpecialInfoOpen(true)} {...PRIMARY_BTN}>
+            {text.special_button}
+          </Button>
+          <Text mt={3} color={K.warnInk} fontSize="lg">{text.special_body}</Text>
+        </Box>
+      ) : null}
+
       <Box mt={5} border={`1px solid ${K.plumLine}`} borderRadius="18px" p={4} bg={K.plumSoft}>
         <Flex align="center" justify="space-between" gap={4} wrap="wrap">
           <Box>
@@ -950,7 +1006,7 @@ export default function ReportDispatchKioskPage() {
         ) : null}
       </Box>
 
-      {showFirstFloorWarning ? (
+      {showFirstFloorWarning && !hasSpecialTests ? (
         <Flex mt={5} align="center" gap={3} bg={K.warnSoft} color={K.warnInk} borderRadius="16px" px={5} py={4} fontSize="lg">
           <Text as="span" fontSize="xl">ⓘ</Text>
           <Text>Please go to the First Floor using the dedicated elevator.</Text>
@@ -1068,6 +1124,20 @@ export default function ReportDispatchKioskPage() {
         </Flex>
 
       </Flex>
+
+      <Modal isOpen={specialInfoOpen && authenticated} onClose={() => setSpecialInfoOpen(false)} isCentered size="xl">
+        <ModalOverlay bg="rgba(21,24,28,0.5)" />
+        <ModalContent {...CARD} mx={4}>
+          <ModalBody p={{ base: 6, md: 10 }} textAlign="center">
+            <Text fontSize="5xl" mb={2} aria-hidden="true">↑</Text>
+            <Heading fontSize={{ base: "2xl", md: "3xl" }} color={K.text} mb={3}>{text.special_title}</Heading>
+            <Text fontSize="xl" color={K.text2} mb={6}>{text.special_body}</Text>
+            <Button type="button" h="64px" px={10} borderRadius="16px" fontSize="lg" onClick={() => setSpecialInfoOpen(false)} {...PRIMARY_BTN}>
+              {text.special_close}
+            </Button>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
 
       <Modal isOpen={!authenticated} onClose={() => {}} isCentered closeOnEsc={false} closeOnOverlayClick={false}>
         <ModalOverlay bg="rgba(246,247,248,0.7)" backdropFilter="blur(6px)" />

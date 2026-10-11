@@ -379,6 +379,30 @@ function getPendingLabTests(reportStatus) {
   return rows;
 }
 
+// Special / outsourced tests are handed over at the First Floor on the proper
+// report paper, and labit-core excludes them from the ordinary "all"/"lab"
+// print bundles. Same marker set + env override as labit-core's
+// delivery_service._is_special_department so the two always agree.
+const SPECIAL_DEPARTMENT_MARKERS = new Set(
+  String(process.env.SPECIAL_TEST_DEPARTMENT_MARKERS || "DPT00033,SPECIAL TESTS")
+    .split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean)
+);
+
+function isSpecialRow(row) {
+  const reportStatus = String(rowValue(row, "REPORT_STATUS", "report_status") || "").trim().toUpperCase();
+  if (reportStatus === "OUTSOURCED") return true;
+  const candidates = [
+    rowValue(row, "DEPARTMENT", "department"),
+    rowValue(row, "DEPARTMENT_NAME", "department_name"),
+    rowValue(row, "DEPARTMENT_CODE", "department_code"),
+    rowValue(row, "DEPTID", "deptid"),
+    rowValue(row, "DEPTNM", "deptnm"),
+  ];
+  return candidates.some((value) => SPECIAL_DEPARTMENT_MARKERS.has(String(value || "").trim().toUpperCase()));
+}
+
 function toDepartment(groupId) {
   if (groupId === "GDEP0001") return "lab";
   if (groupId === "GDEP0002") return "radiology";
@@ -422,6 +446,7 @@ function buildTestWiseStatus(reportStatus, deliveredKeys = []) {
       test_id: testId || null,
       test_name: testName || null,
       department,
+      special: isSpecialRow(row),
       approved: String(rowValue(row, "APPROVEDFLG", "approvedflg") || "").trim() === "1",
       report_status: String(rowValue(row, "REPORT_STATUS", "report_status") || "").trim() || null,
       ready,
@@ -711,6 +736,11 @@ export async function GET(request) {
           ready_lab_tests: readyLabTests,
           ready_lab_test_keys: readyLabTestKeys,
           pending_lab_tests: pendingLabTests,
+          // Special/outsourced tests on this requisition (ready or not) --
+          // the kiosk directs the patient to the First Floor for these.
+          special_tests: testWiseStatus
+            .filter((row) => row.special)
+            .map((row) => ({ key: row.key, test_name: row.test_name, ready: row.ready })),
           tests: testWiseStatus
         },
         dispatch_history: deliveredInfo,
