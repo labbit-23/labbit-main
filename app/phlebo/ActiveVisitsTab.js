@@ -29,6 +29,7 @@ import { FaMotorcycle } from "react-icons/fa";
 import { PhoneIcon, ChatIcon } from "@chakra-ui/icons";
 import { useUser } from "../context/UserContext";
 import NotificationsHelper from "../../lib/notificationsHelper";
+import { resolveVisitLocation } from "@/lib/visitLocation";
 
 const STATUS_STYLES = {
   pending: { bg: "yellow.100", borderColor: "yellow.400" },
@@ -549,10 +550,10 @@ export default function ActiveVisitsTab({ selectedDate, onSelectVisit, selectedV
   };
 
   const navigateToVisit = (visit) => {
-    let navUrl = null;
-    if (visit?.lat && visit?.lng) {
-      navUrl = `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`;
-    }
+    // Visit's own location (coords/link on the visit, then its linked patient
+    // address, then the patient's only saved address) before the legacy
+    // default-address / text-search fallbacks below.
+    let navUrl = resolveVisitLocation(visit)?.url || null;
     // Find default patient address
     const defaultAddress = visit.patient?.addresses?.find(addr => addr.is_default);
 

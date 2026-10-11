@@ -48,9 +48,18 @@ export async function GET(request) {
     const labIds = [...new Set(visits.map((v) => v.lab_id).filter(Boolean))];
     const timeSlotIds = [...new Set(visits.map((v) => v.time_slot).filter(Boolean))];
 
-    const [patients, executives, labs, timeSlots] = await scoped({ mode: "all", labId: null }, () =>
+    const [patients, addresses, executives, labs, timeSlots] = await scoped({ mode: "all", labId: null }, () =>
       Promise.all([
         patientIds.length ? query(`SELECT id, name, phone FROM patients WHERE id = ANY($1)`, [patientIds]) : [],
+        // Needed by lib/visitLocation.js: visit.address first, then the
+        // linked / only patient address as a fallback for the map pin.
+        patientIds.length
+          ? query(
+              `SELECT id, patient_id, area, address_line, lat, lng, is_default
+               FROM patient_addresses WHERE patient_id = ANY($1)`,
+              [patientIds]
+            )
+          : [],
         executiveIds.length
           ? query(`SELECT id, name, email, lab_id FROM executives WHERE id = ANY($1)`, [executiveIds])
           : [],
@@ -61,7 +70,15 @@ export async function GET(request) {
       ])
     );
 
-    const patientById = new Map(patients.map((p) => [p.id, p]));
+    const addressesByPatient = new Map();
+    for (const a of addresses) {
+      const list = addressesByPatient.get(a.patient_id) || [];
+      list.push(a);
+      addressesByPatient.set(a.patient_id, list);
+    }
+    const patientById = new Map(
+      patients.map((p) => [p.id, { ...p, addresses: addressesByPatient.get(p.id) || [] }])
+    );
     const executiveById = new Map(executives.map((e) => [e.id, e]));
     const labById = new Map(labs.map((l) => [l.id, l]));
     const timeSlotById = new Map(timeSlots.map((t) => [t.id, t]));

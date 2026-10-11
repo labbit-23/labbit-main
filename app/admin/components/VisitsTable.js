@@ -9,6 +9,7 @@ import {
 } from "@chakra-ui/react";
 import { Eye, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
 import { StatusPill } from "@/components/ui";
+import { resolveVisitLocation } from "@/lib/visitLocation";
 
 const CHAKRA_TO_PILL = {
   green:  "success",
@@ -254,7 +255,9 @@ export default function VisitsTable({
               <Tbody>
                 {visits.map((visit) => {
                   const isUnassigned = !visit.executive_id;
-                  const locationUrl = getVisitLocationUrl(visit);
+                  const visitLoc = resolveVisitLocation(visit);
+                  const locationUrl = visitLoc?.url || null;
+                  const locSuggested = Boolean(visitLoc?.suggested);
                   return (
                     <Tr key={visit.id}>
                       {/* Patient info */}
@@ -278,12 +281,12 @@ export default function VisitsTable({
                           </Box>
                           {locationUrl && (
                             <IconButton
-                              aria-label="Open location pin"
-                              title="Location pin available - open in maps"
+                              aria-label={locSuggested ? "Open suggested location" : "Open location pin"}
+                              title={locSuggested ? "Suggested location: patient's only saved address (not on this booking) - open in maps" : "Location pin available - open in maps"}
                               icon={<MapPin size={14} />}
                               size="xs"
-                              variant="solid"
-                              colorScheme="red"
+                              variant={locSuggested ? "outline" : "solid"}
+                              colorScheme={locSuggested ? "orange" : "red"}
                               onClick={() => window.open(locationUrl, "_blank")}
                             />
                           )}
@@ -395,7 +398,9 @@ export default function VisitsTable({
               </Thead>
               <Tbody>
                 {disabled.map((visit) => {
-                  const locationUrl = getVisitLocationUrl(visit);
+                  const visitLoc = resolveVisitLocation(visit);
+                  const locationUrl = visitLoc?.url || null;
+                  const locSuggested = Boolean(visitLoc?.suggested);
                   return (
                   <Tr key={visit.id} opacity={0.65} bg={disabledRowBg}>
                     <Td borderColor={rowBorderColor}>
@@ -417,12 +422,12 @@ export default function VisitsTable({
                         </Box>
                         {locationUrl && (
                           <IconButton
-                            aria-label="Open location pin"
-                            title="Location pin available - open in maps"
+                            aria-label={locSuggested ? "Open suggested location" : "Open location pin"}
+                            title={locSuggested ? "Suggested location: patient's only saved address (not on this booking) - open in maps" : "Location pin available - open in maps"}
                             icon={<MapPin size={14} />}
                             size="xs"
-                            variant="solid"
-                            colorScheme="red"
+                            variant={locSuggested ? "outline" : "solid"}
+                            colorScheme={locSuggested ? "orange" : "red"}
                             onClick={() => window.open(locationUrl, "_blank")}
                           />
                         )}

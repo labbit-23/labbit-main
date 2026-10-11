@@ -13,6 +13,7 @@ import { useUser } from "../context/UserContext";
 import PatientsTab from "../components/PatientsTab";
 import TestPackageSelector from "../../components/TestPackageSelector";
 import VisitBillingPanel from "../../components/VisitBillingPanel";
+import { resolveVisitLocation } from "@/lib/visitLocation";
 
 const GPAY_LOGO = "/gpay-logo.jpeg";
 
@@ -127,6 +128,10 @@ function slotMinutes(slotName) {
 // ── Navigation helper ─────────────────────────────────────────────────────────
 
 function mapsUrl(visit) {
+  // Visit's own location first (coords/link in visit.address, then its linked
+  // patient address); only then the patient's default/only address.
+  const loc = resolveVisitLocation(visit);
+  if (loc?.url) return loc.url;
   const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
   if (def?.lat && def?.lng)
     return `https://www.google.com/maps/search/?api=1&query=${def.lat},${def.lng}`;
@@ -136,6 +141,12 @@ function mapsUrl(visit) {
 }
 
 function visitPin(visit) {
+  // Confirmed visit location only -- a "suggested" pin is a guess and must not
+  // drive ETA routing.
+  const loc = resolveVisitLocation(visit);
+  if (loc && !loc.suggested && loc.lat !== null && loc.lng !== null) {
+    return { lat: loc.lat, lng: loc.lng };
+  }
   const def = visit.patient?.addresses?.find(a => a.is_default) || visit.patient?.addresses?.[0];
   return def?.lat && def?.lng ? { lat: Number(def.lat), lng: Number(def.lng) } : null;
 }
@@ -1170,7 +1181,9 @@ function CurrentCard({ visit, locationCount, eta, isDark, isLoading, onAdvance, 
           onClick={onNavigate}
           _hover={{ opacity: 0.9 }}
         >
-          {hasCoords ? "Navigate" : "Open in Maps"}
+          {resolveVisitLocation(visit)?.suggested
+            ? "Navigate (suggested location)"
+            : hasCoords ? "Navigate" : "Open in Maps"}
         </Button>
 
         {/* Primary action — arm first, then confirm */}
@@ -1334,7 +1347,7 @@ function TomorrowHeroCard({ visit, isDark, surface, text, muted, borderC, onNavi
             _hover={{ bg: isDark ? "whiteAlpha.150" : "var(--surface-3)" }}
             onClick={e => { e.stopPropagation(); onNavigate(); }}
           >
-            Open in Maps
+            {resolveVisitLocation(visit)?.suggested ? "Open in Maps (suggested)" : "Open in Maps"}
           </Button>
         )}
         {visit.patient?.phone && (
@@ -1597,6 +1610,7 @@ function TomorrowPreviewContent({ visit, isDark, surface, text, muted, borderC }
   const startTime = visit.time_slot?.start_time;
   const endTime   = visit.time_slot?.end_time;
   const hasCoords = !!(
+    resolveVisitLocation(visit)?.url ||
     visit.patient?.addresses?.find(a => a.is_default)?.lat ||
     visit.patient?.addresses?.[0]?.lat
   );

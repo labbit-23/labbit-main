@@ -9,6 +9,7 @@ import {
 import { sendPatientVisitWhatsapp } from "@/lib/visitWhatsapp";
 import { checkPermission, deny, getSessionUser } from "@/lib/uac/authz";
 import { assertVisitScheduleAllowed } from "@/lib/visitScheduling";
+import { cleanLocationText, coordsLabel } from "@/lib/locationText";
 
 const CONFLICT_EXCLUDED_STATUSES = ["disabled", "cancelled", "canceled", "completed"];
 const VISIT_SELECT_WITH_GEO = `
@@ -218,8 +219,11 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
   const incomingAddressId = visitData?.address_id || null;
   let lat = normalizeNumber(visitData?.lat);
   let lng = normalizeNumber(visitData?.lng);
-  const areaText = String(visitData?.address || locationText || "").trim();
-  const lineText = String(locationText || areaText || "").trim();
+  // Placeholder text ("Not provided", "N/A", ...) is not an address. A
+  // pin-only booking request carries one, and it used to overwrite the real
+  // location on both visits.address and patient_addresses.area.
+  let areaText = cleanLocationText(visitData?.address || locationText);
+  let lineText = cleanLocationText(locationText || areaText);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     const parsed = extractLatLngFromText(`${areaText}\n${lineText}`);
@@ -228,6 +232,27 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
       lng = parsed.lng;
     }
   }
+
+  // Pin but no human-readable address: store the coordinates as the address
+  // text. visits.lat/lng do not exist on every deployment (POST/PUT strip them
+  // on "column does not exist"), so this text is what keeps the pin on the
+  // visit -- admin's red marker and phlebo navigation both parse "lat,lng"
+  // out of visits.address.
+  const pinLabel = coordsLabel(lat, lng);
+  const explicitText = areaText;
+  if (!areaText && pinLabel) {
+    areaText = pinLabel;
+    lineText = lineText || pinLabel;
+  }
+  // What to show on visits.address: a real typed address first, then the
+  // matched record's own area/line, and only then the bare coordinates.
+  const visitAddressFor = (row) =>
+    explicitText ||
+    cleanLocationText(row?.area) ||
+    cleanLocationText(row?.address_line) ||
+    pinLabel ||
+    cleanLocationText(visitData.address) ||
+    "";
 
   if (incomingAddressId) {
     const { data: existingById } = await supabase
@@ -241,7 +266,7 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
       return {
         ...visitData,
         address_id: existingById.id,
-        address: areaText || existingById.area || existingById.address_line || visitData.address || "",
+        address: visitAddressFor(existingById),
         lat: lat ?? existingById.lat ?? visitData.lat ?? null,
         lng: lng ?? existingById.lng ?? visitData.lng ?? null
       };
@@ -278,7 +303,7 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
     return {
       ...visitData,
       address_id: matched.id,
-      address: areaText || matched.area || matched.address_line || visitData.address || "",
+      address: visitAddressFor(matched),
       lat: lat ?? matched.lat ?? visitData.lat ?? null,
       lng: lng ?? matched.lng ?? visitData.lng ?? null
     };
@@ -298,7 +323,7 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
       .insert({
         patient_id: patientId,
         label: "Saved from Visit",
-        area: areaText || null,
+        area: explicitText || null,
         address_line: lineText || null,
         lat,
         lng,
@@ -349,7 +374,7 @@ async function resolveOrCreatePatientAddress(visitData, locationText = "") {
   return {
     ...visitData,
     address_id: inserted.id,
-    address: areaText || inserted.area || inserted.address_line || visitData.address || "",
+    address: visitAddressFor(inserted),
     lat: lat ?? inserted.lat ?? visitData.lat ?? null,
     lng: lng ?? inserted.lng ?? visitData.lng ?? null
   };

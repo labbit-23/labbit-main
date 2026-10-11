@@ -34,6 +34,7 @@ import { ExternalLinkIcon, CheckIcon } from "@chakra-ui/icons";
 import { supabase } from "../../lib/supabaseClient";
 import TestPackageSelector from "../../components/TestPackageSelector";
 import { useUser } from "../context/UserContext";
+import { resolveVisitLocation } from "@/lib/visitLocation";
 
 const FALLBACK_STATUS_OPTIONS = [
   { code: "disabled", label: "Cancelled", order: -3 },
@@ -377,8 +378,9 @@ export default function VisitDetailTab({ visit, onBack, themeMode = "light" }) {
       : null;
 
   const embeddedMapsUrl = extractGoogleMapsUrl(visit.address);
-  const mapsUrl = visit.lat && visit.lng
-    ? `https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`
+  const resolvedLocation = resolveVisitLocation(visit);
+  const mapsUrl = resolvedLocation?.url
+    ? resolvedLocation.url
     : (embeddedMapsUrl ||
       (visit.address
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visit.address)}`

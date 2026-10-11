@@ -12,6 +12,7 @@ import { useUser } from '../context/UserContext';
 import PatientLookup from './PatientLookup';
 import ModularPatientModal from './ModularPatientModal';
 import VisitModal from './VisitModal';
+import { cleanLocationText, coordsLabel } from '@/lib/locationText';
 import PatientVisitCards from './PatientVisitCards';
 import AddressManager from './AddressManager'; // real AddressManager
 
@@ -49,10 +50,13 @@ export default function PatientsTab({
 
   const quickbookDraftPatient = useMemo(() => {
     if (quickbookContext?.source !== 'quickbook' || !quickbookBooking) return null;
+    // Skip placeholder text ("Not provided") so it isn't saved as the new
+    // patient's address; fall back to the shared pin's coordinates.
     const locationHint =
-      quickbookBooking?.location_address ||
-      quickbookBooking?.area ||
-      quickbookBooking?.location_text ||
+      cleanLocationText(quickbookBooking?.location_address) ||
+      cleanLocationText(quickbookBooking?.area) ||
+      cleanLocationText(quickbookBooking?.location_text) ||
+      coordsLabel(quickbookBooking?.location_lat, quickbookBooking?.location_lng) ||
       '';
     return {
       id: null,
@@ -71,6 +75,8 @@ export default function PatientsTab({
     quickbookBooking?.location_address,
     quickbookBooking?.area,
     quickbookBooking?.location_text,
+    quickbookBooking?.location_lat,
+    quickbookBooking?.location_lng,
   ]);
 
   const [visits, setVisits] = useState([]);
@@ -466,11 +472,15 @@ export default function PatientsTab({
         time_slot: quickbookContext.booking?.time_slot?.id || '',
         lat: quickbookContext.booking?.location_lat || null,
         lng: quickbookContext.booking?.location_lng || null,
-        location_text: quickbookContext.booking?.location_text || "",
+        location_text: cleanLocationText(quickbookContext.booking?.location_text),
         address:
-          quickbookContext.booking?.location_text ||
-          quickbookContext.booking?.location_address ||
-          quickbookContext.booking?.area ||
+          cleanLocationText(quickbookContext.booking?.location_text) ||
+          cleanLocationText(quickbookContext.booking?.location_address) ||
+          cleanLocationText(quickbookContext.booking?.area) ||
+          coordsLabel(
+            quickbookContext.booking?.location_lat,
+            quickbookContext.booking?.location_lng
+          ) ||
           "",
         notes: quickbookContext.booking?.tests?.length
           ? Array.isArray(quickbookContext.booking.tests)

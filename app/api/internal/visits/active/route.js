@@ -32,7 +32,7 @@ export async function GET(request) {
     const data = await scoped({ mode: "all", labId: null }, async () => {
       const visits = await query(
         `
-        SELECT id, patient_id, visit_date, time_slot, address, status, executive_id, notes, prescription, website_enquiry_id
+        SELECT id, patient_id, visit_date, time_slot, address, address_id, status, executive_id, notes, prescription, website_enquiry_id
         FROM visits
         WHERE visit_date >= $1 AND visit_date <= $2
           AND (executive_id = $3${includeUnassigned ? " OR executive_id IS NULL" : ""})
@@ -203,6 +203,7 @@ export async function GET(request) {
           visit_date: v.visit_date,
           time_slot: v.time_slot ? timeSlotById.get(v.time_slot) || null : null,
           address: v.address,
+          address_id: v.address_id,
           status: v.status,
           executive_id: v.executive_id,
           notes: v.notes,
