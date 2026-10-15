@@ -117,6 +117,17 @@ function extractReqidFromStatus(reportStatus) {
   return null;
 }
 
+// Tells a partial and a complete file apart on the patient's phone (same requisition, same
+// patient name). Precedence: special > partial > pending > complete; unknown label -> no suffix.
+function reportFilenameSuffix(label) {
+  const text = String(label || "").toLowerCase();
+  if (text.startsWith("special report")) return "_special";
+  if (text.includes("partial")) return "_partial";
+  if (text.includes("pending")) return "_pending";
+  if (text.includes("complete")) return "_complete";
+  return "";
+}
+
 function buildReportFilename(report) {
   const reqid = String(report?.reqid || "").trim();
   const reqno = String(report?.reqno || reqid).trim();
@@ -125,7 +136,7 @@ function buildReportFilename(report) {
     .split(/\s+/)[0]
     .replace(/[^A-Za-z]/g, "")
     .toUpperCase() || "PATIENT";
-  return `SDRC_Report_${reqno}_${firstName}.pdf`;
+  return `SDRC_Report_${reqno}_${firstName}${reportFilenameSuffix(report?.report_label)}.pdf`;
 }
 
 // 2026-09-03: this fetch doubles as a send-time cache warm-up. labit-py's
@@ -266,7 +277,11 @@ export async function POST(request) {
       const statusByReqno = await getReportStatus(rawReqno);
       const reqid = extractReqidFromStatus(statusByReqno);
       if (!reqid) return new Response(`Could not find report mapping for requisition no ${rawReqno}.`, { status: 400 });
-      documentUrl = getReportUrl(reqid, { reqno: rawReqno });
+      documentUrl = getReportUrl(reqid, {
+        reqno: rawReqno,
+        testids: readyLabTestKeys,
+        job: body?.job_id
+      });
       if (!(await isReachablePdfDocument(documentUrl))) {
         return new Response(`Report PDF was not found for requisition ${rawReqno}.`, { status: 400 });
       }
@@ -313,7 +328,8 @@ export async function POST(request) {
       filename = buildReportFilename({
         reqid: resolvedReqid || null,
         reqno: resolvedReqno || null,
-        patient_name: resolvedPatientName || patientName || ""
+        patient_name: resolvedPatientName || patientName || "",
+        report_label: reportLabel
       });
     }
 
