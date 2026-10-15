@@ -220,7 +220,7 @@ export default function ShortcutBar({
         return;
       }
       await refreshUser();
-      router.replace("/login");
+      router.replace("/");
     } catch (error) {
       alert("Logout failed: " + error.message);
     }
