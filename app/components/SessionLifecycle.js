@@ -46,6 +46,8 @@ export default function SessionLifecycle() {
       if (
         response.status === 401 &&
         window.location.pathname !== "/login" &&
+        // `/` is the public landing page; its signed-in check (/api/me) 401s for visitors.
+        window.location.pathname !== "/" &&
         !isKioskPath() &&
         !isPublicNoLoginPath() &&
         isSameOriginApi(input)

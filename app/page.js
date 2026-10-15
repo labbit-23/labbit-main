@@ -11,6 +11,7 @@ import {
 } from "@chakra-ui/react";
 import { Global } from "@emotion/react";
 import { useState, useEffect, useLayoutEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import packages, { testCategoryMap, globalNotes } from "@/lib/packages";
 import CompareModal from "./components/CompareModal";
@@ -30,6 +31,35 @@ function getPrimaryCategory(variant) {
 
 export default function LandingPage() {
   const toast = useToast();
+  const router = useRouter();
+
+  // 2026-10-15, director: "a logged in session should still see their page". `/` is the
+  // public landing page for signed-out visitors; a valid session goes to its workspace
+  // (same role mapping as app/login/page.js's session check). Signed-out visitors just get
+  // the 401 from /api/me and stay here (SessionLifecycle skips its /login bounce on `/`).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const user = await res.json();
+        const execType = String(user.executiveType || "").toLowerCase();
+        let target = null;
+        if (user.userType === "patient" && user.phone) target = "/patient";
+        else if (user.userType === "executive") {
+          if (execType === "director") target = "/cto";
+          else if (["admin", "manager"].includes(execType)) target = "/admin";
+          else if (execType === "phlebo") target = "/phlebo";
+          else if (["logistics", "b2b"].includes(execType)) target = "/collection-centre";
+        }
+        if (target) router.replace(target);
+      } catch {
+        // signed out / offline: stay on the landing page
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
   const { isOpen, onOpen, onClose } = useDisclosure(); // Booking Request
   const { isOpen: compareModalOpen, onOpen: onCompareOpen, onClose: onCompareClose } = useDisclosure();
 
