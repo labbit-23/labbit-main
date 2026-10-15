@@ -11,7 +11,6 @@ import {
 } from "@chakra-ui/react";
 import { Global } from "@emotion/react";
 import { useState, useEffect, useLayoutEffect } from "react";
-import { useRouter } from "next/navigation";
 
 import packages, { testCategoryMap, globalNotes } from "@/lib/packages";
 import CompareModal from "./components/CompareModal";
@@ -31,19 +30,6 @@ function getPrimaryCategory(variant) {
 
 export default function LandingPage() {
   const toast = useToast();
-  const router = useRouter();
-
-  // 2026-10-15, director: the installed app (iPhone home-screen icon) opened this public
-  // booking page instead of the workspace, so staff always had to tap Login. In the
-  // installed app, hand off to /login, which already forwards a valid session to the right
-  // workspace by role (/api/me) and only shows the form when there is none.
-  useEffect(() => {
-    const standalone =
-      window.matchMedia?.("(display-mode: standalone)")?.matches ||
-      window.matchMedia?.("(display-mode: fullscreen)")?.matches ||
-      window.navigator.standalone === true;
-    if (standalone) router.replace("/login");
-  }, [router]);
   const { isOpen, onOpen, onClose } = useDisclosure(); // Booking Request
   const { isOpen: compareModalOpen, onOpen: onCompareOpen, onClose: onCompareClose } = useDisclosure();
 
