@@ -2030,7 +2030,7 @@ export default function ReportDispatchWorkspace({
                 </ButtonGroup>
               </Flex>
 
-              <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={2} mb={2}>
+              <SimpleGrid columns={{ base: 2, md: 4, lg: 4 }} spacing={2} mb={2}>
                 <Box p={2} borderWidth="2px" borderRadius="md"
                   bg={themeMode === "dark" ? "blue.900" : "blue.50"}
                   borderColor="transparent"
@@ -2062,11 +2062,33 @@ export default function ReportDispatchWorkspace({
                   _hover={{ borderColor: "teal.300" }}
                   onClick={() => setAutoStatusFilter(autoStatusFilter === "sent" ? "" : "sent")}
                 >
-                  <Text fontSize="xs" opacity={0.7}>Sent {selectedDate === dayjs().format("YYYY-MM-DD") ? "(today)" : `(${selectedDate})`}{monitorTopStats.prevDaySent > 0 ? ` (+${monitorTopStats.prevDaySent} prev)` : ""}</Text>
+                  <Text fontSize="xs" opacity={0.7}>Sent {selectedDate === dayjs().format("YYYY-MM-DD") ? "(today)" : `(${selectedDate})`}{monitorTopStats.prevDaySent > 0 ? ` (+${monitorTopStats.prevDaySent} queued overnight)` : ""}</Text>
                   <Text fontWeight="bold">{monitorTopStats.sentToday}</Text>
                   <Text fontSize="10px" color={themeMode === "dark" ? "whiteAlpha.800" : "gray.700"}>
                     Lab {sentTodaySplit.lab} • Scan {sentTodaySplit.radiology} • Both {sentTodaySplit.hybrid}{sentTodaySplit.other > 0 ? ` • Other ${sentTodaySplit.other}` : ""}
                   </Text>
+                </Box>
+                <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
+                  bg={themeMode === "dark" ? "blue.900" : "blue.50"}
+                  borderColor={autoStatusFilter === "prev_day_reqno" ? "pink.400" : "transparent"}
+                  _hover={{ borderColor: "pink.300" }}
+                  onClick={() => {
+                    const next = autoStatusFilter === "prev_day_reqno" ? "" : "prev_day_reqno";
+                    setAutoStatusFilter(next);
+                    if (next) setAutoViewFilter("all");
+                  }}
+                >
+                  <Text fontSize="xs" opacity={0.7}>Older Requisitions Sent</Text>
+                  <Text fontWeight="bold">{autoSummary?.previous_day_reqno_sent_jobs ?? 0}</Text>
+                  <Tooltip
+                    label="Sent in this day for a requisition whose own test_date is an earlier day -- e.g. a follow-up for a report that only became ready later. Counted by requisition date, not by when the job row was created. The smaller number is job rows created on an earlier day that sat in the queue overnight (a different, overlapping count). Click to filter to the older-requisition sends."
+                    hasArrow
+                    openDelay={250}
+                  >
+                    <Text fontSize="10px" color={themeMode === "dark" ? "pink.200" : "pink.600"}>
+                      {autoSummary?.previous_days_sent_jobs ?? 0} queued overnight
+                    </Text>
+                  </Tooltip>
                 </Box>
                 <Box p={2} borderWidth="2px" borderRadius="md"
                   bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}
@@ -2227,28 +2249,6 @@ export default function ReportDispatchWorkspace({
                         </Text>
                       </Tooltip>
                     ) : null}
-                  </Box>
-                  <Box p={2} borderWidth="2px" borderRadius="md" cursor="pointer"
-                    bg={themeMode === "dark" ? "blue.900" : "blue.50"}
-                    borderColor={autoStatusFilter === "prev_day_reqno" ? "pink.400" : "transparent"}
-                    _hover={{ borderColor: "pink.300" }}
-                    onClick={() => {
-                      const next = autoStatusFilter === "prev_day_reqno" ? "" : "prev_day_reqno";
-                      setAutoStatusFilter(next);
-                      if (next) setAutoViewFilter("all");
-                    }}
-                  >
-                    <Text fontSize="xs" opacity={0.7}>Previous Days Sent</Text>
-                    <Text fontWeight="bold">{autoSummary?.previous_days_sent_jobs ?? 0}</Text>
-                    <Tooltip
-                      label="Of the above: sent today for a requisition whose own test_date is an earlier day -- e.g. a partial-report reqno that only became fully ready and dispatched later (reconcile follow-up), not just a job row that sat in the queue overnight. Click to filter to just these."
-                      hasArrow
-                      openDelay={250}
-                    >
-                      <Text fontSize="10px" color={themeMode === "dark" ? "pink.200" : "pink.600"}>
-                        of which {autoSummary?.previous_day_reqno_sent_jobs ?? 0} prev-day reqno
-                      </Text>
-                    </Tooltip>
                   </Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "teal.900" : "teal.50"}><Text fontSize="xs" opacity={0.7}>Special / Outsourced Sent</Text><Text fontWeight="bold">{autoSummary?.outsourced_sent_jobs ?? 0}</Text></Box>
                   <Box p={2} borderWidth="1px" borderRadius="md" bg={themeMode === "dark" ? "cyan.900" : "cyan.50"}><Text fontSize="xs" opacity={0.7}>Labit-origin Jobs</Text><Text fontWeight="bold">{monitorOriginStats.labit_core}</Text></Box>
