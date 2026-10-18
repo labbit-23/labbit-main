@@ -3,7 +3,7 @@ import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
 import { lookupReports, getReportUrl } from "@/lib/neosoft/client";
-import { normalizeNeosoftTrendPayload } from "@/lib/trendReports/normalizeNeosoft";
+import { normalizeTrendPayload } from "@/lib/trendReports/normalizeTrendPayload";
 import { evaluateTrendRules } from "@/lib/trendReports/ruleEngine";
 import { buildReportFacts } from "@/lib/trendReports/buildReportFacts";
 
@@ -277,7 +277,7 @@ export async function GET(request) {
         throw new Error(trendResult.message || "no trend data");
       }
       const payload = trendResult.payload;
-      const normalized = normalizeNeosoftTrendPayload(payload, {
+      const normalized = normalizeTrendPayload(payload, {
         asOfDate: new Date().toISOString().slice(0, 10),
       });
       trendDateBuckets = toTrendDateBuckets(normalized).slice(0, 120);

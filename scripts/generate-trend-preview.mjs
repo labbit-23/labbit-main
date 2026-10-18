@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { normalizeNeosoftTrendPayload } from "../lib/trendReports/normalizeNeosoft.js";
+import { normalizeTrendPayload } from "../lib/trendReports/normalizeTrendPayload.js";
 import { evaluateTrendRules } from "../lib/trendReports/ruleEngine.js";
 import { buildReportFacts } from "../lib/trendReports/buildReportFacts.js";
 import { renderReportHtml } from "../lib/trendReports/renderReportHtml.js";
@@ -44,7 +44,7 @@ const asOfDate = args.asof || new Date().toISOString().slice(0, 10);
 const raw = fs.readFileSync(inputPath, "utf8");
 const payload = JSON.parse(raw);
 
-const normalized = normalizeNeosoftTrendPayload(payload, {
+const normalized = normalizeTrendPayload(payload, {
   asOfDate,
   includeComponents,
   psyntaxAllowList

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
-import { normalizeNeosoftTrendPayload } from "@/lib/trendReports/normalizeNeosoft";
+import { normalizeTrendPayload } from "@/lib/trendReports/normalizeTrendPayload";
 import { evaluateTrendRules } from "@/lib/trendReports/ruleEngine";
 import { buildReportFacts } from "@/lib/trendReports/buildReportFacts";
 import { renderReportHtml } from "@/lib/trendReports/renderReportHtml";
@@ -227,7 +227,7 @@ export async function GET(req) {
       });
     }
     const payload = trendResult.payload;
-    const normalized = normalizeNeosoftTrendPayload(payload, { asOfDate });
+    const normalized = normalizeTrendPayload(payload, { asOfDate });
     const evaluation = evaluateTrendRules({ normalizedTrend: normalized, asOfDate });
     const envDesignVariant = normalizedDesignVariant(TREND_REPORT_DEFAULT_DESIGN_VARIANT, "");
     const brandResolved = {

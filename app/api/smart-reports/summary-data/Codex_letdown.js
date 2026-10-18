@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRadiologyReportUrl, getReportStatus } from "@/lib/neosoft/client";
-import { normalizeNeosoftTrendPayload } from "@/lib/trendReports/normalizeNeosoft";
+import { normalizeTrendPayload } from "@/lib/trendReports/normalizeTrendPayload";
 import zlib from "zlib";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
