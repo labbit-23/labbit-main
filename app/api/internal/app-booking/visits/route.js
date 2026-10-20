@@ -174,3 +174,59 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to create the booking" }, { status: 500 });
   }
 }
+
+// GET /api/internal/app-booking/visits?patient_id=
+//
+// The patient's own home visits (newest first, capped), for the app's
+// "My bookings": date, slot, address, raw status, what was booked, and the
+// assigned collector's FIRST name only. Hub-level (public.visits) -- needs no
+// provider core, so it works for any lab on the hub. Scoped strictly to the
+// caller-supplied patient_id, which the app API resolves from the verified
+// account link, never from the client.
+export async function GET(request) {
+  if (!appHubAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const patientId = String(new URL(request.url).searchParams.get("patient_id") || "").trim();
+  if (!patientId) return NextResponse.json({ error: "patient_id is required" }, { status: 400 });
+  try {
+    const { data: visits, error } = await supabase
+      .from("visits")
+      .select("id, visit_date, time_slot, status, notes, address_id, executive:executive_id(name)")
+      .eq("lab_id", DEFAULT_SDRC_LAB_ID)
+      .eq("patient_id", patientId)
+      .order("visit_date", { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    const rows = visits || [];
+    const slotIds = [...new Set(rows.map((v) => v.time_slot).filter(Boolean))];
+    const addrIds = [...new Set(rows.map((v) => v.address_id).filter(Boolean))];
+    const [slotRes, addrRes] = await Promise.all([
+      slotIds.length ? supabase.from("visit_time_slots").select("id, slot_name, start_time, end_time").in("id", slotIds) : { data: [] },
+      addrIds.length ? supabase.from("patient_addresses").select("id, label, address_line").in("id", addrIds) : { data: [] },
+    ]);
+    const slots = new Map((slotRes.data || []).map((s) => [s.id, s]));
+    const addrs = new Map((addrRes.data || []).map((a) => [a.id, a]));
+    return NextResponse.json({
+      visits: rows.map((v) => {
+        const s = slots.get(v.time_slot);
+        const a = addrs.get(v.address_id);
+        return {
+          id: v.id,
+          visitDate: v.visit_date,
+          slotName: s?.slot_name ?? null,
+          startTime: s?.start_time ?? null,
+          endTime: s?.end_time ?? null,
+          status: v.status,
+          notes: v.notes ?? null,
+          addressLabel: a?.label ?? null,
+          addressLine: a?.address_line ?? null,
+          collectorFirstName: v.executive?.name ? String(v.executive.name).trim().split(/\s+/)[0] : null,
+        };
+      }),
+    });
+  } catch (err) {
+    console.error("[app-booking/visits] list error", err);
+    return NextResponse.json({ error: "Failed to load bookings" }, { status: 500 });
+  }
+}
