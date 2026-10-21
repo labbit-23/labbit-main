@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
+import { fastingByTestCodes } from "@/lib/appFasting";
 
 // GET /api/internal/app-catalog/tests?q=&popular=1&limit=
 //
@@ -72,6 +73,7 @@ export async function GET(request) {
   if (error) {
     return NextResponse.json({ error: "Failed to load catalog" }, { status: 500 });
   }
+  const fasting = await fastingByTestCodes((data || []).map((r) => r.internal_code));
   return NextResponse.json({
     tests: (data || []).map((r) => ({
       providerTestCode: String(r.internal_code).trim().toUpperCase(),
@@ -82,6 +84,8 @@ export async function GET(request) {
       // null means "not recorded" (the column itself allows null) --
       // never default a missing value to true, since that would silently
       // promise home collection for a test that actually needs a centre visit.
+      // From labit-core's per-parameter fasting flag; null = unknown (never "no").
+      fastingRequired: fasting.has(String(r.internal_code).trim().toUpperCase()) ? fasting.get(String(r.internal_code).trim().toUpperCase()) : null,
       homeCollectionAvailable: r.home_collection === null ? null : !!r.home_collection,
     })),
   });

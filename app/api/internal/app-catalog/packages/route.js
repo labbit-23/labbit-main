@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fastingByTestNames, packageFasting } from "@/lib/appFasting";
 import { supabase } from "@/lib/supabaseServer";
 import { appHubAuthorized, DEFAULT_SDRC_LAB_ID } from "@/lib/appHubAuth";
 import { groupTestsBySystem } from "@/lib/packageSystems";
@@ -53,6 +54,8 @@ export async function GET(request) {
   if (error) {
     return NextResponse.json({ error: "Failed to load packages" }, { status: 500 });
   }
+  const allNames = (data || []).flatMap((p) => (Array.isArray(p.variant_meta?.tests) ? p.variant_meta.tests : []));
+  const fastingByName = await fastingByTestNames(allNames);
   return NextResponse.json({
     packages: (data || []).map((p) => {
       const testNames = Array.isArray(p.variant_meta?.tests) ? p.variant_meta.tests : [];
@@ -65,6 +68,7 @@ export async function GET(request) {
       testNames,
       // Total parameters as published for the package (not derivable from test
       // names: one test can hold many parameters). null when not published.
+      fastingRequired: packageFasting(testNames, fastingByName),
       parameters: Number.isFinite(parameters) && parameters > 0 ? parameters : null,
       // Tests grouped by body system, from the catalog's own category map.
       systems: groupTestsBySystem(testNames, healthPackagesData.testCategoryMap),
