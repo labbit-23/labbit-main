@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { appHubAuthorized, DEFAULT_SDRC_LAB_ID } from "@/lib/appHubAuth";
-import { assertVisitScheduleAllowed } from "@/lib/visitScheduling";
+import { assertVisitScheduleAllowed, appCancelCutoffMinutes, cancelStillAllowed } from "@/lib/visitScheduling";
 
 // PATCH /api/internal/app-booking/visits/{id}
 // Body: { patient_id, action: "cancel" | "reschedule", visit_date?, time_slot? }
@@ -31,7 +31,7 @@ export async function PATCH(request, { params }) {
   try {
     const { data: visit, error } = await supabase
       .from("visits")
-      .select("id, status")
+      .select("id, status, visit_date, time_slot")
       .eq("id", id)
       .eq("patient_id", patientId)
       .eq("lab_id", DEFAULT_SDRC_LAB_ID)
@@ -47,6 +47,17 @@ export async function PATCH(request, { params }) {
     }
 
     if (action === "cancel") {
+      // No cancelling inside the cutoff window before the slot starts
+      // (APP_VISIT_CANCEL_CUTOFF_MINUTES, default 60) -- the collector is
+      // already committed by then; the patient has to call the lab.
+      const { data: slot } = await supabase.from("visit_time_slots").select("start_time").eq("id", visit.time_slot).maybeSingle();
+      if (!cancelStillAllowed(visit.visit_date, slot?.start_time)) {
+        const mins = appCancelCutoffMinutes();
+        return NextResponse.json(
+          { error: `Bookings can't be cancelled within ${mins >= 60 && mins % 60 === 0 ? `${mins / 60} hour${mins === 60 ? "" : "s"}` : `${mins} minutes`} of the visit. Please call the lab.`, code: "VISIT_CANCEL_WINDOW_CLOSED" },
+          { status: 409 }
+        );
+      }
       const { error: upErr } = await supabase.from("visits").update({ status: "cancelled" }).eq("id", id);
       if (upErr) throw upErr;
       return NextResponse.json({ id, status: "cancelled" });

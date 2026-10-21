@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { appHubAuthorized, DEFAULT_SDRC_LAB_ID } from "@/lib/appHubAuth";
-import { assertVisitScheduleAllowed } from "@/lib/visitScheduling";
+import { assertVisitScheduleAllowed, cancelStillAllowed } from "@/lib/visitScheduling";
 import { submitWebsiteEnquiry } from "@/lib/labitCoreEnquiry";
 
 // POST /api/internal/app-booking/visits
@@ -221,6 +221,8 @@ export async function GET(request) {
           notes: v.notes ?? null,
           addressLabel: a?.label ?? null,
           addressLine: a?.address_line ?? null,
+          // false inside the cancel cutoff window (see [id]/route.js) so the app can say so up front.
+          canCancel: cancelStillAllowed(v.visit_date, s?.start_time),
           collectorFirstName: v.executive?.name ? String(v.executive.name).trim().split(/\s+/)[0] : null,
         };
       }),
