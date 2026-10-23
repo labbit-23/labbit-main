@@ -142,7 +142,11 @@ export async function GET(request) {
     const reportType = kind || (reportScope === "lab" ? "lab" : reportScope === "radiology" ? "radiology" : reportScope === "special" ? "special" : "combined");
 
     const upstream = await fetch(reportUrl, { method: "GET", cache: "no-store" });
+    const upstreamHeadersMs = Date.now() - startedAt;
     const bytes = await upstream.arrayBuffer();
+    console.info(
+      `[admin-report-document] ${reqno || reqid} ${reportType} upstream headers ${upstreamHeadersMs}ms, body ${Date.now() - startedAt}ms, ${bytes.byteLength} bytes`
+    );
     const contentType = String(upstream.headers.get("content-type") || "application/pdf");
 
     if (!upstream.ok) {
@@ -193,7 +197,8 @@ export async function GET(request) {
         ? `attachment; filename="${fileName}"`
         : `inline; filename="${fileName}"`;
 
-    await logReportDispatch({
+    // Not awaited: the viewer should not wait on the log insert (logReportDispatch catches its own errors).
+    void logReportDispatch({
       labId: resolvedLabId,
       actorUserId: user?.id || null,
       actorName: user?.name || "Admin",
