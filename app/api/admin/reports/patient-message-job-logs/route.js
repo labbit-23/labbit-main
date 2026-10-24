@@ -81,7 +81,7 @@ export async function GET(request) {
 
     let query = supabase
       .from(LOGS_TABLE)
-      .select("id,lab_id,reqno,reqid,phone,report_type,status,result_code,result_message,provider_message_id,created_at", { count: "exact" })
+      .select("id,lab_id,reqno,reqid,phone,report_type,status,result_code,result_message,provider_message_id,created_at,request_payload", { count: "exact" })
       .eq("actor_name", ACTOR_NAME)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -138,13 +138,23 @@ export async function GET(request) {
         { providerMessageId: row.provider_message_id, phone: row.phone, sentAt },
         deliveryIdx
       );
+      // Bill message (requisition_welcome): say which template went out and keep the button link, so staff can see paid vs due.
+      const payload = row.request_payload && typeof row.request_payload === "object" ? row.request_payload : {};
+      const billState = String(payload.bill_state || "").trim()
+        || (payload.template_name === "requisition_due" ? "due" : payload.template_name === "requisition_paid" ? "paid" : "");
+      const dueAmount = billState === "due" && Array.isArray(payload.params) ? String(payload.params[4] || "").trim() : "";
+      const reportLabel = billState === "due"
+        ? `Bill - due${dueAmount ? ` \u20b9${dueAmount}` : ""}`
+        : billState === "paid" ? "Bill - paid" : row.report_type;
       return {
         id: `pmj_${row.id}`,
         reqno: row.reqno,
         reqid: row.reqid,
         phone: row.phone,
         patient_name: null,
-        report_label: row.report_type,
+        report_label: reportLabel,
+        template_name: payload.template_name || null,
+        button_url: payload.button_url || null,
         status: row.status === "success" ? "sent" : row.status,
         sent_at: sentAt,
         updated_at: row.created_at,

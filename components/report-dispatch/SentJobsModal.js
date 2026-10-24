@@ -24,6 +24,7 @@ import {
   Table,
   Tbody,
   Td,
+  Link,
   Text,
   Th,
   Thead,
@@ -226,6 +227,7 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
   }, [tabFilteredRows, search]);
 
   const hasReasonColumn = filteredRows.some((row) => reasonForRow(row));
+  const hasButtonColumn = filteredRows.some((row) => row?.button_url);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside">
@@ -309,6 +311,11 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                       <Text mt={2} fontSize="xs" color="gray.600">
                         Sent (IST): {formatMessageTime(row?.sent_at || row?.updated_at) || "-"}
                       </Text>
+                      {row?.button_url ? (
+                        <Text mt={1} fontSize="xs" color="gray.600" overflowWrap="anywhere">
+                          Button link: <Link href={row.button_url} isExternal color="blue.500">{row.button_url}</Link>
+                        </Text>
+                      ) : null}
                       {messageId ? (
                         <Text mt={1} fontSize="xs" color="gray.600" overflowWrap="anywhere">
                           Message ID: {messageId}
@@ -334,6 +341,7 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                     <Th>Delivery</Th>
                     <Th>Sent (IST)</Th>
                     {hasReasonColumn ? <Th>Reason / Comment</Th> : null}
+                    {hasButtonColumn ? <Th>Button link</Th> : null}
                     <Th>View</Th>
                   </Tr>
                 </Thead>
@@ -353,6 +361,15 @@ export default function SentJobsModal({ isOpen, onClose, initialDate }) {
                         <Td>{normalizeDeliveryStatus(row?.delivery_status)}</Td>
                         <Td>{formatMessageTime(row?.sent_at || row?.updated_at)}</Td>
                         {hasReasonColumn ? <Td maxW="280px" overflow="hidden" textOverflow="ellipsis" title={reason || undefined}>{reason}</Td> : null}
+                        {hasButtonColumn ? (
+                          <Td>
+                            {row?.button_url ? (
+                              <Link href={row.button_url} isExternal color="blue.500" title={row.button_url}>
+                                {String(row?.report_label || "").toLowerCase().includes("due") ? "Pay link" : "Report link"}
+                              </Link>
+                            ) : "-"}
+                          </Td>
+                        ) : null}
                         <Td>
                           {viewUrl ? (
                             <IconButton
