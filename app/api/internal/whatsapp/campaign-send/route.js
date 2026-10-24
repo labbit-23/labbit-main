@@ -32,7 +32,8 @@ export async function POST(request) {
     const result = await runJob({
       labId: String(body?.lab_id || process.env.DEFAULT_LAB_ID || "").trim(),
       key,
-      context
+      context,
+      force: body?.force === true
     });
     return NextResponse.json(result, { status: result?.ok === false ? 400 : 200 });
   } catch (err) {
