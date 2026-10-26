@@ -38,6 +38,7 @@ import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/pho
 import { resolveInternalNotifyPhone } from "@/lib/whatsapp/internalNumbers";
 import { extractProviderMessageId, logReportDispatch } from "@/lib/reportDispatchLogs";
 import { saveReportFeedback } from "@/lib/reportFeedback";
+import { isStopMessage, recordOptOut } from "@/lib/marketingCampaigns";
 import { buildFeedbackLink } from "@/lib/feedbackToken";
 import crypto from "node:crypto";
 
@@ -2551,6 +2552,26 @@ export async function POST(req) {
     const countryCode = match ? match[1] : null;
 
     const phone = toCanonicalIndiaPhone(rawPhone) || rawPhone;
+
+    // Marketing opt-out: "STOP" / "Unsubscribe" (or the marketing template's stop button) puts the number on the do-not-message list
+    // that lib/marketingCampaigns checks before every send. Handled before the bot so it never starts a menu flow.
+    if (isStopMessage(String(userInput).replace(/_/g, " "))) {
+      try {
+        await recordOptOut(phone, { source: "whatsapp_reply", reason: String(userInput).slice(0, 80) });
+        const optOutLabId = String(process.env.DEFAULT_LAB_ID || "").trim();
+        if (optOutLabId) {
+          await sendTextMessage({
+            labId: optOutLabId,
+            phone,
+            text: "You have been unsubscribed from SDRC promotional messages. You will still receive your reports and bills. Reply Hi anytime for help.",
+            sender: { name: "marketing-optout", role: "system", userType: "service" }
+          });
+        }
+        return Response.json({ success: true });
+      } catch (optOutError) {
+        console.error("[marketing-optout] failed; continuing with the normal flow", optOutError?.message || optOutError);
+      }
+    }
 
     // --------------------------------------------------
     // 5️⃣ Get/Create Session
