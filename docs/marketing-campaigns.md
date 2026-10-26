@@ -49,3 +49,8 @@ The image header can carry the Diwali banner. Config:
 `"template": { "name": "trend_reports", "language": "en", "header_image_url": "https://.../diwali-banner.jpg", "params": ["first_name", "records_label", "last_visit_date", "lab_contact"] }`
 `lab_contact` reads env `MARKETING_CONTACT_PHONE` (no default; the dry run fails if it is unset). `records_label` is the last package, or "lab tests" when none is on file.
 Caution: a promotional banner on a template approved as Utility can get the template re-categorised by Meta. Start with the pilot batch and watch the failure/quality counts.
+
+## Second existing template: the package-results one (name: confirm in Mtalkz)
+Body: "Dear {{1}}, results for your last health checkup are now available by clicking {{2}} (Package {{3}} done on date {{4}}). ... contact us on {{5}}. Reply with Hi ..." One quick-reply button "Hi", no header image.
+`"params": ["first_name", "trend_link", "last_package", "last_visit_date", "lab_contact"]` with `"segment": {"type": "package", ...}`.
+`trend_link` is the patient's trend-report page (needs an MRN). A recipient whose any variable is empty (e.g. no package on file, so use the package segment) is skipped with `skip_reason = empty_param:<name>`, not counted as a failure. The dry run's skipped count shows how many.

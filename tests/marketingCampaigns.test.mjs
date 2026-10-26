@@ -5,6 +5,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ||= "http://localhost:54321";
 process.env.SUPABASE_URL ||= "http://localhost:54321";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||= "test";
+process.env.NEOSOFT_API_BASE_URL ||= "http://localhost:9";
 
 const { normalizeConfig, validateConfig, withinSendWindow, istParts, estimateCost, isStopMessage } = await import("../lib/marketingCampaigns/index.js");
 
@@ -58,4 +59,10 @@ test("trend_reports variables resolve from an audience row; the lab number must 
   process.env.MARKETING_CONTACT_PHONE = "04000000000";
   assert.equal(resolveParam("lab_contact", ctx), "04000000000");
   delete process.env.MARKETING_CONTACT_PHONE;
+});
+
+test("trend_link comes from the sender's context and is empty without an MRN", async () => {
+  const { resolveParam } = await import("../lib/patientMessageJobs/variables.js");
+  assert.equal(resolveParam("trend_link", { trend_link: "https://x/trend-report/123" }), "https://x/trend-report/123");
+  assert.equal(resolveParam("trend_link", {}), "");
 });
