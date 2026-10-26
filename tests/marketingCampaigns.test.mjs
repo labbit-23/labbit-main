@@ -45,3 +45,17 @@ test("cost estimate and stop words", () => {
   assert.equal(isStopMessage("stop promotions"), true);
   assert.equal(isStopMessage("please stop calling"), false);
 });
+
+test("trend_reports variables resolve from an audience row; the lab number must be configured", async () => {
+  const { resolveParam } = await import("../lib/patientMessageJobs/variables.js");
+  const ctx = { patient_name: "Rahul Sharma", last_package: "Executive Health Checkup", last_visit: "2025-03-12" };
+  assert.equal(resolveParam("first_name", ctx), "Rahul");
+  assert.equal(resolveParam("records_label", ctx), "Executive Health Checkup");
+  assert.equal(resolveParam("records_label", { last_visit: "2025-03-12" }), "lab tests");
+  assert.equal(resolveParam("last_visit_date", ctx), "12 Mar 2025");
+  delete process.env.MARKETING_CONTACT_PHONE;
+  assert.throws(() => resolveParam("lab_contact", ctx), /MARKETING_CONTACT_PHONE/);
+  process.env.MARKETING_CONTACT_PHONE = "04000000000";
+  assert.equal(resolveParam("lab_contact", ctx), "04000000000");
+  delete process.env.MARKETING_CONTACT_PHONE;
+});

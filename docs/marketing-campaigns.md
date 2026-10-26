@@ -42,3 +42,10 @@ Name `diwali_health_checkup_2026`, language `en`, header IMAGE (banner), body:
 Footer: `Reply STOP to opt out`. Buttons: URL `Book now` -> `https://sdrc.in/[offer-page]` (static) and Quick Reply `Stop promotions`.
 Body example for {{1}}: `Rahul`. Do NOT submit it as Utility: Meta re-categorises promotional content and repeated mis-categorisation hurts account quality.
 Fill the bracketed offer details before submission; the offer text is fixed in the template (only the first name varies) so review is quick.
+
+## Fallback: the existing `trend_reports` template (image header, 4 variables, quick-reply buttons)
+Already approved in Mtalkz (confirm its category there before a mass send). Body: "Dear {{1}}, your health records of ({{2}} on {{3}}) are available with us ... contact {{4}} or reply Hi."
+The image header can carry the Diwali banner. Config:
+`"template": { "name": "trend_reports", "language": "en", "header_image_url": "https://.../diwali-banner.jpg", "params": ["first_name", "records_label", "last_visit_date", "lab_contact"] }`
+`lab_contact` reads env `MARKETING_CONTACT_PHONE` (no default; the dry run fails if it is unset). `records_label` is the last package, or "lab tests" when none is on file.
+Caution: a promotional banner on a template approved as Utility can get the template re-categorised by Meta. Start with the pilot batch and watch the failure/quality counts.
