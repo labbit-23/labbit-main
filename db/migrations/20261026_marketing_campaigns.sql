@@ -14,6 +14,7 @@ alter table public.campaigns add constraint campaigns_status_check
 
 alter table public.campaign_recipients
   add column if not exists name text null,
+  add column if not exists link_token text null,              -- signed "view my summary" token (labit-core summary_link_service) for the URL button
   add column if not exists last_visit date null,
   add column if not exists last_package text null,
   add column if not exists skip_reason text null,

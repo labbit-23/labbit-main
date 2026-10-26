@@ -54,3 +54,10 @@ Caution: a promotional banner on a template approved as Utility can get the temp
 Body: "Dear {{1}}, results for your last health checkup are now available by clicking {{2}} (Package {{3}} done on date {{4}}). ... contact us on {{5}}. Reply with Hi ..." One quick-reply button "Hi", no header image.
 `"params": ["first_name", "trend_link", "last_package", "last_visit_date", "lab_contact"]` with `"segment": {"type": "package", ...}`.
 `trend_link` is the patient's trend-report page (needs an MRN). A recipient whose any variable is empty (e.g. no package on file, so use the package segment) is skipped with `skip_reason = empty_param:<name>`, not counted as a failure. The dry run's skipped count shows how many.
+
+## Personalised follow-up with a "view my summary" button (diwali_followup_2026)
+Per-patient link: `https://app.sdrc.in/s/<token>` opens that patient's one-page "Your health at a glance" PDF, built from their latest visit (Shivam archive or labit_core). The token is signed by labit-core (`summary_link_service`, same `BILL_LINK_SECRET` as the bill buttons), carries the MRN and an expiry, and is not guessable.
+Template URL button: `https://app.sdrc.in/s/{{1}}` (dynamic suffix). Campaign config:
+`"template": { "name": "diwali_followup_2026", "language": "en", "header_image_url": "https://.../banner.jpg", "params": [...], "link_valid_days": 21, "buttons": [{"index": 0, "text": "{summary_token}"}] }`
+`prepare` asks labit-core for the audience with `link_valid_days`, stores each patient's token in `campaign_recipients.link_token` (migration adds the column), and `send` fills the button; a recipient without a token is skipped (`empty_button:0`).
+Needs on VPS1 before it works: nginx `location /s/ { proxy_pass http://127.0.0.1:8081/public/s/; ... }` on app.sdrc.in (same block shape as `/r/` and `/pay/`), then a labit-core deploy.

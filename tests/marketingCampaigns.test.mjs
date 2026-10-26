@@ -66,3 +66,14 @@ test("trend_link comes from the sender's context and is empty without an MRN", a
   assert.equal(resolveParam("trend_link", { trend_link: "https://x/trend-report/123" }), "https://x/trend-report/123");
   assert.equal(resolveParam("trend_link", {}), "");
 });
+
+test("a {summary_token} button is detected, kept through normalisation, and bounded", async () => {
+  const { usesSummaryToken } = await import("../lib/marketingCampaigns/index.js");
+  const cfg = normalizeConfig({
+    template: { name: "diwali_followup_2026", params: ["first_name"], link_valid_days: 9999, buttons: [{ index: 0, text: "{summary_token}" }] },
+    segment: { type: "package" }
+  });
+  assert.equal(usesSummaryToken(cfg), true);
+  assert.equal(cfg.template.link_valid_days, 90);
+  assert.equal(usesSummaryToken(normalizeConfig({ template: { name: "x", params: [] }, segment: { type: "package" } })), false);
+});
