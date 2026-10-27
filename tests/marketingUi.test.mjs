@@ -101,10 +101,10 @@ test("launch gate: no skipping the test; send needs a pilot and a typed count", 
 });
 
 test("filter form round-trips and validates; offer helpers warn", () => {
-  const { filter, error } = h.buildFilter({ ...h.EMPTY_FILTER_FORM, packages: "A, B\nC", last_visit_before: "2025-10-01", min_visits: "2", advanced: '{"focus_area":"liver"}' });
+  const { filter, error } = h.buildFilter({ ...h.EMPTY_FILTER_FORM, package_names: "A, B\nC", last_visit_before: "2025-10-01", min_visits: "2", advanced: '{"activity_since":"2026-09-19"}' });
   assert.equal(error, null);
-  assert.deepEqual(filter, { packages: ["A", "B", "C"], last_visit_before: "2025-10-01", min_visits: 2, focus_area: "liver" });
-  assert.equal(h.filterToForm(filter).advanced, '{"focus_area":"liver"}');
+  assert.deepEqual(filter, { package_names: ["A", "B", "C"], last_visit_before: "2025-10-01", min_visits: 2, activity_since: "2026-09-19" });
+  assert.equal(h.filterToForm(filter).advanced, '{"activity_since":"2026-09-19"}');
   assert.ok(h.buildFilter({ ...h.EMPTY_FILTER_FORM, min_visits: "5", max_visits: "2" }).error);
   assert.ok(h.buildFilter({ ...h.EMPTY_FILTER_FORM, advanced: "[1]" }).error);
   assert.deepEqual(h.buildFilter(h.EMPTY_FILTER_FORM).filter, {});

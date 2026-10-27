@@ -77,7 +77,7 @@ export default function CampaignDetail({ params }) {
   const tpl = (tpls.data?.templates || []).find((t) => t.key === (cfg.template?.key || c?.template_key));
   const headerUrl = cfg.template?.header_image_url || null;
   const needsHeader = Boolean(headerUrl);
-  const gate = launchGate({ status: c?.status, recipients: rec, auditRows: audit.data?.audit || [], dryRunDone: Boolean(dry), headerOk: header.state !== "bad", needsHeader });
+  const gate = launchGate({ status: c?.status, recipients: rec, auditRows: audit.data?.audit || [], dryRunDone: Boolean(dry), headerOk: header.state !== "bad", needsHeader, pilotPrepared: Boolean(cfg.pilot_prepared) });
   const progress = sendProgress({ stored: gate.stored, sent: rec.sent, failed: rec.failed, skipped: rec.skipped });
   const pilot = cfg.pilot_size || 50;
 
