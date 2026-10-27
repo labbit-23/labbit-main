@@ -264,3 +264,25 @@ test("window math, tag normalising and tracker aggregation", () => {
   assert.equal(agg.by_campaign.c1.bookings, 1);
   assert.equal(agg.by_type.handoff_created, 1);
 });
+
+test("a failure after the patient was already answered is reported as handled (no second reply from the legacy flow)", async () => {
+  const { deps, log } = makeDeps(ON);
+  deps.recordEvent = async (e) => { if (e.event_type === "report_status_sent") return; if (e.event_type === "bot_reply") throw new Error("db down"); };
+  const r = await handleInbound(input("where is my report"), deps);
+  assert.equal(r.handled, true);
+  assert.equal(r.action, "error_after_reply");
+  assert.equal(log.sent.length, 1);
+});
+
+test("a failure before any reply still throws so the webhook falls through to the legacy flow", async () => {
+  const { deps, log } = makeDeps(ON);
+  deps.loadSettings = async () => { throw new Error("settings down"); };
+  await assert.rejects(handleInbound(input("where is my report"), deps), /settings down/);
+  assert.equal(log.sent.length, 0);
+});
+
+test("campaign attribution looks the recipient up by every stored phone format", async () => {
+  const { mobileVariants } = await import("../lib/whatsappBot/store.js");
+  assert.deepEqual(mobileVariants("+91 90000 00001"), ["919000000001", "9000000001", "+919000000001"]);
+  assert.deepEqual(mobileVariants("123"), []);
+});
