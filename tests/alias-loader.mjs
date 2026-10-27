@@ -20,6 +20,10 @@ export async function resolve(specifier, context, nextResolve) {
     if (err?.code === "ERR_MODULE_NOT_FOUND" && !/\.[a-z]+$/i.test(target)) {
       return nextResolve(`${target}.js`, context);
     }
+    // webpack also resolves a directory import to its index.js
+    if (err?.code === "ERR_UNSUPPORTED_DIR_IMPORT" && !/\.[a-z]+$/i.test(target)) {
+      return nextResolve(`${target.replace(/\/+$/, "")}/index.js`, context);
+    }
     throw err;
   }
 }

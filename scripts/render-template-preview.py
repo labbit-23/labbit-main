@@ -4,7 +4,7 @@
   python3 scripts/render-template-preview.py <registry-key> <samples.json> <out.png>
 
 samples.json maps VARIABLE NAMES (as in variables.js) to fake example values, e.g.
-  {"first_name":"Rahul","records_label":"Full Body Checkup","last_visit_date":"12 Mar 2025","lab_contact":"9849025601"}
+  {"first_name":"Rahul","records_label":"Full Body Checkup","last_visit_date":"12 Mar 2025","lab_contact":"04000000000"}
 The header image is read from the registry's header.sample_url mapped to public/ (or "header_image" in the JSON, a local path).
 Needs: Pillow, node. Layout is an approximation of WhatsApp (not pixel exact) for internal review only.
 """

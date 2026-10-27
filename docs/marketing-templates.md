@@ -5,7 +5,7 @@ Previews: `docs/marketing-previews/*.png`, regenerated with `python3 scripts/ren
 Header image for all image templates: `public/marketing/trend-header.png` (1200x628, neutral, no offer text). Intended public URL once deployed: `https://labit.sdrc.in/marketing/trend-header.png`.
 
 **All clinical wording needs pathologist review before submission.** It is deliberately conservative: no diagnosis, no "normal/abnormal", no prevention or detection claims.
-The lab number is never hardcoded: it is the `lab_contact` variable (env `MARKETING_CONTACT_PHONE`, 9849025601).
+The lab number is never hardcoded: it is the `lab_contact` variable (env `MARKETING_CONTACT_PHONE`, set to the lab contact number as provided by the director).
 
 ## Existing, approved (do not resubmit)
 | key | Mtalkz name | Category | Notes |
@@ -36,7 +36,7 @@ For each: name (lowercase, underscores), language `en`, category as above (do no
 - [ ] No unfilled `[BRACKETS]` (festival template: fill offer, date and landing page URL first)
 - [ ] Pathologist sign-off on wording
 
-Sample values (fake): `{{1}}` Rahul; `{{2}}` 12 Mar 2025 (health_trend_link, we_miss_you) or Full Body Checkup (annual_checkup_reminder); `{{3}}` 9849025601 (health_trend_link, we_miss_you) or 12 Mar 2025 (annual_checkup_reminder); `{{4}}` 9849025601 (annual_checkup_reminder).
+Sample values (fake): `{{1}}` Rahul; `{{2}}` 12 Mar 2025 (health_trend_link, we_miss_you) or Full Body Checkup (annual_checkup_reminder); `{{3}}` 04000000000 (health_trend_link, we_miss_you) or 12 Mar 2025 (annual_checkup_reminder); `{{4}}` 04000000000 (annual_checkup_reminder).
 URL button on `sdrc_health_trend_link`: `https://app.labit.online/t/{{1}}`, sample suffix `sample_token_abc123def456`. The domain/route must be live and token-gated before sending (the existing campaign button mechanism is `{summary_token}`, see `docs/marketing-campaigns.md`; that doc's example uses `app.sdrc.in`, so confirm which domain is canonical).
 
 ## Cost notes
