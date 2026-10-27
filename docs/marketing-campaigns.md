@@ -61,3 +61,25 @@ Template URL button: `https://app.sdrc.in/s/{{1}}` (dynamic suffix). Campaign co
 `"template": { "name": "diwali_followup_2026", "language": "en", "header_image_url": "https://.../banner.jpg", "params": [...], "link_valid_days": 21, "buttons": [{"index": 0, "text": "{summary_token}"}] }`
 `prepare` asks labit-core for the audience with `link_valid_days`, stores each patient's token in `campaign_recipients.link_token` (migration adds the column), and `send` fills the button; a recipient without a token is skipped (`empty_button:0`).
 Needs on VPS1 before it works: nginx `location /s/ { proxy_pass http://127.0.0.1:8081/public/s/; ... }` on app.sdrc.in (same block shape as `/r/` and `/pay/`), then a labit-core deploy.
+
+## Engine v3 (2026-10-28): segments, offers, templates by key, scheduling, pilot
+Migration `db/migrations/20261028_marketing_engine_v3.sql` (not applied until you do it by hand). Staff-facing API: `docs/marketing-admin-api.md`
+(`/api/admin/marketing/*`, staff session + role check; the internal-token route above keeps working and gains a `due` action).
+- **Template by key**: a campaign names a registry key (`lib/marketingCampaigns/templateRegistry.js`); name, language, params, header image and dynamic URL buttons
+  are derived from it. `draft` templates cannot start a campaign.
+- **Segment**: a saved row in `marketing_segments` or an inline filter; either way the filter JSON is copied into the campaign (a later edit of a saved segment never
+  changes a campaign already made). The filter is passed verbatim to labit-core via `lib/marketingCampaigns/audienceClient.js`, the only module that knows labit-core's contract
+  (`GET /internal/campaign-audience?filter=<json>` rows, `GET /internal/campaign-audience/summary?filter=<json>` aggregates). Legacy `package`/`inactive` segments still work.
+- **Offer** (`marketing_offers`): pct or flat discount, packages, validity dates, tier mapping (`tier_map`, keyed by the audience row's `offer_tier`), terms, code.
+  At `prepare` each recipient gets a snapshot (`offer_id`, `offer_text`, `focus_areas`, `offer_tier`); `send` fills the variables `offer_text`, `focus_areas`, `offer_code`,
+  `offer_valid_till`, `offer_terms`. An empty variable skips the recipient. An offer outside its dates blocks both `prepare` and `send`.
+- **Pilot**: `prepare` with `pilot_size: N` stores a deterministic sample (sha1 of campaign id + phone, so the same N every time). Review, send, then `prepare` with `expand: true` adds the rest.
+- **Dry-run diff** (`diff` action): counts only, what a re-prepare would add/remove against the stored recipients.
+- **Scheduling**: `schedule` sets status `scheduled` + `send_after` on a prepared campaign. `runDue()` (internal route action `due`, admin `POST campaigns/run-due`) sends ONE bounded batch for
+  each campaign whose `send_after` has passed, only inside 09:00-20:00 IST, honouring every cap. **There is no cron/pm2 job**: until you add one (for example a minute-cron on VPS1 calling the
+  internal route with `{"action":"due"}`), scheduled campaigns only move when someone calls it. Not adding it is deliberate.
+- **Hard limits unchanged and not raisable from the panel**: 500/run, 5000/day, 120/min, window 09:00-20:00 IST, 5-failure circuit breaker, opt-outs, cooldown. `limits` from the panel are clamped in `normalizeConfig`.
+- **Results**: funnel (prepared/sent/delivered/read/failed by Meta code/replied/clicked/opted-out), cost so far, per-offer-tier tally, per-day trend; plus a cross-campaign overview.
+  `clicked` = an inbound webhook row whose `raw_message.type` is `button`/`interactive` and whose `context.id` is the campaign message; `replied` = any inbound from the recipient after the send.
+- **A/B split**: not built (would be a per-recipient variant column and a second template key); say if wanted.
+- Env: `MARKETING_TEST_NUMBERS` (comma list; the only numbers the admin `test` action can send to), `MARKETING_ADMIN_ROLES` (default `director,admin`), `MARKETING_ADMIN_USERS` (extra user ids/emails).
