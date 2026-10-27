@@ -124,6 +124,7 @@ const MENU_GROUPS = [
     key: "operations",
     label: "Operations",
     items: [
+      { key: "marketing", label: "Marketing", description: "Campaigns, audience, bot and staff inbox", href: "/marketing", icon: MessageCircle, roles: ["admin", "manager", "director"] },
       { key: "whatsapp", label: "WhatsApp Inbox", description: "Patient conversations and handoffs", href: "/admin/whatsapp", icon: MessageCircle, roles: ["admin", "manager", "director"], permissions: ["whatsapp.reply"] },
       { key: "run_reports", label: "Run Reports", description: "MIS and transaction reports", href: "/admin/reports/run", icon: FileBarChart, roles: ["admin", "manager", "director"], permissions: ["reports.run.mis", "reports.run.transaction", "reports.setup"] },
       { key: "report_master", label: "Report Master", description: "Report catalog and setup", href: "/admin/reports/master", icon: ClipboardList, roles: ["admin", "director"], permissions: ["reports.setup"] },
