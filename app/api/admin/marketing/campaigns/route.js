@@ -15,7 +15,7 @@ export const POST = marketingRoute(async (request, { actor }) => {
   }
   const built = buildCampaignConfig(body, segmentRow);
   if (built.errors.length) return { ok: false, error: built.errors.join("; ") };
-  const labId = String(body.lab_id || process.env.DEFAULT_LAB_ID || "").trim();
+  const labId = String(process.env.DEFAULT_LAB_ID || "").trim();
   const r = await createCampaign({ labId, name: body.name, config: built.config, segmentId: segmentRow?.id || null, offerId: body.offer_id || null, createdBy: actor.name });
   if (r.ok) await writeMarketingAudit({ actor, action: "campaign.create", campaignId: r.campaign_id, details: { template_key: r.config.template.key, segment_id: segmentRow?.id || null, offer_id: body.offer_id || null, limits: r.config.limits, pilot_size: r.config.pilot_size } });
   return r;

@@ -10,7 +10,7 @@ alter table public.campaigns
 
 alter table public.campaigns drop constraint if exists campaigns_status_check;
 alter table public.campaigns add constraint campaigns_status_check
-  check (status in ('draft', 'prepared', 'running', 'paused', 'stopped', 'completed'));
+  check (status in ('draft', 'prepared', 'scheduled', 'running', 'paused', 'stopped', 'completed'));  -- 'scheduled' is included so re-running this file after the v3 migration never narrows the constraint
 
 alter table public.campaign_recipients
   add column if not exists name text null,
