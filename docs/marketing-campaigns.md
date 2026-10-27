@@ -20,13 +20,13 @@ labit-core `GET /internal/campaign-audience` (token `CAMPAIGN_AUDIENCE_TOKEN`, r
     "limits":   { "per_run_cap": 100, "daily_cap": 1000, "rate_per_minute": 30, "cooldown_days": 30 } } }
 ```
 Hard ceilings in code: 500 per run, 5000 per day, 120/min, send window 09:00-20:00 IST (config can only narrow it).
-A campaign auto-pauses after 5 consecutive send failures (e.g. template not approved).
+A campaign auto-pauses after 5 consecutive send failures (e.g. template not approved). The 5000/day ceiling counts every campaign together; one batch at a time runs per campaign.
 
 ## Operate (token header `X-Internal-Token`, base `https://labit.sdrc.in/api/internal/whatsapp/marketing-campaign`)
 1. `{"action":"create", ...}` -> `campaign_id`
 2. `{"action":"prepare","campaign_id":"..","dry_run":true}` -> counts, anonymised sample, cost estimate. Nothing is written.
 3. `{"action":"prepare","campaign_id":"..","dry_run":false}` -> stores recipients (status `prepared`)
-4. `{"action":"test","campaign_id":"..","numbers":["<staff number>"]}` -> look at the real message on a phone
+4. `{"action":"test","campaign_id":"..","numbers":["<staff number>"]}` -> look at the real message on a phone (only numbers in `MARKETING_TEST_NUMBERS`, inside the send window)
 5. `{"action":"send","campaign_id":"..","batch_size":20}` pilot; then repeat `send` while `more` is true (each call is one ~45 s batch)
 6. `GET ...?campaign_id=..` results (delivered / read / failed by Meta code, opt-outs, cost so far). Stop any time: `{"action":"stop",...}`.
 

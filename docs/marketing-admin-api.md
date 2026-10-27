@@ -51,7 +51,7 @@ Rendered text, e.g. `30% off on Executive Health Checkup`.
   "pilot_size": 50, "header_image_url": "https://example.test/banner.jpg",
   "limits": { "per_run_cap": 100, "daily_cap": 1000, "rate_per_minute": 30, "cooldown_days": 30, "window_start_hhmm": "10:00", "window_end_hhmm": "18:00" } }
 ```
-(`filter: {...}` instead of `segment_id` for an inline segment.) -> `{ "ok": true, "campaign_id": "c9d8...", "config": { normalised config } }`.
+(`filter: {...}` instead of `segment_id` for an inline segment. `template_key` is mandatory: a raw template name is refused, and the template must be `approved` in the registry with a confirmed Mtalkz name. The lab is taken from the server (`DEFAULT_LAB_ID`); a `lab_id` in the body is ignored.) -> `{ "ok": true, "campaign_id": "c9d8...", "config": { normalised config } }`.
 Limits are clamped to the code ceilings (500/run, 5000/day, 120/min, 09:00-20:00 IST) and cannot be raised. Statuses: `draft -> prepared -> scheduled? -> running -> completed`, plus `paused` (circuit breaker) and `stopped`.
 
 `GET campaigns` -> `{ "ok": true, "campaigns": [ { "id","name","status","segment_type","template_key","segment_id","offer_id","send_after","created_at","prepared_at","config" } ] }`
@@ -59,10 +59,10 @@ Limits are clamped to the code ceilings (500/run, 5000/day, 120/min, 09:00-20:00
 
 ### Actions: `POST campaigns/:id/actions`
 - `{ "action": "prepare", "dry_run": true, "pilot_size": 50 }` -> `{ "ok": true, "dry_run": true, "stats": { "eligible": 4210, "opted_out": 12, "messaged_recently": 80, "pilot_size": 50, "audience_after_exclusions": 4210 }, "offer": { "offer_id": "a1b2...", "by_tier": { "gold": 300, "none": 3910 }, "with_focus_areas": 2100 }, "sample": [ { "name_initial": "R", "phone_masked": "98******01", "last_visit_year": "2025", "last_package": "..." } ], "cost_estimate": { "messages": 50, "inr_with_gst": 52 }, "days_to_complete_at_daily_cap": 1 }`. Dry run writes nothing and is not audited.
-- `{ "action": "prepare", "dry_run": false, "pilot_size": 50 }` stores the recipients (+ offer snapshot). After a pilot: `{ "action": "prepare", "dry_run": false, "expand": true }` adds the remaining audience (needs status `prepared`/`paused`).
+- `{ "action": "prepare", "dry_run": false, "pilot_size": 50 }` stores the recipients (+ offer snapshot). After a pilot: `{ "action": "prepare", "dry_run": false, "expand": true }` adds the remaining audience (needs status `prepared`/`paused`, or `completed` for a campaign that was prepared as a pilot, once).
 - `{ "action": "diff" }` -> `{ "ok": true, "diff": { "stored": 50, "audience_now": 4210, "would_add": 4160, "would_remove_pending": 0, "unchanged_pending": 50, "already_sent": 0, "already_skipped_or_failed": 0 } }` (counts only).
-- `{ "action": "test", "numbers": ["<allowlisted>"] }` (omit `numbers` for all of `MARKETING_TEST_NUMBERS`) -> `{ "ok": true, "results": [ { "phone_masked": "98******11", "ok": true, "pmid": "wamid..." } ] }`; any number not on the allowlist rejects the whole call.
-- `{ "action": "send", "batch_size": 20 }` -> `{ "ok": true, "sent": 20, "failed": 0, "skipped": 1, "remaining": 29, "more": true, "stopped_reason": null }`. Repeat while `more`. Outside the window: `sent: 0, stopped_reason: "outside send window ..."`. A scheduled campaign refuses manual send.
+- `{ "action": "test", "numbers": ["<allowlisted>"] }` (omit `numbers` for all of `MARKETING_TEST_NUMBERS`) -> `{ "ok": true, "results": [ { "phone_masked": "98******11", "ok": true, "pmid": "wamid..." } ] }`; any number not on the allowlist rejects the whole call; an unset allowlist refuses all test sends; test sends are also refused outside the 09:00-20:00 IST window. A test counts as "done" (audit `campaign.test`, `ok: true`) only if at least one message was actually sent.
+- `{ "action": "send", "batch_size": 20 }` (refused until a successful `test` exists for the campaign; a second caller while a batch is in flight gets `sent: 0, stopped_reason: "another batch is already sending..."`) -> `{ "ok": true, "sent": 20, "failed": 0, "skipped": 1, "remaining": 29, "more": true, "stopped_reason": null }`. Repeat while `more`. Outside the window: `sent: 0, stopped_reason: "outside send window ..."`. A scheduled campaign refuses manual send.
 - `{ "action": "stop" }` / `{ "action": "resume" }` (resume: paused -> prepared).
 - `{ "action": "schedule", "send_after": "2026-11-02T04:30:00Z" }` -> `{ "ok": true, "status": "scheduled", "send_after": "..." }`; `"send_after": null` clears (back to `prepared`).
 
