@@ -2952,6 +2952,35 @@ export async function POST(req) {
         .eq("id", session.id);
     }
 
+    // WhatsApp bot automations (lib/whatsappBot): intent router + interaction tracker + staff inbox.
+    // Flag-guarded (whatsapp_bot_settings, default all OFF); any failure falls through to the existing flow below.
+    if (!isSimulationRequest && userInput !== "__MEDIA__" && userInput !== "__LOCATION_PIN__") {
+      try {
+        const { loadSettings } = await import("@/lib/whatsappBot/store");
+        if ((await loadSettings())?.flags?.global_enabled) {
+          const { handleInbound } = await import("@/lib/whatsappBot/router");
+          const { buildDeps } = await import("@/lib/whatsappBot/deps");
+          const botResult = await handleInbound(
+            {
+              phone,
+              text: userInput,
+              isButton: Boolean(message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id || message?.button?.payload || message?.button?.text),
+              profileName,
+              messageId,
+              messageTimestampMs: messageTimestamp ? messageTimestamp * 1000 : null,
+              labId: session.lab_id,
+              session: { id: session.id, status: runtimeBotStatus, current_state: session.current_state },
+              patient: linkedPatient ? { id: linkedPatient.id, name: linkedPatient.is_lead ? null : linkedPatient.name, mrn: linkedPatient.mrn || null } : null
+            },
+            await buildDeps()
+          );
+          if (botResult?.handled) return Response.json({ success: true });
+        }
+      } catch (botError) {
+        console.error("[whatsapp-bot] automation failed; continuing with the normal flow", botError?.message || botError);
+      }
+    }
+
     // --------------------------------------------------
     // 9️⃣ Human Handoff Mode
     // --------------------------------------------------
