@@ -15,7 +15,7 @@ const auth = await import("../lib/marketingCampaigns/adminAuth.js");
 
 test("a composable filter segment validates; limits still clamp to the hard ceilings", () => {
   const cfg = eng.normalizeConfig({
-    template: { name: "t", params: ["first_name", "offer_text", "focus_areas"] }, segment: { filter: { inactive_months: 12 } },
+    template: { name: "t", params: ["first_name", "offer_text", "focus_areas"] }, segment: { filter: { months_since_last_visit_min: 12 } },
     limits: { per_run_cap: 99999, daily_cap: 99999, rate_per_minute: 99999 }, pilot_size: 99999
   });
   assert.equal(cfg.segment.type, "filter");
@@ -28,12 +28,12 @@ test("a composable filter segment validates; limits still clamp to the hard ceil
 });
 
 test("registry template builds the config block; draft templates are refused", () => {
-  const ok = eng.buildCampaignConfig({ template_key: "trend_reports", filter: { a: 1 }, offer_id: "o1", limits: { daily_cap: 10 } });
+  const ok = eng.buildCampaignConfig({ template_key: "trend_reports", filter: { sex: "F" }, offer_id: "o1", limits: { daily_cap: 10 } });
   assert.deepEqual(ok.errors, []);
   assert.equal(ok.config.template.name, "trend_reports");
   assert.equal(ok.config.template.key, "trend_reports");
-  assert.deepEqual(ok.config.segment.filter, { a: 1 });
-  const draft = eng.buildCampaignConfig({ template_key: "health_trend_link", filter: {} });
+  assert.deepEqual(ok.config.segment.filter, { sex: "F" });
+  const draft = eng.buildCampaignConfig({ template_key: "health_trend_link", filter: { sex: "F" } });
   assert.match(draft.errors.join(), /not approved/);
   assert.ok(draft.config.template.buttons.length >= 1, "dynamic url button gets the summary token");
   assert.match(eng.buildCampaignConfig({ template_key: "nope" }).errors.join(), /Unknown template key/);
@@ -99,12 +99,32 @@ test("test-send is limited to the staff allowlist", () => {
   assert.deepEqual(eng.filterTestNumbers([], "9811111111,9833333333").numbers, ["9811111111", "9833333333"]);
 });
 
-test("audience client: filter passed verbatim, PII scrubbed from previews", () => {
-  const qs = client.audienceQuery({ type: "filter", filter: { a: [1, 2] } }, 21);
-  assert.equal(qs.get("filter"), '{"a":[1,2]}');
-  assert.equal(qs.get("link_valid_days"), "21");
-  assert.equal(client.audienceQuery({ type: "package", last_visit_before: "2025-10-26" }).get("segment"), "package");
+test("audience client: typo'd or engine-owned filter fields fail before the network call", () => {
+  assert.deepEqual(client.validateFilter({ segment: "package", last_visit_before: "2025-04-01", sex: "F", age_min: 35, offer_tier_in: ["standard"], exclude_sources: ["X"] }), []);
+  assert.match(client.validateFilter({ last_vist_before: "2025-04-01" }).join(), /unknown filter field: last_vist_before/);
+  assert.match(client.validateFilter({ opted_out_phones: ["1"] }).join(), /set by the engine/);
+  assert.match(client.validateFilter({ last_visit_before: "01/04/2025", package_ids: "PKG1", offer_tier_in: ["gold"] }).join(), /YYYY-MM-DD.*must be a list.*offer_tier_in/);
+  assert.match(eng.validateConfig(eng.normalizeConfig({ template: { name: "t" }, segment: { filter: { nope: 1 } } })).join(), /unknown filter field: nope/);
+  assert.match(store.validateSegmentInput({ name: "x", filter: { nope: 1 } }).join(), /unknown filter field/);
+});
+
+test("audience client: request body carries opt-outs, recent sends, pilot controls and the one cost rate; PII scrubbed from previews", () => {
+  const body = client.buildQueryBody({ sex: "F", focus_areas_any: ["lipids"], messaged: [{ phone: "leak" }] }, {
+    optedOutPhones: ["9000000001"], messaged: [{ phone: "9000000002", sent_on: "2026-10-20" }], cooldownDays: 30, maxAudience: 150, sampleSeed: "camp-1", ratePerMessageInr: 0.88
+  });
+  assert.deepEqual(body.opted_out_phones, ["9000000001"]);
+  assert.deepEqual(body.messaged, [{ phone: "9000000002", sent_on: "2026-10-20" }]);
+  assert.equal(body.max_audience, 150); assert.equal(body.sample_seed, "camp-1");
+  assert.equal(body.include_focus, true); assert.equal(body.per_message_rate_inr, 0.88); assert.equal(body.cooldown_days, 30);
+  assert.equal(client.buildQueryBody({}, {}).include_focus, undefined);
+  assert.equal(client.legacyQuery({ type: "package", last_visit_before: "2025-10-26" }, 21).get("segment"), "package");
   assert.deepEqual(client.scrubPii({ funnel: { n: 3 }, sample: [{ name: "X", phone: "1", area: "liver" }] }), { funnel: { n: 3 }, sample: [{ area: "liver" }] });
+  assert.match(eng.estimateCost(10, eng.normalizeConfig({ template: { name: "t" }, segment: { type: "package" } })).note, /verify vs Mtalkz/);
+});
+
+test("snapshot prefers labit-core's focus_text phrase over the label list", () => {
+  assert.equal(offers.snapshotFor(null, { focus_areas: ["Blood sugar"], focus_text: "blood sugar and cholesterol" }).focus_areas, "blood sugar and cholesterol");
+  assert.equal(offers.snapshotFor(null, { focus_areas: ["Blood sugar", "Liver"] }).focus_areas, "Blood sugar, Liver");
 });
 
 test("audit details never carry identifiers", () => {

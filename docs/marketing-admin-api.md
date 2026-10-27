@@ -25,13 +25,13 @@ All bodies are JSON. Failures return `{ "ok": false, "error": "..." }` with HTTP
 `GET templates` -> `{ "ok": true, "templates": [ { "key":"trend_reports","name":"trend_reports","language":"en","category":"UTILITY","status":"approved","header":{"type":"image","sample_url":"https://..."},"body":"Dear {{1}}, ...","params":["first_name","records_label","last_visit_date","lab_contact"],"buttons":[{"type":"quick_reply","text":"Hi"}],"purpose":"...","notes":"..." } ] }`
 
 ## Segments
-`POST segments` `{ "name": "Lapsed 12m, liver focus", "filter": { "inactive_months": 12, "focus_area": "liver" }, "notes": "pilot audience" }`
+`POST segments` `{ "name": "Lapsed 12m, liver focus", "filter": { "segment": "package", "months_since_last_visit_min": 12, "focus_areas_any": ["liver"], "sex": "F" }, "notes": "pilot audience" }`
 -> `{ "ok": true, "segment": { "id": "5f0c...", "name": "Lapsed 12m, liver focus", "filter": {...}, "notes": "pilot audience", "created_at": "..." } }`
-The filter object is opaque to this API and passed to labit-core unchanged.
+The filter is labit-core's `AudienceFilters` (labit-core `docs/campaign-audience.md`). Unknown field names, wrong types, and the engine-owned fields (`opted_out_phones`, `messaged`, `include_focus`, `per_message_rate_inr`) are rejected with a clear 400 before any network call.
 
 ## Audience preview
 `POST audience/preview` `{ "segment_id": "5f0c..." }` (or `{ "filter": {...} }`)
--> `{ "ok": true, "summary": { ...labit-core aggregates: funnel, breakdowns, cost estimate, anonymised sample... } }`. Any `phone/name/mrn/email/...` key is stripped before it leaves the server.
+-> `{ "ok": true, "summary": { ...labit-core aggregates: funnel, breakdowns, estimate, anonymised sample... }, "cost_rate_inr": 0.88, "cost_note": "estimate, verify vs Mtalkz rate card" }`. Opt-outs and the cooldown list are applied for you. Any `phone/name/mrn/email/...` key is stripped before it leaves the server.
 
 ## Offers
 `POST offers`
