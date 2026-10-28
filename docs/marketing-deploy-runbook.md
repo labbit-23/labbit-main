@@ -113,10 +113,10 @@ ssh root@labit.sdrc.in "bash /opt/labbit-frontend/scripts/deploy-vps-frontend.sh
 ```
 The script runs `npm ci`, `npm run build` and the health check. `next build` and the full `npm test` (see report) pass locally.
 
-nginx on labit.sdrc.in  [DEV, DIR aware] (cannot be verified from here; check the live config first):
+nginx on lab.sdrc.in (the labit-main host; labit.sdrc.in is Labit Desk). Already done 2026-10-28: proxy_read_timeout 180s; client_max_body_size is 12m  [DEV, DIR aware] (cannot be verified from here; check the live config first):
 - `/api/admin/marketing/` needs `proxy_read_timeout 180s;`. A single audience call can take up to 150 s on a cold scan; nginx's default is 60 s and would return 504 while the work continues in the background.
 - `/api/admin/marketing/uploads` needs `client_max_body_size 6m;` (default 1 MB would reject the 5 MB header images with 413).
-- `https://labit.sdrc.in/marketing/trend-header.png` must stay publicly fetchable without a login (Meta downloads the header from it). It is a static file in `public/marketing`.
+- `https://lab.sdrc.in/marketing/trend-header.png` must stay publicly fetchable without a login (Meta downloads the header from it). It is a static file in `public/marketing`.
 
 nginx on app.sdrc.in (the host in the template button)  [DEV]:
 - Add `location /s/ { ... proxy_pass <labit-core>/public/s/; ... }` copying the existing `/r/` and `/pay/` blocks exactly. Test: `curl -I https://app.sdrc.in/s/not-a-token` returns 404 (not nginx's own 404 page and not a redirect to login).
@@ -124,9 +124,9 @@ nginx on app.sdrc.in (the host in the template button)  [DEV]:
 
 Smoke (read-only):
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://labit.sdrc.in/api/health                          # 200
-curl -s -o /dev/null -w "%{http_code}\n" https://labit.sdrc.in/api/admin/marketing/templates       # 401 (no session)
-curl -s -o /dev/null -w "%{http_code}\n" -X POST https://labit.sdrc.in/api/internal/whatsapp/marketing-campaign -d '{}'   # 401 (no token)
+curl -s -o /dev/null -w "%{http_code}\n" https://lab.sdrc.in/api/health                          # 200
+curl -s -o /dev/null -w "%{http_code}\n" https://lab.sdrc.in/api/admin/marketing/templates       # 401 (no session)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://lab.sdrc.in/api/internal/whatsapp/marketing-campaign -d '{}'   # 401 (no token)
 ```
 Then as director in a browser: open `/marketing` -> Audience -> Preview (read-only, sends nothing). Check the funnel, breakdowns and cost render with real numbers.
 

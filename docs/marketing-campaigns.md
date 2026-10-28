@@ -22,7 +22,7 @@ labit-core `GET /internal/campaign-audience` (token `CAMPAIGN_AUDIENCE_TOKEN`, r
 Hard ceilings in code: 500 per run, 5000 per day, 120/min, send window 09:00-20:00 IST (config can only narrow it).
 A campaign auto-pauses after 5 consecutive send failures (e.g. template not approved). The 5000/day ceiling counts every campaign together; one batch at a time runs per campaign.
 
-## Operate (token header `X-Internal-Token`, base `https://labit.sdrc.in/api/internal/whatsapp/marketing-campaign`)
+## Operate (token header `X-Internal-Token`, base `https://lab.sdrc.in/api/internal/whatsapp/marketing-campaign`)
 1. `{"action":"create", ...}` -> `campaign_id`
 2. `{"action":"prepare","campaign_id":"..","dry_run":true}` -> counts, anonymised sample, cost estimate. Nothing is written.
 3. `{"action":"prepare","campaign_id":"..","dry_run":false}` -> stores recipients (status `prepared`)
