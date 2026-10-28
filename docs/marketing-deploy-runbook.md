@@ -120,7 +120,7 @@ nginx on lab.sdrc.in (the labit-main host; labit.sdrc.in is Labit Desk). Already
 
 nginx on app.sdrc.in (the host in the template button)  [DEV]:
 - Add `location /s/ { ... proxy_pass <labit-core>/public/s/; ... }` copying the existing `/r/` and `/pay/` blocks exactly. Test: `curl -I https://app.sdrc.in/s/not-a-token` returns 404 (not nginx's own 404 page and not a redirect to login).
-- **`/t/` (`https://app.labit.online/t/<token>`, the button of the `health_trend_link` template) is NOT built.** There is no route in labit-core, labit-main or labit-patient. That template stays draft until the route exists (or it is re-pointed at `/s/`, which means a new Meta submission). Also decide the canonical host: docs/code mention both `app.sdrc.in` and `app.labit.online`.
+- **`/t/` (`https://app.labit.online/t/<token>`, the button of the `health_summary_link` template) is NOT built.** There is no route in labit-core, labit-main or labit-patient. That template stays draft until the route exists (or it is re-pointed at `/s/`, which means a new Meta submission). Also decide the canonical host: docs/code mention both `app.sdrc.in` and `app.labit.online`.
 
 Smoke (read-only):
 ```bash
@@ -144,7 +144,7 @@ Remove the line to stop all scheduled sending instantly. Individual campaigns ca
 
 Source of truth: `docs/marketing-templates.md` and `lib/marketingCampaigns/templateRegistry.js`. All clinical wording needs PATH sign-off first.
 Submit in this order, all at once is fine; do not send any until `approved`:
-1. `sdrc_health_trend_link` (UTILITY). **Blocked on the `/t/` route (section 6).** Do not submit until that exists.
+1. `sdrc_health_summary_link` (UTILITY). **Blocked on the `/t/` route (section 6).** Do not submit until that exists.
 2. `sdrc_annual_checkup_reminder` (MARKETING)
 3. `sdrc_we_miss_you` (MARKETING)
 4. `sdrc_festival_offer_<year>` (MARKETING; fill the `[OFFER]`, date and URL placeholders first)
@@ -186,7 +186,7 @@ Kill switch: the red button on the same page (or `POST /api/admin/marketing/bot/
 ## 12. NOT built or NOT verified (read this before go-live)
 
 Not built:
-- The `/t/` per-patient app link and landing page (`health_trend_link` depends on it).
+- The `/t/` per-patient app link and landing page (`health_summary_link` depends on it).
 - The scheduler cron (section 7 is a manual step; deliberately not installed).
 - Shared rate limiting across processes: the 120/min pace is per running batch; the in-flight guard makes one batch per campaign, but two different campaigns running at once each pace themselves.
 - A/B split testing; multilingual (Telugu/Hindi) bot texts (English only); a per-number test allowlist UI; the old Shivam-based `app/admin/campaigns` tool is dead code (left in place, not deleted).

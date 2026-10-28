@@ -16,7 +16,7 @@ The lab number is never hardcoded: it is the `lab_contact` variable (env `MARKET
 ## New templates to submit (recommended order)
 | # | key / name | Category | Why that category | Re-categorisation risk |
 |---|---|---|---|---|
-| 1 | `health_trend_link` / `sdrc_health_trend_link` | UTILITY | Info about the patient's own results, no offer. Offer lives on the landing page. | Medium for old visits: a "your results are available" for a visit a year+ old can be rejected as Utility or flipped to Marketing. Fine for recent visits. Any offer/booking wording or promotional image flips it. |
+| 1 | `health_summary_link` / `sdrc_health_summary_link` | UTILITY | Info about the patient's own results, no offer. Offer lives on the landing page. | Medium for old visits: a "your results are available" for a visit a year+ old can be rejected as Utility or flipped to Marketing. Fine for recent visits. Any offer/booking wording or promotional image flips it. |
 | 2 | `annual_checkup_reminder` / `sdrc_annual_checkup_reminder` | MARKETING | Encourages a new purchase | none |
 | 3 | `reengage_we_miss_you` / `sdrc_we_miss_you` | MARKETING | Solicits future business; text only | none |
 | 4 | `festival_offer` / `sdrc_festival_offer_<year>` (e.g. `sdrc_diwali_offer_2026`) | MARKETING | Offer, price, booking CTA | none; never submit as Utility |
@@ -36,8 +36,8 @@ For each: name (lowercase, underscores), language `en`, category as above (do no
 - [ ] No unfilled `[BRACKETS]` (festival template: fill offer, date and landing page URL first)
 - [ ] Pathologist sign-off on wording
 
-Sample values (fake): `{{1}}` Rahul; `{{2}}` 12 Mar 2025 (health_trend_link, we_miss_you) or Full Body Checkup (annual_checkup_reminder); `{{3}}` 04000000000 (health_trend_link, we_miss_you) or 12 Mar 2025 (annual_checkup_reminder); `{{4}}` 04000000000 (annual_checkup_reminder).
-URL button on `sdrc_health_trend_link`: `https://app.labit.online/t/{{1}}`, sample suffix `sample_token_abc123def456`. The domain/route must be live and token-gated before sending (the existing campaign button mechanism is `{summary_token}`, see `docs/marketing-campaigns.md`; that doc's example uses `app.sdrc.in`, so confirm which domain is canonical).
+Sample values (fake): `{{1}}` Rahul; `{{2}}` 12 Mar 2025 (health_summary_link, we_miss_you) or Full Body Checkup (annual_checkup_reminder); `{{3}}` 04000000000 (health_summary_link, we_miss_you) or 12 Mar 2025 (annual_checkup_reminder); `{{4}}` 04000000000 (annual_checkup_reminder).
+URL button on `sdrc_health_summary_link`: `https://app.sdrc.in/s/{{1}}`, sample suffix `Kq7Zx2mPa9LdW4tRbN8vYcE1sH`. Submitted to Meta 2026-10-28 (pending); needs the nginx rule for `app.sdrc.in/s/`. The domain/route must be live and token-gated before sending (the existing campaign button mechanism is `{summary_token}`, see `docs/marketing-campaigns.md`; that doc's example uses `app.sdrc.in`, so confirm which domain is canonical).
 
 ## Cost notes
 - The Rs 0.88 per message figure is an **assumption, to be verified against the Mtalkz rate card** (Meta's India per-message rates, plus the Mtalkz markup, change on Meta's schedule; Oct 2026 per-message pricing applies).
