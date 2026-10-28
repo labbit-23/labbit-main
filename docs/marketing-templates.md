@@ -11,7 +11,7 @@ The lab number is never hardcoded: it is the `lab_contact` variable (env `MARKET
 | key | Mtalkz name | Category | Notes |
 |---|---|---|---|
 | `trend_reports` | `trend_reports` | confirm in Mtalkz (assumed Utility) | image header mandatory; quick replies Trend Report / Latest Report / Hi. Registry body is a reconstruction (middle of the text is elided in our notes): copy the exact text from Mtalkz. |
-| `package_results` | **unconfirmed** (`CONFIRM_IN_MTALKZ`) | confirm | no header; quick reply Hi |
+| `package_results` | Mtalkz name `package_patients` | confirm category | no header; quick reply Hi |
 
 ## New templates to submit (recommended order)
 | # | key / name | Category | Why that category | Re-categorisation risk |

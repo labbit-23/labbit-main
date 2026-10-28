@@ -146,7 +146,7 @@ test("draft, unconfirmed and mismatched registry templates cannot be created, pr
   const draftCfg = eng.normalizeConfig({ template: { key: "annual_checkup_reminder", name: "sdrc_annual_checkup_reminder", params: [] }, segment: { filter: {} } });
   assert.match(eng.validateConfig(draftCfg).join(), /draft, not approved/);
   const unconfirmed = eng.normalizeConfig({ template: { key: "package_results", name: "CONFIRM_IN_MTALKZ", params: [] }, segment: { filter: {} } });
-  assert.match(eng.validateConfig(unconfirmed).join(), /no confirmed Mtalkz name/);
+  assert.match(eng.validateConfig(unconfirmed).join(), /does not match the registry \(package_patients\)/);
   const renamed = eng.normalizeConfig({ template: { key: "trend_reports", name: "other_template", params: [] }, segment: { filter: {} } });
   assert.match(eng.validateConfig(renamed).join(), /does not match the registry/);
   const f = installFake(supabase, { campaigns: [{ ...campaign(), config: draftCfg }], campaign_recipients: recipients(2) });
