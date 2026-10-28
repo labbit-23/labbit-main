@@ -38,7 +38,7 @@ import {
   useDisclosure,
   useToast
 } from "@chakra-ui/react";
-import { Activity, ChevronLeft, ChevronRight, Clock, Download, ExternalLink, Files, FlaskConical, LayoutList, LineChart, List, Package, Pause, Play, Printer, RefreshCw, Scan, Search, Share2, TrendingUp, UploadCloud } from "lucide-react";
+import { Activity, ChevronLeft, ChevronRight, Clock, Download, ExternalLink, Files, FlaskConical, LayoutList, LineChart, List, Package, Pause, Play, FileText, Printer, RefreshCw, Scan, Search, Share2, TrendingUp, UploadCloud } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import dayjs from "dayjs";
 import ShortcutBar from "@/components/ShortcutBar";
@@ -1303,6 +1303,27 @@ export default function ReportDispatchWorkspace({
     });
   }
 
+  function isSelectedAutoJob(job) {
+    const picked = String(reqnoInput || status?.reqno || "").trim();
+    return Boolean(detailLoadedFromMonitor && picked && String(job?.reqno || "").trim() === picked);
+  }
+
+  function openJobPdf(job) {
+    const reqno = String(job?.reqno || "").trim();
+    if (!reqno) return;
+    // Old numeric reqnos live in the archive; R2026... reqnos go through the live document route.
+    if (/^\d+$/.test(reqno)) {
+      window.open(`/api/archive-reports/${encodeURIComponent(reqno)}/pdf`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const query = new URLSearchParams({ report_scope: "all", mode: modeValue(), header_mode: headerMode(), reqno });
+    const reqid = String(job?.reqid || "").trim();
+    if (reqid) query.set("reqid", reqid);
+    const name = String(job?.patient_name || "").trim();
+    if (name) query.set("patient_name", name);
+    window.open(`/api/admin/reports/document?${query.toString()}`, "_blank", "noopener,noreferrer");
+  }
+
   async function handleUseAutoJob(job) {
     if (!job) return;
     const mapped = {
@@ -1315,6 +1336,7 @@ export default function ReportDispatchWorkspace({
     };
     if (!mapped.reqno) return;
     await handleUseRow(mapped, { fromMonitor: true });
+    setTimeout(() => document.getElementById("dispatch-detail-pane")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
   }
 
   function handleReqnoClick(job) {
@@ -2388,7 +2410,7 @@ export default function ReportDispatchWorkspace({
                     const pauseColor = job?.is_paused ? "green" : "orange";
                     const whyText = buildWhyText(job);
                     return (
-                      <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth="1px" borderColor={themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} borderRadius="md" p={2} mb={2}>
+                      <Box key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} borderWidth={isSelectedAutoJob(job) ? "2px" : "1px"} borderColor={isSelectedAutoJob(job) ? "purple.400" : themeMode === "dark" ? "whiteAlpha.300" : "gray.200"} bg={isSelectedAutoJob(job) ? (themeMode === "dark" ? "whiteAlpha.100" : "purple.50") : undefined} borderRadius="md" p={2} mb={2}>
                         <Flex justify="space-between" align="center" mb={1.5}>
                           <HStack spacing={1}>
                             <Badge colorScheme={statusValue === "sent" ? "green" : statusValue === "failed" ? "red" : statusValue === "queued" || statusValue === "cooling_off" || statusValue === "retrying" ? "orange" : "blue"} borderRadius="md" px={2} textTransform="lowercase">
@@ -2430,6 +2452,9 @@ export default function ReportDispatchWorkspace({
                           <Text fontSize="xs" noOfLines={1}>Time: {smartTimestamp(job)}</Text>
                         </Tooltip>
                         <HStack spacing={1.5} mt={2} wrap="nowrap">
+                          <Tooltip label="View PDF" hasArrow openDelay={250}>
+                            <IconButton size="xs" type="button" aria-label="View PDF" variant="outline" icon={<FileText size={14} />} onClick={() => openJobPdf(job)} isDisabled={!canDispatch || !job?.reqno} />
+                          </Tooltip>
                           <Tooltip label="Events" hasArrow openDelay={250}>
                             <IconButton size="xs" type="button" aria-label="Events" variant="outline" icon={<Activity size={14} />} onClick={() => openAutoEvents(job)} isLoading={isRowActionLoading(jobId, "events")} />
                           </Tooltip>
@@ -2516,7 +2541,7 @@ export default function ReportDispatchWorkspace({
                       const pauseIcon = job?.is_paused ? <Play size={14} /> : <Pause size={14} />;
                       const pauseColor = job?.is_paused ? "green" : "orange";
                       return (
-                        <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`}>
+                        <Tr key={jobId || `${job?.reqid || ""}_${job?.reqno || ""}`} bg={isSelectedAutoJob(job) ? (themeMode === "dark" ? "whiteAlpha.200" : "purple.50") : undefined} boxShadow={isSelectedAutoJob(job) ? "inset 3px 0 0 var(--chakra-colors-purple-400)" : undefined}>
                           <Td w="8%">
                             <Badge
                               colorScheme={
@@ -2599,6 +2624,9 @@ export default function ReportDispatchWorkspace({
                           </Td>
                           <Td w="12%">
                             <HStack spacing={1.5} mb={1.5} wrap="nowrap">
+                              <Tooltip label="View PDF" hasArrow openDelay={250}>
+                                <IconButton size="xs" type="button" aria-label="View PDF" variant="outline" icon={<FileText size={14} />} onClick={() => openJobPdf(job)} isDisabled={!canDispatch || !job?.reqno} />
+                              </Tooltip>
                               <Tooltip label="Events" hasArrow openDelay={250}>
                                 <IconButton
                                   size="xs"
@@ -2666,8 +2694,9 @@ export default function ReportDispatchWorkspace({
             </Box>
           ) : null}
 
+          <Box id="dispatch-detail-pane" scrollMarginTop="72px" />
           <Pane
-            title={isScopedMode && statusReqno !== "-" ? statusReqno : (isScopedMode ? "Report Detail" : "Tests")}
+            title={isScopedMode && statusReqno !== "-" ? statusReqno : (isScopedMode ? "Report Detail" : (statusReqno !== "-" ? `Tests · ${statusReqno}${displayValue(status?.live_status?.patient_name || activeMeta?.patient_name) !== "-" ? ` · ${displayValue(status?.live_status?.patient_name || activeMeta?.patient_name)}` : ""}` : "Tests"))}
             badge={isScopedMode && statusReqno !== "-" ? (
               <StatusPill status={tone === "green" ? "ready" : tone === "orange" ? "pending" : "closed"}>
                 {status?.live_status?.overall_status || "-"}
