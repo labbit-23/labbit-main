@@ -33,9 +33,12 @@ test("registry template builds the config block; draft templates are refused", (
   assert.equal(ok.config.template.name, "trend_reports");
   assert.equal(ok.config.template.key, "trend_reports");
   assert.deepEqual(ok.config.segment.filter, { sex: "F" });
-  const draft = eng.buildCampaignConfig({ template_key: "health_summary_link", filter: { sex: "F" } });
+  const draft = eng.buildCampaignConfig({ template_key: "festival_offer", filter: { sex: "F" } });
   assert.match(draft.errors.join(), /not approved/);
-  assert.ok(draft.config.template.buttons.length >= 1, "dynamic url button gets the summary token");
+  const link = eng.buildCampaignConfig({ template_key: "health_summary_link", filter: { sex: "F" } });
+  assert.deepEqual(link.errors, []);
+  assert.equal(link.config.template.name, "sdrc_health_summary_link");
+  assert.ok(link.config.template.buttons.length >= 1, "dynamic url button gets the summary token");
   assert.match(eng.buildCampaignConfig({ template_key: "nope" }).errors.join(), /Unknown template key/);
   const saved = eng.buildCampaignConfig({ template_key: "trend_reports" }, { id: "s1", filter: { z: 2 } });
   assert.equal(saved.config.segment.saved_id, "s1");
