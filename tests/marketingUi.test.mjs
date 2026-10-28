@@ -67,7 +67,7 @@ test("readImageSize parses PNG and JPEG headers", () => {
 });
 
 test("isCheckableImageUrl blocks non-https, IPs and internal hosts", () => {
-  assert.equal(h.isCheckableImageUrl("https://labit.sdrc.in/marketing/trend-header.png"), true);
+  assert.equal(h.isCheckableImageUrl("https://lab.sdrc.in/marketing/trend-header.png"), true);
   for (const u of ["http://example.com/a.png", "https://127.0.0.1/a.png", "https://localhost/a.png", "https://[::1]/a.png", "https://svc.internal/a.png", "https://user:p@example.com/a.png", "nonsense"]) assert.equal(h.isCheckableImageUrl(u), false, u);
 });
 

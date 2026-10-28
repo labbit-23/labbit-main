@@ -318,5 +318,5 @@ test("header upload validates by bytes, not by the declared type or file name", 
   assert.equal(ui.readImageSize(Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>".padEnd(40))), null);
   assert.equal(ui.readImageSize(Buffer.from("GIF89a".padEnd(40))), null);
   for (const u of ["http://example.com/a.png", "https://127.0.0.1/a.png", "https://localhost/a.png", "https://[::1]/a.png", "https://user:pw@example.com/a.png", "https://10.0.0.5/a.png", "https://intranet/a.png", "https://svc.internal/a.png"]) assert.equal(ui.isCheckableImageUrl(u), false, u);
-  assert.equal(ui.isCheckableImageUrl("https://labit.sdrc.in/marketing/trend-header.png"), true);
+  assert.equal(ui.isCheckableImageUrl("https://lab.sdrc.in/marketing/trend-header.png"), true);
 });
