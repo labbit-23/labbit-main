@@ -1,0 +1,16 @@
+[Unit]
+Description=Labit panel heartbeat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/labit-heartbeat.env
+ExecStart=/usr/local/bin/labit-heartbeat.sh
+User=labit-heartbeat
+Group=labit-heartbeat
+TimeoutStartSec=45
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

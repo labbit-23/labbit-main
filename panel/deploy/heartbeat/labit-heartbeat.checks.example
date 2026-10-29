@@ -1,0 +1,7 @@
+# OPTIONAL FALLBACK (heartbeat disabled by default). /etc/labit-heartbeat.checks, no secrets.
+# Format: <service_id> <kind> <target...>   kinds: tcp | http | https-insecure
+# <service_id> is reported as key 'hb:<NODE_ID>:<service_id>' and MUST have a matching row in
+# labit_ops.node_service_map (service_key='hb:<node>:<svc>', see panel/db/001_labit_ops.sql). Ids below are illustrative. A required service missing
+# from this file is never reported and shows as DOWN.
+#mirth-dicom  https-insecure https://127.0.0.1:8443/api/server/version
+#mirth-lab    tcp 127.0.0.1 6661

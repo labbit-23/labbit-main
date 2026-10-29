@@ -73,12 +73,13 @@ const keySystems = [
   { service_keys: ["sophos_firewall"], label: "Sophos WAN" },
   { service_keys: ["whatsapp_bot_activity", "whatsapp_bot_response_sla_1m", "whatsapp_bot_chats_24h", "whatsapp_bot_reports_24h", "whatsapp_bot_last_report"], label: "WhatsApp Bot" },
   { service_keys: ["supabase_main"], label: "Supabase" },
-  { service_keys: ["oracle_db"], label: "Oracle DB" },
   { service_keys: ["mirth_lab", "mirth_dicom"], label: "Mirth" },
-  { service_keys: ["tomcat_7", "tomcat_9"], label: "Tomcat" },
   { service_keys: ["orthanc_main", "orthanc_dell"], label: "Orthanc" },
 ];
 const SERVICE_FRESHNESS_MS = 10 * 60 * 1000;
+// Director, 2026-10-29: Oracle + Tomcat (Shivam) monitoring is decommissioned --
+// never show their rows, healthy or failing. Matches "oracle_db" and "oracle_db__<node>".
+const EXCLUDED_SERVICE_KEY = /^(oracle_db|tomcat_7|tomcat_9)(__|$)/;
 const TREND_RANGE_OPTIONS = [
   { value: "today", label: "Today" },
   { value: "24h", label: "Last 24 Hours" },
@@ -1313,6 +1314,7 @@ export default function CtoDashboardPage({
   const realServices = useMemo(() => {
     return (latest.services || [])
       .filter((service) => !String(service.service_key || "").startsWith("__"))
+      .filter((service) => !EXCLUDED_SERVICE_KEY.test(String(service.service_key || "")))
       .map((service) => {
         if (isFreshService(service)) return service;
         const lastSeen = service?.checked_at ? new Date(service.checked_at).toLocaleString() : "unknown";
@@ -1407,6 +1409,7 @@ export default function CtoDashboardPage({
     return (latest.services || []).filter(
       (service) =>
         !String(service.service_key || "").startsWith("__") &&
+        !EXCLUDED_SERVICE_KEY.test(String(service.service_key || "")) &&
         !isFreshService(service)
     );
   }, [latest.services]);
@@ -1858,11 +1861,16 @@ export default function CtoDashboardPage({
         return wans.map((wan) => ({
           ...system,
           label: wan.name || wan.interface || system.label,
-          status: wan.link_up ? "healthy" : "down",
+          // A stale check must not keep showing its last link state: a light
+          // that stays green while the monitor is dead means nothing. The
+          // row was already marked down/_stale in realServices; honour it.
+          status: primaryMatch?._stale ? "down" : (wan.link_up ? "healthy" : "down"),
           latency_ms: null,
-          message: [wan.ip && `IP ${wan.ip}`, wan.gateway && `GW ${wan.gateway}`]
-            .filter(Boolean)
-            .join(" • ") || primaryMatch?.message || "No data yet",
+          message: primaryMatch?._stale
+            ? primaryMatch.message
+            : [wan.ip && `IP ${wan.ip}`, wan.gateway && `GW ${wan.gateway}`]
+                .filter(Boolean)
+                .join(" • ") || primaryMatch?.message || "No data yet",
           matchCount: sourceMatches.length,
           primaryServiceKey: primaryMatch?.service_key || "",
         }));
