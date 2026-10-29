@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Phone, RefreshCw, Search } from "lucide-react";
+import ShortcutBar from "@/components/ShortcutBar";
 import "./ivr-calls.css";
 
 const STATUS_LABELS = { new: "New", reviewed: "Reviewed", follow_up: "Follow-up required", closed: "Closed" };
@@ -18,6 +19,12 @@ function duration(payload) {
 
 function displayStatus(row) {
   return row?.review?.status || "new";
+}
+
+function deliveryLabel(row) {
+  const status = row?.delivery?.status;
+  if (status) return status.charAt(0).toUpperCase() + status.slice(1);
+  return row?.whatsapp_status || "—";
 }
 
 export default function IvrCallsPage() {
@@ -94,6 +101,8 @@ export default function IvrCallsPage() {
   }), [calls, callers]);
 
   return (
+    <>
+    <ShortcutBar />
     <main className="ivr-page">
       <header className="ivr-header">
         <div>
@@ -131,25 +140,25 @@ export default function IvrCallsPage() {
         {loading ? <div className="ivr-empty">Loading IVR calls…</div> : view === "calls" ? (
           <div className="ivr-table-wrap"><table><thead><tr><th>Caller</th><th>Received</th><th>Call</th><th>DTMF</th><th>Action</th><th>WhatsApp</th><th>Review</th></tr></thead>
             <tbody>{calls.map((row) => <tr key={row.id} onClick={() => openCall(row)}>
-              <td><strong>{row.normalized_phone || row.source_number || "Unknown"}</strong></td>
+              <td><strong>{row.identity?.display_name || "Unknown caller"}</strong><span className="ivr-caller-meta">{row.normalized_phone || row.source_number || "Unknown"}{row.identity?.mrn ? ` · ${row.identity.mrn}` : ""}</span></td>
               <td>{dateTime(row.created_at)}</td>
               <td><span className="ivr-muted">{row.bonvoice_payload?.Status || "—"} · {duration(row.bonvoice_payload)}</span></td>
               <td><code>{row.dtmf || "No input"}</code></td>
               <td>{String(row.action_taken || "logged_only").replaceAll("_", " ")}</td>
-              <td>{row.whatsapp_status || "—"}</td>
+              <td><span className={`ivr-delivery ${row.delivery?.status || "none"}`}>{deliveryLabel(row)}</span></td>
               <td><span className={`ivr-badge ${displayStatus(row)}`}>{STATUS_LABELS[displayStatus(row)]}</span></td>
             </tr>)}</tbody></table>{!calls.length ? <div className="ivr-empty">No calls match these filters.</div> : null}</div>
         ) : (
-          <div className="ivr-table-wrap"><table><thead><tr><th>Caller</th><th>Events</th><th>Last call</th><th>Latest DTMF</th><th>Latest action</th><th>Open reviews</th></tr></thead>
+          <div className="ivr-table-wrap"><table><thead><tr><th>Caller</th><th>Identity source</th><th>Events</th><th>Last call</th><th>Latest DTMF</th><th>Latest action</th><th>Open reviews</th></tr></thead>
             <tbody>{callers.map((row) => <tr key={row.phone} onClick={() => { setSearch(row.phone); setView("calls"); }}>
-              <td><strong>{row.phone}</strong></td><td>{row.call_count}</td><td>{dateTime(row.last_call_at)}</td><td><code>{row.latest_dtmf || "No input"}</code></td><td>{String(row.latest_action || "—").replaceAll("_", " ")}</td><td>{row.open_reviews}</td>
+              <td><strong>{row.identity?.display_name || "Unknown caller"}</strong><span className="ivr-caller-meta">{row.phone}{row.identity?.mrn ? ` · ${row.identity.mrn}` : ""}</span></td><td><span className={`ivr-source ${row.identity?.name_source || "unknown"}`}>{row.identity?.name_source === "patient" ? "Patient record" : row.identity?.name_source === "whatsapp" ? "WhatsApp profile" : "Unmatched"}</span></td><td>{row.call_count}</td><td>{dateTime(row.last_call_at)}</td><td><code>{row.latest_dtmf || "No input"}</code></td><td>{String(row.latest_action || "—").replaceAll("_", " ")}</td><td>{row.open_reviews}</td>
             </tr>)}</tbody></table>{!callers.length ? <div className="ivr-empty">No callers match these filters.</div> : null}</div>
         )}
       </section>
 
       {selected ? <div className="ivr-overlay" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}>
         <aside className="ivr-drawer">
-          <div className="ivr-drawer-head"><div><p className="ivr-kicker">Call detail</p><h2>{selected.normalized_phone || selected.source_number}</h2><p>{dateTime(selected.created_at)}</p></div><button onClick={() => setSelected(null)} aria-label="Close">×</button></div>
+          <div className="ivr-drawer-head"><div><p className="ivr-kicker">Call detail</p><h2>{selected.identity?.display_name || selected.normalized_phone || selected.source_number}</h2><p>{selected.identity?.display_name ? `${selected.normalized_phone || selected.source_number} · ` : ""}{dateTime(selected.created_at)}</p></div><button onClick={() => setSelected(null)} aria-label="Close">×</button></div>
           <div className="ivr-actions">
             <a href={`/admin/whatsapp/${encodeURIComponent(selected.normalized_phone || selected.source_number)}`}><Phone size={15} /> WhatsApp conversation</a>
             {selected.bonvoice_payload?.ResourceURL ? <a href={selected.bonvoice_payload.ResourceURL} target="_blank" rel="noreferrer"><ExternalLink size={15} /> Recording</a> : null}
@@ -157,7 +166,8 @@ export default function IvrCallsPage() {
           <dl className="ivr-details">
             <div><dt>Call ID</dt><dd>{selected.call_id || "—"}</dd></div><div><dt>Bonvoice status</dt><dd>{selected.bonvoice_payload?.Status || "—"}</dd></div>
             <div><dt>DTMF</dt><dd>{selected.dtmf || "No input"}</dd></div><div><dt>Duration</dt><dd>{duration(selected.bonvoice_payload)}</dd></div>
-            <div><dt>Action</dt><dd>{selected.action_taken || "logged_only"}</dd></div><div><dt>WhatsApp</dt><dd>{selected.whatsapp_status || "Not triggered"}</dd></div>
+            <div><dt>Action</dt><dd>{selected.action_taken || "logged_only"}</dd></div><div><dt>WhatsApp outcome</dt><dd>{deliveryLabel(selected)}{selected.delivery?.at ? ` · ${dateTime(selected.delivery.at)}` : ""}</dd></div>
+            {selected.delivery?.provider_message_id ? <div><dt>Provider message ID</dt><dd>{selected.delivery.provider_message_id}</dd></div> : null}
           </dl>
           {!selected.call_id ? <div className="ivr-error">This legacy event has no call ID and cannot carry review state.</div> : <div className="ivr-form">
             <label>Review status<select value={draft.status} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))}>{Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
@@ -168,6 +178,7 @@ export default function IvrCallsPage() {
         </aside>
       </div> : null}
     </main>
+    </>
   );
 }
 

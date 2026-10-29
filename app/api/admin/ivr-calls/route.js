@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { ironOptions } from "@/lib/session";
 import { supabase } from "@/lib/supabaseServer";
-import { digitsOnly, toCanonicalIndiaPhone } from "@/lib/phone";
+import { digitsOnly, phoneVariantsIndia, toCanonicalIndiaPhone } from "@/lib/phone";
 
 const ALLOWED_ROLES = new Set(["admin", "manager", "director"]);
 const REVIEW_STATUSES = new Set(["new", "reviewed", "follow_up", "closed"]);
@@ -28,6 +28,138 @@ function cleanText(value, max = 1000) {
   return String(value || "").trim().slice(0, max);
 }
 
+function pickWhatsappName(row) {
+  const direct = cleanText(row?.name, 160);
+  if (direct) return direct;
+  return cleanText(row?.payload?.profile_name || row?.payload?.raw_message?.profile?.name, 160);
+}
+
+function userLabIds(user) {
+  return [...new Set([
+    ...(Array.isArray(user?.labIds) ? user.labIds : []),
+    user?.labId,
+  ].map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+async function resolveCallerIdentities(rows, user) {
+  const canonicalPhones = [...new Set(rows.map((row) => cleanPhone(row.source_number)).filter(Boolean))];
+  const variants = [...new Set(canonicalPhones.flatMap((phone) => phoneVariantsIndia(phone)))];
+  const patients = [];
+  const messages = [];
+  const labIds = userLabIds(user);
+
+  for (let offset = 0; offset < variants.length; offset += 200) {
+    const batch = variants.slice(offset, offset + 200);
+    let patientQuery = supabase
+      .from("patients")
+      .select("id,name,phone,mrn,is_lead,created_at")
+      .in("phone", batch)
+      .order("created_at", { ascending: false });
+    let messageQuery = supabase
+      .from("whatsapp_messages")
+      .select("phone,name,payload,created_at")
+      .in("phone", batch)
+      .eq("direction", "inbound")
+      .order("created_at", { ascending: false });
+    if (labIds.length) {
+      patientQuery = patientQuery.in("lab_id", labIds);
+      messageQuery = messageQuery.in("lab_id", labIds);
+    }
+    const [patientResult, messageResult] = await Promise.all([patientQuery, messageQuery]);
+    if (patientResult.error) throw patientResult.error;
+    if (messageResult.error) throw messageResult.error;
+    patients.push(...(patientResult.data || []));
+    messages.push(...(messageResult.data || []));
+  }
+
+  const patientMap = new Map();
+  for (const patient of patients) {
+    const phone = cleanPhone(patient.phone);
+    const existing = patientMap.get(phone);
+    if (!phone || (existing && !existing.is_lead)) continue;
+    patientMap.set(phone, patient);
+  }
+  const whatsappMap = new Map();
+  for (const message of messages) {
+    const phone = cleanPhone(message.phone);
+    const name = pickWhatsappName(message);
+    if (phone && name && !whatsappMap.has(phone)) whatsappMap.set(phone, name);
+  }
+
+  return new Map(canonicalPhones.map((phone) => {
+    const patient = patientMap.get(phone);
+    const whatsappName = whatsappMap.get(phone) || null;
+    return [phone, {
+      display_name: cleanText(patient?.name, 160) || whatsappName || null,
+      name_source: patient?.name ? "patient" : whatsappName ? "whatsapp" : "unknown",
+      patient_id: patient?.id || null,
+      mrn: patient?.mrn || null,
+      whatsapp_name: whatsappName,
+    }];
+  }));
+}
+
+function statusValue(row) {
+  return cleanText(row?.payload?.status || row?.payload?.raw_status?.status, 30).toLowerCase();
+}
+
+async function resolveWhatsappOutcomes(rows, user) {
+  const reportCalls = rows.filter((row) => ["sent_latest_report", "latest_report_send_failed"].includes(row.action_taken));
+  if (!reportCalls.length) return new Map();
+  const variants = [...new Set(reportCalls.flatMap((row) => phoneVariantsIndia(row.source_number)))];
+  const earliest = Math.min(...reportCalls.map((row) => new Date(row.created_at).getTime())) - 10 * 60000;
+  const messages = [];
+  const labIds = userLabIds(user);
+  for (let offset = 0; offset < variants.length; offset += 200) {
+    let query = supabase
+      .from("whatsapp_messages")
+      .select("phone,direction,message_id,payload,created_at")
+      .in("phone", variants.slice(offset, offset + 200))
+      .in("direction", ["outbound", "status"])
+      .gte("created_at", new Date(earliest).toISOString())
+      .order("created_at", { ascending: false });
+    if (labIds.length) query = query.in("lab_id", labIds);
+    const result = await query;
+    if (result.error) throw result.error;
+    messages.push(...(result.data || []));
+  }
+
+  const statusesById = new Map();
+  const statusRank = { accepted: 1, sent: 2, delivered: 3, read: 4, failed: 5 };
+  for (const message of messages) {
+    if (message.direction !== "status") continue;
+    const id = message.message_id || message.payload?.provider_message_id;
+    const status = statusValue(message);
+    if (!id || !status) continue;
+    const existing = statusesById.get(id);
+    if (!existing || (statusRank[status] || 0) >= (statusRank[existing.status] || 0)) {
+      statusesById.set(id, { status, at: message.payload?.timestamp || message.created_at });
+    }
+  }
+
+  const outcomes = new Map();
+  for (const call of reportCalls) {
+    if (call.action_taken === "latest_report_send_failed") {
+      outcomes.set(call.id, { status: "failed", at: call.created_at, provider_message_id: null });
+      continue;
+    }
+    const callTime = new Date(call.created_at).getTime();
+    const outbound = messages.find((message) => {
+      if (message.direction !== "outbound" || cleanPhone(message.phone) !== cleanPhone(call.source_number)) return false;
+      if (message.payload?.sender?.source_service !== "bonvoice_ivr") return false;
+      return Math.abs(new Date(message.created_at).getTime() - callTime) <= 5 * 60000;
+    });
+    const providerId = outbound?.message_id || outbound?.payload?.response?.messages?.[0]?.id || null;
+    const callback = providerId ? statusesById.get(providerId) : null;
+    outcomes.set(call.id, {
+      status: callback?.status || (outbound ? "accepted" : "sent"),
+      at: callback?.at || outbound?.created_at || call.created_at,
+      provider_message_id: providerId,
+    });
+  }
+  return outcomes;
+}
+
 function callerSummary(rows) {
   const callers = new Map();
   for (const row of rows) {
@@ -40,6 +172,7 @@ function callerSummary(rows) {
       latest_action: row.action_taken,
       latest_dtmf: row.dtmf,
       open_reviews: 0,
+      identity: row.identity || null,
     };
     current.call_count += 1;
     if (new Date(row.created_at) < new Date(current.first_call_at)) current.first_call_at = row.created_at;
@@ -87,8 +220,17 @@ export async function GET(request) {
       normalized_phone: cleanPhone(row.source_number),
       review: reviewMap.get(row.call_id) || { status: "new" },
     }));
+    const [identityMap, outcomeMap] = await Promise.all([
+      resolveCallerIdentities(calls, user),
+      resolveWhatsappOutcomes(calls, user),
+    ]);
+    calls = calls.map((row) => ({
+      ...row,
+      identity: identityMap.get(row.normalized_phone) || null,
+      delivery: outcomeMap.get(row.id) || null,
+    }));
     if (search) {
-      calls = calls.filter((row) => [row.source_number, row.normalized_phone, row.call_id, row.dtmf, row.action_taken]
+      calls = calls.filter((row) => [row.source_number, row.normalized_phone, row.call_id, row.dtmf, row.action_taken, row.identity?.display_name, row.identity?.mrn]
         .some((value) => String(value || "").toLowerCase().includes(search)));
     }
     if (status && status !== "all") calls = calls.filter((row) => row.review.status === status);
