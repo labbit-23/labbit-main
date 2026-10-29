@@ -34,6 +34,7 @@ import {
   LayoutDashboard,
   Menu as MenuIcon,
   MessageCircle,
+  PhoneCall,
   MonitorCog,
   ScanLine,
   Settings,
@@ -126,6 +127,7 @@ const MENU_GROUPS = [
     items: [
       { key: "marketing", label: "Marketing", description: "Campaigns, audience, bot and staff inbox", href: "/marketing", icon: MessageCircle, roles: ["admin", "manager", "director"] },
       { key: "whatsapp", label: "WhatsApp Inbox", description: "Patient conversations and handoffs", href: "/admin/whatsapp", icon: MessageCircle, roles: ["admin", "manager", "director"], permissions: ["whatsapp.reply"] },
+      { key: "ivr_calls", label: "IVR Calls", description: "Review Bonvoice calls and follow-ups", href: "/admin/ivr-calls", icon: PhoneCall, roles: ["admin", "manager", "director"] },
       { key: "run_reports", label: "Run Reports", description: "MIS and transaction reports", href: "/admin/reports/run", icon: FileBarChart, roles: ["admin", "manager", "director"], permissions: ["reports.run.mis", "reports.run.transaction", "reports.setup"] },
       { key: "report_master", label: "Report Master", description: "Report catalog and setup", href: "/admin/reports/master", icon: ClipboardList, roles: ["admin", "director"], permissions: ["reports.setup"] },
       { key: "cto_sim", label: "WhatsApp Simulator", description: "CTO-only simulator tools", href: "/cto/whatsapp-sim", icon: Bot, roles: ["director"], permissions: ["simulator.read"] },

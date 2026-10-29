@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 import { phoneLast10 } from "@/lib/phone";
 import { lookupReports } from "@/lib/neosoft/client";
+import { resolveBonvoiceJourney } from "@/lib/bonvoiceIvr";
 
 async function logCall({ callId, sourceNumber, dtmf, actionTaken, whatsappStatus, payload }) {
   try {
@@ -78,6 +79,8 @@ export async function POST(request) {
   const sourceNumber = String(body?.SourceNumber || "").trim();
   const dtmf = String(body?.DTMF || "").trim();
   const dataSource = String(body?.DataSource || "").trim();
+  const callType = String(body?.callType || "").trim();
+  const direction = String(body?.Direction || "").trim().toLowerCase();
 
   try {
     const url = new URL(request.url);
@@ -94,16 +97,20 @@ export async function POST(request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (callType !== "2" || direction !== "inbound") {
+      await logCall({ callId, sourceNumber, dtmf, actionTaken: "ignored_unexpected_call_context", payload: body });
+      return NextResponse.json({ ok: true });
+    }
+
     const phone10 = phoneLast10(sourceNumber);
-    let actionTaken = "logged_only";
+    const journey = resolveBonvoiceJourney(dtmf);
+    let actionTaken = journey.action;
     let whatsappStatus = null;
 
-    // DTMF paths that need a WhatsApp send. Everything else (WhatsApp "no"
-    // branches, direct transfer to CX/Report Dispatch groups) is handled
-    // entirely by Bonvoice's own PBX -- this webhook only logs those, it
-    // never triggers a transfer itself (that's a Phase 2/WebSocket concept,
-    // not this DTMF-only phase).
-    if ((dtmf === "1,1" || dtmf === "2,1") && phone10) {
+    // The PBX performs transfers. This endpoint records their semantic result
+    // for staff review and only has one outbound side effect: the final
+    // latest-report choice sends a report to the caller's WhatsApp number.
+    if (journey.action === "send_latest_report" && phone10) {
       let latest = null;
       try {
         const reports = await lookupReports(phone10);
@@ -112,41 +119,19 @@ export async function POST(request) {
         console.warn("[bonvoice-ivr] lookupReports failed", lookupErr?.message || lookupErr);
       }
       const patientName = String(latest?.patient_name || "Patient").trim();
-      const mrno = String(latest?.mrno || "").trim() || null;
-
-      if (dtmf === "1,1") {
-        try {
-          whatsappStatus = await sendReportTemplate({
-            phone10, patientName, reportSource: "latest_report", reportLabel: "Latest",
-          });
-          actionTaken = "sent_latest_report";
-        } catch (sendErr) {
-          console.error("[bonvoice-ivr] latest_report send failed", sendErr?.message || sendErr);
-          whatsappStatus = `failed: ${sendErr?.message || sendErr}`;
-          actionTaken = "latest_report_send_failed";
-        }
-      } else if (dtmf === "2,1") {
-        if (!mrno) {
-          actionTaken = "trend_report_no_mrno";
-          whatsappStatus = "skipped: no mrno resolved for this phone";
-        } else {
-          try {
-            whatsappStatus = await sendReportTemplate({
-              phone10, patientName, reportSource: "trend_report", mrno, reportLabel: "Trend",
-            });
-            actionTaken = "sent_trend_report";
-          } catch (sendErr) {
-            console.error("[bonvoice-ivr] trend_report send failed", sendErr?.message || sendErr);
-            whatsappStatus = `failed: ${sendErr?.message || sendErr}`;
-            actionTaken = "trend_report_send_failed";
-          }
-        }
+      try {
+        whatsappStatus = await sendReportTemplate({
+          phone10, patientName, reportSource: "latest_report", reportLabel: "Latest",
+        });
+        actionTaken = "sent_latest_report";
+      } catch (sendErr) {
+        console.error("[bonvoice-ivr] latest_report send failed", sendErr?.message || sendErr);
+        whatsappStatus = `failed: ${sendErr?.message || sendErr}`;
+        actionTaken = "latest_report_send_failed";
       }
-    } else if (dtmf === "3,1") {
-      // Schedules -- depends on the not-yet-built sdrc_schedule table
-      // (see BONVOICE_IVR_PHASE1_OUTLINE.md Section "Schedule table").
-      // Deliberately a no-op until that table + query exist, not a guess.
-      actionTaken = "schedule_not_yet_implemented";
+    } else if (journey.action === "send_latest_report") {
+      actionTaken = "latest_report_invalid_phone";
+      whatsappStatus = "skipped: invalid source number";
     }
 
     await logCall({ callId, sourceNumber, dtmf, actionTaken, whatsappStatus, payload: body });
