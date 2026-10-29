@@ -36,3 +36,8 @@ campaign2.csv
 campaign.xls
 campaign.xlsx
 output.csv
+
+# panel-api (python)
+panel/api/.venv/
+__pycache__/
+.pytest_cache/
