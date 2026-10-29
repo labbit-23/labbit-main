@@ -112,20 +112,23 @@ on conflict (id) do nothing;
 -- Deliberately NOT mapped (enabled=0 in services.ini, never emit): dicom_worker, ecg_sender, machine_bridge,
 -- supabase_rest_probe (placeholder URL), local_delivery_engine, monitoring_agent, auto_send_reports, mirth_channel_*.
 insert into labit_ops.node_service_map (id,node_id,service_key,is_prefix,label,required,probe,informational,max_age_seconds,sort) values
- -- db-vps (VPS2, self-hosted Supabase): NO health source yet, so the node is 'not_monitored'. supabase_main__vps
- -- probes the legacy HOSTED Supabase, not VPS2, so it is informational only (tile 'Hosted Supabase') and never
- -- decides db-vps health. When a CTO collector runs on VPS2 (CTO_NODE_SUFFIX=vps2), INSERT non-informational
- -- rows such as ('db.host','db-vps','vps_host__vps2',false,'VPS2 host',true,false,false,null,30),
- -- 'pm2_runtime__vps2', 'docker_runtime__vps2' (this seed never overwrites).
- ('db.supabase_main','db-vps','supabase_main__vps',false,'Hosted Supabase',false,false,true,600,10),
+ -- db-vps (VPS2, self-hosted Supabase): the CTO collector on VPS2 (suffix vps2) is the health source.
+ -- Keys verified live in public.cto_service_latest on 2026-10-29. supabase_main__vps probes the legacy HOSTED
+ -- Supabase, not VPS2, so it is informational only (tile 'Hosted Supabase') and never decides db-vps health.
+ ('db.host','db-vps','vps_host__vps2',false,'VPS2 host',true,false,false,null,10),
+ ('db.postgres','db-vps','docker_supabase_db__vps2',false,'Supabase Postgres',true,false,false,null,20),
+ ('db.rest','db-vps','docker_supabase_rest__vps2',false,'Supabase REST',false,false,false,null,30),
+ ('db.auth','db-vps','docker_supabase_auth__vps2',false,'Supabase auth',false,false,false,null,40),
+ ('db.kong','db-vps','docker_supabase_kong__vps2',false,'Supabase gateway',false,false,false,null,50),
+ ('db.labit_core','db-vps','labit_core__vps2',false,'labit-core (VPS2)',false,false,false,null,60),
+ ('db.wal_archive','db-vps','wal_archive__vps2',false,'WAL archive',false,false,false,null,70),
+ ('db.supabase_main','db-vps','supabase_main__vps',false,'Hosted Supabase',false,false,true,600,80),
  -- app-vps (VPS1, collector suffix vps1)
  ('app.health','app-vps','labbit_health__vps',false,'Labit health probe',true,true,false,null,10),
  ('app.host','app-vps','vps_host__vps1',false,'VPS1 host',true,false,false,null,20),
- ('app.pm2','app-vps','pm2_runtime__vps1',false,'VPS1 pm2 runtime',true,false,false,null,30),
  ('app.labit_core','app-vps','labit_core__vps1',false,'labit-core',true,false,false,null,40),
  ('app.report_sender','app-vps','report_sender__vps1',false,'Report sender',false,false,false,null,50),
  ('app.enqueue_watch','app-vps','report_enqueue_watch__vps1',false,'Report enqueue watch',false,false,false,null,60),
- ('app.dispatch_queue','app-vps','auto_dispatch_queue__vps1',false,'Auto-dispatch queue',false,false,false,null,70),
  -- mirth-dicom / sdrc-integrations: probes run by the local-role monitoring agent
  ('dicom.mirth','mirth-dicom','mirth_dicom__local',false,'Mirth DICOM',true,true,false,null,10),
  ('dicom.orthanc','mirth-dicom','orthanc_main__local',false,'Orthanc PACS',true,true,false,300,20),
@@ -134,7 +137,7 @@ insert into labit_ops.node_service_map (id,node_id,service_key,is_prefix,label,r
  -- mirth-lab (probe only; quiet node)
  ('lab.mirth','mirth-lab','mirth_lab__local',false,'Mirth lab',true,true,false,null,10)
 on conflict (id) do nothing;
--- Unmapped but real keys: sophos_firewall__local, oracle_db__vps, tomcat_*__vps. devserver has no known keys
+-- Unmapped but real keys: sophos_firewall__local. Oracle/Tomcat (Shivam) are decommissioned, deliberately unmapped. devserver has no known keys
 -- (state 'not_monitored' until a signal is mapped or a heartbeat is configured).
 
 insert into labit_ops.menu_systems (id,label,group_name,url,admin_console,service_id,sort,pinned,pin_sort) values
