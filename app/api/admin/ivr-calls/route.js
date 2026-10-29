@@ -62,7 +62,6 @@ async function resolveCallerIdentities(rows, user) {
       .eq("direction", "inbound")
       .order("created_at", { ascending: false });
     if (labIds.length) {
-      patientQuery = patientQuery.in("lab_id", labIds);
       messageQuery = messageQuery.in("lab_id", labIds);
     }
     const [patientResult, messageResult] = await Promise.all([patientQuery, messageQuery]);
