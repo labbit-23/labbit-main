@@ -39,7 +39,7 @@ export async function POST(request) {
     let result;
     if (action === "create") result = await createCampaign({ labId, name: body?.name, config: body?.config });
     else if (action === "prepare") result = await prepareCampaign({ campaignId, dryRun: body?.dry_run !== false });
-    else if (action === "test") result = await testSend({ labId, campaignId, numbers: body?.numbers });
+    else if (action === "test") result = await testSend({ labId, campaignId, numbers: body?.numbers, recipient: body?.recipient });
     else if (action === "send") result = await sendBatch({ labId, campaignId, batchSize: body?.batch_size });
     else if (action === "stop") result = await stopCampaign({ campaignId });
     else if (action === "resume") result = await resumeCampaign({ campaignId });

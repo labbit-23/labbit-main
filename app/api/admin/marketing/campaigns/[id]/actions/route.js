@@ -5,7 +5,7 @@ import { hasSuccessfulTest, writeMarketingAudit } from "@/lib/marketingCampaigns
 // POST { action, ... }
 //   prepare   { dry_run=true, pilot_size?, expand? }  dry_run:false stores recipients; expand adds the rest of the audience after a pilot
 //   diff                                              counts only: what a re-prepare would add/remove vs stored recipients
-//   test      { numbers? }                            only numbers on the MARKETING_TEST_NUMBERS allowlist (default: all of them)
+//   test      { numbers?, recipient? }                only numbers on the MARKETING_TEST_NUMBERS allowlist (default: all of them)
 //   send      { batch_size? }                         one capped batch (hard caps, window, circuit breaker, opt-out apply)
 //   stop | resume
 //   schedule  { send_after: ISO | null }              needs a prepared campaign; null clears. Sent by the due runner (see run-due)
@@ -25,7 +25,7 @@ export const POST = marketingRoute(async (request, { actor, params }) => {
   } else if (action === "diff") {
     return dryRunDiff({ campaignId });
   } else if (action === "test") {
-    r = await testSend({ labId, campaignId, numbers: body.numbers, allowlist: process.env.MARKETING_TEST_NUMBERS || "" });
+    r = await testSend({ labId, campaignId, numbers: body.numbers, recipient: body.recipient, allowlist: process.env.MARKETING_TEST_NUMBERS || "" });
     details = { numbers_count: Array.isArray(r.results) ? r.results.length : 0, delivered_ok: Array.isArray(r.results) ? r.results.filter((x) => x.ok).length : 0 };
     // "Test done" (which unlocks pilot, send and schedule) means at least one real message went out, not merely that the call returned.
     if (r.ok !== false && !details.delivered_ok) r = { ...r, ok: false, error: r.error || "No test message was sent. Check the results below." };

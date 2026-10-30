@@ -140,6 +140,26 @@ test("test sends are limited to the allowlist (env by default, never optional)",
   f.restore(); eng.__setTemplateSenderForTests(); delete process.env.MARKETING_TEST_NUMBERS;
 });
 
+test("staff test send can carry a real patient snapshot and personalized summary token", async () => {
+  const health = campaign({ config: { template: {
+    key: "health_summary_link", name: "sdrc_health_summary_link",
+    params: ["first_name", "records_label", "last_visit_date", "lab_contact"],
+    header_image_url: "https://example.test/header.png",
+    buttons: [{ index: 0, text: "{summary_token}" }],
+  } } });
+  const f = installFake(supabase, { campaigns: [health] });
+  const sent = [];
+  eng.__setTemplateSenderForTests(async (args) => { sent.push(args); return { messages: [{ id: "wamid.real-test" }] }; });
+  const result = await eng.testSend({
+    labId: "lab", campaignId: "c1", numbers: ["9811111111"], allowlist: "9811111111", now: IN_WINDOW,
+    recipient: { name: "Real Patient", mrno: "1000", last_package: "lab tests", last_visit: "2026-06-19", link_token: "valid_signed_token_123" },
+  });
+  assert.equal(result.results[0].ok, true);
+  assert.deepEqual(sent[0].templateParams.slice(0, 3), ["Real", "lab tests", "19 Jun 2026"]);
+  assert.equal(sent[0].urlButtonParams[0].text, "valid_signed_token_123");
+  f.restore(); eng.__setTemplateSenderForTests();
+});
+
 test("draft, unconfirmed and mismatched registry templates cannot be created, prepared, tested or sent", async () => {
   assert.match(eng.buildCampaignConfig({ filter: { sex: "F" } }).errors.join(), /template_key is required/);
   assert.match(eng.buildCampaignConfig({ template_key: "festival_offer", filter: {} }).errors.join(), /not approved/);
