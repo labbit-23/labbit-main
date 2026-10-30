@@ -2,7 +2,7 @@
 
 Source of truth: `lib/marketingCampaigns/templateRegistry.js` (exact wording, params, buttons; unit-tested against Meta limits in `tests/marketingTemplates.test.mjs`).
 Previews: `docs/marketing-previews/*.png`, regenerated with `python3 scripts/render-template-preview.py <key> <samples.json> <out.png>` (fake data only).
-Header image for all image templates: `public/marketing/trend-header.png` (1200x628, neutral, no offer text). Intended public URL once deployed: `https://lab.sdrc.in/marketing/trend-header.png`.
+Default neutral image for image templates: `public/marketing/trend-header.png`. The approved `sdrc_health_summary_link` template uses its dedicated banner at `public/marketing/health-summary-header.png`, publicly served as `https://lab.sdrc.in/marketing/health-summary-header.png`.
 
 **All clinical wording needs pathologist review before submission.** It is deliberately conservative: no diagnosis, no "normal/abnormal", no prevention or detection claims.
 The lab number is never hardcoded: it is the `lab_contact` variable (env `MARKETING_CONTACT_PHONE`, set to the lab contact number as provided by the director).
