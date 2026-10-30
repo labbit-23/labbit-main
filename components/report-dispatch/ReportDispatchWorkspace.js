@@ -412,6 +412,11 @@ function pickNewestJob(a, b) {
   return ib >= ia ? b : a;
 }
 
+function byNewestJobFirst(a, b) {
+  const newest = pickNewestJob(a, b);
+  return newest === a ? -1 : newest === b ? 1 : 0;
+}
+
 function collapseByReqno(rows) {
   const map = new Map();
   for (const row of rows || []) {
@@ -791,7 +796,9 @@ export default function ReportDispatchWorkspace({
         ].map((v) => String(v || "").toLowerCase()).join(" ");
         return hay.includes(q);
       });
-      return collapseByReqno(searched).sort(byReqnoDesc);
+      // Show every job for a matching reqno (newest first), not just the newest-updated one: a duplicate that the
+      // sender keeps re-checking would otherwise hide the job that actually delivered the report.
+      return searched.sort((a, b) => byReqnoDesc(a, b) || byNewestJobFirst(a, b));
     }
 
     const viewFilter = String(autoViewFilter || "pending").trim().toLowerCase();
