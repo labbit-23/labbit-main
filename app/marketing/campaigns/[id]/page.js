@@ -25,6 +25,7 @@ function Results({ id, refreshKey }) {
         const skipped = Object.entries(d.skipped_reasons || {}).map(([label, count]) => ({ label, count }));
         return (
           <>
+            {d.engagement_error && <Note tone="warn">Replies and button taps could not be counted just now ({d.engagement_error}). Delivery, cost and failures below are complete. <button className="mk-btn small" onClick={q.reload}>Retry</button></Note>}
             <div className="mk-stats">
               <Stat label="Recipients" value={fmtInt(d.recipients)} />
               <Stat label="Sent" value={fmtInt(d.funnel.sent)} />
